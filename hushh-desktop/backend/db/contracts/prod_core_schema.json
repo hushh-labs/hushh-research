@@ -1,0 +1,82 @@
+{
+  "contract_name": "prod_core_schema",
+  "expected_migration_version": 27,
+  "migration_version_policy": "minimum",
+  "required_functions": [
+    "merge_domain_summary",
+    "remove_domain_summary_key"
+  ],
+  "required_tables": {
+    "vault_keys": [
+      "user_id",
+      "vault_status",
+      "vault_key_hash",
+      "primary_method",
+      "primary_wrapper_id",
+      "recovery_encrypted_vault_key",
+      "recovery_salt",
+      "recovery_iv",
+      "first_login_at",
+      "last_login_at",
+      "login_count",
+      "created_at",
+      "updated_at"
+    ],
+    "vault_key_wrappers": [
+      "id",
+      "user_id",
+      "method",
+      "wrapper_id",
+      "encrypted_vault_key",
+      "salt",
+      "iv",
+      "passkey_credential_id",
+      "passkey_rp_id",
+      "passkey_provider",
+      "passkey_device_label",
+      "passkey_last_used_at",
+      "created_at",
+      "updated_at"
+    ],
+    "consent_audit": [
+      "id",
+      "token_id",
+      "user_id",
+      "agent_id",
+      "scope",
+      "action",
+      "issued_at"
+    ],
+    "consent_exports": [
+      "consent_token",
+      "user_id",
+      "encrypted_data",
+      "iv",
+      "tag",
+      "export_key",
+      "scope",
+      "expires_at",
+      "created_at"
+    ],
+    "kai_market_cache_entries": [
+      "cache_key",
+      "payload_json",
+      "fresh_until",
+      "stale_until",
+      "provider_status_json",
+      "updated_at"
+    ],
+    "tickers": [
+      "ticker",
+      "title",
+      "cik",
+      "exchange",
+      "sector_primary",
+      "industry_primary",
+      "metadata_confidence",
+      "tradable",
+      "created_at",
+      "updated_at"
+    ]
+  }
+}

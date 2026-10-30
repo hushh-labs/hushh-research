@@ -1,0 +1,379 @@
+// components/kai/views/portfolio-import-view.tsx
+
+/**
+ * Portfolio Import View - Full-screen UI for uploading brokerage statements
+ *
+ * Features:
+ * - Drag-and-drop zone for PDF/CSV files
+ * - Supported brokerages list
+ * - Skip option (minimal)
+ */
+
+"use client";
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+
+import {
+  Upload,
+  FileText,
+  CheckCircle,
+  AlertCircle,
+  Link2,
+  Database,
+  Loader2,
+} from "lucide-react";
+import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { Icon } from "@/lib/morphy-ux/ui";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import {
+  kaiAppCardBodyClassName,
+  kaiAppCardTitleClassName,
+  kaiAppCompactTitleClassName,
+  kaiAppEyebrowClassName,
+  kaiAppHelperClassName,
+  kaiAppSectionTitleClassName,
+} from "@/components/kai/shared/kai-typography";
+
+const importCardTitleClassName =
+  cn(kaiAppSectionTitleClassName, "text-foreground");
+const importDropzoneTitleClassName =
+  cn(kaiAppCardTitleClassName, "text-foreground");
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+interface PortfolioImportViewProps {
+  onFileSelect: (file: File) => void;
+  onSkip: () => void;
+  onPreloadSchema?: () => void;
+  onConnectPlaid?: () => void;
+  isUploading?: boolean;
+  isPreloadingSchema?: boolean;
+  isConnectingPlaid?: boolean;
+  plaidConfigured?: boolean;
+  plaidConnectedInstitutionCount?: number;
+}
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
+
+export function PortfolioImportView({
+  onFileSelect,
+  onSkip,
+  onPreloadSchema,
+  onConnectPlaid,
+  isUploading = false,
+  isPreloadingSchema = false,
+  isConnectingPlaid = false,
+  plaidConfigured = true,
+  plaidConnectedInstitutionCount = 0,
+}: PortfolioImportViewProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    scrollAppToTop("auto");
+  }, []);
+
+  const isSupportedFile = useCallback((file: File) => {
+    const validTypes = ["application/pdf", "text/csv", "application/vnd.ms-excel"];
+    return validTypes.includes(file.type) || file.name.endsWith(".csv") || file.name.endsWith(".pdf");
+  }, []);
+
+  // Handle file drop
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragging(false);
+
+      const files = Array.from(e.dataTransfer.files);
+      const file = files[0];
+
+      if (file && isSupportedFile(file)) {
+        setSelectedFile(file);
+        setSelectionError(null);
+        return;
+      }
+      setSelectionError("Please select a PDF or CSV statement.");
+    },
+    [isSupportedFile]
+  );
+
+  // Handle file input change
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (files && files[0]) {
+        const file = files[0];
+        if (isSupportedFile(file)) {
+          setSelectedFile(file);
+          setSelectionError(null);
+        } else {
+          setSelectionError("Please select a PDF or CSV statement.");
+        }
+      }
+      e.currentTarget.value = "";
+    },
+    [isSupportedFile]
+  );
+
+  // Handle drag over
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  // Handle drag leave
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Trigger file input click
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleContinue = useCallback(() => {
+    if (!selectedFile || isUploading) return;
+    onFileSelect(selectedFile);
+  }, [selectedFile, isUploading, onFileSelect]);
+
+  const handlePreloadSchema = useCallback(() => {
+    if (!onPreloadSchema || isUploading || isPreloadingSchema) return;
+    onPreloadSchema();
+  }, [onPreloadSchema, isPreloadingSchema, isUploading]);
+
+  const handleConnectPlaid = useCallback(() => {
+    if (!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false) {
+      return;
+    }
+    onConnectPlaid();
+  }, [
+    isConnectingPlaid,
+    isPreloadingSchema,
+    isUploading,
+    onConnectPlaid,
+    plaidConfigured,
+  ]);
+
+  return (
+    <div className="mx-auto w-full space-y-4 pb-6 pt-3" style={APP_MEASURE_STYLES.reading}>
+      {/* Header */}
+      <div className="space-y-1.5 text-left">
+        <p className={cn(kaiAppEyebrowClassName, "text-muted-foreground")}>
+          Getting started
+        </p>
+        <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
+          Portfolio
+        </h1>
+        <p className={cn(kaiAppCardBodyClassName, "max-w-[32rem] text-muted-foreground")}>
+          Let Kai analyze your holdings for precise advice
+        </p>
+      </div>
+
+      {/* Plaid integration */}
+      <SurfaceCard accent="sky">
+        <SurfaceCardContent className="space-y-3 p-4 md:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
+                <Icon icon={Link2} size="md" className="text-primary" />
+              </div>
+              <div className="min-w-0">
+                <h3 className={importCardTitleClassName}>Connect with Plaid</h3>
+                <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
+                  Automatically sync your brokerage accounts
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+              <Badge className="border border-[var(--brand-200)] bg-[var(--brand-50)] text-[var(--brand-700)]">
+                Read-only sync
+              </Badge>
+              {plaidConnectedInstitutionCount > 0 ? (
+                <Badge variant="outline">
+                  {plaidConnectedInstitutionCount} connection{plaidConnectedInstitutionCount === 1 ? "" : "s"}
+                </Badge>
+              ) : plaidConfigured === false ? (
+                <Badge variant="outline">Not configured</Badge>
+              ) : (
+                <Badge variant="outline">Broker-sourced</Badge>
+              )}
+            </div>
+          </div>
+          <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
+            Best for brokerage-sourced holdings, refreshable sync status, and non-editable portfolio context.
+          </p>
+          <MorphyButton
+            variant="blue-gradient"
+            effect="fill"
+            size="default"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
+            onClick={handleConnectPlaid}
+            icon={{
+              icon: isConnectingPlaid ? Loader2 : Link2,
+              gradient: false,
+            }}
+          >
+            {plaidConfigured === false
+              ? "Plaid unavailable"
+              : isConnectingPlaid
+                ? "Opening Plaid..."
+                : plaidConnectedInstitutionCount > 0
+                  ? "Connect Another Brokerage"
+                  : "Connect Brokerage With Plaid"}
+          </MorphyButton>
+          <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
+            Plaid data stays read-only in Kai. Statements remain your editable source.
+          </p>
+        </SurfaceCardContent>
+      </SurfaceCard>
+
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-border/60" />
+        <span className={cn(kaiAppEyebrowClassName, "text-muted-foreground")}>
+          or
+        </span>
+        <div className="h-px flex-1 bg-border/60" />
+      </div>
+
+      {/* Statement upload */}
+      <SurfaceCard>
+        <SurfaceCardContent className="space-y-4 p-4 md:p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
+              <Icon icon={Upload} size="md" className="text-primary" />
+            </div>
+            <div>
+              <h3 className={importCardTitleClassName}>Upload statement</h3>
+              <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
+                Import official brokerage PDF or CSV manually
+              </p>
+            </div>
+          </div>
+
+          {/* Drag & Drop Zone */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            className={cn(
+              "relative flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed p-6 text-center transition-all duration-200",
+              isDragging
+                ? "border-primary bg-primary/8 scale-[1.01]"
+                : "border-border/70 hover:border-primary/50 hover:bg-muted/25",
+              isUploading && "pointer-events-none opacity-50"
+            )}
+            onClick={triggerFileInput}
+          >
+            {/* Upload Icon */}
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
+              <Icon icon={Upload} size={26} className="text-primary" />
+            </div>
+
+            {/* Text */}
+            <div className="space-y-1">
+              <h3 className={cn(importDropzoneTitleClassName, "text-primary")}>
+                {isDragging
+                  ? "Drop your file here"
+                  : "Tap to upload official statement"}
+              </h3>
+              <p className={cn(kaiAppCardBodyClassName, "text-muted-foreground")}>
+                PDF or CSV
+              </p>
+            </div>
+
+            {/* Selected File Display */}
+            {selectedFile && !isUploading && (
+              <div className="type-footnote mt-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2">
+                <Icon icon={FileText} size="sm" />
+                <span>{selectedFile.name}</span>
+                <Icon icon={CheckCircle} size="sm" className="text-green-500" />
+              </div>
+            )}
+
+            {/* Hidden File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.pdf"
+              onChange={handleFileChange}
+              className="hidden"
+              disabled={isUploading}
+            />
+          </div>
+
+          <MorphyButton
+            variant="morphy"
+            effect="fill"
+            size="default"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            onClick={handleContinue}
+            disabled={isUploading || isPreloadingSchema || !selectedFile}
+            icon={{
+              icon: Upload,
+              gradient: false,
+            }}
+          >
+            {isUploading ? "Parsing..." : "Continue"}
+          </MorphyButton>
+        </SurfaceCardContent>
+      </SurfaceCard>
+
+      {selectionError && (
+        <p className={cn(kaiAppHelperClassName, "px-2 text-destructive")}>{selectionError}</p>
+      )}
+
+      <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+        <Icon icon={AlertCircle} size="sm" className="mt-0.5 text-muted-foreground shrink-0" />
+        <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
+          We support official brokerage statements from all major systems.
+        </p>
+      </div>
+
+      {onPreloadSchema ? (
+        <div className="space-y-1.5">
+          <MorphyButton
+            variant="blue-gradient"
+            effect="fill"
+            size="default"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            onClick={handlePreloadSchema}
+            disabled={isUploading || isPreloadingSchema}
+            icon={{
+              icon: isPreloadingSchema ? Loader2 : Database,
+              gradient: false,
+            }}
+          >
+            {isPreloadingSchema ? "Loading Sample Brokerage..." : "Load Sample Brokerage"}
+          </MorphyButton>
+          <p className={cn(kaiAppHelperClassName, "px-1 text-muted-foreground")}>
+            Load demo portfolio data any time, review it, then save to vault.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Skip Option */}
+      <div className="text-center pt-1">
+        <MorphyButton
+          variant="none"
+          effect="fade"
+          onClick={onSkip}
+          disabled={isUploading || isPreloadingSchema}
+          className="type-subhead h-10 rounded-full px-5 text-muted-foreground hover:text-foreground"
+        >
+          Skip for now
+        </MorphyButton>
+      </div>
+    </div>
+  );
+}

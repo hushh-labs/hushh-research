@@ -1,0 +1,1798 @@
+# consent-protocol/api/routes/pkm_routes_shared.py
+"""
+Shared PKM request/response models and route handlers with bounded path parameters (CWE-400).
+
+Implements the current PKM architecture:
+- pkm_blobs: encrypted per-domain payloads
+- pkm_manifests: explicit structure contracts for scopes
+- pkm_index: minimal discovery metadata for UI/bootstrap
+"""
+
+import json
+import logging
+import uuid
+from datetime import datetime
+from typing import Annotated, Any, List, Optional
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from pydantic import BaseModel, Field, ValidationError
+
+from api.middleware import require_vault_owner_token
+from hushh_mcp.services.domain_contracts import canonical_top_level_domain, domain_registry_payload
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/pkm", tags=["pkm"])
+
+# Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
+_Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_RunId = Annotated[str, Path(min_length=1, max_length=128)]
+_AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
+
+_COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
+_INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
+
+_MAX_SEGMENT_IDS = 50
+
+
+def _validated_segment_ids(
+    segment_ids: Optional[List[str]] = Query(default=None),
+) -> Optional[List[str]]:
+    """Dependency: reject requests with more than _MAX_SEGMENT_IDS segment_ids.
+
+    Query(..., max_length=N) on List[str] bounds each string length, not the
+    list cardinality. This dependency enforces the item count limit explicitly.
+    """
+    if segment_ids is not None and len(segment_ids) > _MAX_SEGMENT_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"segment_ids may not exceed {_MAX_SEGMENT_IDS} items",
+        )
+    return segment_ids
+
+
+def _isoformat_or_none(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
+    fallback = default or {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return fallback
+        return parsed if isinstance(parsed, dict) else fallback
+    return fallback
+
+
+def _json_list_or_default(value, default: Optional[list] = None) -> list:
+    fallback = default or []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return fallback
+        return parsed if isinstance(parsed, list) else fallback
+    return fallback
+
+
+def _string_list_or_default(value) -> list[str]:
+    raw_list = _json_list_or_default(value, [])
+    cleaned: list[str] = []
+    for item in raw_list:
+        text = str(item or "").strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _int_or_default(value, default: int) -> int:
+    if isinstance(value, bool) or value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except Exception:
+            return default
+    return default
+
+
+def _normalize_manifest_response_payload(manifest: dict) -> dict:
+    payload = dict(manifest or {})
+    payload["manifest_version"] = _int_or_default(payload.get("manifest_version"), 1)
+    payload["domain_contract_version"] = _int_or_default(payload.get("domain_contract_version"), 1)
+    payload["readable_summary_version"] = _int_or_default(
+        payload.get("readable_summary_version"), 0
+    )
+    payload["structure_decision"] = _json_object_or_default(payload.get("structure_decision"), {})
+    payload["summary_projection"] = _json_object_or_default(payload.get("summary_projection"), {})
+    payload["pkm_contract_version"] = payload.get("pkm_contract_version") or payload[
+        "summary_projection"
+    ].get("pkm_contract_version")
+    payload["readable_projection_version"] = payload.get("readable_projection_version") or payload[
+        "summary_projection"
+    ].get("readable_projection_version")
+    payload["top_level_scope_paths"] = _string_list_or_default(payload.get("top_level_scope_paths"))
+    payload["externalizable_paths"] = _string_list_or_default(payload.get("externalizable_paths"))
+    payload["segment_ids"] = _string_list_or_default(payload.get("segment_ids"))
+    payload["paths"] = _json_list_or_default(payload.get("paths"), [])
+    payload["scope_registry"] = _json_list_or_default(payload.get("scope_registry"), [])
+    payload["path_count"] = _int_or_default(payload.get("path_count"), len(payload["paths"]))
+    payload["externalizable_path_count"] = _int_or_default(
+        payload.get("externalizable_path_count"),
+        len(payload["externalizable_paths"]),
+    )
+    return payload
+
+
+# ============================================================================
+# STOCK CONTEXT ENDPOINT (KAI Analysis)
+# ============================================================================
+
+
+class StockContextRequest(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=10)
+
+
+class DecisionRecord(BaseModel):
+    """Represents a Kai investment decision."""
+
+    id: int = Field(..., ge=0)
+    ticker: str = Field(..., min_length=1, max_length=10)
+    decision_type: str = Field(..., min_length=1, max_length=32)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    created_at: str = Field(..., min_length=1, max_length=64)
+    metadata: dict | None = None
+
+
+class StockContextResponse(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=10)
+    user_risk_profile: str = Field(..., min_length=1, max_length=50)
+    holdings: list[dict] = Field(..., max_length=100)
+    recent_decisions: list[dict] = Field(..., max_length=50)
+    portfolio_allocation: dict[str, int] = Field(...)
+
+
+def _summary_attribute_count(summary: dict | None) -> int:
+    if not isinstance(summary, dict):
+        return 0
+    for key in (
+        "attribute_count",
+        "holdings_count",
+        "item_count",
+        "externalizable_path_count",
+        "path_count",
+    ):
+        value = summary.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, int):
+            if value > 0:
+                return value
+            continue
+        if isinstance(value, float):
+            if value != value:
+                continue
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                continue
+            try:
+                parsed = int(float(text))
+                if parsed > 0:
+                    return parsed
+            except Exception:
+                continue
+    return 0
+
+
+def _is_internal_only_pkm_domain(domain: str | None) -> bool:
+    return str(domain or "").strip().lower() in _INTERNAL_ONLY_PKM_DOMAINS
+
+
+def _summary_text(summary: dict | None, key: str) -> Optional[str]:
+    if not isinstance(summary, dict):
+        return None
+    value = summary.get(key)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _summary_string_list(summary: dict | None, key: str) -> list[str]:
+    if not isinstance(summary, dict):
+        return []
+    value = summary.get(key)
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
+    return cleaned[:5]
+
+
+async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], dict[str, int]]:
+    """
+    Get user context from PKM index domain summaries.
+
+    Returns cached data stored in the financial summary contract:
+    - risk_profile: user preference risk from onboarding/profile settings
+    - holdings: List of portfolio holdings
+    - portfolio_allocation: Allocation percentages
+
+    Falls back to defaults if no cache exists.
+    """
+    try:
+        pkm_service = get_pkm_service()
+
+        # Read cached summary metadata from PKM index.
+        index = await pkm_service.get_index_v2(user_id)
+
+        if index and "financial" in (index.domain_summaries or {}):
+            financial_summary = index.domain_summaries["financial"]
+
+            risk_profile = (
+                financial_summary.get("risk_profile")
+                or financial_summary.get("profile_risk_profile")
+                or "balanced"
+            )
+
+            # Holdings are intentionally stripped from domain_summaries.
+            # Canonical summary counters must be used for server-side context.
+            cached_holdings: list[dict] = []
+
+            # Build allocation from cached data
+            portfolio_allocation = {
+                "equities_pct": financial_summary.get("equities_pct", 70),
+                "bonds_pct": financial_summary.get("bonds_pct", 20),
+                "cash_pct": financial_summary.get("cash_pct", 10),
+            }
+
+            return risk_profile, cached_holdings, portfolio_allocation
+    except Exception as e:
+        logger.warning(f"[PKM Context] Failed to get context from index: {e}")
+
+    # Fallback defaults if no cache exists
+    return "balanced", [], {"equities_pct": 70, "bonds_pct": 20, "cash_pct": 10}
+
+
+async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]:
+    """
+    Fetch recent decisions for a user from mutation events first.
+
+    Canonical source: PKM mutation event decision projections.
+    Returns a list of DecisionRecord objects sorted by creation date (newest first).
+    """
+    try:
+        pkm_service = get_pkm_service()
+        records: list[DecisionRecord] = []
+        items = await pkm_service.get_recent_decision_records(user_id, limit=limit)
+        if not items:
+            index = await pkm_service.get_index_v2(user_id)
+            domain_summaries = index.domain_summaries if index and index.domain_summaries else {}
+            financial_summary = (
+                domain_summaries.get("financial")
+                if isinstance(domain_summaries.get("financial"), dict)
+                else {}
+            )
+            items = pkm_service._extract_decision_records(financial_summary)
+
+        for d in items:
+            try:
+                confidence_value = float(d.get("confidence", 0) or 0)
+            except Exception:
+                confidence_value = 0.0
+            records.append(
+                DecisionRecord(
+                    id=d.get("id", 0),
+                    ticker=(d.get("ticker") or "").upper(),
+                    decision_type=d.get("decision_type") or d.get("decisionType") or "HOLD",
+                    confidence=confidence_value,
+                    created_at=d.get("created_at") or d.get("createdAt") or "",
+                    metadata=d.get("metadata"),
+                )
+            )
+
+        # Sort by created_at, newest first
+        records.sort(key=lambda x: x.created_at if x.created_at else "", reverse=True)
+        return records[:limit]
+    except Exception as e:
+        logger.warning(f"[PKM Context] Failed to fetch decisions: {e}")
+        return []
+
+
+class SegmentBlob(BaseModel):
+    """Single-level encrypted blob for one segment of a PKM domain payload.
+
+    Intentionally non-recursive: the server only reads one level of segments
+    (see get_domain_data below), so accepting arbitrarily nested EncryptedBlob
+    trees via Pydantic would let a caller force unbounded recursive validation
+    depth on every store-domain call (CWE-400).
+    """
+
+    ciphertext: str = Field(
+        ..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data"
+    )
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
+
+
+class EncryptedBlob(BaseModel):
+    """Encrypted data blob."""
+
+    # AES-256-GCM base64url ciphertext: 1 B minimum, 10 MB practical ceiling.
+    ciphertext: str = Field(
+        ..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data"
+    )
+    # IV is typically 12 bytes -> 16 base64 chars; allow up to 512 for future algs.
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
+    segments: dict[str, SegmentBlob] = Field(
+        default_factory=dict,
+        max_length=50,
+        description="Optional segmented PKM ciphertext payloads keyed by segment id",
+    )
+
+
+class PathDescriptorPayload(BaseModel):
+    json_path: str = Field(..., min_length=1, max_length=1024)
+    parent_path: Optional[str] = Field(default=None, max_length=1024)
+    path_type: str = Field(default="leaf", min_length=1, max_length=64)
+    exposure_eligibility: bool = True
+    consent_label: Optional[str] = Field(default=None, max_length=256)
+    sensitivity_label: Optional[str] = Field(default=None, max_length=256)
+    source_agent: Optional[str] = Field(default=None, max_length=256)
+
+
+class StructureDecisionPayload(BaseModel):
+    action: str = Field(default="match_existing_domain", min_length=1, max_length=128)
+    target_domain: Optional[str] = Field(default=None, max_length=256)
+    json_paths: List[str] = Field(default_factory=list, max_length=1000)
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
+    summary_projection: dict = Field(default_factory=dict)
+    sensitivity_labels: dict = Field(default_factory=dict)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    source_agent: str = Field(default="pkm_structure_agent", min_length=1, max_length=256)
+    contract_version: int = Field(default=1, ge=1, le=1000)
+
+
+class DomainManifestPayload(BaseModel):
+    manifest_version: int = Field(default=1, ge=1, le=1000)
+    domain_contract_version: int = Field(default=1, ge=1, le=1000)
+    readable_summary_version: int = Field(default=0, ge=0, le=1000)
+    upgraded_at: Optional[str] = Field(default=None, max_length=64)
+    summary_projection: dict = Field(default_factory=dict)
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
+    paths: List[PathDescriptorPayload] = Field(default_factory=list, max_length=10000)
+    source_agent: Optional[str] = Field(default=None, max_length=256)
+
+
+class UpgradeContextPayload(BaseModel):
+    run_id: str = Field(..., min_length=1, max_length=256)
+    prior_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    new_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    prior_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    new_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    retry_count: Optional[int] = Field(default=None, ge=0, le=1000)
+
+
+class WriteProjectionPayload(BaseModel):
+    projection_type: str = Field(..., min_length=1, max_length=256)
+    projection_version: int = Field(default=1, ge=1, le=1000)
+    payload: dict = Field(default_factory=dict)
+
+
+class StoreDomainRequest(BaseModel):
+    """Request to store domain data."""
+
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    domain: str = Field(
+        ..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')"
+    )
+    encrypted_blob: EncryptedBlob = Field(..., description="Pre-encrypted data from client")
+    summary: dict = Field(..., description="Non-sensitive metadata for index")
+    structure_decision: Optional[StructureDecisionPayload] = Field(
+        default=None,
+        description="Durable structure/intention artifact for this domain write",
+    )
+    manifest: Optional[DomainManifestPayload] = Field(
+        default=None,
+        description="Explicit manifest of discovered/externalizable paths for this domain",
+    )
+    source_agent: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Optional explicit source agent label for mutation/audit events",
+    )
+    expected_data_version: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=1000000,
+        description="Optional optimistic concurrency guard for the current domain blob version",
+    )
+    upgrade_context: Optional[UpgradeContextPayload] = Field(
+        default=None,
+        description="Optional non-secret upgrade provenance for generic PKM migration writes",
+    )
+    write_projections: List[WriteProjectionPayload] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Optional non-sensitive derived projections for read models and history surfaces",
+    )
+
+
+class StoreDomainResponse(BaseModel):
+    """Response from store domain operation."""
+
+    success: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+    conflict: bool = False
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+
+
+@router.post("/store-domain/validate", response_model=StoreDomainResponse)
+async def validate_store_domain(
+    payload: dict = Body(...),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Validate a pre-encrypted PKM domain payload without persisting it."""
+    try:
+        request = StoreDomainRequest.model_validate(payload)
+    except ValidationError as exc:
+        validation_errors = exc.errors()
+        logger.warning(
+            "[PKM Validate] Invalid no-write payload user_id=%s domain=%s errors=%s",
+            payload.get("user_id"),
+            payload.get("domain"),
+            validation_errors,
+            extra={
+                "pkm_validate_errors": validation_errors,
+                "pkm_validate_user_id": payload.get("user_id"),
+                "pkm_validate_domain": payload.get("domain"),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_VALIDATE_REQUEST_INVALID",
+                "message": "Dummy save validation payload does not match the current PKM store contract.",
+                "errors": validation_errors,
+            },
+        ) from exc
+
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    canonical_domain = canonical_top_level_domain(request.domain)
+    return StoreDomainResponse(
+        success=True,
+        message=f"Validated {canonical_domain} domain payload without saving it",
+        conflict=False,
+        data_version=None,
+        updated_at=None,
+    )
+
+
+@router.post("/store-domain", response_model=StoreDomainResponse)
+async def store_domain(
+    request: StoreDomainRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Store encrypted domain data and update index.
+
+    This endpoint:
+    1. Receives PRE-ENCRYPTED data from client
+    2. Stores ciphertext in `pkm_blobs`
+    3. Updates metadata in `pkm_index`
+    4. Backend CANNOT decrypt the data (BYOK principle)
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+
+    # Store encrypted blob + metadata
+    canonical_domain = canonical_top_level_domain(request.domain)
+    store_result = await pkm_service.store_domain_data(
+        user_id=request.user_id,
+        domain=canonical_domain,
+        encrypted_blob={
+            "ciphertext": request.encrypted_blob.ciphertext,
+            "iv": request.encrypted_blob.iv,
+            "tag": request.encrypted_blob.tag,
+            "algorithm": request.encrypted_blob.algorithm,
+            "segments": {
+                segment_id: {
+                    "ciphertext": segment_blob.ciphertext,
+                    "iv": segment_blob.iv,
+                    "tag": segment_blob.tag,
+                    "algorithm": segment_blob.algorithm,
+                }
+                for segment_id, segment_blob in (request.encrypted_blob.segments or {}).items()
+            },
+        },
+        summary=request.summary,
+        structure_decision=request.structure_decision.model_dump()
+        if request.structure_decision
+        else None,
+        manifest=request.manifest.model_dump() if request.manifest else None,
+        source_agent=request.source_agent,
+        expected_data_version=request.expected_data_version,
+        upgrade_context=request.upgrade_context.model_dump() if request.upgrade_context else None,
+        write_projections=[projection.model_dump() for projection in request.write_projections],
+        return_result=True,
+    )
+
+    if not store_result.get("success"):
+        if store_result.get("conflict"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PKM_VERSION_CONFLICT",
+                    "message": ("PKM changed on another device. Refresh latest data and retry."),
+                    "current_data_version": store_result.get("data_version"),
+                    "updated_at": _isoformat_or_none(store_result.get("updated_at")),
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to store domain data"
+        )
+
+    return StoreDomainResponse(
+        success=True,
+        message=f"Successfully stored {canonical_domain} domain data",
+        conflict=False,
+        data_version=store_result.get("data_version"),
+        updated_at=_isoformat_or_none(store_result.get("updated_at")),
+    )
+
+
+@router.get("/data/{user_id}", response_model=dict)
+async def get_encrypted_data(
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Get user's encrypted data blob.
+
+    Returns encrypted blob that can only be decrypted client-side.
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    data = await pkm_service.get_encrypted_data(user_id)
+
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No data found for user")
+
+    return data
+
+
+class DomainDataResponse(BaseModel):
+    encrypted_blob: EncryptedBlob
+    storage_mode: str = Field(default="domain", min_length=1, max_length=64)
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    segment_ids: List[str] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
+async def get_domain_data(
+    user_id: _UserId,
+    domain: _Domain,
+    segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Get user's encrypted data blob for a specific domain.
+
+    Returns encrypted blob that can only be decrypted client-side.
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    data = await pkm_service.get_domain_data(user_id, domain, segment_ids=segment_ids)
+
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No {domain} data found for user"
+        )
+
+    return DomainDataResponse(
+        encrypted_blob=EncryptedBlob(
+            ciphertext=data["ciphertext"],
+            iv=data["iv"],
+            tag=data["tag"],
+            algorithm=data.get("algorithm", "aes-256-gcm"),
+            segments={
+                segment_id: SegmentBlob(
+                    ciphertext=segment_blob["ciphertext"],
+                    iv=segment_blob["iv"],
+                    tag=segment_blob["tag"],
+                    algorithm=segment_blob.get("algorithm", "aes-256-gcm"),
+                )
+                for segment_id, segment_blob in (data.get("segments") or {}).items()
+            },
+        ),
+        storage_mode=str(data.get("storage_mode") or "domain"),
+        data_version=data.get("data_version"),
+        updated_at=_isoformat_or_none(data.get("updated_at")),
+        manifest_revision=data.get("manifest_revision"),
+        segment_ids=data.get("segment_ids") or [],
+    )
+
+
+class DomainManifestResponse(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256)
+    domain: str = Field(..., min_length=1, max_length=128)
+    manifest_version: int = Field(default=1, ge=1, le=1000)
+    domain_contract_version: int = Field(default=1, ge=1, le=1000)
+    pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    readable_summary_version: int = Field(default=0, ge=0, le=1000)
+    readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    upgraded_at: Optional[str] = Field(default=None, max_length=64)
+    structure_decision: dict = Field(default_factory=dict)
+    summary_projection: dict = Field(default_factory=dict)
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
+    path_count: int = Field(default=0, ge=0, le=1000000)
+    externalizable_path_count: int = Field(default=0, ge=0, le=1000000)
+    segment_ids: List[str] = Field(default_factory=list, max_length=50)
+    last_structured_at: Optional[str] = Field(default=None, max_length=64)
+    last_content_at: Optional[str] = Field(default=None, max_length=64)
+    paths: List[dict] = Field(default_factory=list, max_length=10000)
+    scope_registry: List[dict] = Field(default_factory=list, max_length=10000)
+
+
+@router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
+async def get_domain_manifest(
+    user_id: _UserId,
+    domain: _Domain,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Get the manifest-backed structure contract for a specific user/domain."""
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    manifest = await pkm_service.get_domain_manifest(user_id, domain)
+    if manifest is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No manifest found for {domain}",
+        )
+    try:
+        response_payload = _normalize_manifest_response_payload(manifest)
+        response_payload["upgraded_at"] = _isoformat_or_none(response_payload.get("upgraded_at"))
+        response_payload["last_structured_at"] = _isoformat_or_none(
+            response_payload.get("last_structured_at")
+        )
+        response_payload["last_content_at"] = _isoformat_or_none(
+            response_payload.get("last_content_at")
+        )
+        return DomainManifestResponse(**response_payload)
+    except Exception as exc:
+        correlation_id = uuid.uuid4().hex[:12]
+        logger.exception(
+            "Manifest serialization failed correlation_id=%s user=%s domain=%s error=%s",
+            correlation_id,
+            user_id,
+            domain,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to serialize Personal Knowledge Model manifest response.",
+                "correlation_id": correlation_id,
+            },
+            headers={"x-correlation-id": correlation_id},
+        ) from exc
+
+
+class ScopeExposureChangePayload(BaseModel):
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
+    top_level_scope_path: Optional[str] = Field(default=None, max_length=1024)
+    exposure_enabled: Optional[bool] = Field(default=None)
+    visibility_posture: Optional[str] = Field(default=None, max_length=128)
+
+
+class ScopeExposureRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    expected_manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    revoke_matching_active_grants: bool = Field(default=True)
+    changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
+
+
+class ScopeExposureResponse(BaseModel):
+    success: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    revoked_grant_count: int = Field(default=0, ge=0, le=10000)
+    revoked_grant_ids: List[str] = Field(default_factory=list, max_length=10000)
+    manifest: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    scope: str = Field(..., min_length=1, max_length=256)
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
+    top_level_scope_path: str = Field(..., min_length=1, max_length=1024)
+    projection_payload: dict = Field(default_factory=dict)
+    projection_version: int = Field(default=1, ge=1, le=1000)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
+    source_content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
+    source_manifest_revision: Optional[int] = Field(default=None, ge=1, le=1000)
+    metadata: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionResponse(BaseModel):
+    success: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+    projection_hash: Optional[str] = Field(default=None, max_length=256)
+    projection_updated_at: Optional[str] = Field(default=None, max_length=64)
+    manifest: dict = Field(default_factory=dict)
+
+
+@router.post("/domains/{domain}/scope-exposure", response_model=ScopeExposureResponse)
+async def update_scope_exposure(
+    domain: _Domain,
+    request: ScopeExposureRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    if not request.changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one scope exposure change is required.",
+        )
+
+    pkm_service = get_pkm_service()
+    canonical_domain = canonical_top_level_domain(domain)
+    result = await pkm_service.update_scope_exposure(
+        user_id=request.user_id,
+        domain=canonical_domain,
+        expected_manifest_version=request.expected_manifest_version,
+        changes=[change.model_dump() for change in request.changes],
+        revoke_matching_active_grants=request.revoke_matching_active_grants,
+    )
+
+    if not result.get("success"):
+        code = str(result.get("code") or "")
+        if code == "manifest_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=result.get("message") or f"No manifest found for {canonical_domain}.",
+            )
+        if code == "manifest_conflict":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PKM_MANIFEST_CONFLICT",
+                    "message": result.get("message") or "PKM manifest changed. Refresh and retry.",
+                    "current_manifest_version": result.get("manifest_version"),
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("message") or "Failed to update PKM scope exposure.",
+        )
+
+    return ScopeExposureResponse(
+        success=True,
+        message=result.get("message") or "Updated PKM scope exposure.",
+        manifest_version=result.get("manifest_version"),
+        revoked_grant_count=int(result.get("revoked_grant_count") or 0),
+        revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
+        manifest=dict(result.get("manifest") or {}),
+    )
+
+
+@router.post(
+    "/domains/{domain}/default-available-projection",
+    response_model=DefaultAvailableProjectionResponse,
+)
+async def publish_default_available_projection(
+    domain: str,
+    request: DefaultAvailableProjectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    if not request.projection_payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A safe projection payload is required.",
+        )
+
+    pkm_service = get_pkm_service()
+    result = await pkm_service.store_default_available_projection(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        scope=request.scope,
+        scope_handle=request.scope_handle,
+        top_level_scope_path=request.top_level_scope_path,
+        projection_payload=request.projection_payload,
+        projection_version=request.projection_version,
+        manifest_version=request.manifest_version,
+        content_revision=request.content_revision,
+        source_content_revision=request.source_content_revision,
+        source_manifest_revision=request.source_manifest_revision,
+        metadata=request.metadata,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message") or "Default-available projection could not be saved.",
+        )
+    return DefaultAvailableProjectionResponse(**result)
+
+
+class DeleteDomainResponse(BaseModel):
+    """Response from delete domain operation."""
+
+    success: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+
+
+class ReconcilePkmResponse(BaseModel):
+    """Response from index/registry reconciliation."""
+
+    success: bool
+    message: Optional[str] = Field(default=None, max_length=512)
+
+
+@router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
+async def delete_domain_data(
+    user_id: _UserId,
+    domain: _Domain,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Delete a specific domain from user's PKM.
+
+    This removes the domain from the index (available_domains and domain_summaries).
+    The client should also update their local encrypted blob to remove the domain data.
+
+    **Authentication**: Requires valid VAULT_OWNER token.
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    success = await pkm_service.delete_domain_data(user_id, domain)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete {domain} domain data",
+        )
+
+    return DeleteDomainResponse(success=True, message=f"Successfully deleted {domain} domain data")
+
+
+@router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
+async def reconcile_pkm_index(
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Reconcile index/domain registry coherence for a user.
+
+    Runtime helper:
+    - Normalizes domain summary counters
+    - Aligns available_domains with summary keys
+    - Recomputes total_attributes
+    - Ensures missing domains are present in domain_registry
+    """
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    success = await pkm_service.reconcile_user_index_domains(user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reconcile PKM index",
+        )
+    return ReconcilePkmResponse(success=True, message="PKM index reconciled")
+
+
+# ==================== LEGACY ATTRIBUTE ROUTES (410 GONE) ====================
+# Attribute-level delete is done client-side: get domain blob → decrypt → remove key → store domain.
+# These routes return 410 so clients migrate to the blob flow.
+
+
+@router.delete("/attributes/{user_id}/{domain}/{attribute_key}", status_code=410)
+async def delete_attribute_legacy(
+    user_id: _UserId,
+    domain: _Domain,
+    attribute_key: _AttributeKey,
+):
+    """
+    Deprecated. Attribute-level delete is client-side only (BYOK).
+    Use: get domain data → decrypt → remove key → re-encrypt → store domain.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Gone. Use client-side blob update: get domain data, remove key, re-encrypt, store domain.",
+    )
+
+
+# ==================== METADATA ENDPOINT ====================
+
+
+class DomainMetadata(BaseModel):
+    """Domain metadata for UI display."""
+
+    key: str = Field(
+        ..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')"
+    )
+    display_name: str = Field(
+        ..., min_length=1, max_length=256, description="Human-readable domain name"
+    )
+    icon: str = Field(default="folder", min_length=1, max_length=64, description="Icon name for UI")
+    color: str = Field(
+        default="#6366F1", min_length=1, max_length=64, description="Color hex for UI"
+    )
+    attribute_count: int = Field(
+        default=0, ge=0, le=1000000, description="Number of attributes in domain"
+    )
+    summary: dict = Field(default_factory=dict, description="Domain-specific summary data")
+    available_scopes: List[str] = Field(
+        default_factory=list, max_length=1000, description="Available MCP scopes"
+    )
+    last_updated: Optional[str] = Field(
+        default=None, max_length=64, description="ISO timestamp of last update"
+    )
+    readable_summary: Optional[str] = Field(
+        default=None,
+        max_length=8192,
+        description="Optional consumer-readable summary for this domain",
+    )
+    readable_highlights: List[str] = Field(
+        default_factory=list,
+        max_length=1000,
+        description="Optional consumer-readable highlights for this domain",
+    )
+    readable_updated_at: Optional[str] = Field(
+        default=None, max_length=64, description="ISO timestamp of the readable summary refresh"
+    )
+    readable_source_label: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Short label describing where the readable summary came from",
+    )
+    domain_contract_version: int = Field(
+        default=1, ge=1, le=1000, description="Current domain contract version"
+    )
+    pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    readable_summary_version: int = Field(
+        default=0, ge=0, le=1000, description="Current readable summary contract version"
+    )
+    readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    upgraded_at: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="ISO timestamp of the last successful PKM upgrade for this domain",
+    )
+
+
+class PersonalKnowledgeModelMetadataResponse(BaseModel):
+    """Response for PKM metadata."""
+
+    user_id: str = Field(..., min_length=1, max_length=256)
+    domains: List[DomainMetadata]
+    total_attributes: int = Field(..., ge=0, le=1000000)
+    model_completeness: int = Field(
+        ..., ge=0, le=100, description="Percentage of recommended domains filled (0-100)"
+    )
+    model_version: int = Field(
+        default=1, ge=1, le=1000, description="Current PKM model version for this user"
+    )
+    stored_model_version: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        description="Stored PKM model version currently persisted in the top-level index",
+    )
+    effective_model_version: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        description="Effective PKM model version after reconciling manifest truth",
+    )
+    target_model_version: int = Field(
+        default=1, ge=1, le=1000, description="Latest PKM model version supported"
+    )
+    current_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    target_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    current_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    target_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    upgrade_status: str = Field(default="current", min_length=1, max_length=128)
+    upgradable_domains: List[dict] = Field(default_factory=list, max_length=1000)
+    last_upgraded_at: Optional[str] = Field(default=None, max_length=64)
+    suggested_domains: List[str] = Field(
+        default_factory=list, max_length=1000, description="Domains user should consider adding"
+    )
+    last_updated: Optional[str] = Field(default=None, max_length=64)
+
+
+@router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
+async def get_metadata(
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Get user's PKM metadata for UI display.
+
+    This endpoint is used by the frontend to:
+    1. Determine if user has existing data (for showing dashboard vs import prompt)
+    2. Display domain summaries and completeness scores
+    3. Suggest additional domains to enrich the PKM
+
+    Returns 404 if user has no PKM data (new user).
+
+    **Authentication**: Requires first-party authenticated access for the same user.
+    This reads privacy-safe discovery metadata from `pkm_index`, not decrypted PKM payload.
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    pkm_service = get_pkm_service()
+    upgrade_service = get_pkm_upgrade_service()
+
+    try:
+        metadata = await pkm_service.get_user_metadata(user_id)
+        resolved_index = await pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False)
+        upgrade_status_payload = await upgrade_service.build_status(user_id)
+        upgrade_status_payload = await _maybe_reconcile_upgrade_status(
+            upgrade_service, user_id, upgrade_status_payload
+        )
+
+        if resolved_index is None:
+            encrypted_data = await pkm_service.get_encrypted_data(user_id)
+            domain_rows = (
+                pkm_service.supabase.table("pkm_blobs")
+                .select("domain,content_revision,updated_at")
+                .eq("user_id", user_id)
+                .execute()
+                .data
+                or []
+            )
+            if encrypted_data is None and not domain_rows:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No PKM data found for user",
+                )
+            logger.warning(
+                "User %s has PKM storage but no index - returning degraded metadata",
+                user_id,
+            )
+            degraded_domains: List[DomainMetadata] = []
+            for row in domain_rows:
+                domain_key = str(row.get("domain") or "")
+                if _is_internal_only_pkm_domain(domain_key):
+                    continue
+                manifest = await pkm_service.get_domain_manifest(user_id, domain_key)
+                degraded_domains.append(
+                    DomainMetadata(
+                        key=domain_key,
+                        display_name=domain_key.replace("_", " ").title(),
+                        icon="folder",
+                        color="#6366F1",
+                        attribute_count=int((manifest or {}).get("path_count") or 0),
+                        summary={
+                            "storage_mode": "per_domain_blob",
+                            "manifest_version": (manifest or {}).get("manifest_version") or 1,
+                            "path_count": (manifest or {}).get("path_count") or 0,
+                            "externalizable_path_count": (manifest or {}).get(
+                                "externalizable_path_count"
+                            )
+                            or 0,
+                        },
+                        available_scopes=[],
+                        last_updated=str(row.get("updated_at") or ""),
+                        readable_summary=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_summary"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        readable_highlights=_summary_string_list(
+                            (manifest or {}).get("summary_projection"), "readable_highlights"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else [],
+                        readable_updated_at=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_updated_at"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        readable_source_label=_summary_text(
+                            (manifest or {}).get("summary_projection"), "readable_source_label"
+                        )
+                        if isinstance((manifest or {}).get("summary_projection"), dict)
+                        else None,
+                        domain_contract_version=int(
+                            (manifest or {}).get("domain_contract_version") or 1
+                        ),
+                        pkm_contract_version=(manifest or {}).get("pkm_contract_version"),
+                        readable_summary_version=int(
+                            (manifest or {}).get("readable_summary_version") or 0
+                        ),
+                        readable_projection_version=(manifest or {}).get(
+                            "readable_projection_version"
+                        ),
+                        upgraded_at=_isoformat_or_none((manifest or {}).get("upgraded_at")),
+                    )
+                )
+            return PersonalKnowledgeModelMetadataResponse(
+                user_id=user_id,
+                domains=degraded_domains,
+                total_attributes=sum(domain.attribute_count for domain in degraded_domains),
+                model_completeness=0,
+                model_version=upgrade_status_payload.get("model_version") or 1,
+                stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
+                effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
+                target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+                current_pkm_contract_version=upgrade_status_payload.get(
+                    "current_pkm_contract_version"
+                ),
+                target_pkm_contract_version=upgrade_status_payload.get(
+                    "target_pkm_contract_version"
+                ),
+                current_readable_projection_version=upgrade_status_payload.get(
+                    "current_readable_projection_version"
+                ),
+                target_readable_projection_version=upgrade_status_payload.get(
+                    "target_readable_projection_version"
+                ),
+                upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
+                upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+                last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
+                suggested_domains=["financial", "health", "travel"],
+                last_updated=(encrypted_data or {}).get("updated_at"),
+            )
+
+        domains: List[DomainMetadata] = []
+        for domain in metadata.domains:
+            if _is_internal_only_pkm_domain(domain.domain_key):
+                continue
+            domains.append(
+                DomainMetadata(
+                    key=domain.domain_key,
+                    display_name=domain.display_name,
+                    icon=domain.icon,
+                    color=domain.color,
+                    attribute_count=domain.attribute_count,
+                    summary=domain.summary,
+                    available_scopes=domain.available_scopes,
+                    last_updated=_isoformat_or_none(domain.last_updated),
+                    readable_summary=domain.readable_summary,
+                    readable_highlights=domain.readable_highlights,
+                    readable_updated_at=domain.readable_updated_at,
+                    readable_source_label=domain.readable_source_label,
+                    domain_contract_version=domain.domain_contract_version,
+                    pkm_contract_version=(domain.summary or {}).get("pkm_contract_version"),
+                    readable_summary_version=domain.readable_summary_version,
+                    readable_projection_version=(domain.summary or {}).get(
+                        "readable_projection_version"
+                    ),
+                    upgraded_at=_isoformat_or_none(domain.upgraded_at),
+                )
+            )
+
+        total_attrs = sum(d.attribute_count for d in domains)
+
+        common_domains = {"financial", "health", "travel", "subscriptions", "food"}
+        user_domain_keys = {domain.key for domain in domains}
+        filled_common = len(user_domain_keys & common_domains)
+        completeness = min(100, int((filled_common / len(common_domains)) * 100))
+
+        suggested = list(common_domains - user_domain_keys)[:3]
+
+        return PersonalKnowledgeModelMetadataResponse(
+            user_id=user_id,
+            domains=domains,
+            total_attributes=total_attrs,
+            model_completeness=completeness,
+            model_version=upgrade_status_payload.get("model_version") or 1,
+            stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
+            effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
+            target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+            current_pkm_contract_version=upgrade_status_payload.get("current_pkm_contract_version"),
+            target_pkm_contract_version=upgrade_status_payload.get("target_pkm_contract_version"),
+            current_readable_projection_version=upgrade_status_payload.get(
+                "current_readable_projection_version"
+            ),
+            target_readable_projection_version=upgrade_status_payload.get(
+                "target_readable_projection_version"
+            ),
+            upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
+            upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+            last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
+            suggested_domains=suggested,
+            last_updated=_isoformat_or_none(metadata.last_updated),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting metadata for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve PKM metadata",
+        )
+
+
+class PkmUpgradeDomainStateResponse(BaseModel):
+    domain: str
+    current_domain_contract_version: int
+    target_domain_contract_version: int
+    current_readable_summary_version: int
+    target_readable_summary_version: int
+    current_pkm_contract_version: Optional[str] = None
+    target_pkm_contract_version: Optional[str] = None
+    current_readable_projection_version: Optional[str] = None
+    target_readable_projection_version: Optional[str] = None
+    capabilities_applied: List[str] = Field(default_factory=list)
+    blocked_reasons: List[str] = Field(default_factory=list)
+    upgraded_at: Optional[str] = None
+    needs_upgrade: bool = False
+
+
+class PkmUpgradeErrorContextResponse(BaseModel):
+    stage: Optional[str] = None
+    domain: Optional[str] = None
+    http_status: Optional[int] = None
+    detail: Optional[str] = None
+    correlation_id: Optional[str] = None
+    request_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    client_route: Optional[str] = None
+    manifest_route: Optional[str] = None
+    mode: Optional[str] = None
+
+
+class PkmUpgradeStepResponse(BaseModel):
+    run_id: str
+    domain: str
+    status: str
+    from_domain_contract_version: int
+    to_domain_contract_version: int
+    from_readable_summary_version: int
+    to_readable_summary_version: int
+    attempt_count: int = 0
+    last_completed_content_revision: Optional[int] = None
+    last_completed_manifest_version: Optional[int] = None
+    checkpoint_payload: dict = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class PkmUpgradeRunResponse(BaseModel):
+    run_id: str
+    user_id: str
+    status: str
+    from_model_version: int
+    to_model_version: int
+    current_domain: Optional[str] = None
+    initiated_by: str
+    resume_count: int = 0
+    started_at: Optional[str] = None
+    last_checkpoint_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    last_error: Optional[str] = None
+    mode: str = "real"
+    error_context: Optional[PkmUpgradeErrorContextResponse] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    steps: List[PkmUpgradeStepResponse] = Field(default_factory=list)
+
+
+class PkmUpgradeStatusResponse(BaseModel):
+    user_id: str
+    model_version: int
+    stored_model_version: int
+    effective_model_version: int
+    target_model_version: int
+    current_pkm_contract_version: Optional[str] = None
+    target_pkm_contract_version: Optional[str] = None
+    current_readable_projection_version: Optional[str] = None
+    target_readable_projection_version: Optional[str] = None
+    upgrade_status: str
+    upgradable_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
+    last_upgraded_at: Optional[str] = None
+    run: Optional[PkmUpgradeRunResponse] = None
+
+
+class StartOrResumeUpgradeRequest(BaseModel):
+    user_id: str
+    initiated_by: str = Field(default="unlock_warm")
+    mode: str = Field(default="real")
+
+
+class UpdateUpgradeRunRequest(BaseModel):
+    user_id: str
+    status: str
+    current_domain: Optional[str] = None
+    last_error: Optional[str] = None
+    error_context: Optional[dict] = None
+
+
+class UpdateUpgradeStepRequest(BaseModel):
+    user_id: str
+    status: str
+    checkpoint_payload: dict = Field(default_factory=dict)
+    attempt_count: Optional[int] = Field(default=None, ge=0)
+    last_completed_content_revision: Optional[int] = Field(default=None, ge=0)
+    last_completed_manifest_version: Optional[int] = Field(default=None, ge=0)
+
+
+def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
+    run_payload = payload.get("run")
+    run_response = None
+    if isinstance(run_payload, dict):
+        normalized_steps = []
+        for step in run_payload.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            normalized_steps.append(
+                PkmUpgradeStepResponse(
+                    **{
+                        **step,
+                        "created_at": _isoformat_or_none(step.get("created_at")),
+                        "updated_at": _isoformat_or_none(step.get("updated_at")),
+                    }
+                )
+            )
+        run_response = PkmUpgradeRunResponse(
+            **{
+                **run_payload,
+                "mode": str(run_payload.get("mode") or "real"),
+                "error_context": run_payload.get("error_context"),
+                "started_at": _isoformat_or_none(run_payload.get("started_at")),
+                "last_checkpoint_at": _isoformat_or_none(run_payload.get("last_checkpoint_at")),
+                "completed_at": _isoformat_or_none(run_payload.get("completed_at")),
+                "created_at": _isoformat_or_none(run_payload.get("created_at")),
+                "updated_at": _isoformat_or_none(run_payload.get("updated_at")),
+                "steps": normalized_steps,
+            }
+        )
+    return PkmUpgradeStatusResponse(
+        user_id=payload.get("user_id") or "",
+        model_version=int(payload.get("model_version") or 1),
+        stored_model_version=int(
+            payload.get("stored_model_version") or payload.get("model_version") or 1
+        ),
+        effective_model_version=int(
+            payload.get("effective_model_version") or payload.get("model_version") or 1
+        ),
+        target_model_version=int(payload.get("target_model_version") or 1),
+        current_pkm_contract_version=payload.get("current_pkm_contract_version"),
+        target_pkm_contract_version=payload.get("target_pkm_contract_version"),
+        current_readable_projection_version=payload.get("current_readable_projection_version"),
+        target_readable_projection_version=payload.get("target_readable_projection_version"),
+        upgrade_status=str(payload.get("upgrade_status") or "current"),
+        upgradable_domains=[
+            PkmUpgradeDomainStateResponse(
+                **{
+                    **domain_payload,
+                    "upgraded_at": _isoformat_or_none(domain_payload.get("upgraded_at")),
+                }
+            )
+            for domain_payload in (payload.get("upgradable_domains") or [])
+            if isinstance(domain_payload, dict)
+        ],
+        last_upgraded_at=_isoformat_or_none(payload.get("last_upgraded_at")),
+        run=run_response,
+    )
+
+
+async def _maybe_reconcile_upgrade_status(
+    upgrade_service: Any, user_id: str, payload: dict
+) -> dict:
+    reconcile = getattr(upgrade_service, "_maybe_reconcile_current_index", None)
+    if not callable(reconcile):
+        return payload
+    reconciled = await reconcile(user_id, payload)
+    if isinstance(reconciled, dict):
+        return reconciled
+    return payload
+
+
+@router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
+async def get_upgrade_status(
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    service = get_pkm_upgrade_service()
+    payload = await service.build_status(user_id)
+    payload = await _maybe_reconcile_upgrade_status(service, user_id, payload)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/start-or-resume", response_model=PkmUpgradeStatusResponse)
+async def start_or_resume_upgrade(
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    payload = await get_pkm_upgrade_service().start_or_resume_run(
+        request.user_id,
+        initiated_by=request.initiated_by,
+        mode=request.mode,
+    )
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_run_status(
+    run_id: _RunId,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    service = get_pkm_upgrade_service()
+    updated = await service.mark_run_status(
+        run_id=run_id,
+        status=request.status,
+        current_domain=request.current_domain,
+        last_error=request.last_error,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    payload = await service.build_status(request.user_id)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
+async def update_upgrade_step(
+    run_id: _RunId,
+    domain: _Domain,
+    request: UpdateUpgradeStepRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    step = await get_pkm_upgrade_service().update_step(
+        run_id=run_id,
+        domain=canonical_top_level_domain(domain),
+        status=request.status,
+        checkpoint_payload=request.checkpoint_payload,
+        attempt_count=request.attempt_count,
+        last_completed_content_revision=request.last_completed_content_revision,
+        last_completed_manifest_version=request.last_completed_manifest_version,
+    )
+    if step is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade step not found")
+    payload = await get_pkm_upgrade_service().build_status(request.user_id)
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
+async def complete_upgrade_run(
+    run_id: _RunId,
+    request: StartOrResumeUpgradeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    try:
+        payload = await get_pkm_upgrade_service().complete_run(run_id)
+    except ValueError as exc:
+        logger.warning("pkm.complete_upgrade_run.conflict run_id=%s: %s", run_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Upgrade run cannot be completed"
+        ) from exc
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    return _build_upgrade_status_response(payload)
+
+
+@router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
+async def fail_upgrade_run(
+    run_id: _RunId,
+    request: UpdateUpgradeRunRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    payload = await get_pkm_upgrade_service().fail_run(
+        run_id,
+        last_error=request.last_error,
+        error_context=request.error_context,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    return _build_upgrade_status_response(payload)
+
+
+class UserScopesResponse(BaseModel):
+    """Lightweight response with scope strings for a user (agent discovery)."""
+
+    user_id: str = Field(..., min_length=1, max_length=256)
+    scopes: List[str] = Field(
+        default_factory=list,
+        max_length=10000,
+        description=(
+            "Available scope strings for this user, for example pkm.read, "
+            "attr.{domain}.*, attr.{domain}.{subintent}.*, or attr.{domain}.{path}."
+        ),
+    )
+    scope_entries: List[dict] = Field(default_factory=list, max_length=10000)
+
+
+class DomainRegistryEntryResponse(BaseModel):
+    domain_key: str = Field(..., min_length=1, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=256)
+    icon_name: str = Field(..., min_length=1, max_length=64)
+    color_hex: str = Field(..., min_length=1, max_length=64)
+    description: str = Field(..., max_length=1024)
+    status: str = Field(..., min_length=1, max_length=64)
+    parent_domain: Optional[str] = Field(default=None, max_length=128)
+
+
+class DomainRegistryResponse(BaseModel):
+    domains: List[DomainRegistryEntryResponse] = Field(..., max_length=1000)
+    canonical_domain_count: int = Field(..., ge=0, le=10000)
+
+
+@router.get("/domain-registry", response_model=DomainRegistryResponse)
+async def get_domain_registry(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Return canonical top-level PKM domain registry.
+
+    This endpoint is additive and intended for runtime contract introspection.
+    """
+    # Ensure auth middleware ran.
+    if not token_data.get("user_id"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    pkm_service = get_pkm_service()
+    await pkm_service.domain_registry.ensure_canonical_domains()
+
+    entries = [
+        DomainRegistryEntryResponse(
+            domain_key=row["domain_key"],
+            display_name=row["display_name"],
+            icon_name=row["icon_name"],
+            color_hex=row["color_hex"],
+            description=row["description"],
+            status=row["status"],
+            parent_domain=row.get("parent_domain"),
+        )
+        for row in domain_registry_payload()
+        if not row.get("is_legacy_alias")
+    ]
+    canonical_count = len(entries)
+    return DomainRegistryResponse(
+        domains=entries,
+        canonical_domain_count=canonical_count,
+    )
+
+
+@router.get("/scopes/{user_id}", response_model=UserScopesResponse)
+async def get_user_scopes(
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Get available scope strings for a user (lightweight agent discovery).
+
+    Returns dynamic scope strings derived from user metadata and registry hints.
+
+    **Authentication**: Requires valid VAULT_OWNER token.
+    Scope strings reveal which data domains a user has populated,
+    so they must be protected like other user metadata.
+    """
+    # Verify token matches user_id
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    pkm_service = get_pkm_service()
+    scopes = await pkm_service.scope_generator.get_available_scopes(user_id)
+    scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
+    raw_scope_entries = (
+        await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
+    )
+    scope_entries = [
+        entry
+        for entry in raw_scope_entries
+        if isinstance(entry, dict)
+        and entry.get("consumer_visible") is not False
+        and entry.get("internal_only") is not True
+        and entry.get("wildcard") is True
+        and str(entry.get("source_kind") or "").strip() in _COMPACT_SCOPE_SOURCE_KINDS
+    ]
+    return UserScopesResponse(user_id=user_id, scopes=sorted(scopes), scope_entries=scope_entries)
+
+
+@router.post("/get-context", response_model=StockContextResponse)
+async def get_stock_context(
+    request: StockContextRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Get user's context for stock analysis.
+
+    This endpoint provides PKM context (portfolio holdings, risk profile,
+    recent decisions) for a specific stock ticker being analyzed by Kai.
+
+    **Authentication**: Requires valid VAULT_OWNER token. The token contains the
+    user_id which is validated by require_vault_owner_token middleware.
+
+    **Request**:
+        POST /api/pkm/get-context
+        Authorization: Bearer {vault_owner_token}
+        Body: {
+            "ticker": "AAPL"
+        }
+
+    **Response**:
+        {
+            "ticker": "AAPL",
+            "user_risk_profile": "balanced",
+            "holdings": [...],
+            "recent_decisions": [...],
+            "portfolio_allocation": {
+                "equities_pct": 70,
+                "bonds_pct": 20,
+                "cash_pct": 10
+            }
+        }
+    """
+    ticker = (request.ticker or "").upper().strip()
+
+    # Extract user_id from validated token (not from request body)
+    user_id = token_data.get("user_id")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Token missing user_id claim"
+        )
+
+    # Validate ticker
+    if not ticker:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Ticker symbol is required"
+        )
+
+    if not ticker.isalpha() or len(ticker) > 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid ticker symbol format (1-5 uppercase letters)",
+        )
+
+    # Get context from PKM index cached data
+    risk_profile, holdings, portfolio_allocation = await get_risk_profile_from_index(user_id)
+
+    # Filter to just the requested ticker if it's in the portfolio
+    ticker_holdings = [h for h in holdings if h.get("symbol") == ticker]
+
+    return StockContextResponse(
+        ticker=ticker,
+        user_risk_profile=risk_profile,
+        holdings=[
+            {
+                "symbol": h.get("symbol"),
+                "quantity": float(h.get("quantity", 0)),
+                "market_value": float(h.get("market_value", 0)),
+                "weight_pct": float(h.get("weight_pct", 0)),
+            }
+            for h in ticker_holdings
+        ],
+        recent_decisions=[],  # Can add later when decisions are cached
+        portfolio_allocation=portfolio_allocation,
+    )
