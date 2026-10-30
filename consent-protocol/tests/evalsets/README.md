@@ -19,17 +19,39 @@ Follow-up turns live in `scripts/eval_cases/one_first_tool_turns.v2.json`.
 `scripts/eval_one_turn_replay.py` replays each case's earlier turns through
 the encrypted session codec, ADK's contents builder and One's before-model
 history hygiene, so only the final prompt is graded; v1 loaders refuse that
-schema. A case may add argument rules (`required`, `nonempty_any`). A right
-tool that drops them grades as `<tool>:args_incomplete`, a named miss.
-`scripts/eval_one_azure_first_tool.py` scores both suites on the managed Azure
-root that UAT serves: the exact admitted deployment and settings, the managed
-head's own tool declarations, production Chat's thinking policy and the same
-grader. A live run needs the environment's managed Azure identity; offline
-tests stub the model. One known difference remains: `typed_chat` composes
-without the owner keys production's `_extract_state` always sets (PKM context,
-screen context, timezone), so the graded instruction lacks the "NO OWNER
-INFORMATION THIS TURN" block and the dated clock line. Closing it needs a
-versioned owner context derived from that function, with a frozen clock.
+schema. A case may add argument rules per expected tool (`required`,
+`nonempty_any`). The right tool without them grades as `<tool>:args_incomplete`,
+a named miss, and a wrong tool keeps its own name.
+
+`scripts/eval_one_azure_first_tool.py` scores the follow-ups (default) or both
+suites (`--suite all`) on the managed Azure root that UAT serves. It sends:
+
+- the exact admitted deployment and settings;
+- the managed head's own tool declarations;
+- production Chat's thinking policy;
+- ADK's identity line;
+- a streamed call.
+
+The harness grader scores the result. Calls are paced like the harness's live
+probe because the deployment also serves UAT. An outage stops every later case,
+and a model's own undeclared or malformed tool call grades as
+`invalid_tool_call`, a miss. A live run needs the environment's managed Azure
+identity; offline tests stub the model.
+
+These differences from production remain:
+
+- `typed_chat` composes without the owner keys that production's
+  `_extract_state` always sets (PKM context, screen context, timezone). The
+  graded instruction therefore lacks the "NO OWNER INFORMATION THIS TURN" block
+  and the dated clock line. Closing this needs a versioned owner context derived
+  from that function, with a frozen clock.
+- 64 of the 76 v1 first turns use the empty surface, while production Chat
+  always runs typed chat.
+- Earlier answers replay without the provider-encrypted reasoning item that UAT
+  stores beside them, which cannot be faked for a live call.
+- A device receipt result is folded into its call's invocation. Production
+  answers in a new invocation that it marks private. For these cases both give
+  the same graded wire.
 
 Where a fixture case accepts more than one first tool, the EvalSet pins the
 fixture's primary (first-listed) tool, which is always the read-first path

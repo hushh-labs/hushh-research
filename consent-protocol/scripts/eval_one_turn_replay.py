@@ -1,10 +1,16 @@
-"""Replay earlier One chat turns exactly as a follow-up request is built.
+"""Replay earlier One chat turns the way a follow-up request is built.
 
 The history passes through the production storage boundary (the encrypted
 session codec, with a key that exists only in this process), ADK's own contents
 builder and One's before-model history hygiene. The result is the model input a
 follow-up turn would send, built offline with no owner data, tools or credentials.
 Only the graded turn is new; scripted earlier turns are test input, never grades.
+
+Two differences from a stored UAT session are known and give the same graded
+wire for these cases. A device receipt result is folded into its call's
+invocation, where production stores it in that invocation and answers in a new
+one marked private. Earlier answers carry no provider-encrypted reasoning item,
+which cannot be faked for a live call.
 """
 
 from __future__ import annotations
@@ -52,37 +58,43 @@ def load_turn_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
             )
         if not all(isinstance(turn.get("user"), str) for turn in case["history"]):
             raise ValueError(f"{case['id']}: every earlier turn needs the owner's words")
-        contract = case.get("args", {})
-        if not isinstance(contract, dict) or any(
-            rule not in ARG_RULES
-            or not isinstance(names, list)
-            or not names
-            or not all(isinstance(name, str) for name in names)
-            for rule, names in contract.items()
+        rules = case.get("args", {})
+        if not isinstance(rules, dict) or any(
+            tool not in case["expected"]
+            or not isinstance(rule, dict)
+            or not rule
+            or set(rule) - ARG_RULES
+            or not all(
+                isinstance(names, list) and names and all(isinstance(n, str) for n in names)
+                for names in rule.values()
+            )
+            for tool, rule in rules.items()
         ):
-            raise ValueError(f"{case['id']}: args rules are required and nonempty_any name lists")
+            raise ValueError(f"{case['id']}: args rules name an expected tool and its fields")
     if len({case["id"] for case in cases}) != len(cases):
         raise ValueError("multi-turn case ids must be unique")
     return cases
 
 
-def args_label(tool: str | None, args: dict[str, Any] | None, contract: dict | None) -> str | None:
-    """Fold a case's argument rules into the graded label, as run_app_action:<id> does.
+def args_label(tool: str | None, args: dict[str, Any] | None, rules: dict | None) -> str | None:
+    """Fold the called tool's argument rules into the graded label, as run_app_action:<id> does.
 
     A follow-up that picks the right tool but drops the owner's request (UAT
     2026-10-29: a replayed ask_email_agent({})) grades as a miss with a named reason.
+    Rules are per tool, so a wrong tool keeps its own name.
     """
-    if tool is None or not contract:
+    rule = (rules or {}).get(tool) if tool is not None else None
+    if not rule:
         return tool
     filled = {name for name, value in (args or {}).items() if value not in (None, "", [], {})}
-    any_of = contract.get("nonempty_any", [])
-    if set(contract.get("required", [])) - filled or (any_of and not filled & set(any_of)):
+    any_of = rule.get("nonempty_any", [])
+    if set(rule.get("required", [])) - filled or (any_of and not filled & set(any_of)):
         return f"{tool}:args_incomplete"
     return tool
 
 
 def _events(history: list[dict]) -> list[Event]:
-    """One invocation per earlier turn, as the chat bridge records it."""
+    """One invocation per earlier turn; a device result stays in its call's invocation."""
     events = []
     for number, turn in enumerate(history):
         invocation = f"replay-{number}"

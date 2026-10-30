@@ -1,6 +1,6 @@
 {
   "schema_version": "one.first_tool_evals.v2",
-  "note": "Follow-up turns graded on their first tool. Earlier turns are scripted test input that passes through the production storage projection and history hygiene; only the final prompt is graded. Synthetic names and amounts only.",
+  "note": "Follow-up turns graded on their first tool. Earlier turns are scripted test input that passes through the production storage projection and history hygiene; only the final prompt is graded. Argument rules are keyed by the expected tool they constrain. Synthetic names and amounts only.",
   "cases": [
     {
       "id": "email.followup_second_mail_question",
@@ -11,16 +11,34 @@
           "user": "who mailed me today?",
           "steps": [
             {
-              "call": {"name": "ask_email_agent", "args": {"request": "who mailed me today?"}},
-              "result": {"status": "ok", "text": "Jay Combs mailed you about the venue."}
+              "call": {
+                "name": "ask_email_agent",
+                "args": {
+                  "request": "who mailed me today?"
+                }
+              },
+              "result": {
+                "status": "ok",
+                "text": "Jay Combs mailed you about the venue."
+              }
             },
-            {"text": "Jay Combs mailed you about the venue."}
+            {
+              "text": "Jay Combs mailed you about the venue."
+            }
           ]
         }
       ],
       "prompt": "anything else important in my inbox today?",
-      "expected": ["ask_email_agent"],
-      "args": {"required": ["request"]},
+      "expected": [
+        "ask_email_agent"
+      ],
+      "args": {
+        "ask_email_agent": {
+          "required": [
+            "request"
+          ]
+        }
+      },
       "note": "UAT 2026-10-29: a replayed ask_email_agent({}) made the second mail request lose its text."
     },
     {
@@ -34,17 +52,42 @@
             {
               "call": {
                 "name": "receipt_spending",
-                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "category", "limit": 10}
+                "args": {
+                  "from_date": "2026-10-01",
+                  "to_date": "2026-10-29",
+                  "timezone": "Asia/Kolkata",
+                  "group_by": "category",
+                  "limit": 10
+                }
               },
-              "result": {"status": "ok", "total": 212.0, "currency": "USD"}
+              "result": {
+                "status": "ok",
+                "total": 212.0,
+                "currency": "USD"
+              }
             },
-            {"text": "You spent $212 on food this month."}
+            {
+              "text": "You spent $212 on food this month."
+            }
           ]
         }
       ],
       "prompt": "and on travel?",
-      "expected": ["receipt_spending", "get_current_time"],
-      "note": "UAT 2026-10-29: the replayed private spending answer was copied instead of calling the receipt tool."
+      "expected": [
+        "receipt_spending",
+        "get_current_time"
+      ],
+      "note": "UAT 2026-10-29: the replayed private spending answer was copied instead of calling the receipt tool.",
+      "args": {
+        "receipt_spending": {
+          "required": [
+            "from_date",
+            "to_date",
+            "timezone",
+            "group_by"
+          ]
+        }
+      }
     },
     {
       "id": "email.draft_choice_both",
@@ -55,16 +98,56 @@
           "user": "draft an email to Sharu about Friday's review",
           "steps": [
             {
-              "call": {"name": "open_gmail_email_draft", "args": {"request": "draft an email to Sharu about Friday's review", "recipient_names": "Sharu"}},
-              "result": {"status": "needs_recipient_choice", "choices": ["Sharu Patel", "Sharu Rao"]}
+              "call": {
+                "name": "open_gmail_email_draft",
+                "args": {
+                  "request": "draft an email to Sharu about Friday's review",
+                  "recipient_names": "Sharu"
+                }
+              },
+              "result": {
+                "status": "recipient_choice_needed",
+                "name": "Sharu",
+                "candidates": [
+                  "Sharu Patel",
+                  "Sharu Rao"
+                ],
+                "choices": [
+                  {
+                    "ref": "synthetic-ref-1",
+                    "name": "Sharu Patel"
+                  },
+                  {
+                    "ref": "synthetic-ref-2",
+                    "name": "Sharu Rao"
+                  }
+                ],
+                "reason": "choice_needed",
+                "message": "Two connections are named Sharu. Ask which one they mean."
+              }
             },
-            {"text": "Which Sharu should I address: Sharu Patel or Sharu Rao?"}
+            {
+              "text": "Which Sharu should I address: Sharu Patel or Sharu Rao?"
+            }
           ]
         }
       ],
       "prompt": "both",
-      "expected": ["open_gmail_email_draft"],
-      "args": {"nonempty_any": ["recipient_names", "recipient_choices", "to"]}
+      "expected": [
+        "open_gmail_email_draft"
+      ],
+      "args": {
+        "open_gmail_email_draft": {
+          "required": [
+            "request"
+          ],
+          "nonempty_any": [
+            "recipient_names",
+            "recipient_choices",
+            "to"
+          ]
+        }
+      }
     },
     {
       "id": "receipts.unanswered_device_call_then_question",
@@ -77,15 +160,29 @@
             {
               "call": {
                 "name": "highest_receipt_spend",
-                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "merchant", "limit": 5}
+                "args": {
+                  "from_date": "2026-10-01",
+                  "to_date": "2026-10-29",
+                  "timezone": "Asia/Kolkata",
+                  "group_by": "merchant",
+                  "limit": 5
+                }
               }
             }
           ]
         }
       ],
       "prompt": "never mind, who mailed me today?",
-      "expected": ["ask_email_agent"],
-      "args": {"required": ["request"]},
+      "expected": [
+        "ask_email_agent"
+      ],
+      "args": {
+        "ask_email_agent": {
+          "required": [
+            "request"
+          ]
+        }
+      },
       "note": "UAT 2026-10-29: a receipt handback the device never answered made every later Azure request invalid."
     }
   ]
