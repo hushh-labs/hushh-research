@@ -18,9 +18,9 @@ TAVILY = "consent-protocol/hushh_mcp/one_adk/tavily_search.py"
 MANIFEST = "consent-protocol/config/readiness-exam-manifest.v1.json"
 REPO = "hushh-labs/hushh-research"
 MAIN, HEAD, MERGE = "a" * 40, "b" * 40, "c" * 40
-# 98fcd55bc6 reworded this rule; Azure gpt-5-mini then failed the ordinary case.
-KEPT_RULE = "an unquoted middle given name is optional unless explicitly required."
-REWORDED_RULE = "leaving middle-name tokens optional unless explicitly required."
+# Main's middle-name rule; 98fcd55bc6's rewording of its predecessor failed the ordinary case on Azure gpt-5-mini.
+KEPT_RULE = "leave an unquoted middle given name out of the value unless"
+REWORDED_RULE = "leaving middle-name tokens optional unless"
 PLANNER_BUDGET = "telemetry_namespace: agent.documents.request_search\n    performance:\n      latency_p95_ms: 20000\n      max_output_tokens: 4096"
 
 
@@ -57,7 +57,7 @@ def _with(path: str, text: str):
 
 
 def test_rewording_an_anchor_selects_only_its_cases(exam, tools):
-    assert KEPT_RULE in _main(DOCUMENTS)
+    assert _main(DOCUMENTS).count(KEPT_RULE) == 1
     rows = _select(
         exam, tools, _with(DOCUMENTS, _main(DOCUMENTS).replace(KEPT_RULE, REWORDED_RULE))
     )
