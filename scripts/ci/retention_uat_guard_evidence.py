@@ -4,16 +4,21 @@ Under the reviewed maintenance owner, an --apply pass calls
 assert_checkpoint_publication before restore_state or any provider mutation, and
 every accepted diagnostic is raised only through that guard. The cleanup job saves
 a checkpoint whenever the prepare step published checkpoint_ready, which the owner
-does before any provider mutation. A complete raw job transcript with a skipped
-save and exactly one accepted diagnostic as the prepare step's final output
-therefore proves only that this attempt left revision-cleanup custody unchanged.
-Nothing here grants cleanup, traffic or reconciliation authority; older custody is
-still walked, and unknown evidence remains a refusal. Historical sources keep their
-own proof in retention_preflight_evidence.
+does before any provider mutation, so the skipped save (not a transcript token) is
+the publication evidence. A complete raw job transcript whose prepare step ends
+with exactly one accepted diagnostic, plus only the walk's own proof records for
+older attempts, therefore proves only that this attempt left revision-cleanup
+custody unchanged. Profiles pin the owner, workflow and publication bodies; code
+the owner imports from other modules is reviewed, not pinned, so adding a provider
+call before the guard there needs the same review as a new profile. Nothing here
+grants cleanup, traffic or reconciliation authority; older custody is still walked,
+and unknown evidence remains a refusal. Historical sources keep their own proof in
+retention_preflight_evidence.
 """
 
 from __future__ import annotations
 
+import json
 import re
 
 import retention_preflight_evidence as base
@@ -55,10 +60,17 @@ SOURCE_PROFILES = (
     {
         base.OWNER: ("1e7f8973cea0f5fea7ada3033935856bb4428f37", 87255),
         base.WORKFLOW: ("8f0660ff9a8ec42747dc338e56ad83e3dde98ce5", 20685),
-        PUBLICATION: ("96c5db46c8156252dbcc66d66307b1af18dd033c", 18520),
+        PUBLICATION: ("a286dcf227f538fa1bf7105e86799180967e927b", 18975),
     },
 )
 OWNER_BLOBS = frozenset(profile[base.OWNER][0] for profile in SOURCE_PROFILES)
+# retention_publication prints one record per older attempt it qualified; stdout
+# may flush them after the stderr diagnostic. More records than this refuse.
+PROOF_PREFIX = "maintenance_publication_proof="
+MAX_PROOF_RECORDS = 100
+_PROOF_KEYS = frozenset(
+    {"run_id", "attempt", "job_id", "checkout_sha", "qualification"}
+)
 
 
 def _guard_failure(rows, job) -> bool:
@@ -75,16 +87,39 @@ def _guard_failure(rows, job) -> bool:
     if grouped.count("##[endgroup]") != 1:
         return False
     tail = grouped[grouped.index("##[endgroup]") + 1 :]
+    stops = [body for body in tail[:-1] if not _proof_record(body)]
     diagnostics = [
         body for _, body in rows if body.startswith("Hosted maintenance stopped:")
     ]
     errors = [body for _, body in rows if "##[error]" in body]
     return (
-        len(tail) == 2
-        and tail[0] in DIAGNOSTICS
-        and tail[1] == base._EXIT
-        and diagnostics == [tail[0]]
+        2 <= len(tail) <= MAX_PROOF_RECORDS + 2
+        and tail[-1] == base._EXIT
+        and len(stops) == 1
+        and stops[0] in DIAGNOSTICS
+        and diagnostics == stops
         and errors == [base._EXIT]
+    )
+
+
+def _proof_record(body) -> bool:
+    """Recognize the walk's own record of an older qualified attempt; it grants nothing."""
+    if not isinstance(body, str) or not body.startswith(PROOF_PREFIX):
+        return False
+    try:
+        value = json.loads(body[len(PROOF_PREFIX) :])
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(value, dict)
+        and set(value) == _PROOF_KEYS
+        and all(
+            type(value[key]) is int and value[key] > 0
+            for key in ("run_id", "attempt", "job_id")
+        )
+        and isinstance(value["checkout_sha"], str)
+        and re.fullmatch(r"[0-9a-f]{40}", value["checkout_sha"]) is not None
+        and value["qualification"] == "no_provider_mutation"
     )
 
 

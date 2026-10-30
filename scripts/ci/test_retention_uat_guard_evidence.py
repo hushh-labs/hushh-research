@@ -25,13 +25,18 @@ WINDOWS = (
     ("18:19:07", "18:19:07"), ("18:19:07", "18:19:08"), ("18:19:08", "18:19:08"),
 )
 GUARD = "Hosted maintenance stopped: maintenance cleanup invocation is missing"
+PROOF = {"attempt": 1, "checkout_sha": "a" * 40, "job_id": 7, "qualification": "no_provider_mutation", "run_id": 9}
 
 
 def at(clock):
     return f"2026-10-30T{clock}Z"
 
 
-def fixture(*, diagnostic=GUARD, after_guard=(), command=evidence.PREPARE_COMMAND):
+def record(**change):
+    return evidence.PROOF_PREFIX + json.dumps({**PROOF, **change}, sort_keys=True)
+
+
+def fixture(*, diagnostic=GUARD, after_guard=(), before_guard=(), command=evidence.PREPARE_COMMAND):
     steps = []
     for number, name, (start, end) in zip(NUMBERS, base._STEP_NAMES, WINDOWS, strict=True):
         conclusion = "failure" if name == base._PREPARE else "skipped" if name == base._SAVE else "success"
@@ -54,6 +59,7 @@ def fixture(*, diagnostic=GUARD, after_guard=(), command=evidence.PREPARE_COMMAN
         f"{at('18:18:47.6')}   PRIVATE_CANARY: PRIVATE_SYNTHETIC_SENTINEL",
         f"{at('18:18:47.6')}   APPLY: true",
         f"{at('18:18:47.6')} ##[endgroup]",
+        *(f"{at('18:19:07.84')} {line}" for line in before_guard),
         f"{at('18:19:07.85')} {diagnostic}",
         *(f"{at('18:19:07.86')} {line}" for line in after_guard),
         f"{at('18:19:07.869')} {base._EXIT}",
@@ -83,6 +89,23 @@ class UatGuardEvidenceTest(unittest.TestCase):
                     self.assertEqual(proof, {"run_id": 100, "attempt": 1, "job_id": 200,
                                              "checkout_sha": SHA, "qualification": "no_provider_mutation"})
                     self.assertNotIn("PRIVATE", json.dumps(proof))
+
+    def test_the_walks_own_proof_records_may_surround_the_guard_diagnostic(self):
+        records = tuple(record(run_id=number) for number in range(1, 4))
+        for change in ({"after_guard": records}, {"before_guard": records[:1], "after_guard": records[1:]}):
+            with self.subTest(change=change):
+                self.assertIsNotNone(qualify(*fixture(**change)))
+        malformed = (
+            record(extra=1),
+            record(qualification="reconciled"),
+            record(checkout_sha="not-a-commit"),
+            evidence.PROOF_PREFIX + "{",
+            *(record(run_id=number) for number in range(1, evidence.MAX_PROOF_RECORDS + 2)),
+        )
+        for line in malformed[:4]:
+            with self.subTest(line=line):
+                self.assertIsNone(qualify(*fixture(after_guard=(line,))))
+        self.assertIsNone(qualify(*fixture(after_guard=malformed[4:])))
 
     def test_other_diagnostics_output_after_the_guard_or_another_command_refuse(self):
         refusals = (
@@ -143,16 +166,19 @@ class PublicationRoutingTest(unittest.TestCase):
                 proof = publication.qualify(owner_for(source), base.REPOSITORY, "uat", run, job)
                 self.assertEqual(proof["qualification"], "no_provider_mutation")
                 self.assertEqual(reads, [*((path, SHA) for path in evidence.SOURCE_PATHS), (base.WORKFLOW, SHA)])
+        unknown = {**source, base.OWNER: {"sha": "f" * 40, "size": 1}}
         refusals = (
-            (maintenance.SCOPED_TICK_TITLES["production"], source, "legacy actor is ungoverned"),
-            (publication.UNSCOPED_TICK_TITLE, {**source, base.OWNER: {"sha": "f" * 40, "size": 1}},
-             "pre-mutation source is unknown"),
+            ("uat", maintenance.SCOPED_TICK_TITLES["production"], "repository_dispatch", source, "actor is ungoverned"),
+            ("uat", publication.UNSCOPED_TICK_TITLE, "workflow_dispatch", source, "actor is ungoverned"),
+            ("production", publication.UNSCOPED_TICK_TITLE, "repository_dispatch", source, "actor is ungoverned"),
+            ("uat", publication.UNSCOPED_TICK_TITLE, "repository_dispatch", unknown, "source is unknown"),
         )
-        for title, served, reason in refusals:
-            with self.subTest(refused=reason), mock.patch.object(publication, "_log", return_value=log):
-                run["display_title"] = title
+        for environment, title, event, served, reason in refusals:
+            with self.subTest(environment=environment, title=title, event=event, refused=reason), \
+                    mock.patch.object(publication, "_log", return_value=log):
+                run.update(display_title=title, event=event)
                 with self.assertRaisesRegex(maintenance.retention.UnsafeState, reason):
-                    publication.qualify(owner_for(served), base.REPOSITORY, "uat", run, job)
+                    publication.qualify(owner_for(served), base.REPOSITORY, environment, run, job)
 
 
 if __name__ == "__main__":

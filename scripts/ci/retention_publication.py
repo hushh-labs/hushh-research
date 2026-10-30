@@ -6,7 +6,6 @@ import importlib
 import json
 import os
 import retention_preflight_evidence as evidence
-import retention_uat_guard_evidence as uat_guard
 
 WORKFLOW = ".github/workflows/capacity-maintenance.yml"
 REPOSITORY = "hushh-labs/hushh-research"
@@ -15,8 +14,8 @@ REPOSITORY = "hushh-labs/hushh-research"
 LEGACY_BLOBS = evidence.LEGACY_BLOBS
 LEGACY_STEPS = evidence._STEP_NAMES
 RUNNER_WARNING = evidence.RUNNER_WARNING
-# The clock's tick for both environments. Its bot dispatch is the same authority
-# as a scoped tick; only the run-name differs.
+# The clock's tick for both environments. For UAT its bot dispatch is the same
+# authority as a scoped tick; production's proof never qualifies a bot dispatch.
 UNSCOPED_TICK_TITLE = "Capacity Maintenance"
 
 
@@ -117,8 +116,12 @@ def _source(owner, repository, sha, paths=None):
         return {path: read(path, sha) for path in paths}
     first = read(evidence.OWNER, sha)
     profile = evidence.SOURCE_PROFILES.get(first.get("sha"))
-    if profile is None and first.get("sha") in uat_guard.OWNER_BLOBS:
-        profile = uat_guard.SOURCE_PATHS
+    if profile is None:
+        # UAT's current-source proof also loads only on its own path, outside
+        # production's pinned historical tool closure.
+        current = importlib.import_module("retention_uat_guard_evidence")
+        if first.get("sha") in current.OWNER_BLOBS:
+            profile = current.SOURCE_PATHS
     _require(owner, profile is not None, "maintenance pre-mutation source is unknown")
     return {
         path: first if path == evidence.OWNER else read(path, sha) for path in profile
@@ -175,9 +178,15 @@ def qualify(owner, repository, environment, run, job):
         )
     return evidence.qualify_preflight_run(
         repository, environment, attempt, job, log, blobs, workflow
-    ) or uat_guard.qualify_guard_run(
+    ) or importlib.import_module("retention_uat_guard_evidence").qualify_guard_run(
         repository, environment, attempt, job, log, blobs, workflow
     )
+
+
+def _tick_titles(owner, environment):
+    """Run titles that carry the clock's bot-tick authority for this environment."""
+    scoped = owner.SCOPED_TICK_TITLES[environment]
+    return {scoped, UNSCOPED_TICK_TITLE} if environment == "uat" else {scoped}
 
 
 def _legacy_actor(owner, attempt, run, number, environment):
@@ -197,8 +206,7 @@ def _legacy_actor(owner, attempt, run, number, environment):
             or (
                 attempt.get("event") == "repository_dispatch"
                 and actor == "github-actions[bot]"
-                and run.get("display_title")
-                in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}
+                and run.get("display_title") in _tick_titles(owner, environment)
             )
         )
         and (
