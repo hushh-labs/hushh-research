@@ -142,7 +142,11 @@ from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_loca
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
-from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.action_gateway import (
+    get_action_gateway_action,
+    is_runtime_disabled_action,
+    list_action_gateway_actions,
+)
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.chat_key import request_has_chat_key
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
@@ -166,6 +170,40 @@ from hushh_mcp.services.person_profile_service import PersonProfileService
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
+
+
+def admit_client_tools(tools: list[Any]) -> list[Any]:
+    """Client-provided tools are frontend execution requests, never new authority.
+
+    Every tool must already exist in the generated Action Gateway. One whose action
+    a runtime switch hides here (careers, CRM) is dropped, so the model is never
+    offered it and the turn still runs: every screen sends the global segments.
+    """
+    admitted: list[Any] = []
+    switched_off = 0
+    for tool in tools:
+        try:
+            if admit_receipt_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Receipt tool contract is invalid."
+            ) from None
+        action_id = action_id_from_tool_name(tool.name)
+        if action_id and get_action_gateway_action(action_id) is not None:
+            admitted.append(tool)
+        elif is_runtime_disabled_action(action_id):
+            switched_off += 1
+        else:
+            raise HTTPException(
+                status_code=400, detail="Agent tool is not in the generated action contract."
+            )
+    if switched_off:
+        logger.info("chat_tool_switched_off count=%d", switched_off)
+    return admitted
+
+
 router = APIRouter(tags=["Agent One"])
 
 
@@ -351,21 +389,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         screen_payload if isinstance(screen_payload, dict) else {}
     )
 
-    # Client-provided tools are frontend execution requests, never new
-    # authority. Every tool must already exist in the generated Action Gateway.
-    for tool in input_data.tools:
-        try:
-            if admit_receipt_tool(tool):
-                continue
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="Receipt tool contract is invalid."
-            ) from None
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(
-                status_code=400, detail="Agent tool is not in the generated action contract."
-            )
+    input_data.tools = admit_client_tools(input_data.tools)
 
     # Discard arbitrary client state before the middleware merges the trusted
     # projection. Sensitive values are represented only by expiring references.
