@@ -39,6 +39,10 @@ function payload(path: string, value: unknown): Record<string, unknown> {
   return result;
 }
 const resultValue = (result: Awaited<ReturnType<typeof retrieveApprovedMemoryScopes>>, scope: string, path: string) => atPath(result.projections.find(item => item.scope === scope)?.payload ?? {}, path);
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+// The coordinator's default merge: keys missing from the candidate are kept.
+const deepMerge = (base: unknown, next: unknown): unknown => !isObject(base) || !isObject(next) ? next
+  : Object.fromEntries([...new Set([...Object.keys(base), ...Object.keys(next)])].map(key => [key, key in next ? deepMerge(base[key], next[key]) : base[key]]));
 
 beforeEach(() => {
   vi.clearAllMocks(); advanceVaultSessionEpoch(); CacheService.getInstance().clear();
@@ -57,8 +61,11 @@ beforeEach(() => {
   transport.write.mockImplementation(async params => {
     await params.beforeEffect();
     const plan = await params.build({ currentDomainData: structuredClone(projection) });
-    // Simulate the existing writer's durable round trip and its own doorbell.
-    projection = JSON.parse(JSON.stringify(plan.domainData)); bumpPkmInvalidationEpoch(USER);
+    // Simulate the existing writer's durable round trip and its own doorbell, as
+    // the coordinator stores it: nothing for an unchanged plan, and a deep merge
+    // unless the plan replaces the domain.
+    if (!plan.unchanged) projection = JSON.parse(JSON.stringify(plan.mergeDecision?.merge_mode === "replace_domain" ? plan.domainData : deepMerge(projection, plan.domainData)));
+    bumpPkmInvalidationEpoch(USER);
     return { success: true };
   });
 });
@@ -123,6 +130,9 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     const corrected = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX], ownerIdentity: { displayName: "Account Ava" } });
     expect(resultValue(corrected, NAME, "identity_profile.full_name")).toBe("Corrected Ava"); expect(resultValue(corrected, SEX, "identity_profile.sex")).toBeUndefined();
     expect(corrected.projections.find(item => item.scope === NAME)?.contentRevision).toBe(10);
+    // The rebuilt slice is reused next, so the deleted fact must not survive in storage.
+    const reused = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX], ownerIdentity: { displayName: "Account Ava" } });
+    expect(resultValue(reused, SEX, "identity_profile.sex")).toBeUndefined();
   });
 
   it("never turns a failed revision check or failed DOB read into cached absence", async () => {
