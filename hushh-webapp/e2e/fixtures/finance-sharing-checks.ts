@@ -51,8 +51,8 @@ test("Finance sharing swipes retain one fixed frame across resize and reduced mo
   await edit.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(edit.getByRole("heading", { name: "What do you want to share?" })).toBeFocused();
   await edit.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(edit.getByRole("heading", { name: "How should access work?" })).toBeFocused();
-  const active = edit.getByRole("tabpanel", { name: "How should access work?" });
+  await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeFocused();
+  const active = edit.getByRole("tabpanel", { name: "Access", exact: true });
   await expect.poll(async () => Math.abs((await active.boundingBox())!.x - (await pager.boundingBox())!.x)).toBeLessThanOrEqual(1);
   await edit.getByRole("button", { name: "Ongoing access", exact: false }).click();
   await expect(edit.getByRole("button", { name: "Ongoing access", exact: false })).toHaveAttribute("aria-pressed", "true");
@@ -72,14 +72,14 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await edit.getByRole("checkbox", { name: /Sample connection/ }).check();
     const frameHeight = (await edit.boundingBox())!.height;
     await expect(page.locator('[data-task-surface="sheet"]')).toHaveCount(1);
-    await expect(edit.getByRole("heading", { name: "How should access work?" })).toBeHidden();
+    await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeHidden();
     expect(await people.getByRole("group", { name: "Connections" }).evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(edit.getByRole("heading", { name: "What do you want to share?" })).toBeFocused();
     expect((await edit.boundingBox())!.height).toBeCloseTo(frameHeight, 0);
     expect(await edit.getByRole("heading", { name: "What do you want to share?" }).evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeLessThanOrEqual(16);
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
-    await expect(edit.getByRole("heading", { name: "How should access work?" })).toBeFocused();
+    await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeFocused();
     expect((await edit.boundingBox())!.height).toBeCloseTo(frameHeight, 0);
     const dollars = edit.getByRole("checkbox", { name: /Show dollar amounts/ });
     const model = edit.getByRole("checkbox", { name: /Allow their Agent One to review/ });
