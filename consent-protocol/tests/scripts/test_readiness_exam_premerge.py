@@ -344,6 +344,13 @@ def test_runner_failures_keep_fixed_reasons_and_separate_identity_and_crashes(
     assert (
         runner._failure(ActivityPlannerContractError("core_reason"), "")["reason"] == "core_reason"
     )
+    # A semantic row names the same authored stage, reason and leg as the UAT verdict.
+    typed = runner._failure(ActivityPlannerContractError("core_x", case="ordinary", leg="core"), "")
+    assert [typed.get(k) for k in ("failure_stage", "failure_reason", "leg")] == [
+        "drive_planner.ordinary",
+        "core_x",
+        "core",
+    ]
     output = json.dumps({"azure_pwm_probe_failure": "guidance", "failed_fields": ["planner_lead"]})
     assert runner._failure(AzurePwmTrustError("x"), output)["reason"] == "planner_lead"
     assert runner._failure(TimeoutError(), "")["reason"] == "provider_timeout"
@@ -412,17 +419,16 @@ def test_report_samples_measure_one_case_and_never_decide(exam, monkeypatch, tmp
     monkeypatch.setenv("GITHUB_SHA", MAIN)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "ankitkumarsingh1702")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
-    outcomes = iter(
-        [("passed", "ok", "graded_passed"), ("failed", "semantic", "clause_x")]
-        + [("passed", "ok", "graded_passed")]
-    )
+    passed = {"result": "passed", "class": "ok", "reason": "graded_passed"}
+    failed = {"result": "failed", "class": "semantic", "reason": "clause_x", "leg": "tokens"}
+    outcomes = iter([passed, failed, passed])
     ran = []
 
     def run_cases(case_ids, env):
         ran.extend(case_ids)
         return [
-            {"case": case, "result": result, "class": kind, "reason": why, "elapsed_ms": 1}
-            for case, (result, kind, why) in zip(case_ids, outcomes, strict=False)
+            {"case": case, "elapsed_ms": 1, **row}
+            for case, row in zip(case_ids, outcomes, strict=False)
         ]
 
     monkeypatch.setattr(exam, "run_cases", run_cases)
@@ -441,7 +447,7 @@ def test_report_samples_measure_one_case_and_never_decide(exam, monkeypatch, tmp
         "drive_planner.ordinary": {
             "runs": 3,
             "passed": 2,
-            "outcomes": {"passed": 2, "failed:clause_x": 1},
+            "outcomes": {"passed": 2, "failed:clause_x:tokens": 1},
         }
     }
     # A measurement never decides: one failed sample keeps the verdict failed, no majority

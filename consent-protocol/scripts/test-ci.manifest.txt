@@ -1569,6 +1569,7 @@ tests/test_uat_readiness_verdict_collector.py
 tests/scripts/test_root_roundtrip_reasons.py
 tests/scripts/test_readiness_exam_premerge.py
 tests/scripts/test_readiness_exam_measurement.py
+tests/scripts/test_readiness_exam_runner.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
