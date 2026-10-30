@@ -25,14 +25,19 @@ def load_auth_health_job():
 def install_lease_http(monkeypatch, module, metadata_responses, storage_responses):
     queues = {"metadata": list(metadata_responses), "storage": list(storage_responses)}
     records = {"requests": [], "connections": [], "responses": []}
-    monkeypatch.setattr(
-        module.ssl,
-        "create_default_context",
-        lambda: SimpleNamespace(
+
+    def create_context(*, cafile):
+        assert cafile == module.TLS_CA_BUNDLE_PATH
+        return SimpleNamespace(
             verify_mode=ssl.CERT_REQUIRED,
             check_hostname=True,
             cert_store_stats=lambda: {"x509_ca": 1},
-        ),
+        )
+
+    monkeypatch.setattr(
+        module.ssl,
+        "create_default_context",
+        create_context,
     )
 
     class FakeResponse:
@@ -90,15 +95,32 @@ def install_lease_http(monkeypatch, module, metadata_responses, storage_response
     return records, queues
 
 
-def test_verified_tls_context_requires_the_platform_default_trust_roots(monkeypatch):
+def test_verified_tls_context_uses_pinned_bundle_and_requires_verified_tls(monkeypatch):
     module = load_auth_health_job()
     context = SimpleNamespace(
         verify_mode=ssl.CERT_REQUIRED,
         check_hostname=True,
         cert_store_stats=lambda: {"x509_ca": 1},
     )
-    monkeypatch.setattr(module.ssl, "create_default_context", lambda: context)
+
+    def create_context(*, cafile):
+        assert cafile == module.TLS_CA_BUNDLE_PATH
+        return context
+
+    monkeypatch.setattr(module.ssl, "create_default_context", create_context)
     assert module._verified_tls_context() is context
+
+
+def test_verified_tls_context_fails_closed_when_pinned_bundle_is_unavailable(monkeypatch):
+    module = load_auth_health_job()
+
+    def unavailable_bundle(*, cafile):
+        assert cafile == module.TLS_CA_BUNDLE_PATH
+        raise FileNotFoundError(cafile)
+
+    monkeypatch.setattr(module.ssl, "create_default_context", unavailable_bundle)
+    with pytest.raises(FileNotFoundError, match="ca-certificates\\.crt"):
+        module._verified_tls_context()
 
 
 @pytest.mark.parametrize(
@@ -118,7 +140,12 @@ def test_verified_tls_context_refuses_missing_roots_or_disabled_verification(
         check_hostname=check_hostname,
         cert_store_stats=lambda: {"x509_ca": ca_count},
     )
-    monkeypatch.setattr(module.ssl, "create_default_context", lambda: context)
+
+    def create_context(*, cafile):
+        assert cafile == module.TLS_CA_BUNDLE_PATH
+        return context
+
+    monkeypatch.setattr(module.ssl, "create_default_context", create_context)
     with pytest.raises(ValueError, match="Default TLS trust configuration"):
         module._verified_tls_context()
 
