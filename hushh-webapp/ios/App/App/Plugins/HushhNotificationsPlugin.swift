@@ -7,6 +7,7 @@ import FirebaseCore
 import UIKit
 import AVFoundation
 import AudioToolbox
+import CallKit
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -98,6 +99,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                   let grant = notification.userInfo?["grantId"] as? String,
                   ChatPreviewKeys.recipientKey(["user_id": user]) != nil else { return }
             if user == self.emergencyOwner { self.stopEmergencyCue(grantId: grant) }
+            self.retireHandoffIfSettled()
             self.notifyListeners("emergencySmsAcknowledged", data: ["userId": user, "grantId": grant])
         })
         emergencyObservers.append(NotificationCenter.default.addObserver(
@@ -116,11 +118,12 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         emergencyObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             // Returning is the chance to resume: a missed interruption end must not
-            // leave the alarm silent. Resume first, then retire the hand-off alerts.
-            self?.emergencyInterrupted = false
-            self?.resumeEmergencyCue()
-            EmergencySmsCueHandoff.cancel()
+            // leave the alarm silent, but a live call keeps the siren paused.
+            if !CXCallObserver().calls.contains(where: { !$0.hasEnded }) { self.emergencyInterrupted = false }
+            self.resumeEmergencyCue()
+            self.retireHandoffIfSettled()
         })
         if FirebaseApp.app() != nil {
             emergencyAuthObserver = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -139,6 +142,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                        user?.uid != self.emergencyFirebaseUid || ChatPreviewKeys.recipientKey(["user_id": owner]) == nil {
                         self.stopEmergencyCue()
                     }
+                    if user == nil { EmergencySmsCueHandoff.cancel() } // Sign-out ends every hand-off.
                 }
             }
         }
@@ -233,7 +237,18 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.systemAlarmOwners.removeValue(forKey: user)
                 if user == self.emergencyOwner { self.stopEmergencyCue() }
             }
+            self.retireHandoffIfSettled()
             call.resolve()
+        }
+    }
+
+    /// The hand-off series retires once this process's in-app alarm is ringing, or
+    /// once no alarm is pending at all. A series left by an ended process keeps
+    /// covering the background until the web restores the in-app alarm.
+    private func retireHandoffIfSettled() {
+        let ringing = emergencyPlayer?.isPlaying == true
+        if ringing || SmsAlarmLedger.owners().allSatisfy({ SmsAlarmLedger.pending(user: $0).isEmpty }) {
+            EmergencySmsCueHandoff.cancel()
         }
     }
 
@@ -284,6 +299,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             self.emergencyGrants.insert(grantId)
             if self.emergencyPlayer != nil {
                 self.resumeEmergencyCue() // A paused player restarts on the web's re-request.
+                self.retireHandoffIfSettled()
                 call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false]); return
             }
             do {
@@ -310,6 +326,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 self.emergencyPulse = pulse
                 RunLoop.main.add(pulse, forMode: .common)
+                self.retireHandoffIfSettled()
                 call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false])
             } catch {
                 call.resolve(["played": false])
@@ -540,6 +557,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                 var cancelled = true
                 if #available(iOS 26.0, *) { cancelled = EmergencySmsSystemAlarm.cancelOwner(user) }
                 if let self, self.emergencyOwner == user { self.stopEmergencyCue() }
+                EmergencySmsCueHandoff.cancel() // A cleared key ends every hand-off.
                 do {
                     if call.getBool("deleteAlarmReceipts") == true {
                         guard cancelled else { call.reject("Notification alarm cleanup unavailable"); return }
@@ -595,6 +613,7 @@ enum EmergencySmsCueHandoff {
     static let prefix = "hushh.sms-alarm.handoff."
     /// The first alert after 5 s, then one a minute for ten minutes.
     static let offsets: [TimeInterval] = [5] + (1...10).map { TimeInterval($0 * 60) }
+    static let identifiers: [String] = offsets.indices.map { "\(prefix)\($0)" }
 
     static func requests() -> [UNNotificationRequest] {
         offsets.enumerated().map { (index, offset) -> UNNotificationRequest in
@@ -604,7 +623,7 @@ enum EmergencySmsCueHandoff {
             content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
             content.threadIdentifier = prefix
             return UNNotificationRequest(
-                identifier: "\(prefix)\(index)", content: content,
+                identifier: identifiers[index], content: content,
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: offset, repeats: false))
         }
     }
@@ -621,13 +640,10 @@ enum EmergencySmsCueHandoff {
 
     /// Removes every pending and delivered hand-off alert.
     static func cancel() {
+        // Fixed identifiers: no read-then-remove race with a series scheduled meanwhile.
         let center = UNUserNotificationCenter.current()
-        center.getPendingNotificationRequests { pending in
-            center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter(isHandoff))
-        }
-        center.getDeliveredNotifications { delivered in
-            center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier).filter(isHandoff))
-        }
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
     }
 
     static func isHandoff(_ identifier: String) -> Bool { identifier.hasPrefix(prefix) }

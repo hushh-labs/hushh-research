@@ -71,6 +71,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(requests.count, EmergencySmsCueHandoff.offsets.count)
         XCTAssertLessThanOrEqual(requests.count, 64) // iOS pending-request limit.
         XCTAssertEqual(Set(requests.map(\.identifier)).count, requests.count)
+        // Cancel removes exactly what schedule adds, by fixed identifier.
+        XCTAssertEqual(requests.map(\.identifier), EmergencySmsCueHandoff.identifiers)
         XCTAssertLessThan(EmergencySmsCueHandoff.soundSeconds, 30) // iOS plays at most 30 s.
         for request in requests {
             XCTAssertTrue(EmergencySmsCueHandoff.isHandoff(request.identifier))
