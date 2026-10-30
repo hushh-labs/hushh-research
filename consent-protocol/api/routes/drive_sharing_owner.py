@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from fastapi import Depends, HTTPException, Response
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.drive_sharing_contract import CALENDAR_REFUSAL_REASONS
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_owner
 
@@ -52,6 +53,10 @@ _SHARING_ERRORS = {
     "calendar_organizer_unavailable": (
         409,
         "This organizer cannot receive a One request. Copy your request to share it directly.",
+    ),
+    "calendar_attendee_required": (
+        409,
+        "This Google account can't request files for this meeting.",
     ),
     "request_unavailable": (404, "This request is unavailable."),
     "verify_google_identity_required": (
@@ -126,6 +131,13 @@ _SHARING_ERRORS = {
 }
 
 
+# The only diagnostic reasons a client may see, per code.
+_CLOSED_REASONS = {
+    "invalid_argument": frozenset({"owner_copy_consent_missing", "owner_copy_consent_unexpected"}),
+    **CALENDAR_REFUSAL_REASONS,
+}
+
+
 def sharing_error(error: Exception) -> HTTPException:
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
     if code not in _SHARING_ERRORS:
@@ -134,9 +146,6 @@ def sharing_error(error: Exception) -> HTTPException:
     detail = {"code": code, "message": message}
     # A closed diagnostic explains this refusal without echoing private input.
     reason = getattr(error, "diagnostic_reason", None)
-    if code == "invalid_argument" and reason in {
-        "owner_copy_consent_missing",
-        "owner_copy_consent_unexpected",
-    }:
+    if reason in _CLOSED_REASONS.get(code, ()):
         detail["reason"] = reason
     return HTTPException(status, detail, headers=NO_STORE)

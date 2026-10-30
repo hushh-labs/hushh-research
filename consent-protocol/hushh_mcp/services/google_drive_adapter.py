@@ -298,13 +298,23 @@ def _file_path(file_id: str) -> str:
 
 async def retryable_403_response(response: httpx.Response) -> bool:
     return (
-        await classify_google_forbidden_response(response, strict_drive_retry=True)
+        await classify_google_forbidden_response(
+            response,
+            strict_drive_retry=True,
+            operation="drive.read",
+            service_hint="drive.googleapis.com",
+        )
         == "rate_limited"
     )
 
 
 async def _raise_forbidden_read(response: httpx.Response) -> None:
-    reason = await classify_google_forbidden_response(response, strict_drive_retry=True)
+    reason = await classify_google_forbidden_response(
+        response,
+        strict_drive_retry=True,
+        operation="drive.read",
+        service_hint="drive.googleapis.com",
+    )
     if reason == "rate_limited":
         # A rate limit is not evidence that a file is unavailable.
         raise DriveReadError("provider_unavailable", retryable=True)

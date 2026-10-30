@@ -111,6 +111,28 @@ async def _preflight(scan):
     return None, "ready"
 
 
+# Row summary when no file is verified. Order is by what the person can do next:
+# scope and account problems are theirs to fix, a confirmed file restriction is
+# the organizer's, and provider configuration is neither (retry cannot help), so
+# it must not collapse into the retryable temporary state.
+_ROW_STATE_PRECEDENCE = (
+    ("processing", "processing"),
+    ("permission_required", "permission_required"),
+    ("account_mismatch", "account_mismatch"),
+    ("resource_denied", "access_required"),
+    ("provider_policy", "provider_policy"),
+    ("provider_configuration", "provider_configuration"),
+    ("temporarily_unavailable", "temporarily_unavailable"),
+)
+
+
+def _row_file_state(row):
+    if row["artifact_kinds"]:
+        return "available"
+    states = set(row["availability"].values())
+    return next((summary for state, summary in _ROW_STATE_PRECEDENCE if state in states), "unknown")
+
+
 async def _scan_event(scan, event, calendar_id):
     if event.get("status") == "cancelled":
         return
@@ -201,22 +223,7 @@ async def _scan_event(scan, event, calendar_id):
             row["availability"][kind] = "available"
         elif row["availability"].get(kind) != "available":
             row["availability"][kind] = state
-    if row["artifact_kinds"]:
-        row["file_state"] = "available"
-    elif any(state == "processing" for state in row["availability"].values()):
-        row["file_state"] = "processing"
-    elif any(
-        state in {"resource_denied", "permission_required", "provider_policy"}
-        for state in row["availability"].values()
-    ):
-        row["file_state"] = "access_required"
-    elif any(
-        state in {"temporarily_unavailable", "provider_configuration"}
-        for state in row["availability"].values()
-    ):
-        row["file_state"] = "temporarily_unavailable"
-    else:
-        row["file_state"] = "unknown"
+    row["file_state"] = _row_file_state(row)
 
 
 def _advance(scan, page, events, offset, page_hash):
