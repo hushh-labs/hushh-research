@@ -1,0 +1,168 @@
+# pyproject.toml - Python tooling configuration for Hussh Consent Protocol
+
+[project]
+name = "hushh-consent-protocol"
+version = "1.0.0"
+description = "Consent-first backend for Hussh Personal Data Agents"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+readme = "README.md"
+dependencies = [
+    "asyncpg>=0.29.0",
+    "cryptography>=44.0.0",
+    "defusedxml>=0.7.1",
+    "fastapi>=0.115.0",
+    "firebase-admin==7.1.0",
+    "flask>=3.0.0",
+    "google-adk==1.28.1",
+    "google-api-core==2.29.0",
+    "google-auth>=2.14.1",
+    "google-cloud-storage>=2.18.2",
+    "grpcio==1.76.0",
+    "grpcio-status==1.76.0",
+    "gunicorn==25.3.0",
+    "httpx>=0.27.1,<0.29",
+    "mcp==1.26.0",
+    "opentelemetry-api>=1.33.0",
+    "opentelemetry-exporter-gcp-trace>=1.8.0",
+    "opentelemetry-instrumentation-fastapi>=0.54b0",
+    "opentelemetry-instrumentation-httpx>=0.54b0",
+    "opentelemetry-sdk>=1.33.0",
+    "pdfplumber==0.11.0",
+    "pillow>=10.0.0",
+    "proto-plus==1.27.0",
+    "protobuf>=6.31.1,<7.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pyjwt[crypto]>=2.10.1",
+    "pydantic>=2.0,<3.0",
+    "python-a2a>=0.4.0",
+    "python-dotenv==1.0.1",
+    "pytesseract>=0.3.10",
+    "requests>=2.32.4",
+    "rsa>=4.9",
+    "slowapi>=0.1.9",
+    "sqlalchemy>=2.0.0",
+    "sse-starlette>=2.1.0",
+    "uvicorn>=0.34.0",
+    "wrapt>=1.14.0",
+    "yfinance>=0.2.36",
+    "phonenumbers>=9.0.28",
+    "pycountry>=26.2.16",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.7.6",
+    "mypy>=1.8.0",
+    "pip-licenses>=5.0.0",
+    "pytest>=8.2.2",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+# Python 3.13 - aligned with CI and Dockerfile
+target-version = "py313"
+line-length = 100
+exclude = [
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "B",   # flake8-bugbear
+    "I",   # isort
+    "S",   # bandit security checks
+]
+ignore = [
+    "E501",  # Line length handled separately
+    "B904",  # Prefer explicit exception chaining, but avoid noisy diffs
+    "S110",  # Allow try-except-pass for optional fallbacks
+    "S608",  # Allow string-based SQL construction (params are properly escaped via SQLAlchemy)
+    "B008",  # FastAPI Depends() in argument defaults is intentional
+    "S607",  # gcloud/subprocess partial path acceptable for CLI discovery
+    "S112",  # try/except/continue without logging acceptable in parsing loops
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow assert in tests
+"api/routes/*" = ["B008"]  # Redundant with global; FastAPI Depends() pattern
+"scripts/*" = ["S106"]  # Test/script fixtures may use placeholder tokens
+
+[tool.ruff.format]
+# Enable ruff format for consistent Python formatting
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+# Python 3.13 - aligned with CI and Dockerfile
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Gradual typing adoption
+ignore_missing_imports = true   # Third-party libs without stubs
+files = ["api", "hushh_mcp"]
+# Exclude modules with existing type debt (quarantined, not ignored)
+# Un-skip these one at a time as they're fixed
+exclude = [
+    "hushh_mcp/operons/",
+    "hushh_mcp/agents/",
+    "hushh_mcp/adk_bridge/",
+    "hushh_mcp/services/",
+    "hushh_mcp/trust/",
+    "hushh_mcp/vault/",
+    "hushh_mcp/tools/",
+    "hushh_mcp/hushh_adk/",
+    "hushh_mcp/consent/",
+    "hushh_mcp/constants\\.py",
+    "api/routes/kai/",
+    "api/routes/analysis\\.py",
+    "api/routes/consent\\.py",
+    "api/routes/session\\.py",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "hushh_mcp.operons.*",
+    "hushh_mcp.agents.*",
+    "hushh_mcp.adk_bridge.*",
+    "hushh_mcp.services.*",
+    "hushh_mcp.trust.*",
+    "hushh_mcp.vault.*",
+    "hushh_mcp.tools.*",
+    "hushh_mcp.hushh_adk.*",
+    "hushh_mcp.consent.*",
+    "hushh_mcp.constants",
+    "api.routes.kai.*",
+    "api.routes.analysis",
+    "api.routes.consent",
+    "api.routes.session",
+]
+follow_imports = "skip"
+
+[tool.bandit]
+exclude_dirs = ["tests", "__pycache__"]
+skips = ["B101"]  # Skip assert warnings
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"  # Enable pytest-asyncio auto mode
+asyncio_default_fixture_loop_scope = "function"  # Set event loop scope
