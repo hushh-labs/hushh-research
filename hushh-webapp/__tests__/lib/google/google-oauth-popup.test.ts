@@ -66,6 +66,18 @@ describe("openGoogleOAuthPopup", () => {
     window.sessionStorage.removeItem("one_google_oauth_popup_attempt_v1");
   });
 
+  it("accepts optional meeting scopes on first connection without inventing a selected account", () => {
+    const attempt = { version: 1, attemptId: "synthetic-first-meeting-attempt",
+      service: "calendar", startedAt: Date.now(), ownerId: "synthetic-owner",
+      meetingFiles: true };
+    window.sessionStorage.setItem("one_google_oauth_popup_attempt_v1", JSON.stringify(attempt));
+    expect(readGoogleOAuthPopupAttempt()).toEqual(attempt);
+    window.sessionStorage.setItem("one_google_oauth_popup_attempt_v1", JSON.stringify({
+      ...attempt, targetAccountId: "default",
+    }));
+    expect(readGoogleOAuthPopupAttempt()).toBeNull();
+  });
+
   it("persists and identifies the same-window Calendar fallback", () => {
     const attempt = {
       version: 1 as const, attemptId: "synthetic-same-window-attempt",
@@ -130,17 +142,18 @@ describe("openGoogleOAuthPopup", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("requires both exact meeting scopes, selected subject and a fresh grant after OAuth", () => {
+  it("requires exact meeting and metadata scopes, selected subject and a fresh grant after OAuth", () => {
     const base = { configured: true, connected: true, status: "connected" as const, scope_csv: "",
       accounts: [{ account_id: "calendar-2", google_email: "selected@example.test", connected: true,
         status: "connected" as const, access_level: "read" as const, calendar_list_access: true,
         provider_subject_sha256: "a".repeat(64), grant_generation: "old",
-        scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly" }] };
+        scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly https://www.googleapis.com/auth/drive.metadata.readonly" }] };
     expect(hasCalendarMeetingFileGrant(base, "calendar-2", "a".repeat(64))).toBe(true);
     expect(hasCalendarMeetingFileGrant(base, "default", "a".repeat(64))).toBe(false);
     expect(hasCalendarMeetingFileGrant(base, "calendar-2", "b".repeat(64))).toBe(false);
     expect(hasCalendarMeetingFileGrant(base, "calendar-2", "a".repeat(64), "old")).toBe(false);
     expect(hasCalendarMeetingFileGrant({ ...base, accounts: [{ ...base.accounts[0], grant_generation: "new" }] }, "calendar-2", "a".repeat(64), "old")).toBe(true);
     expect(hasCalendarMeetingFileGrant({ ...base, accounts: [{ ...base.accounts[0], scope_csv: "https://www.googleapis.com/auth/drive.meet.readonly" }] }, "calendar-2", "a".repeat(64))).toBe(false);
+    expect(hasCalendarMeetingFileGrant({ ...base, accounts: [{ ...base.accounts[0], scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly" }] }, "calendar-2", "a".repeat(64))).toBe(false);
   });
 });

@@ -1,9 +1,10 @@
+import { fixture, resetCalendarChatFixture } from "./calendar-chat-workspace-fixture";
 import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
 import { calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
-import { act, cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
@@ -15,71 +16,9 @@ import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-o
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 
-const fixture = vi.hoisted(() => {
-  const user = { uid: "owner", email: "owner@example.com", displayName: "Owner", getIdToken: async () => "test-id-token" };
-  const tokenAccess = { available: true };
-  return {
-    tokenAccess,
-    captureReady: false,
-    nameOnboarding: false,
-    auth: { user, loading: false, sessionVerificationRequired: false },
-    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => tokenAccess.available ? "test-owner-token" : null },
-    persona: { activePersona: "investor", primaryNavPersona: "investor", personaTransitionTarget: null, riaSetupAvailable: false, riaSwitchAvailable: false, riaOnboardingStatus: null, switchPersona: vi.fn() },
-    onboarding: { turns: [], shownTurns: new Map(), shownTurnTimes: new Map(), captureComposerText: () => false, dailyTip: null },
-    memory: { text: "", domains: [], totalAttributes: 0, updatedAt: null },
-    router: { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() },
-    search: new URLSearchParams(),
-    gmail: { status: null, loadingStatus: false, presentation: {} },
-  };
-});
-vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ ...fixture.auth, userId: fixture.auth.user.uid }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => fixture.vault }));
-vi.mock("@/lib/persona/persona-context", () => ({ usePersonaState: () => fixture.persona }));
-vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", async importOriginal => {
-  const actual = await importOriginal<typeof import("@/lib/agent/chat-onboarding/use-chat-onboarding")>();
-  return { ...actual, useChatOnboarding: (input: Parameters<typeof actual.useChatOnboarding>[0]) =>
-    fixture.nameOnboarding ? actual.useChatOnboarding(input) : fixture.onboarding };
-});
-vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain: vi.fn() } }));
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
-  syncOneChatOnboarding: vi.fn(async () => ({})),
-} }));
-vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => fixture.gmail }));
-vi.mock("@/lib/navigation/use-root-chat-deferred-ready", () => ({ useRootChatDeferredReady: () => true }));
-vi.mock("@/lib/one-voice/readiness", () => ({ useOneVoiceLiveEnabled: () => false }));
-vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
-vi.mock("@/lib/agent/use-one-display-name", () => ({ useOneDisplayName: () => "One" }));
-vi.mock("@/lib/services/model-preference-service", () => ({ ModelPreferenceService: { get: async () => ({ choices: [], effective_model: "test" }) } }));
-vi.mock("@/lib/agent/use-entry-welcome", () => ({ useEntryWelcome: () => null }));
-vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => { const actual = await importOriginal<typeof import("@/lib/agent/agent-pkm-capture-runtime")>(); return { ...actual, isAgentPkmProcessingReady: (...args: Parameters<typeof actual.isAgentPkmProcessingReady>) => fixture.captureReady && actual.isAgentPkmProcessingReady(...args) }; });
-vi.mock("@/lib/agent/agent-pkm-memory", async importOriginal => ({ ...await importOriginal<object>(), loadAgentPkmContext: async () => fixture.memory, peekAgentPkmContext: () => fixture.memory, warmAgentPkmContext: async () => fixture.memory }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => fixture.search, useRouter: () => fixture.router }));
-
-
-
-beforeEach(() => {
-  configure({ asyncUtilTimeout: 5000 });
-  useOneConversationSession.getState().clearSession();
-  Element.prototype.scrollTo = vi.fn();
-  vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
-  fixture.captureReady = false;
-  fixture.tokenAccess.available = true;
-  fixture.nameOnboarding = false;
-  useChatOnboardingSession.getState().reset(null);
-  vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockReset().mockResolvedValue({ success: true, saveState: "saved" } as never);
-  fixture.vault.isVaultUnlocked = true;
-  fixture.auth.user.uid = "owner";
-  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
-  vi.spyOn(GoogleCalendarService, "status").mockResolvedValue({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
-  vi.spyOn(ApiService, "getPendingConsents").mockResolvedValue({ pending: [] } as never);
-  // The owner-aware facade owns routing; this suite supplies its stream port.
-  vi.spyOn(ApiService, "agentChatRequest").mockImplementation((path, init, streaming) =>
-    streaming ? ApiService.apiFetchStream(path, init) : Promise.resolve(Response.json({})));
-  vi.spyOn(ApiService, "listAgentChatConversations").mockResolvedValue(Response.json({ conversations: [] }));
-  vi.spyOn(ApiService, "getAgentChatHistory").mockResolvedValue(Response.json({ messages: [] }));
-});
+beforeEach(() => resetCalendarChatFixture());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionPrincipal(null); });
 
 function workspace() {
@@ -512,7 +451,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const confirm = await screen.findByRole("button", { name: "Schedule meeting" }, { timeout: 15000 });
     expect(fetchStream).toHaveBeenCalledOnce();
     expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("guest@example.com");
-    expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("Asia/Kolkata · 30 min");
+    expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("UTC+05:30 · 30 min");
     expect(screen.queryByRole("button", { name: "Allow Calendar scheduling" })).toBeNull();
     expect(execute).not.toHaveBeenCalled();
     fireEvent.click(confirm); fireEvent.click(confirm);
@@ -647,7 +586,6 @@ it("rejects a changed Google account even if the model returns the same invitati
   expect(screen.queryByText(/The connected Calendar account changed/)).toBeNull();
 });
 
-
 it("binds invitation reconnect to the unlocked owner and retires its capability on unmount", async () => {
   vi.spyOn(GoogleCalendarService, "invitations").mockRejectedValue(new GoogleCalendarError("Connect Calendar", "calendar_not_connected", 409));
   vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: {
@@ -707,27 +645,31 @@ it.each(["navigation", "vault lock", "owner change", "verification required"])(
   15_000,
 );
 
-it("reports incomplete memory preparation instead of silently treating it as no new facts", async () => {
-  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
-  const markdown = await import("@/lib/pkm/markdown-memory");
-  const { morphyToast } = await import("@/lib/morphy-ux/morphy");
-  const failure = vi.spyOn(morphyToast, "error");
-  fixture.captureReady = true;
-  vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({
-    cards: [], previews: [], sourceCoverage: [{
-      sourceBlockId: "profile", preparationIssue: "preparation_timeout",
-      disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0,
-    }],
-  } as never);
+it.each(["capture", "read", "locked"] as const)("keeps a background memory %s failure out of the answer unless the vault is locked", async failure => {
+  const [ingestion, markdown, { morphyToast }, observability] = await Promise.all([import("@/lib/pkm/pkm-natural-language-ingestion"),
+    import("@/lib/pkm/markdown-memory"), import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const [failureToast, track] = [vi.spyOn(morphyToast, "error"), vi.spyOn(observability, "trackEvent")];
+  Object.assign(fixture, { captureReady: true, memoryReadFails: failure !== "capture" });
+  if (failure === "locked") fixture.vault.vaultKey = null as never;
+  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [], previews: [], sourceCoverage: [{ sourceBlockId: "profile",
+    preparationIssue: "preparation_timeout", disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0 }] } as never);
   const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts");
-  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
-  const composer = await screen.findByRole("textbox", { name: "Message One" });
-  fireEvent.change(composer, { target: { value: "I study robotics at Example University." } });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "I study robotics at Example University." } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-  await screen.findByRole("button", { name: "Schedule meeting" });
-  expect(stage).not.toHaveBeenCalled();
-  expect(failure).toHaveBeenCalledWith("One couldn't update memory.md. Your message is still in chat; try saving it again.");
+  const blocked = "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.";
+  await (failure === "locked" ? screen.findByText(blocked) : screen.findByRole("button", { name: "Schedule meeting" }));
+  expect(preparation).toHaveBeenCalledTimes(failure === "capture" ? 1 : 0);
+  expect(stage).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
+  if (failure === "capture") expect(track).toHaveBeenCalledWith("agent_pkm_save_confirmation_completed", expect.objectContaining({ result: "error" }));
+  expect(stream).toHaveBeenCalledTimes(failure === "locked" ? 0 : 1);
+  expect(Boolean(screen.queryByText(blocked))).toBe(failure === "locked");
+  expect(screen.queryByText(/memory\.md status/)).toBeNull(); expect(Boolean(screen.queryByText("Private memory could not load."))).toBe(failure === "read");
+  if (failure === "read") expect(JSON.parse(String(stream.mock.calls[0][1]?.body)).forwardedProps.pkmContext)
+    .toContain("memory.md status: could not be read for this turn; its contents are unknown, not empty.");
+  if (failure !== "capture") expect(track).toHaveBeenCalledWith("agent_pkm_context_unavailable",
+    expect.objectContaining({ reason: failure === "read" ? "load_failed" : "vault_locked" }));
 });
 
 it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
@@ -911,6 +853,58 @@ it.each(["untouched", "edited-and-cleared", "edited-inflight", "owner-replaced",
   expect(sourceText).not.toContain("Private recovery source");
 });
 
+it("keeps the selected Calendar zone in the wire while the visible request uses UTC offsets", async () => {
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  workspace();
+  await screen.findByRole("textbox", { name: "Message One" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: {
+    ownerId: "owner", request: "Find another time on Nov 1 in New York (UTC-04:00 → UTC-05:00).", timeZone: "America/New_York",
+  } }); });
+  await waitFor(() => expect(stream).toHaveBeenCalledOnce());
+  const wire = JSON.parse(String(stream.mock.calls[0][1]?.body));
+  expect(wire.forwardedProps.timezone).toBe("America/New_York");
+  expect(JSON.stringify(wire.messages.at(-1).content)).not.toContain("America/New_York");
+  expect(JSON.stringify(wire.messages.at(-1).content)).toContain("UTC-04:00");
+});
+
+it("does not retry a restored Calendar day search in the device time zone", async () => {
+  const { noteChatKeyAccepted } = await import("@/lib/vault/one-chat-key");
+  const { morphyToast } = await import("@/lib/morphy-ux/morphy");
+  noteChatKeyAccepted();
+  const notice = vi.spyOn(morphyToast, "info");
+  const { rememberInAppChat } = await import("@/lib/agent/in-app-chat-selection");
+  rememberInAppChat("owner", "same-conversation");
+  clearAgentChatHistoryCache("owner");
+  const request = calendarDaySearchRequest("2026-11-01", "America/New_York", 30);
+  vi.mocked(ApiService.listAgentChatConversations).mockResolvedValue(Response.json({ conversations: [
+    { id: "same-conversation", title: "Calendar chat", status: "active", message_count: 2 },
+  ] }));
+  vi.mocked(ApiService.getAgentChatHistory).mockResolvedValue(Response.json({ messages: [
+    { id: "calendar-day-user", conversation_id: "same-conversation", role: "user", status: "complete", content: request },
+    { id: "calendar-day-answer", conversation_id: "same-conversation", role: "assistant", status: "complete", content: "I found an opening." },
+  ] }));
+  const stream = vi.spyOn(ApiService, "apiFetchStream");
+  workspace();
+  await screen.findByText(request);
+  fireEvent.click((await screen.findAllByRole("button", { name: "Try again" })).at(-1)!);
+  expect(notice).toHaveBeenCalledWith("Open Calendar and choose the day again.");
+  expect(stream).not.toHaveBeenCalled();
+}, 15_000);
+
+it("preserves retry for an ordinary chat request with similar words", async () => {
+  const request = calendarDaySearchRequest("2026-11-01", "America/New_York", 30)
+    .replace(/^Calendar request: /, "");
+  const stream = vi.spyOn(ApiService, "apiFetchStream")
+    .mockRejectedValueOnce(new Error("Network failure"))
+    .mockImplementation(async () => sse("tool"));
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: request } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  fireEvent.click((await screen.findAllByRole("button", { name: "Try again" })).at(-1)!);
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+});
+
 it("does not borrow an active Mail reply workflow for a meeting turn", async () => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
   vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Verified notes" }] });
@@ -928,7 +922,6 @@ it("does not borrow an active Mail reply workflow for a meeting turn", async () 
   expect(JSON.stringify(next.context)).not.toContain("mail-workflow");
   expect(next.gmailInformationRequestWorkflowId).toBeUndefined();
 });
-
 
 it.each([false, true])("reports authorized Calendar/Mail settlement without repeating effects (history retry: %s)", async retryHistory => {
   const { snapshotVaultSessionEpoch } = await import("@/lib/vault/session-epoch");

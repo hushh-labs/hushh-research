@@ -39,7 +39,7 @@ def _attachment_refs(event):
     return refs
 
 
-def _library_attachment_refs(event):
+def library_attachment_refs(event):
     """Exact occurrence links, admitted only with a provider-style file label.
 
     Calendar permits arbitrary attachments, so an ordinary Doc or video must
@@ -181,14 +181,14 @@ async def _verify_record(service, user_id, code, event, calendar_id, record, beg
     return name
 
 
-async def _generated_files(service, token, name, check, refs, states):
+async def _generated_files(service, meet_pages, name, check, refs, states):
     for resource, kind, destination, key in [
         ("recordings", "recording", "driveDestination", "file"),
         ("smartNotes", "notes", "docsDestination", "document"),
         ("transcripts", "transcript", "docsDestination", "document"),
     ]:
         try:
-            items = await service._meet_pages(token, f"{name}/{resource}", resource)
+            items = await meet_pages(f"{name}/{resource}", resource)
             await check()
             states[kind] = "not_generated"
             for item in items:
@@ -211,9 +211,43 @@ async def _generated_files(service, token, name, check, refs, states):
                 else:
                     raise ArtifactUnavailable("temporarily_unavailable")
         except ArtifactUnavailable as error:
-            states[kind] = error.state
+            states[kind] = (
+                "temporarily_unavailable" if error.state == "token_rejected" else error.state
+            )
         except (ValueError, TypeError, AttributeError):
             states[kind] = "temporarily_unavailable"
+
+
+async def _initial_meet_token(calendar, user_id, grant, check, inspect_token, meet_scopes):
+    token = await calendar.connections.access_token(
+        user_id=user_id, service="calendar", access_level="read"
+    )
+    refreshed = False
+    try:
+        scopes = await inspect_token(token, grant.provider_subject)
+    except ArtifactUnavailable as error:
+        if error.state != "token_rejected":
+            raise
+        refreshed = True
+        token = await calendar.connections.access_token(
+            user_id=user_id, service="calendar", access_level="read", force_refresh=True
+        )
+        try:
+            scopes = await inspect_token(token, grant.provider_subject)
+        except ArtifactUnavailable as second:
+            raise ArtifactUnavailable(
+                "temporarily_unavailable" if second.state == "token_rejected" else second.state
+            ) from None
+    await check()
+    if not scopes & meet_scopes:
+        raise ArtifactUnavailable("permission_required")
+    return token, refreshed
+
+
+def _meet_discovery_state(state):
+    if state == "token_rejected":
+        return "temporarily_unavailable"
+    return "meet_discovery_denied" if state == "resource_denied" else state
 
 
 async def _discover(
@@ -225,16 +259,35 @@ async def _discover(
         await calendar._check_read_binding(user_id, grant.binding)
 
     await check()
-    token = await calendar.connections.access_token(
-        user_id=user_id, service="calendar", access_level="read"
+    token, refreshed = await _initial_meet_token(
+        calendar, user_id, grant, check, inspect_token, meet_scopes
     )
-    scopes = await inspect_token(token, grant.provider_subject)
-    await check()
-    if not scopes & meet_scopes:
-        raise ArtifactUnavailable("permission_required")
+
+    async def meet_pages(path, field, params=None, *, page_size=100):
+        nonlocal token, refreshed
+        try:
+            return await service._meet_pages(token, path, field, params, page_size=page_size)
+        except ArtifactUnavailable as error:
+            if error.state != "token_rejected" or refreshed:
+                raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
+        refreshed = True
+        token = await calendar.connections.access_token(
+            user_id=user_id, service="calendar", access_level="read", force_refresh=True
+        )
+        try:
+            scopes = await inspect_token(token, grant.provider_subject)
+        except ArtifactUnavailable as error:
+            raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
+        await check()
+        if not scopes & meet_scopes:
+            raise ArtifactUnavailable("permission_required")
+        try:
+            return await service._meet_pages(token, path, field, params, page_size=page_size)
+        except ArtifactUnavailable as error:
+            raise ArtifactUnavailable(_meet_discovery_state(error.state)) from None
+
     begin, finish = _event_window(event)
-    matches = await service._meet_pages(
-        token,
+    matches = await meet_pages(
         "conferenceRecords",
         "conferenceRecords",
         {
@@ -250,12 +303,17 @@ async def _discover(
     name = await _verify_record(
         service, user_id, code, event, calendar_id, matches[0], begin, finish
     )
-    await _generated_files(service, token, name, check, refs, states)
+    await _generated_files(service, meet_pages, name, check, refs, states)
     return next(
         (
             state
             for state in (
                 "permission_required",
+                "account_mismatch",
+                "provider_configuration",
+                "provider_policy",
+                "meet_discovery_denied",
+                "resource_denied",
                 "temporarily_unavailable",
                 "processing",
                 "unavailable",
@@ -269,7 +327,7 @@ async def _discover(
 async def meeting_references(
     service, user_id, grant, event, calendar_id, *, for_chat, inspect_token, meet_scopes
 ):
-    refs = _attachment_refs(event) if for_chat else _library_attachment_refs(event)
+    refs = _attachment_refs(event) if for_chat else library_attachment_refs(event)
     attachment_truncated = not for_chat and len(refs) > 25
     if attachment_truncated:
         refs = refs[:25]

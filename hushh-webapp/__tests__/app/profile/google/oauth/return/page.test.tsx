@@ -160,8 +160,18 @@ describe("GoogleOAuthReturnPage", () => {
 
     await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"));
   });
+  it("settles first Calendar connection when optional meeting consent is partial", async () => {
+    const popup = { ...attempt(), meetingFiles: true };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({ ...connected(), scope_csv: "https://www.googleapis.com/auth/calendar.readonly",
+      accounts: [{ account_id: "default", connected: true, status: "connected", access_level: "read",
+        scope_csv: "https://www.googleapis.com/auth/calendar.readonly" }] });
+    render(<GoogleOAuthReturnPage />);
+    await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"));
+  });
   it.each([
-    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: true },
+    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly https://www.googleapis.com/auth/drive.metadata.readonly", subject: "a".repeat(64), generation: "new", allowed: true },
+    { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: false },
     { completed: "other", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: false },
     { completed: "default", scopes: "https://www.googleapis.com/auth/drive.meet.readonly", subject: "a".repeat(64), generation: "new", allowed: false },
     { completed: "default", scopes: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly", subject: "b".repeat(64), generation: "new", allowed: false },
@@ -182,7 +192,7 @@ describe("GoogleOAuthReturnPage", () => {
     mocks.readAttempt.mockReturnValue(popup);
     mocks.completeConnect.mockResolvedValue({ ...connected(), completed_account_id: "default", accounts: [
       { account_id: "default", connected: true, status: "connected", access_level: "read",
-        scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly",
+        scope_csv: "https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive.meet.readonly https://www.googleapis.com/auth/drive.metadata.readonly",
         provider_subject_sha256: "a".repeat(64), grant_generation: "new" },
     ] });
     render(<GoogleOAuthReturnPage />);

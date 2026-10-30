@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 438,
+  "expected_migration_version": 441,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -94,6 +94,7 @@
     "document_delivery_summary_for",
     "effective_erasure_azure_files_inventory",
     "effective_erasure_substrate_inventory",
+    "end_finance_connection_shares",
     "enroll_account_generation",
     "ensure_drive_share_management_context",
     "erase_hosted_source_envelope_on_grant_change",
@@ -111,6 +112,7 @@
     "expected_erasure_never_hosted",
     "feed_from_agent_outcome",
     "feed_from_bulk_share_outcome",
+    "fence_sms_alarm_capability",
     "files_upgrade_admission_ready",
     "finalize_personal_agent_cloud_removal",
     "finalize_personal_agent_erasure",
@@ -133,6 +135,8 @@
     "guard_direct_message_reaction_write",
     "guard_drive_owner_search_capacity",
     "guard_email_account_capture",
+    "guard_finance_access_grant",
+    "guard_finance_share_request",
     "guard_hashcoin_direct_transfer",
     "guard_hashcoin_redemption",
     "guard_pending_phone_transfer_erasure",
@@ -334,9 +338,6 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
-    "guard_finance_share_request",
-    "guard_finance_access_grant",
-    "end_finance_connection_shares",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -1402,7 +1403,10 @@
       "share_id",
       "state",
       "updated_at",
-      "user_id"
+      "user_id",
+      "sharing_quota_attempts",
+      "first_sharing_quota_at",
+      "ordinary_failure_attempts"
     ],
     "drive_bulk_share_files": [
       "file_digest",
@@ -1926,6 +1930,19 @@
       "stripe_checkout_session_id",
       "stripe_event_id"
     ],
+    "drive_rest_call_leases": [
+      "lease_id",
+      "user_id",
+      "connection_generation",
+      "expires_at"
+    ],
+    "drive_rest_owner_admission": [
+      "user_id",
+      "connection_generation",
+      "connector_id",
+      "next_start_at",
+      "sharing_cooldown_until"
+    ],
     "drive_share_events": [
       "created_at",
       "delivered_at",
@@ -1947,7 +1964,11 @@
       "created_at",
       "erased_at",
       "file_lock_hmac",
-      "operation_id"
+      "operation_id",
+      "bulk_share_id",
+      "bulk_position",
+      "bulk_recipient_user_id",
+      "removal_id"
     ],
     "drive_share_live_sources": [
       "connection_generation",
@@ -4624,6 +4645,7 @@
       "platform",
       "preview_key_id",
       "preview_public_key",
+      "sms_alarm_version",
       "token",
       "updated_at",
       "user_id"
@@ -4749,5 +4771,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 438
+  "expected_schema_head": 441
 }

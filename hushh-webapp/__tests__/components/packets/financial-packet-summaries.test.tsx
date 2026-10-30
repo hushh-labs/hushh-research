@@ -72,11 +72,11 @@ describe("@feature_drive_packets @trace_loop public summaries and private reques
     state.list.mockResolvedValue({ packets: [{ ...summary, documentCount: 51, saleDocumentCount: 7,
       complete: true, updatedAt: "2026-10-26T10:00:00Z", viewerAction: "request", availability: "ready" }], nextCursor: null });
     render(<FinancialPacketSummaries personRef={person} ownerName="Avery" onConnect={vi.fn()} onUnlock={vi.fn()} />);
-    expect(await screen.findByRole("button", { name: /Jul–Aug 2026/ })).toHaveTextContent("Request for $5");
+    expect(await screen.findByRole("button", { name: /Jul–Aug 2026/ })).toHaveTextContent("51 search matches · Request");
     state.list.mockResolvedValue({ packets: [{ ...summary, documentCount: 0, saleDocumentCount: 0,
       complete: true, updatedAt: "2026-10-26T09:00:00Z", viewerAction: "unavailable", availability: "unavailable" }], nextCursor: null });
     await act(async () => { window.dispatchEvent(new Event(CONSENT_STATE_CHANGED_EVENT)); });
-    await waitFor(() => expect(screen.getByRole("button", { name: /Jul–Aug 2026/ })).not.toHaveTextContent("Request for $5"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Jul–Aug 2026/ })).not.toHaveTextContent(" · Request"));
     const page = await openPeriod();
     expect(within(page).queryByRole("button", { name: "Request for $5" })).not.toBeInTheDocument();
     expect(within(page).getByText("51 search matches")).toBeInTheDocument();

@@ -1,0 +1,358 @@
+{
+  "schema_version": "readiness_exam_manifest.v1",
+  "exam": "uat_azure_managed_provider_readiness",
+  "entrypoint": "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+  "cloud_build_step": "verify-azure-pwm-runtime",
+  "provider_config": "consent-protocol/config/managed-ai-runtime.json",
+  "guardrails": ".agents/skills/repo-operations/references/managed-provider-readiness.md#readiness-and-live-check-guardrails",
+  "cases": [
+    {
+      "id": "transport.primary_http",
+      "stage": "primary_http",
+      "kind": "transport",
+      "grader": "consent-protocol/scripts/probe_azure_openai_readiness.py:run_probe",
+      "provider": {
+        "config_refs": ["pwm_research_uat.azure.primary_deployment"]
+      },
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_azure_openai_readiness.py",
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "transport.tavily_search",
+      "stage": "tavily_search",
+      "kind": "transport",
+      "grader": "consent-protocol/hushh_mcp/one_adk/tavily_search.py:search_tavily",
+      "provider": {"config_refs": []},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/hushh_mcp/one_adk/tavily_search.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "managed_text.scope.drive_document_requests",
+      "stage": "managed_text",
+      "kind": "capability",
+      "grader": "consent-protocol/hushh_mcp/runtime_providers/managed_text.py:probe_managed_text_model",
+      "provider": {
+        "scope": "drive_document_requests",
+        "config_refs": ["private_drive_text_uat.provider", "pwm_research_uat.azure.primary_deployment"]
+      },
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_text.py",
+        "consent-protocol/hushh_mcp/runtime_providers/managed_text.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "managed_text.scope.one_text_chat",
+      "stage": "managed_text",
+      "kind": "capability",
+      "grader": "consent-protocol/hushh_mcp/runtime_providers/managed_text.py:probe_managed_text_model",
+      "provider": {
+        "scope": "one_text_chat",
+        "config_refs": ["private_drive_text_uat.provider", "managed_runtime_uat.azure.one_text_root.deployment"]
+      },
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_text.py",
+        "consent-protocol/hushh_mcp/runtime_providers/managed_text.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "drive_planner.ordinary",
+      "stage": "managed_text.activity_planner",
+      "kind": "semantic",
+      "grader": "consent-protocol/scripts/probe_drive_activity_planner.py:grade_plan",
+      "input": {"probe_case": "ordinary", "purpose": "resume consist Cedar Rowan Vale"},
+      "provider": {
+        "scope": "drive_document_requests",
+        "config_refs": ["private_drive_text_uat.provider", "pwm_research_uat.azure.primary_deployment"],
+        "reasoning_effort": "provider_default",
+        "output_schema": "consent-protocol/hushh_mcp/services/drive_request_semantic_plan.py:SemanticDrivePlan"
+      },
+      "anchor_status": "exact",
+      "anchors": [
+        {
+          "type": "agent_instruction",
+          "file": "consent-protocol/hushh_mcp/agents/documents/agent.yaml",
+          "subagent": "agent_documents_request_search",
+          "field": "system_instruction"
+        }
+      ],
+      "code_paths": [
+        "consent-protocol/scripts/probe_drive_activity_planner.py",
+        "consent-protocol/scripts/probe_managed_text.py",
+        "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
+        "consent-protocol/hushh_mcp/services/drive_request_semantic_plan.py",
+        "consent-protocol/hushh_mcp/services/drive_request_discovery.py",
+        "consent-protocol/hushh_mcp/runtime_providers/managed_text.py"
+      ],
+      "pre_merge": "live"
+    },
+    {
+      "id": "drive_planner.explicit",
+      "stage": "managed_text.activity_planner",
+      "kind": "semantic",
+      "grader": "consent-protocol/scripts/probe_drive_activity_planner.py:grade_plan",
+      "input": {
+        "probe_case": "explicit",
+        "purpose": "Filename exactly \"Research Charter.pdf\", exclude drafts. Created only within the selected period."
+      },
+      "provider": {
+        "scope": "drive_document_requests",
+        "config_refs": ["private_drive_text_uat.provider", "pwm_research_uat.azure.primary_deployment"],
+        "reasoning_effort": "provider_default",
+        "output_schema": "consent-protocol/hushh_mcp/services/drive_request_semantic_plan.py:SemanticDrivePlan"
+      },
+      "anchor_status": "exact",
+      "anchors": [
+        {
+          "type": "agent_instruction",
+          "file": "consent-protocol/hushh_mcp/agents/documents/agent.yaml",
+          "subagent": "agent_documents_request_search",
+          "field": "system_instruction"
+        }
+      ],
+      "code_paths": [
+        "consent-protocol/scripts/probe_drive_activity_planner.py",
+        "consent-protocol/scripts/probe_managed_text.py",
+        "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
+        "consent-protocol/hushh_mcp/services/drive_request_semantic_plan.py",
+        "consent-protocol/hushh_mcp/services/drive_request_discovery.py",
+        "consent-protocol/hushh_mcp/runtime_providers/managed_text.py"
+      ],
+      "pre_merge": "live"
+    },
+    {
+      "id": "pwm.federation",
+      "stage": "federation",
+      "kind": "transport",
+      "grader": "consent-protocol/scripts/verify_azure_pwm_runtime.py:_token_provider",
+      "provider": {"config_refs": []},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/verify_azure_pwm_runtime.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "pwm.primary",
+      "stage": "primary",
+      "kind": "semantic",
+      "grader": "consent-protocol/scripts/verify_azure_pwm_runtime.py:_probe_primary",
+      "provider": {"config_refs": ["pwm_research_uat.azure.primary_deployment"]},
+      "anchor_status": "composed",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model_azure.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model_contracts.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "pwm.confirmed_guidance",
+      "stage": "primary",
+      "kind": "semantic",
+      "grader": "consent-protocol/scripts/verify_azure_pwm_runtime.py:_probe_confirmed_guidance",
+      "provider": {"config_refs": ["pwm_research_uat.azure.primary_deployment"]},
+      "anchor_status": "exact",
+      "anchors": [
+        {
+          "type": "python_constant",
+          "file": "consent-protocol/hushh_mcp/one_adk/tavily_search.py",
+          "symbol": "QUERY_INSTRUCTION"
+        },
+        {
+          "type": "python_constant",
+          "file": "consent-protocol/hushh_mcp/one_adk/world_model_instructions.py",
+          "symbol": "_PLAN_INSTRUCTION"
+        },
+        {
+          "type": "python_constant",
+          "file": "consent-protocol/hushh_mcp/one_adk/world_model_azure.py",
+          "symbol": "_STRUCTURED_INSTRUCTION"
+        },
+        {
+          "type": "agent_instruction",
+          "file": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
+          "subagent": "one_personal_world_model",
+          "field": "system_instruction"
+        }
+      ],
+      "code_paths": [
+        "consent-protocol/scripts/verify_azure_pwm_runtime.py",
+        "consent-protocol/hushh_mcp/one_adk/tavily_search.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model_azure.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model_instructions.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model.py"
+      ],
+      "pre_merge": "live"
+    },
+    {
+      "id": "capability.structured_text",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.image_input",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.pdf_input",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.public_search",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "composed",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_capabilities.py",
+        "consent-protocol/hushh_mcp/one_adk/search_answer.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.public_source",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_capabilities.py",
+        "consent-protocol/hushh_mcp/one_adk/public_source_fetch.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.narration",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities", "managed_runtime_uat.azure.speech.deployment"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_capabilities.py",
+        "consent-protocol/hushh_mcp/services/voice_narration.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.location_transcription",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities", "managed_runtime_uat.azure.transcription.deployment"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.location_semantics",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities"]},
+      "anchor_status": "composed",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_capabilities.py",
+        "consent-protocol/hushh_mcp/one_adk/agent_tree.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.embeddings",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities", "managed_runtime_uat.azure.embedding.deployment"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.live_audio",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities", "managed_runtime_uat.azure.realtime.deployment"]},
+      "anchor_status": "none",
+      "anchors": [],
+      "code_paths": ["consent-protocol/scripts/probe_managed_capabilities.py"],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.compact_public_search",
+      "stage": "managed_capabilities",
+      "kind": "capability",
+      "grader": "consent-protocol/scripts/probe_managed_capabilities.py:probe_managed_capabilities",
+      "provider": {"config_refs": ["managed_runtime_uat.required_capabilities", "managed_runtime_uat.azure.compact_public_search.deployment"]},
+      "anchor_status": "composed",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_managed_capabilities.py",
+        "consent-protocol/hushh_mcp/one_adk/search_answer.py"
+      ],
+      "pre_merge": "unit_only"
+    },
+    {
+      "id": "capability.one_text_root",
+      "stage": "managed_capabilities",
+      "kind": "semantic",
+      "grader": "consent-protocol/scripts/probe_one_text_root.py:probe_one_text_root",
+      "provider": {
+        "config_refs": [
+          "managed_runtime_uat.required_capabilities",
+          "managed_runtime_uat.azure.one_text_root.deployment",
+          "managed_runtime_uat.azure.one_text_root.reasoning_effort"
+        ]
+      },
+      "anchor_status": "composed",
+      "anchors": [],
+      "code_paths": [
+        "consent-protocol/scripts/probe_one_text_root.py",
+        "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+        "consent-protocol/hushh_mcp/agents/one/agent.yaml"
+      ],
+      "pre_merge": "unit_only"
+    }
+  ]
+}

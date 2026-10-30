@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EmailSignInSection } from "@/components/onboarding/EmailSignInSection";
+import { EmailAuthRequestError } from "@/lib/auth/email-auth-contracts";
 import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -64,6 +65,9 @@ describe("Email sign-in authority handoff", () => {
     await enterCode();
     await screen.findByText("Previous account cleanup needs review before you can start fresh.");
     expect(screen.queryByRole("button", { name: "Create new account" })).not.toBeInTheDocument();
+    // @feature_account_deletion: a new code returns the same support-led answer, so support replaces it.
+    expect(screen.queryByRole("button", { name: /Request a new code/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Email support@hushh.ai" })).toHaveAttribute("href", "mailto:support@hushh.ai");
     expect(authenticated).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(2);
   });
@@ -77,6 +81,49 @@ describe("Email sign-in authority handoff", () => {
     view.unmount();
     await act(async () => resolve({ status: "authenticated", custom_token: "late-token" }));
     expect(authenticated).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["enrollment_changed", 409, "Request a new sign-in code."],
+    ["enrollment_expired", 409, "Restart email sign-in."],
+    // Finishing sign-in after verify used the code up answers 400 for a lapsed enrollment.
+    ["enrollment_expired", 400, "Restart email sign-in."],
+  ] as const)(
+    "@feature_account_deletion @trace_loop replaces a %s code (HTTP %i) with one new code for the same email", async (error, status, message) => {
+      request.mockResolvedValueOnce({ ...challenge, resend_at: 0 })
+        .mockRejectedValueOnce(new EmailAuthRequestError(error, message, status))
+        .mockResolvedValueOnce({ ...challenge, challenge_id: "opaque-challenge-next" });
+      const authenticated = vi.fn();
+      const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+      render(<EmailSignInSection disabled={false} onBusyChange={vi.fn()} onExpandedChange={vi.fn()} onAuthenticated={authenticated} />);
+      await enterCode();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Request a new sign-in code.");
+      // The Dev/UAT console names the code and status only, never the address.
+      const lines = info.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith("[KARMA]"));
+      expect(lines).toContainEqual(expect.stringMatching(new RegExp(` email_code\\.code_stale code=${error} status=${status}$`)));
+      expect(lines.join("\n")).not.toContain("person@example.com");
+      info.mockRestore();
+      expect(screen.queryByLabelText("Six-digit code")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Verify and sign in" })).not.toBeInTheDocument();
+      const resend = screen.getByRole("button", { name: "Send a new code" });
+      await waitFor(() => expect(resend).toBeEnabled());
+      fireEvent.click(resend);
+      expect(await screen.findByLabelText("Six-digit code")).toHaveValue("");
+      const sends = request.mock.calls.filter(([action]) => action === "request");
+      expect(sends).toHaveLength(2);
+      expect(sends[1][1]).toMatchObject({ email: "person@example.com", browser_binding: sends[0][1].browser_binding });
+      expect(sends[1][1].request_key).not.toBe(sends[0][1].request_key);
+      expect(authenticated).not.toHaveBeenCalled();
+    });
+
+  it("@feature_account_deletion @trace_loop keeps a wrong code editable without the new-code recovery", async () => {
+    request.mockResolvedValueOnce({ ...challenge, resend_at: 0 })
+      .mockRejectedValueOnce(new EmailAuthRequestError("invalid_code", "The code is invalid or expired.", 400));
+    render(<EmailSignInSection disabled={false} onBusyChange={vi.fn()} onExpandedChange={vi.fn()} onAuthenticated={vi.fn()} />);
+    await enterCode();
+    expect(await screen.findByRole("alert")).toHaveTextContent("The code is invalid or expired.");
+    expect(screen.getByLabelText("Six-digit code")).toHaveValue("001234");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Verify and sign in" })).toBeEnabled());
   });
 
   it("counts down to expiry and disables verification after returning from a hidden tab", async () => {

@@ -244,7 +244,7 @@
     },
     {
       "name": "one-location-onboarding-art-is-not-positioned-from-the-viewport",
-      "summary": "The Check-in card's artwork is anchored in a percentage of its own region, so its place inside the card does not change when the viewport height changes. The copy and the artwork never overlap.",
+      "summary": "The two-screen Location introduction keeps map visuals and copy within their own regions across phone heights; the map, address, and primary actions never overlap.",
       "fixed_by": "#5363",
       "why_it_needs_a_lock": [
         "This shipped as five separate `bottom` rules on [data-one-checkin-art] --",
@@ -256,7 +256,11 @@
         "",
         "A width-only sweep cannot catch this, and neither can reading the source:",
         "the first attempt at this fix removed ONE clamp and the browser test found",
-        "four more overrides still winning. The lock is the height sweep."
+        "four more overrides still winning. The lock is the height sweep.",
+        "",
+        "The two-screen flow removes that illustrated card. The production map",
+        "retains this height-sweep guard in Chromium and WebKit, including visual",
+        "bounds, address separation and fully visible primary actions."
       ],
       "tests": [
         {

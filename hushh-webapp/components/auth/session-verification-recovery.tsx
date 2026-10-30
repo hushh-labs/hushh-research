@@ -1,13 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { accountDeletionSteps } from "@/lib/auth/account-deletion-progress";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { AccountDeletionMark, AccountDeletionProgress } from "./account-deletion-progress";
 import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
+import { usePendingRetry } from "./use-pending-retry";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
@@ -15,11 +17,13 @@ export function SessionVerificationRecovery({
   onRetry,
   onSignOut,
 }: {
-  onRetry: () => void;
+  onRetry: () => void | Promise<unknown>;
   onSignOut: () => void;
 }) {
   const { user, userId: accountOwnerId, accountCleanup, accountRegistration, signOut } = useAuth();
   const deletionPending = isAccountDeletionActive(accountOwnerId);
+  const [trace] = useState(() => startJourneyTrace("session_recovery"));
+  const [checking, refresh] = usePendingRetry(onRetry, trace);
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
   const [acceptedOperationId, setAcceptedOperationId] = useState<string | null>(null);
@@ -46,6 +50,11 @@ export function SessionVerificationRecovery({
   // The AuthProvider re-checks on the backend's cadence, so a working deletion needs no
   // manual refresh. Steps that need the person keep their controls.
   const advancesAlone = runsWithoutYou && !delayed;
+  const cleanupState = cleanup?.state ?? null;
+  useEffect(() => {
+    // The registration panel traces its own screens.
+    if (!accountRegistration) trace("shown", { cleanup: cleanupState, delayed, deletion_pending: deletionPending, advances_alone: advancesAlone });
+  }, [trace, accountRegistration, cleanupState, delayed, deletionPending, advancesAlone]);
   const steps = cleanup ? accountDeletionSteps(cleanup, null) : null;
   const title = localErasureConfirmationRequired
     ? "Finish account deletion"
@@ -61,10 +70,10 @@ export function SessionVerificationRecovery({
     : localErasureConfirmationRequired
       ? "Confirm your earlier deletion request to finish cleanup."
       : !runsWithoutYou
-        ? "Your private agent stays paused until this step is done."
+        ? "Agent One stays paused until this step is done."
       : delayed
         ? "Your information stays hidden. Deletion is queued on our side and finishes without you. You can sign out and check back later."
-        : "Your private agent is paused while we erase your information. You can close this window or sign out; deletion keeps going.";
+        : "Agent One is paused while we erase your information. You can close this window or sign out; deletion keeps going.";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();
@@ -155,7 +164,8 @@ export function SessionVerificationRecovery({
         </p>}
         {steps && <AccountDeletionProgress steps={steps} />}
         {continuationError && <p role="status" className="mt-3 text-sm text-destructive">{continuationError}</p>}
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+        {/* Pending labels must not re-announce the whole alert. */}
+        <div aria-live="off" className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
           {canContinueCleanup && <button
             className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
             disabled={continuing || acceptedOperationId === cleanup?.id || (localErasureConfirmationRequired && !acknowledged)}
@@ -163,11 +173,12 @@ export function SessionVerificationRecovery({
             type="button"
           >{continuing ? continuingLabel : continueLabel}</button>}
           {(!advancesAlone || continuationError) && <button
-            className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background"
-            onClick={onRetry}
+            className="min-h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background disabled:opacity-50"
+            disabled={checking}
+            onClick={refresh}
             type="button"
           >
-            {cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
+            {checking ? "Checking…" : cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
           </button>}
           <button
             className="min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground"

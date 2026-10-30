@@ -137,11 +137,11 @@ describe("OpenAiKeyCard", () => {
     });
     renderCard();
     expect(
-      await screen.findByText(/Your own key runs on your private agent/),
+      await screen.findByText(/Your own key runs on Agent One/),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Set up your private agent" }),
+      screen.getByRole("button", { name: "Set up Agent One" }),
     );
     expect(mocks.push).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD);
   });

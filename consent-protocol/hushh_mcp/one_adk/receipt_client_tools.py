@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import logging
 import re
 import time
 from datetime import date, datetime
@@ -14,11 +15,19 @@ from zoneinfo import ZoneInfo
 
 from google.genai import types
 
+from hushh_mcp.one_adk.receipt_result_contract import (
+    RECEIPT_ATTENTION,
+    RECEIPT_FUNCTION_DESCRIPTIONS,
+    is_unavailable_receipt_result,
+    receipt_parameters,
+)
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
     store_request_secret,
 )
+
+logger = logging.getLogger(__name__)
 
 RECEIPT_TOOL_NAMES = frozenset(
     {
@@ -35,26 +44,10 @@ PRIVATE_RECEIPT_ANSWER = "Receipt analysis was shown for that turn. Ask again fo
 
 
 def receipt_tool_declaration(name: str) -> dict:
-    grouped = name in {"receipt_spending", "highest_receipt_spend"}
     return {
         "name": name,
-        "description": f"{name}: owner-authorized canonical receipt snapshot read. Money is computed on device; currencies separate. Products unsupported until structured evidence exists.",
-        "parameters": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["from_date", "to_date", "timezone"] + (["group_by"] if grouped else []),
-            "properties": {
-                "from_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                "to_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                "timezone": {"type": "string", "maxLength": 80},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 25},
-                **(
-                    {"group_by": {"type": "string", "enum": ["merchant", "category", "product"]}}
-                    if grouped
-                    else {}
-                ),
-            },
-        },
+        "description": RECEIPT_FUNCTION_DESCRIPTIONS[name],
+        "parameters": receipt_parameters(name),
     }
 
 
@@ -63,11 +56,14 @@ def validate_request(name: str, value: Any) -> dict:
         not isinstance(name, str)
         or name not in RECEIPT_TOOL_NAMES
         or not isinstance(value, dict)
-        or set(value) - {"from_date", "to_date", "timezone", "group_by", "limit"}
+        or set(value) - {"from_date", "to_date", "timezone", "group_by", "limit", "attention"}
     ):
         raise ValueError("Invalid receipt request.")
     result = dict(value)
-    result["limit"] = result.get("limit", 10)
+    # Read the limit as the device does: null is the default and JSON's 5.0 is 5.
+    limit = result.get("limit")
+    whole = isinstance(limit, float) and limit.is_integer()
+    result["limit"] = 10 if limit is None else int(limit) if whole else limit
     if not all(isinstance(result.get(k), str) for k in ("from_date", "to_date", "timezone")):
         raise ValueError("Invalid receipt range.")
     start, end = date.fromisoformat(result["from_date"]), date.fromisoformat(result["to_date"])
@@ -90,6 +86,10 @@ def validate_request(name: str, value: Any) -> dict:
         )
     ) or (not grouped and "group_by" in result):
         raise ValueError("Invalid receipt grouping.")
+    if "attention" in result and (
+        name != "list_recent_receipts" or result["attention"] not in RECEIPT_ATTENTION
+    ):
+        raise ValueError("Invalid receipt attention.")
     return result
 
 
@@ -139,37 +139,8 @@ def validate_result(name: str, request: dict, value: Any) -> dict:
         raise ValueError("Invalid receipt result shape.")
     if len(json.dumps(value, allow_nan=False).encode()) > 65536:
         raise ValueError("Receipt result too large.")
-    if value == {
-        "schema": "receipt_analysis.v1",
-        "operation": name,
-        "status": "unavailable",
-        "code": "receipt_snapshot_unavailable",
-        "requested_range": {
-            "from": request["from_date"],
-            "to": request["to_date"],
-            "end_exclusive": True,
-            "timezone": request["timezone"],
-        },
-        "source_freshness": None,
-        "snapshot_revision": None,
-        "canonical_transaction_count": None,
-        "matched_count": None,
-        "included_count": None,
-        "coverage": None,
-        "truncated": False,
-        "dedupe_policy": "Mail canonical groups; one transaction per saved group",
-        "refund_handling": {
-            "record_count": None,
-            "amount": None,
-            "net": None,
-            "policy": "Refund evidence unavailable.",
-        },
-        "cancellation_handling": "Unpaid, failed, cancelled and trial records are excluded from paid totals.",
-        "limitations": [
-            "The owner receipt snapshot could not be read. Sync Mail Receipts and ask again."
-        ],
-        "results": [],
-    }:
+    # Unavailable is one closed code paired with its exact sentence, never prose.
+    if is_unavailable_receipt_result(name, request, value):
         return value
     base = {
         "schema",
@@ -614,6 +585,7 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
     # value-free bindings with the model FunctionCall event, before the proxy
     # defers, so sealed session reload can authorize the device continuation.
     content = getattr(llm_response, "content", None)
+    invalid = []
     for part in getattr(content, "parts", None) or []:
         call = part.function_call
         if not call or call.name not in RECEIPT_TOOL_NAMES:
@@ -622,7 +594,11 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
             "hussh:consent_token"
         ):
             raise ValueError("Receipt owner authority is unavailable.")
-        request = validate_request(call.name, call.args)
+        try:
+            request = validate_request(call.name, call.args)
+        except (ValueError, KeyError, TypeError):
+            invalid.append(part)
+            continue
         if not call.id:
             # The proxy and sealed event must use this same SDK call identity.
             from google.adk.flows.llm_flows.functions import generate_client_function_call_id
@@ -641,6 +617,16 @@ def receipt_after_model(callback_context: Any, llm_response: Any) -> None:
             "issued_at": time.time(),
         }
         callback_context.state[STATE_RECEIPT_PENDING] = pending
+    if invalid and content is not None:
+        # A call that fails the closed schema leaves the response before the bridge
+        # defers it to the device, where it would also hide One's corrected call as
+        # a replay (UAT, 2026-10-29). With nothing else to say, the turn fails closed.
+        content.parts = [part for part in content.parts if all(part is not bad for bad in invalid)]
+        logger.info("one.receipt_call outcome=invalid_dropped")
+        if not any(
+            part.function_call or (part.text and not part.thought) for part in content.parts
+        ):
+            raise ValueError("Receipt request is invalid. Ask again.")
     ref = callback_context.state.get(STATE_RECEIPT_RESULT)
     if ref:
         consume_request_secret(ref)

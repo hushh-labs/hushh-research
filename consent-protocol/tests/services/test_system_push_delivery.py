@@ -70,7 +70,6 @@ def push_db(monkeypatch):
         raw = engine.raw_connection()
         with raw.cursor() as cursor:
             cursor.execute((ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text())
-            # Prove 361 installs guards explicitly without the DDL safety net.
             cursor.execute(
                 "ALTER EVENT TRIGGER trg_refresh_account_deletion_guards_after_identity_ddl DISABLE"
             )
@@ -79,6 +78,7 @@ def push_db(monkeypatch):
                 0
             ]
             cursor.execute(_replay_sql(entry))
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
         raw.close()
 
         def execute_raw(sql, params):

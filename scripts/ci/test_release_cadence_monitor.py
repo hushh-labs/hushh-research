@@ -19,40 +19,19 @@ from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger,
 
 
 class MonitorTest(unittest.TestCase):
-    def test_disabled_cli_reports_certified_history_without_advancing_work(self):
-        policy = {**NEW_POLICY, "enabled": False}
-        ledger = FakeLedger(counted(10))
-        checkpoint = {"ledger_sha": "f" * 40, "state_sha256": core.state_digest(ledger.state),
-                      "checkpoint_at": "2026-10-22T09:14:34Z"}
-        before = deepcopy(ledger.state)
-        controller = run(100, core.CONTROLLER)
+    def test_retired_cli_refuses_before_ledger_access_or_dispatch(self):
         spec = importlib.util.spec_from_file_location("cadence_cli", Path(__file__).with_name("release-cadence.py"))
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
-        with tempfile.TemporaryDirectory() as directory:
-            event = Path(directory, "event.json")
-            event.write_text("{}")
-            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_RUN_ID": "100",
-                                         "GITHUB_EVENT_PATH": str(event), "RUNNER_TEMP": directory}), \
-                    patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
-                    patch.object(cli, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "run_info", return_value=controller), \
-                    patch.object(github, "Ledger", return_value=ledger), \
-                    patch.object(ledger, "verify_checkpoint", return_value=checkpoint), \
-                    patch.object(ledger, "save") as save, \
-                    patch.object(cli, "reconcile") as reconcile, \
-                    patch.object(github, "dispatch_pending") as dispatch:
-                self.assertEqual(cli.main(), 0)
-                snapshot = json.loads(Path(directory, "release-cadence-monitor.json").read_text())
-                self.assertEqual(snapshot, {"mode": "disabled", "state": before, "checkpoint": checkpoint})
-                save.assert_not_called()
-                reconcile.assert_not_called()
-                dispatch.assert_not_called()
-                with patch.object(ledger, "verify_checkpoint", side_effect=core.UnsafeRelease("checkpoint mismatch")):
-                    with self.assertRaisesRegex(core.UnsafeRelease, "checkpoint mismatch"):
-                        cli.main()
-        self.assertEqual(ledger.state, before)
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY}), \
+                patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
+                patch.object(github, "Ledger") as ledger, \
+                patch.object(github, "dispatch_pending") as dispatch:
+            with self.assertRaises(SystemExit) as refusal:
+                cli.main()
+            self.assertEqual(refusal.exception.code, 2)
+            ledger.assert_not_called()
+            dispatch.assert_not_called()
 
     def test_disabled_and_resumed_notifications_preserve_release_journal(self):
         state = counted(10)

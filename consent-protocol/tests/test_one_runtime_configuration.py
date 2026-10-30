@@ -184,7 +184,7 @@ async def test_uat_readiness_reports_actual_provider_and_invalidates_changed_bin
     )
     monkeypatch.setattr(managed_text, "managed_text_policy", lambda: policy)
     monkeypatch.setattr(
-        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+        managed_text, "managed_text_binding", lambda *, scope: {"config_fingerprint": scope}
     )
     monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
     monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
@@ -217,7 +217,7 @@ async def test_uat_readiness_failure_is_sanitized_and_not_cached(monkeypatch):
         lambda: {"generation": "test", "selected_provider": "azure_openai"},
     )
     monkeypatch.setattr(
-        managed_text, "managed_text_binding", lambda: {"config_fingerprint": "config"}
+        managed_text, "managed_text_binding", lambda *, scope: {"config_fingerprint": scope}
     )
     monkeypatch.setattr(managed_text, "probe_managed_text_model", probe)
     monkeypatch.setattr(runtime, "_managed_readiness_cache", None)

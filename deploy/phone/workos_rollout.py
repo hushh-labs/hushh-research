@@ -157,7 +157,9 @@ def revision_inventory(
     return result
 
 
-def _audit_templates(event: dict, *, kind="Service") -> list[tuple[dict, str | None, bool]]:
+def _audit_templates(
+    event: dict, *, kind="Service", project=None
+) -> list[tuple[dict, str | None, bool]]:
     """Accept the observed v1 request/completion envelopes, never a guessed v2."""
     payload = event.get("protoPayload") or {}
     methods = (
@@ -171,8 +173,18 @@ def _audit_templates(event: dict, *, kind="Service") -> list[tuple[dict, str | N
     request, response = payload.get("request") or {}, payload.get("response") or {}
     field = kind.lower()
     service = request.get(field)
+    if "parent" in request and not (
+        kind == "Service"
+        and project in TARGETS
+        and payload.get("methodName") == "google.cloud.run.v1.Services.CreateService"
+        and request.get("@type") == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
+        and request["parent"] == f"namespaces/{project}"
+        and isinstance(service, dict)
+        and service.get("metadata", {}).get("namespace") in (None, project)
+    ):
+        raise ValueError("workos_audit_request_parent_unknown")
     if request and (
-        not set(request).issubset({"@type", "name", field})
+        not set(request).issubset({"@type", "name", "parent", field})
         or not isinstance(service, dict)
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
@@ -224,61 +236,63 @@ def review_history(
     closed_key="direct_sso_false",
     require_retained=False,
     container_name=None,
+    historical_observation=None,
+    operational_observation=None,
 ) -> int:
     check = check or (lambda sha: _capable(sha, restoration_sha))
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
-    seen, templates, completions = set(), [], {}
-    for event in events:
-        labels = (event.get("resource") or {}).get("labels") or {}
-        payload = event.get("protoPayload") or {}
-        stamp = _instant(event.get("timestamp", ""))
+    if historical_observation is not None or operational_observation is not None:
+        from restoration_workos_observation import covers, validate_scope
+
         if (
-            labels.get("service_name") != service
-            or payload.get("serviceName") != "run.googleapis.com"
-            or event.get("logName")
-            != f"projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"
-            or not _instant(start) <= stamp <= _instant(until)
+            project != "hushh-pda"
+            or service != SERVICE
+            or flag != "WORKOS_SSO_ENABLED"
+            or closed_key != "direct_sso_false"
+            or require_retained
+            or container_name is not None
         ):
-            raise ValueError("workos_audit_scope_invalid")
-        for template, completed_name, completion in _audit_templates(event):
+            raise ValueError("workos_historical_observation_scope_invalid")
+        context = (inventory, restoration_sha, start, until, SOURCE_ANCHOR)
+        if historical_observation is not None:
+            validate_scope(historical_observation, *context)
+        if operational_observation is not None:
+            from operational_workos_observation import (
+                validate_scope as validate_operational,
+            )
+
+            validate_operational(operational_observation, *context)
+    from workos_history import audit_scope, require_closed, revision_name
+
+    templates, completions = [], {}
+    for event in events:
+        stamp = audit_scope(event, project, service, start, until, _instant)
+        for template, completed_name, completion in _audit_templates(event, project=project):
             metadata = template.get("metadata") or {}
             sha = _source(metadata.get("labels") or {}, check)
-            name = metadata.get("name") or completed_name
-            if completed_name and name != completed_name:
-                raise ValueError("workos_audit_revision_ambiguous")
-            if not isinstance(name, str) or not re.fullmatch(
-                rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
-            ):
-                raise ValueError("workos_audit_revision_unknown")
-            templates.append((name, sha))
+            name = revision_name(metadata, completed_name, service)
+            carried = historical_observation is not None and covers(
+                historical_observation, name, sha, stamp, metadata
+            )
+            if operational_observation is not None:
+                carried = covers(operational_observation, name, sha, stamp, metadata) or carried
+            templates.append((name, sha, carried))
             if completion:
                 observation = (sha, _completion_closed(template, flag, container_name))
                 if name in completions and completions[name] != observation:
                     raise ValueError("workos_audit_completion_changed")
                 completions[name] = observation
-    for name, sha in templates:
-        actual = inventory.get(name)
-        if actual is not None and actual["source"] != sha:
-            raise ValueError("workos_audit_revision_source_changed")
-        completed = completions.get(name)
-        if completed is not None and completed[0] != sha:
-            raise ValueError("workos_audit_request_completion_mismatch")
-        if check(sha) and (
-            (require_retained and actual is None)
-            or completed == (sha, False)
-            or not ((actual is not None and actual[closed_key]) or completed == (sha, True))
-        ):
-            # Requests redact env. Require the retained immutable revision
-            # or its complete creation response; gone/unaccounted refuses.
-            raise ValueError("workos_historical_issuer_not_proven_closed")
-        if actual is not None:
-            seen.add(name)
-    if any(
-        _instant(row["created_at"]) >= _instant(start) and name not in seen
-        for name, row in inventory.items()
-    ):
-        raise ValueError("workos_creation_history_not_yet_complete")
+    require_closed(
+        templates,
+        inventory,
+        completions,
+        check=check,
+        closed_key=closed_key,
+        require_retained=require_retained,
+        start=start,
+        instant=_instant,
+    )
     return len(events)
 
 
@@ -404,8 +418,15 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
             "--format=json",
         ]
     )
-    count = review_history(
-        events, before, project=project, until=until, restoration_sha=restoration_sha
+    from restoration_workos_observation import receipt_provenance, review
+
+    count, historical = review(
+        events,
+        before,
+        project=project,
+        until=until,
+        source=restoration_sha,
+        reviewer=review_history,
     )
     database = database_evidence(project)
     after = _revisions(project, restoration_sha)
@@ -428,6 +449,7 @@ def qualify(project: str, restoration_sha: str | None = None) -> dict:
         "revisions": sorted(before.values(), key=lambda row: row["revision"]),
         "database": database,
         "sso_activation_qualified": False,
+        **receipt_provenance(historical),
     }
 
 

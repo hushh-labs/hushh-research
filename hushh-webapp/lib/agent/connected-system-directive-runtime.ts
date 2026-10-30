@@ -60,7 +60,7 @@ export async function runConnectedSystemDirective(
       type,
       status: "completed",
       display: `Review the proposed lookup in Connected Systems for ${target}.`,
-      detail: "No CRM record was read by the private agent.",
+      detail: "No CRM record was read by Agent One.",
     };
   }
 
@@ -97,6 +97,6 @@ export async function runConnectedSystemDirective(
     display: `Review the proposed ${fieldCount} field change${
       fieldCount === 1 ? "" : "s"
     } in Connected Systems before anything is sent to ${target}.`,
-    detail: "No CRM record was changed by the private agent.",
+    detail: "No CRM record was changed by Agent One.",
   };
 }

@@ -27,6 +27,15 @@ FAILURE_REASONS = frozenset(
         "root.tool_roster",
         "root.clock_selection",
         "root.roundtrip_failed",
+        "root.no_deltas",
+        "root.stream_mismatch",
+        "root.non_json",
+        "root.shape_mismatch",
+        "root.code_mismatch",
+        "root.color_mismatch",
+        "root.zone_mismatch",
+        "search.no_citations",
+        "search.fact_mismatch",
     }
 )
 ERROR_TYPES = frozenset(
@@ -160,10 +169,7 @@ def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
                     "primary_http",
                     "response_validation",
                 }
-                or any(
-                    type(ms) is not int or not 0 <= ms <= 420000
-                    for ms in phases.values()
-                )
+                or any(type(ms) is not int or not 0 <= ms <= 420000 for ms in phases.values())
             ):
                 raise ValueError("Invalid readiness phase timings")
             clean["phase_ms"] = dict(phases)
@@ -204,7 +210,7 @@ def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
             name not in CAPABILITY_PROBES | {"primary_http"} or len(attempts) != 1
         ):
             raise ValueError("Azure readiness has no retry")
-        if provider == "vertex" and name in CAPABILITY_PROBES | {"primary_http"}:
+        if provider == "vertex" and name == "primary_http":
             raise ValueError("Probe history provider mismatch")
         if name in CAPABILITY_PROBES and attempts[0]["ok"]:
             raise ValueError("Capability failure history cannot assert success")
@@ -355,6 +361,8 @@ def _valid_result(value: object) -> bool:
             "streaming_observed",
             "steps",
             "tools_sent",
+            "research_contracts",
+            "attribution_cases",
         }
         and all(
             type(item) is bool
@@ -432,6 +440,13 @@ def valid_capabilities(
             )
         )
         and capabilities["public_source"].get("http_receipts") == 1
+        and (
+            provider != "vertex"
+            or (
+                capabilities["public_source"].get("research_contracts") == 1
+                and capabilities["public_source"].get("attribution_cases") == 8
+            )
+        )
         and capabilities["location_transcription"].get("synthetic_phrase_verified") is True
         and capabilities["location_semantics"].get("steps") == 1
         and capabilities["narration"].get("audio_bytes", 0) > 0

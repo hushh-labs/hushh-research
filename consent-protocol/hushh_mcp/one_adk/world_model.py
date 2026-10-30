@@ -187,12 +187,9 @@ async def run_world_model(
             raise ResearchSliceComplete()
         await charge(range(MAX_SEARCHES + 1, MAX_SEARCHES + MAX_MODEL_CALLS + 1))
         if callback_context.agent_name == task.id and len(model_slots - used) <= 1 and assessment:
-            llm_request.config.tool_config = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(
-                    mode=types.FunctionCallingConfigMode.ANY,
-                    allowed_function_names=["finish_task"],
-                )
-            )
+            from hushh_mcp.one_adk.world_model_completion import force_native_completion
+
+            force_native_completion(llm_request)
 
     async def search_public_web(plan_json: str) -> dict:
         """Run a QueryPlan JSON against native Google Search with exact owner inputs."""
@@ -473,7 +470,9 @@ async def run_world_model(
     await require_access()
     if assessment is None:
         return {"status": "unavailable", "pkm_written": False}
-    report = WorldModelReport.model_validate(turn.structured_output)
+    from hushh_mcp.one_adk.world_model_completion import validated_native_report
+
+    report = validated_native_report(turn)
     try:
         report.validate_receipts(assessment, attempts, set(receipts))
     except CoverageCoherenceError as error:

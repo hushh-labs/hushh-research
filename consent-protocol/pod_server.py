@@ -508,24 +508,13 @@ async def _pod_startup() -> None:
     )
 
     from hushh_mcp.services.pod_azure_vm_identity import initialize_vm_installation
+    from hushh_mcp.services.pod_identity_store import restore_durable_private_key
     from hushh_mcp.services.pod_storage import resolve_boot_custody
 
     await asyncio.to_thread(initialize_vm_installation)
     boot_storage, boot_dek = await resolve_boot_custody()
     boot_log = getattr(boot_storage, "_log", None)
-    # Recover durable identity strictly before pod_keypair() caches it.
-    try:
-        from hushh_mcp.services.pod_identity_store import (  # noqa: PLC0415
-            resolve_durable_private_key_b64,
-        )
-
-        durable = await resolve_durable_private_key_b64(storage=boot_storage, dek=boot_dek)
-        if durable and not os.getenv("HUSSH_POD_PRIVATE_KEY"):
-            # In-process only. This is the same seam a BYOC secretKeyRef would
-            # populate, so it never reaches a service description or a log.
-            os.environ["HUSSH_POD_PRIVATE_KEY"] = durable
-    except Exception:  # noqa: BLE001 - a pod must boot even with no durable identity
-        logger.warning("pod.durable_identity_unavailable", exc_info=True)
+    await restore_durable_private_key(storage=boot_storage, dek=boot_dek, log=logger)
 
     # Generate identity before authority; recover configuration, credentials and
     # trust together below before admitting any owner turn.
@@ -574,6 +563,9 @@ async def _pod_startup() -> None:
     # The existing active authority owns its key; discard boot-only references.
     boot_storage = boot_log = boot_dek = None
 
+    from hushh_mcp.one_adk.turn_warmup import warm_private_pod_turn_path
+
+    await warm_private_pod_turn_path()
     _start_heartbeat_loop()
     # Bounded restart continuation; no polling worker or model inference. The
     # direct push and authenticated maintenance tick own subsequent wakes.

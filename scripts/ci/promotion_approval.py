@@ -86,7 +86,12 @@ def main() -> int:
             with args.github_output.open("a", encoding="utf-8") as output:
                 output.write(f"branch={branch}\nchecks={checks}\n")
             print(
-                f"Selected {branch} source authority; canonical CI and Dev acceptance remain required."
+                f"Selected {branch} source authority; "
+                + (
+                    "exact branch CI and Main-owned UAT admission remain required."
+                    if branch == "uat"
+                    else "Main smoke and Dev-backed UAT acceptance remain required."
+                )
             )
             return 0
         if args.output is None:

@@ -323,6 +323,120 @@ It checks that:
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
 
+### Managed AI configuration and quota recovery
+
+Edit [the managed AI configuration](../../../consent-protocol/config/managed-ai-runtime.json)
+for supported fleet provider, model, deployment, endpoint, project and location changes.
+Keep credentials in the existing workload identity or secret owner. No chat, voice,
+connector, frontend or GitHub workflow edit is needed for these settings.
+
+| Setting in that file | Consumers and boundary |
+| --- | --- |
+| `managed_provider_selection.uat` | Packaged UAT provider default, currently `azure_openai`. The existing resolver supplies text, research, audio and embedding callers. Dev, production and local retain Vertex. |
+| `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
+| `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
+| `managed_runtime_uat.azure.one_text_root` | One chat's root deployment and generation budget. Changing only `primary_deployment` does not change this separate root binding. |
+| `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
+| `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
+
+For exhausted Azure quota, choose a compatible provisioned Azure resource or
+deployment with available capacity and update the relevant entries in this file.
+Changing a deployment name alone does not create quota or provision a model.
+To move UAT to Vertex, set `managed_provider_selection.uat` to `vertex`; set it
+back to `azure_openai` to restore Azure. One chat, its specialists and Search,
+voice and the existing managed capability ports use the selected provider.
+New Drive activity-date requests use the same selected managed planner and preserve
+their existing single interpretation stage, native retrieval and deterministic date
+checks. Both providers must pass the authored v2 planner qualification. Saved
+requests retain their processor binding and its current-authority validation.
+Chat stays on that one provider for the invocation: an outage does not replay
+its tools or output through another model. The existing eligible Drive transport
+fallback retains its separate contract. A new fleet provider needs an adapter
+and complete capability qualification before selection.
+
+Validate the complete file without model calls or credentials:
+
+```bash
+python3 scripts/ops/managed_ai_config.py --environment uat --format validate
+python3 scripts/ops/managed_ai_config.py --environment uat --format provider
+python3 scripts/ops/managed_ai_config.py --environment uat --format azure-account
+```
+
+#### Switching the managed Azure account
+
+`--format azure-account` prints the selected account and every deployment it must
+host, from this file. To move UAT to another Azure account:
+
+1. In the new account (Azure commercial cloud), create:
+   - one resource with a custom `*.openai.azure.com` subdomain, key authentication
+     disabled and public network access, hosting every printed deployment under the
+     same name, model, version, deployment type and capacity. Record the primary
+     deployment's model and version, which the file does not declare yet. The two
+     GPT deployments need the Responses `web_search` tool. Live and speech use the
+     v1 surface (`/openai/v1`); transcription also needs the dated Audio API
+     `2025-04-01-preview` on the same resource;
+   - a `*.services.ai.azure.com` host for `phi_endpoint`, which validation still
+     requires although nothing calls Phi; an AI Services resource provides one;
+   - an Entra app registration with no secret or certificate, whose federated
+     credential trusts issuer `https://accounts.google.com`, audience
+     `api://AzureADTokenExchange` and subject
+     `gcloud iam service-accounts describe consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com --format='value(uniqueId)'`;
+   - the `Cognitive Services OpenAI User` role for that app's service principal on
+     the resource.
+
+   For a new subscription in the same tenant, keep `tenant_id`, `client_id` and the
+   federated credential, and grant the existing service principal the role on the
+   new resource.
+2. Add the account under `managed_azure_accounts.accounts` with `selection`
+   unchanged and merge. Validation checks its shape; runtime bindings do not change.
+   `readiness_exam_client_id` names the account's separate probe-only exam app, or
+   `null` until it exists; it never equals the runtime `client_id`.
+3. Change `managed_azure_accounts.selection.uat` to the new name in a one-line PR and
+   ship a normal UAT release. Until the pre-merge exam can examine a standby
+   account, that release's exact-image candidate exam under the UAT runtime
+   identity is the new account's first live qualification (a guardrail 1 gap), so
+   switch while the old account still serves. Read the exam's reason code: a
+   transport result (timeout, 429 or 5xx) usually means the new account's quota or
+   capacity, so fix that and dispatch once more. A semantic or configuration
+   failure is deterministic: never retry it; fix the account or select the last
+   passing one.
+4. The switch rotates Azure bindings without new owner consent. Trusted (Allow)
+   Drive requests with a ready plan migrate once, on their next claim; an owner's
+   own requests migrate once when that owner acts on them. A request migrates only
+   once, so a later switch, including a rollback, supersedes it and its owner makes
+   a new request. Each UAT release already runs the bounded recovery job
+   (`scripts/ops/run_uat_text_recovery_job.py`), which always applies, to at most
+   20 eligible requests; a preview is `consent-protocol/scripts/recover_uat_text_requests.py`
+   without `--apply`, inside the runtime. Saved personal research restarts within
+   its preserved budget.
+
+To roll back, select the previous account while it still serves. Once it is gone,
+fix forward: an image from before the switch points at the old account. Selecting
+Vertex (`managed_provider_selection.uat`) is a fallback only once the latest UAT
+Vertex readiness job has passed its whole bundle; its `structured_text` check
+failed intermittently on 2026-10-29.
+
+The deployment compiler reads the packaged default and pins both existing
+`HUSHH_UAT_MANAGED_AI_PROVIDER` and `HUSHH_UAT_MANAGED_TEXT_PROVIDER` values on
+the candidate revision. These internal verification pins take precedence over
+the file at runtime; conflicting pins fail closed. Both Drive workers inherit
+the verified API binding. Operators should edit the file, rather than manually
+change those pins independently. The existing exact-image readiness and
+promotion gates remain mandatory. They require the configured provider's complete
+bundle, including chat tool round trips and voice audio; a healthy alternate
+cannot silently replace the configured choice. Config validation proves shape,
+not live quota, model quality or availability. Azure remains the checked-in default.
+
+The file is packaged with the backend. A source edit takes effect through the
+normal authorized backend release/restart, including affected workers; it does
+not hot-reload deployed services or change an active voice session. Preserve
+saved job/provider bindings and their existing migration/recovery checks when
+changing processors. Roll back through the existing release owner to the prior
+qualified configuration/image. No user cohorts or per-account flags are added;
+the default applies to existing and new users in the authorized environment,
+with their existing permissions. BYOK, private owner-cloud placement and the
+coding assistant's own model subscription stay with their separate owners.
+
 ### Fleet text model switch (2026-09-02)
 
 Hosted text, Live Voice, research and embedding targets come from
@@ -453,7 +567,7 @@ Used by:
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
-| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Both bind the same candidate-verified `azure_openai` (preferred) or `vertex`; disagreement fails closed. At least one complete application capability bundle must pass. API and both Drive workers inherit the exact binding. Non-UAT and BYOK selection remain unchanged. |
+| `HUSHH_UAT_MANAGED_AI_PROVIDER` / `HUSHH_UAT_MANAGED_TEXT_PROVIDER` | `managed_ai_config.py`, `runtime_providers/managed_text.py` | UAT only | Internal revision pins override `managed_provider_selection.uat` in the packaged config; disagreement fails closed. The configured Azure or Vertex provider must pass both text scopes and the complete capability bundle. API and both Drive workers inherit the exact verified binding. Non-UAT and BYOK selection remain unchanged. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |

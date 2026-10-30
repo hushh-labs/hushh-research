@@ -5473,7 +5473,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Review Location alerts.",
+      "description": "Review Location alerts and explicitly allow persistent SMS alarms on supported iOS devices.",
       "execution": {
         "binding_ref": "route:/one/location?action=settings",
         "executor": {
@@ -25404,7 +25404,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
+      "description": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "execution": {
         "binding_ref": "semantic_action:kai.setup.launch_dashboard",
         "executor": {
@@ -25497,8 +25497,8 @@
         "save",
         "finance",
         "preferences",
-        "finish",
-        "persona"
+        "continue",
+        "import"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -44278,7 +44278,7 @@
     },
     {
       "aliases": [
-        "Set up your private agent",
+        "Set up Agent One",
         "set up my cloud",
         "connect my cloud",
         "open cloud setup",
@@ -44342,7 +44342,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Set up your private agent",
+      "label": "Set up Agent One",
       "navigation": {
         "fallback": "/one/setup/cloud",
         "routes": [
@@ -50925,7 +50925,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "97cb43bfdfa635ba6998941378d89e69467ea6afc95e88bed4578fd5d3f3b461",
+      "projection_digest": "9dedfe8aa68edd6942700364046fc91fe8f197fe3d38b350c3a5cf3273a0f55b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,16 +50935,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
-        "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
-        "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
+        "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+        "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
+        "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "685be55b649cd9fc",
+      "source_revision": "0ed6343a6fd9e823",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52462,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "685be55b649cd9fc",
+    "source_revision": "0ed6343a6fd9e823",
     "web": {
       "actions": [
         {
@@ -52505,7 +52505,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "1c44e4900475cf9c52cd2dd8395a022dde6d1f49b53b299dd1a5e5fc9163ecfa",
+      "projection_digest": "f942c3d692d27e40d7229cc8c0c1fdf54bc72a98bae47cee430f5199a73199d3",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,16 +52515,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
-        "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
-        "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
+        "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+        "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
+        "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "685be55b649cd9fc",
+      "source_revision": "0ed6343a6fd9e823",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54081,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "685be55b649cd9fc",
+  "revision": "0ed6343a6fd9e823",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56074,25 +56074,24 @@
     }
   ],
   "semantic_diff": {
-    "added": [
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:route.kai_portfolio_analysis",
-      "screens:screen:/one/kai/portfolio/analysis"
-    ],
+    "added": [],
     "breaking": [],
     "changed": [
-      "actions:phone_mandate.delete_previous",
-      "actions:route.kai_portfolio_sources"
+      "actions:kai.setup.launch_dashboard",
+      "actions:location.review_notifications",
+      "actions:setup.open_cloud",
+      "services:service.connections",
+      "workflows:workflow.setup.connections"
     ],
     "compatible": [
-      "actions:route.kai_portfolio_sources"
+      "workflows:workflow.setup.connections"
     ],
     "deprecated": [
-      "actions:phone_mandate.delete_previous"
+      "actions:kai.setup.launch_dashboard",
+      "actions:location.review_notifications",
+      "actions:setup.open_cloud"
     ],
-    "from_revision": "a6a99d8a8ceae915",
+    "from_revision": "685be55b649cd9fc",
     "migrated": [],
     "removed": []
   },
@@ -56398,6 +56397,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.list_mutual_connections",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "list_mutual_connections",
+          "path": "/api/one/connections/mutuals",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -56506,7 +56515,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 16,
+          "discovered_endpoint_count": 17,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -58398,21 +58407,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "71d4b20d76e9ffc3b09cbad3fd72af83da7274aad456ba101f4e32c9ab8ca18e",
-    "capability_runtime_compiler": "f9a0a4af3e6db50486f27fc90bae54c2bc3562350304bdb42503f0fff5a48dbe",
-    "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "eca5b20202df56cb08e43928cf214de8c5745549a78a1cf2f4869270440efeeb",
+    "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+    "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
+    "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
+    "kai_action_gateway": "c451b1fa49ae14b8da0858372b8e600037c20b49dc4bf905959b8a7bb833a643",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "bb4ecedeab47142295673f4f99e63263ec3fc5fa02ac7fbf10a00b03b755ccae",
+    "product_agent_registry": "7437d2fef49ccd5658366fb745e52bc6044d0491fd3f97a4198fa212cccea39e",
+    "route_orchestration_index": "ffe75c5510a85caf73899377826e0ffc3f467d5f556d165f7a787c76353f336b",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "685be55b649cd9fc",
+  "source_revision": "0ed6343a6fd9e823",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "685be55b649cd9fc",
+    "current_graph_revision": "0ed6343a6fd9e823",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58528,6 +58537,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
@@ -58794,6 +58804,7 @@
           "5996287e8a4d4b35",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
           "6c50871945709c21",
@@ -58883,6 +58894,7 @@
           "53c411e01494034b",
           "5996287e8a4d4b35",
           "63a45baaa90e4e2f",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
           "6c50871945709c21",
@@ -59161,7 +59173,7 @@
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
-        "workflow_digest": "a57e6d6053f930b2d585a5e583b194c63d3b8bb5f8a8a33aff7e2b0a22dbfeb4",
+        "workflow_digest": "c76bf652175be4095c4643f3c5be960ce43c6c86552d731f26f57b1dc150b819",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
@@ -59253,6 +59265,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a5e47527ae2308f",
@@ -59616,6 +59629,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
@@ -59962,6 +59976,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
@@ -60308,6 +60323,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
@@ -60652,6 +60668,7 @@
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
@@ -61366,6 +61383,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.list_mutual_connections",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "list_mutual_connections",
+          "path": "/api/one/connections/mutuals",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -61500,7 +61527,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 16,
+            "discovered_endpoint_count": 17,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

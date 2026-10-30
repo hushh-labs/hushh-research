@@ -15,14 +15,14 @@ import {
 } from "@/lib/agent/owner-pod-wake";
 
 const NOT_READY =
-  "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+  "Agent One connection is not ready. Open Hosting in Settings to reconnect, then try again.";
 const NOT_ESTABLISHED =
-  "Your private agent connection could not be established. Check Hosting in Settings, then try again.";
+  "Agent One connection could not be established. Check Hosting in Settings, then try again.";
 const MOVED =
-  "Your private agent moved, and this device could not confirm its new address. Open Hosting in Settings to reconnect, then try again.";
-const NOT_CONFIRMED = "Hussh could not confirm this chat with your private agent. Try again in a moment.";
+  "Agent One moved, and this device could not confirm its new address. Open Hosting in Settings to reconnect, then try again.";
+const NOT_CONFIRMED = "Hussh could not confirm this chat with Agent One. Try again in a moment.";
 /** The hub says AGENT_NOT_READY for a starting agent and for one that needs attention, so say neither. */
-const NOT_READY_TO_CHAT = "Your private agent isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.";
+const NOT_READY_TO_CHAT = "Agent One isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.";
 /** The hub's own migrating sentence (pod_relay._not_ready), used if its copy is missing or unsafe. */
 const MIGRATING = "Your agent is moving to your cloud. This takes a minute or two.";
 /** A hub-written sentence is shown only when it is plain words: no links, codes, or dashes. */
@@ -31,19 +31,19 @@ const CHAT_GRANTS_REFUSAL = /^POD_CHAT_AUTHORITY_UNAVAILABLE:\d{3}(?::([A-Z][A-Z
 
 const FIXED_MESSAGES: Readonly<Record<string, string>> = {
   "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY": NOT_READY,
-  POD_CHAT_BUSY: "Your private agent is finishing active work. Try again shortly.",
-  POD_CHAT_UPDATING: "Your private agent is updating. Check Software updates in Settings before trying again.",
-  POD_CHAT_RECOVERY_FAILED: "This answer could not be saved safely. Reconnect to your private agent before continuing.",
-  POD_CHAT_AUTHORITY_UNAVAILABLE: "This action is not available through your private agent yet.",
-  POD_RECEIPT_UPDATE_REQUIRED: "Update your private agent in Settings before resuming this receipt request.",
-  POD_CHAT_CAPABILITIES_INVALID: "Your private agent's supported features could not be verified. Reconnect and try again.",
-  POD_CHAT_CAPABILITIES_UNAVAILABLE: "Your private agent's supported features could not be reached. Reconnect and try again.",
+  POD_CHAT_BUSY: "Agent One is finishing active work. Try again shortly.",
+  POD_CHAT_UPDATING: "Agent One is updating. Check Software updates in Settings before trying again.",
+  POD_CHAT_RECOVERY_FAILED: "This answer could not be saved safely. Reconnect to Agent One before continuing.",
+  POD_CHAT_AUTHORITY_UNAVAILABLE: "This action is not available through Agent One yet.",
+  POD_RECEIPT_UPDATE_REQUIRED: "Update Agent One in Settings before resuming this receipt request.",
+  POD_CHAT_CAPABILITIES_INVALID: "Agent One's supported features could not be verified. Reconnect and try again.",
+  POD_CHAT_CAPABILITIES_UNAVAILABLE: "Agent One's supported features could not be reached. Reconnect and try again.",
   POD_CHAT_RECEIPT_DECLARATION_INVALID: "This receipt request could not be verified. Open chat again to continue.",
-  POD_APP_ROUTE_REFUSED: "This action is not available through your private agent yet.",
-  [POD_WAKE_TIMEOUT]: "Your private agent did not wake up in time, so your message was not sent. Try again in a minute.",
-  [POD_NOT_REACHED]: "Your private agent could not be reached, so your message was not sent. Try again in a moment.",
+  POD_APP_ROUTE_REFUSED: "This action is not available through Agent One yet.",
+  [POD_WAKE_TIMEOUT]: "Agent One did not wake up in time, so your message was not sent. Try again in a minute.",
+  [POD_NOT_REACHED]: "Agent One could not be reached, so your message was not sent. Try again in a moment.",
   [POD_SEND_UNCONFIRMED]:
-    "The connection to your private agent dropped, so your message may not have been sent. Check this chat before you send it again.",
+    "The connection to Agent One dropped, so your message may not have been sent. Check this chat before you send it again.",
   [POD_DEVICE_OFFLINE]: "This device is offline, so your message was not sent. Check your internet connection, then try again.",
   POD_ASSIGNMENT_CHANGED: MOVED,
   POD_DIRECT_OWNER_MISMATCH: MOVED,

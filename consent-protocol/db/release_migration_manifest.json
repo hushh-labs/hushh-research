@@ -373,7 +373,10 @@
     "434_calendar_guest_photo_access.sql",
     "435_finance_connection_sharing.sql",
     "436_phone_linked_account_deletions.sql",
-    "437_account_legacy_generation_settlement.sql"
+    "437_account_legacy_generation_settlement.sql",
+    "439_drive_rest_owner_admission.sql",
+    "440_drive_permission_file_claim_lanes.sql",
+    "441_sms_alarm_capability.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -793,6 +796,9 @@
     "435_finance_connection_sharing.sql": "rollback/435_finance_connection_sharing.rollback.sql",
     "436_phone_linked_account_deletions.sql": "rollback/436_phone_linked_account_deletions.rollback.sql",
     "437_account_legacy_generation_settlement.sql": "rollback/437_account_legacy_generation_settlement.rollback.sql",
-    "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql"
+    "438_uat_legacy_generation_settlement.sql": "rollback/438_uat_legacy_generation_settlement.rollback.sql",
+    "439_drive_rest_owner_admission.sql": "rollback/439_drive_rest_owner_admission.rollback.sql",
+    "440_drive_permission_file_claim_lanes.sql": "rollback/440_drive_permission_file_claim_lanes.rollback.sql",
+    "441_sms_alarm_capability.sql": "rollback/441_sms_alarm_capability.rollback.sql"
   }
 }

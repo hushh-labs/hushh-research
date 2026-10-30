@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => {
     prepareFCMListeners: vi.fn(),
     playEmergencySmsCue: vi.fn().mockResolvedValue({ played: true }),
     stopEmergencySmsCue: vi.fn().mockResolvedValue(undefined),
+    getPendingEmergencySmsAlarms: vi.fn(),
+    addNotificationListener: vi.fn(),
     getState: vi.fn(),
     startTask: vi.fn(),
     completeTask: vi.fn(),
@@ -88,6 +90,8 @@ vi.mock("@/lib/capacitor", async (importOriginal) => {
       ...actual.HushhNotifications,
       playEmergencySmsCue: mocks.playEmergencySmsCue,
       stopEmergencySmsCue: mocks.stopEmergencySmsCue,
+      getPendingEmergencySmsAlarms: mocks.getPendingEmergencySmsAlarms,
+      addListener: mocks.addNotificationListener,
     },
   };
 });
@@ -242,6 +246,8 @@ beforeEach(() => {
   mocks.platform.value = "web";
   mocks.prepareFCMListeners.mockResolvedValue(undefined);
   mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
+  mocks.getPendingEmergencySmsAlarms.mockResolvedValue({ grantIds: [], acknowledgedGrantIds: [] });
+  mocks.addNotificationListener.mockResolvedValue({ remove: vi.fn().mockResolvedValue(undefined) });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
   mocks.remotePkmListener = null;
 });

@@ -66,7 +66,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
           />
           <SettingsRow
             title="Bring your own cloud"
-            description="Your private agent and device relay. You approve updates."
+            description="Agent One and device relay. You approve updates."
             trailing={
               mode === "byoc"
                 ? "Current"

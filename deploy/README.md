@@ -413,19 +413,50 @@ Initial producer admission still uses `--qualify-source` and migration 423, so
 upgrading a pre-phone producer remains possible. Source qualification does not
 replace schema, runtime health, provider-settlement or device acceptance proof.
 
+Initial production phone-schema qualification accounts for retained and deleted
+issuers. The recorded pre-phone restoration and its exact parallel predecessor
+require canonical source-policy, producer-absence and scoped Git equality checks;
+they gain no phone-reader or rollback authority. Build inventory uses metadata
+listing plus bounded full readback, and joins every synchronous submission to its
+exact governed workflow attempt. The reviewed legacy workflow is pinned in full.
+Cold receipts retain the staged fallback producer separately from the primary
+source/image probed by that same build; a probe never invents a serving revision.
+Completed skipped steps may have equal valid start/end timestamps; unmatched
+builds and incomplete or active producers still refuse qualification.
+
+Deleted readiness jobs require the complete Cloud Run activity/system audit join:
+redacted create request, full UID-bound job creation, effective execution template,
+delete request and matching job/execution deletion. Source/image pairs must join
+acknowledged builds. Only reviewed packaged probes and the three exact historical
+document-readiness bodies qualify. The approved rollout probe's production-
+equivalent legacy body is restricted to the selected plan source/image pairs.
+The retained October 2 readiness image separately requires its original immutable
+release archive. Missing evidence, changed launchers, overrides, unknown jobs or
+changed incarnations refuse proof. No extra IAM role or Cloud Asset dependency
+is required; operational receipts retain fingerprints and release metadata only.
+
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+rehearsal or reviewer BYOK proof is required. It compares from a service's
+serving SHA only once UAT accepted that exact SHA for that service. The trusted
+"Prove UAT comparison bases" step checks this with the exact-SHA acceptance
+reader (`scripts/ci/verify-predecessor-acceptance.py`, a bounded search of recent
+runs), and refuses a SHA that has no healthy `deployed/uat/<sha8>-*` tag without
+searching. A candidate still serving after its acceptance failed is no base, so
+the next release that deploys that service runs both the PKM upgrade rehearsal
+and reviewer BYOK. Dev still compares from its serving SHAs. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
 `run_live_model_checks=true` dispatch input. UAT backend releases always run
 synthetic Azure and Vertex provider checks from the exact candidate image and
 runtime identity, in parallel. A provider passes only when its full application
 capability bundle passes: structured and streamed text, image and PDF inputs,
 public search citations, exact public source retrieval, Location transcription
 and semantics, isolated narration, Live audio with function results and input
-transcription, and compatible embeddings. The required aggregate accepts either
-complete provider (or both), preferring Azure; neither passing blocks promotion.
+transcription, and compatible embeddings. The required aggregate qualifies the
+provider selected in `config/managed-ai-runtime.json` (`managed_provider_selection.uat`),
+with Azure as the checked-in default. A healthy alternate does not override that
+choice; an incomplete selected provider blocks promotion.
 The API and both Drive workers must bind the same selected provider. UAT remains
-held until Azure has a verified replacement for every declared capability.
+held until the selected provider has verified every declared capability.
 
 Azure's canonical PWM schema and six-case attribution evaluation remain
 independent safety checks. An explicit identity, attribution or schema violation

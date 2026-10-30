@@ -179,6 +179,8 @@ describe("RequesterPaymentSection", () => {
     const props = { requestId, revision: 3, payment: payment(), price: null, onChanged };
     const mounted = render(<RequesterPaymentSection {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
+    expect(screen.getByRole("button", { name: "Opening Checkout…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Opening Checkout…" })).toHaveAttribute("aria-busy", "true");
     await waitFor(() => expect(state.checkout).toHaveBeenCalledOnce());
     if (boundary === "account") {
       state.user = { ...state.user, uid: "another-buyer" };

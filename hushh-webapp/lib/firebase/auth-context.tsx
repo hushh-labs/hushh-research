@@ -102,9 +102,11 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
 import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
 import { nextRecoveryCheckDelay, recoveryPollPhase, registrationAdvancesAlone } from "@/lib/auth/account-recovery-cadence";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
+const traceSession = startJourneyTrace("session");
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
 const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
 const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
@@ -344,6 +346,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     observedAnonymous: boolean;
   } | null>(null);
   const activeSessionValidationPromiseRef = useRef<Promise<void> | null>(null);
+  // A forced validation waiting behind another; later forced calls join it until it starts.
+  const queuedSessionValidationRef = useRef<{ operation: Promise<void>; epoch: number } | null>(null);
   // A web auth observer can validate a new identity while an explicit recovery
   // check for the previously published identity is still settling. Only the
   // current observer may release this gate; otherwise the old Vault can flash
@@ -946,9 +950,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
           retainCleanupStatus(nativeUser.uid, validation);
           if (validation.outcome === "unavailable") {
-            console.warn(
-              "🍎 [AuthProvider] Native session validation unavailable",
-            );
+            if (!validation.cleanup && !validation.registration) {
+              console.warn("🍎 [AuthProvider] Native session validation unavailable");
+            }
             setSessionVerificationRequired(true);
           } else {
             setSessionVerificationRequired(false);
@@ -1201,7 +1205,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const force = options?.force === true;
       const predecessor = activeSessionValidationPromiseRef.current;
 
-      if (predecessor && !force) {
+      // At most one validation runs and one waits, however often Refresh is pressed. The waiting one has
+      // read nothing yet, so joining it loses nothing, but only in its own sign-in (settlement) epoch.
+      if (predecessor && (!force || queuedSessionValidationRef.current?.operation === predecessor
+          && queuedSessionValidationRef.current.epoch === postAuthSettlementEpochRef.current)) {
+        if (force) traceSession("validation_joined");
         return predecessor;
       }
 
@@ -1225,6 +1233,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const settlementEpoch = postAuthSettlementEpochRef.current;
       let operation!: Promise<void>;
       const runValidation = async () => {
+        if (queuedSessionValidationRef.current?.operation === operation) queuedSessionValidationRef.current = null;
         // Resolve the identity after the predecessor settles so an auth switch
         // can never make this queued operation validate a stale User object.
         const currentUser = userRef.current;
@@ -1241,7 +1250,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const owner = snapshotValidatedAuthSessionOwner();
         const episode = getAuthSessionGeneration();
 
+        const started = performance.now();
         const validation = await validateAccountSession(currentUser);
+        traceSession("validation_completed", { forced: force, outcome: validation.outcome, duration_ms: Math.round(performance.now() - started),
+          registration: validation.outcome === "unavailable" ? validation.registration?.state ?? null : null,
+          stale: settlementEpoch !== postAuthSettlementEpochRef.current || episode !== getAuthSessionGeneration() });
         const firebaseUserId = !IS_NATIVE
           ? (AuthService.getCurrentUser()?.uid ?? null)
           : null;
@@ -1270,8 +1283,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         retainCleanupStatus(expectedUid, validation);
         if (validation.outcome === "unavailable") {
-          // A pending account cleanup is an expected, durable state, not an outage.
-          if (!validation.cleanup) {
+          // Cleanup or registration evidence is a definite, durable answer, not an outage.
+          if (!validation.cleanup && !validation.registration) {
             console.warn(
               "🔒 [AuthProvider] Session validation unavailable; preserving session",
             );
@@ -1297,6 +1310,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         : Promise.resolve();
       operation = predecessorSettled.then(runValidation);
       activeSessionValidationPromiseRef.current = operation;
+      if (predecessor) queuedSessionValidationRef.current = { operation, epoch: settlementEpoch };
 
       const clearCompletedOperation = () => {
         if (activeSessionValidationPromiseRef.current !== operation) return;

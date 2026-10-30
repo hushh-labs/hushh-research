@@ -36,6 +36,7 @@ name: Ship Android to Google Play Store
         type: string
 
 permissions:
+  actions: read
   contents: read
   checks: read
   id-token: write
@@ -55,7 +56,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   ship:
+    needs: deployment-security
     name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest
     # The `uat` environment carries the UAT workload identity needed to read the
@@ -65,6 +77,16 @@ jobs:
     timeout-minutes: 50
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Validate target track
         shell: bash
         env:
@@ -109,7 +131,7 @@ jobs:
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin main

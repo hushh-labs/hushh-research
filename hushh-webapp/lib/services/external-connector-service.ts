@@ -1,6 +1,7 @@
 import { requireSharedGoogleExchange } from './private-google-connections';
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
+import { recordLiveActivity, snapshotLiveActivityOwner, type LiveActivityOrigin } from "@/lib/pkm/live-activity/live-activity-journal";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
 import { connectorSettingsRequest } from "@/lib/services/private-connector-transport";
 import {
@@ -44,29 +45,38 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   return ApiService.getAuthHeaders(vaultOwnerToken);
 }
 
+/** Native Drive callbacks may use a registered public API origin even when
+ * ordinary native API traffic uses the Cloud Run service URL. */
+function nativeDriveCallbackUri(path: string, unavailableMessage: string): string {
+  let callbackOrigin: URL;
+  try {
+    callbackOrigin = new URL(process.env.NEXT_PUBLIC_DRIVE_NATIVE_CALLBACK_ORIGIN || BACKEND_URL);
+  } catch {
+    throw new Error(unavailableMessage);
+  }
+  if (
+    callbackOrigin.protocol !== "https:" ||
+    callbackOrigin.username ||
+    callbackOrigin.password ||
+    callbackOrigin.pathname !== "/" ||
+    callbackOrigin.search ||
+    callbackOrigin.hash
+  ) {
+    throw new Error(unavailableMessage);
+  }
+  return new URL(path, callbackOrigin).toString();
+}
+
 /**
  * Native Google OAuth must return to the registered HTTPS backend callback.
  * It must never use the Capacitor origin or the web proxy, which would follow
  * the backend's custom-scheme handoff and turn it into a JSON response.
  */
 export function nativeDriveOAuthCallbackUri(): string {
-  let backend: URL;
-  try {
-    backend = new URL(BACKEND_URL);
-  } catch {
-    throw new Error("Native Drive connection is unavailable in this build.");
-  }
-  if (
-    backend.protocol !== "https:" ||
-    backend.username ||
-    backend.password ||
-    backend.pathname !== "/" ||
-    backend.search ||
-    backend.hash
-  ) {
-    throw new Error("Native Drive connection is unavailable in this build.");
-  }
-  return new URL("/api/connectors/oauth/native/callback", backend).toString();
+  return nativeDriveCallbackUri(
+    "/api/connectors/oauth/native/callback",
+    "Native Drive connection is unavailable in this build.",
+  );
 }
 
 /**
@@ -75,26 +85,20 @@ export function nativeDriveOAuthCallbackUri(): string {
  * metadata, then hands the app an opaque custom-scheme result.
  */
 export function nativeDrivePickerCallbackUri(): string {
-  let backend: URL;
-  try {
-    backend = new URL(BACKEND_URL);
-  } catch {
-    throw new Error("Native Drive file selection is unavailable in this build.");
-  }
-  if (
-    backend.protocol !== "https:" ||
-    backend.username ||
-    backend.password ||
-    backend.pathname !== "/" ||
-    backend.search ||
-    backend.hash
-  ) {
-    throw new Error("Native Drive file selection is unavailable in this build.");
-  }
-  return new URL(
+  return nativeDriveCallbackUri(
     "/api/connectors/google_drive/picker/native/callback",
-    backend,
-  ).toString();
+    "Native Drive file selection is unavailable in this build.",
+  );
+}
+
+type ConnectorTransition = { status: string; connectorId: string };
+
+/** A Drive connect is journaled only once the server reports the grant connected. */
+function journalDriveConnect(result: ConnectorTransition, owner: LiveActivityOrigin): ConnectorTransition {
+  if (result.connectorId === "google_drive" && result.status === "connected") {
+    recordLiveActivity({ kind: "connector_connected", subject: "google_drive" }, owner);
+  }
+  return result;
 }
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
@@ -513,9 +517,10 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     attemptId: string;
     isEffectCurrent?: ConnectorEffectGuard;
-  }): Promise<{ status: string; connectorId: string }> {
+  }): Promise<ConnectorTransition> {
+    const activityOwner = snapshotLiveActivityOwner();
     await requireSharedGoogleExchange();
-    return readJsonOrThrow(
+    return journalDriveConnect(await readJsonOrThrow<ConnectorTransition>(
       await ApiService.apiFetch("/api/connectors/oauth/native/finalize", {
         method: "POST",
         headers: {
@@ -525,7 +530,7 @@ export class ExternalConnectorService {
         body: JSON.stringify({ attemptId: input.attemptId }),
         isEffectCurrent: input.isEffectCurrent,
       }),
-    );
+    ), activityOwner);
   }
 
   static async startNativePicker(input: {
@@ -629,7 +634,8 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     state: string;
     code: string;
-  }): Promise<{ status: string; connectorId: string }> {
+  }): Promise<ConnectorTransition> {
+    const activityOwner = snapshotLiveActivityOwner();
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/connectors/oauth/complete",
@@ -642,7 +648,7 @@ export class ExternalConnectorService {
         body: JSON.stringify({ state: input.state, code: input.code }),
       },
     );
-    return readJsonOrThrow(response);
+    return journalDriveConnect(await readJsonOrThrow<ConnectorTransition>(response), activityOwner);
   }
 
   /** Recheck an existing live grant; never replay its single-use OAuth code. */
@@ -669,6 +675,7 @@ export class ExternalConnectorService {
     connectorId: string;
     revocationOutcome?: string;
   }> {
+    const activityOwner = snapshotLiveActivityOwner();
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/disconnect`,
@@ -677,7 +684,15 @@ export class ExternalConnectorService {
         headers: authHeaders(input.vaultOwnerToken),
       },
     );
-    return readJsonOrThrow(response);
+    const result = await readJsonOrThrow<{
+      status: string;
+      connectorId: string;
+      revocationOutcome?: string;
+    }>(response);
+    if (input.connectorId === "google_drive") {
+      recordLiveActivity({ kind: "connector_disconnected", subject: "google_drive" }, activityOwner);
+    }
+    return result;
   }
 
   static async completeWebOAuth(input: {
@@ -685,9 +700,10 @@ export class ExternalConnectorService {
     state: string;
     code: string;
     attemptId: string;
-  }): Promise<{ status: string; connectorId: string }> {
+  }): Promise<ConnectorTransition> {
+    const activityOwner = snapshotLiveActivityOwner();
     await requireSharedGoogleExchange();
-    return readJsonOrThrow(
+    return journalDriveConnect(await readJsonOrThrow<ConnectorTransition>(
       await ApiService.apiFetch("/api/connectors/oauth/complete/web", {
         method: "POST",
         headers: {
@@ -700,7 +716,7 @@ export class ExternalConnectorService {
           attemptId: input.attemptId,
         }),
       }),
-    );
+    ), activityOwner);
   }
 
   static async pickerSession(
@@ -844,6 +860,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     documentId: string,
   ): Promise<void> {
+    const activityOwner = snapshotLiveActivityOwner();
     await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
@@ -851,5 +868,6 @@ export class ExternalConnectorService {
         { method: "POST", headers: authHeaders(vaultOwnerToken) },
       ),
     );
+    recordLiveActivity({ kind: "connector_synced", subject: "google_drive" }, activityOwner);
   }
 }

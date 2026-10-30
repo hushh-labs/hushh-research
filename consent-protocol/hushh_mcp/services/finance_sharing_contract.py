@@ -36,21 +36,23 @@ class FinanceSharePolicy(StrictObject):
 
 
 class FinanceAdvisorPolicy(StrictObject):
-    """An explicit, finite snapshot of the selected source for an eligible advisor."""
+    """The selected source for an eligible advisor: a finite snapshot or live access."""
 
     version: Literal[2]
     purpose: Literal["verified_ria_review"]
-    mode: Literal["snapshot"]
+    mode: Literal["snapshot", "ongoing"]
     sections: list[Literal["allocation", "performance", "holdings"]] = Field(
         min_length=3, max_length=3
     )
     selectionHash: str = Field(pattern=r"^[a-f0-9]{64}$")
     showAmounts: StrictBool
     model_processing: ProcessingPermission
-    durationSeconds: Literal[3600, 86400, 604800]
+    durationSeconds: Literal[3600, 86400, 604800] | None
 
     @model_validator(mode="after")
     def validate_advisor_view(self):
+        if self.mode == "snapshot" and self.durationSeconds is None:
+            raise ValueError("snapshot requires expiry")
         if set(self.sections) != {"allocation", "performance", "holdings"}:
             raise ValueError("advisor review requires the full portfolio")
         if not self.showAmounts:

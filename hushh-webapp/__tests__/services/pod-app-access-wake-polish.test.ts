@@ -93,7 +93,7 @@ describe("a hub 409 on chat grants says which 409 it is", () => {
   it("tells a starting agent's owner to wait, not to reconnect", async () => {
     const { error, copy } = await shown(json409({ code: "AGENT_NOT_READY", status: "provisioning" }));
     expect(error.code).toBe("POD_CHAT_AUTHORITY_UNAVAILABLE:409:AGENT_NOT_READY");
-    expect(copy).toBe("Your private agent isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.");
+    expect(copy).toBe("Agent One isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.");
     expect(copy).not.toMatch(/moved|reconnect/i);
   });
 
@@ -107,10 +107,10 @@ describe("a hub 409 on chat grants says which 409 it is", () => {
   });
 
   it("keeps the moved copy for a real move, and stays neutral for any other 409", async () => {
-    expect((await shown(json409({ code: "POD_ASSIGNMENT_CHANGED" }))).copy).toMatch(/^Your private agent moved/);
+    expect((await shown(json409({ code: "POD_ASSIGNMENT_CHANGED" }))).copy).toMatch(/^Agent One moved/);
     for (const other of [json409({ code: "POD_IDENTITY_NOT_DURABLE" }), new Response("conflict", { status: 409 })]) {
       const { copy } = await shown(other);
-      expect(copy).toBe("Hussh could not confirm this chat with your private agent. Try again in a moment.");
+      expect(copy).toBe("Hussh could not confirm this chat with Agent One. Try again in a moment.");
     }
   });
 });
@@ -204,7 +204,7 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     expect(error).toBeInstanceOf(PodSendUnconfirmedError);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, TURN]);
     expect(formatAgentChatErrorMessage(error.message, error.code))
-      .toBe("The connection to your private agent dropped, so your message may not have been sent. Check this chat before you send it again.");
+      .toBe("The connection to Agent One dropped, so your message may not have been sent. Check this chat before you send it again.");
   });
 
   it("sends straight out to an agent that just answered", async () => {

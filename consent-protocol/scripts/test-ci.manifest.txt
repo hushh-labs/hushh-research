@@ -98,6 +98,7 @@ tests/services/test_drive_live_formats.py
 tests/services/test_google_calendar_service.py
 tests/services/test_google_calendar_oauth_scopes.py
 tests/services/test_google_connection_account_binding.py
+tests/test_google_connection_routes.py
 tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
@@ -176,6 +177,7 @@ tests/services/test_drive_sharing_center.py
 tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
+tests/test_drive_claim_adoption_postgres.py
 tests/services/test_drive_bulk_share_service.py
 tests/services/test_drive_bulk_share_worker.py
 tests/services/test_drive_provider_delivery.py
@@ -193,8 +195,14 @@ tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
 tests/test_one_external_read_projection.py
+# Mail routing has one owner per request kind; named recipients resolve only from active connections.
+tests/test_one_mail_instruction.py
+tests/test_one_email_draft_recipients.py
+tests/test_one_email_draft_readiness.py
 # Receipt functions use the native client continuation, owner binding and ephemeral history projection.
 tests/test_receipt_client_tools.py
+tests/test_receipt_continuation_replay.py
+tests/test_receipt_result_contract.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
@@ -231,6 +239,8 @@ tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
+tests/services/test_gmail_receipt_unverified_page.py
+tests/services/test_gmail_receipt_amounts.py
 tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
@@ -297,6 +307,8 @@ tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 tests/services/test_pkm_preview_outcomes.py
+# A model quote with copy drift maps onto the owner's exact characters, or fails closed.
+tests/services/test_pkm_source_quote.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
@@ -460,6 +472,9 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_auth_health_lease_rest.py
+tests/test_auth_health_deployment.py
+tests/test_auth_health_wif_scopes.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -484,6 +499,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_direct_uat_acceptance.py
 tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
@@ -577,7 +593,6 @@ tests/test_reserved_branches.py
 # on both sides), spans without values, the per-item grant shape, and the
 # plaintext summary envelope that refuses a leaked label or value.
 tests/test_secrets_area.py
-tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/services/test_structure_decision_is_the_models.py
 tests/services/test_intent_frame_is_the_models.py
 tests/test_agent_stage_skips_are_visible.py
@@ -678,6 +693,7 @@ tests/test_consent_db_revocation_worker.py
 tests/scripts/test_eval_specialist_turns.py
 tests/test_consent_refresh_bootstrap.py
 tests/test_hushh_adk_turn.py
+tests/test_adk_event_timeout_details.py
 tests/test_agent_runtime_declarations.py
 tests/test_one_manifest_subagent_prompts.py
 tests/test_nav_a2a_agent.py
@@ -890,6 +906,7 @@ tests/test_chat_history_rollout.py
 tests/test_one_agent_chat_ingress.py
 
 tests/test_pod_server.py
+tests/test_pod_startup_order.py
 
 # Execute the real deploy shell with immutable-artifact fixtures.
 tests/test_personal_agent_deploy_lane.py
@@ -992,6 +1009,7 @@ tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
+tests/test_managed_azure_accounts.py
 tests/test_managed_runtime_selection.py
 tests/test_memory_judge.py
 tests/test_model_access_policy.py
@@ -1504,8 +1522,9 @@ tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
-tests/services/test_calendar_native_optional_scope.py
-tests/services/test_google_connection_account_binding.py
+tests/services/test_calendar_meeting_grant_access.py
+tests/services/test_calendar_meeting_library_paging.py
+tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
@@ -1535,6 +1554,10 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_probe_drive_activity_planner.py
+tests/scripts/test_readiness_exam_manifest.py
+tests/test_uat_readiness_verdict_collector.py
+tests/scripts/test_root_roundtrip_reasons.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
@@ -1552,6 +1575,10 @@ tests/test_phone_transfer_authority.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
+tests/test_phone_schema_history_compatibility.py
+tests/test_phone_schema_legacy_job.py
+tests/test_phone_schema_job_history.py
+tests/test_auth_health_inventory.py
 
 # Phone recovery authority, packaged rollback reader and provider receipts.
 # Full phone UI/SQL proof runs in the mandatory Integration browser gate.
@@ -1580,6 +1607,16 @@ tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
+tests/services/test_document_delivery_background_source.py
 tests/services/test_document_delivery_background_exports.py
 # The owner's review decides whether the production Allow route accepts a One copy.
 tests/services/test_document_delivery_owner_allow.py
+
+# Managed provider switch and complete synthetic Vertex qualification.
+tests/services/test_managed_chat_provider_switch.py
+tests/services/test_one_vertex_search_contract.py
+tests/test_vertex_capability_probe.py
+tests/test_one_runtime_configuration.py
+
+# Protected Main release clearance and current-attempt consumer boundaries.
+tests/test_deployment_security.py

@@ -142,7 +142,6 @@ export function ConsentScopeNestedList({
         density="compact"
         description={item.description || undefined}
         disabled={disabled}
-        stackTrailingOnMobile
         chevron={Boolean(onOpenItem)}
         onClick={
           isGranted

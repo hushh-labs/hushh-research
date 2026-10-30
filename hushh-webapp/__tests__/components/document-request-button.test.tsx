@@ -364,7 +364,7 @@ describe("requesting exact files from a connection", () => {
       mount();
       await openFiles("  Files modified in the last two days  ", false);
       expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
-      expect(screen.getByRole("group", { name: "Dates covered" })).toHaveAccessibleDescription("Start and end dates are required.");
+      expect(screen.getByRole("group", { name: "Time period" })).toHaveAccessibleDescription("Start and end dates are required. Files can match creation, modification, viewing, sharing, photo or filename dates.");
       expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
       // Opening previews the account once; sending proves it again.
       expect(await screen.findByText("Files will be shared with b@gmail.test")).toBeVisible();
@@ -507,7 +507,7 @@ describe("requesting exact files from a connection", () => {
   it("refuses an incomplete period before sending or linking anything", async () => {
     mount();
     await openFiles(undefined, false);
-    expect(screen.getByRole("group", { name: "Dates covered" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Time period" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
     expect(screen.getByText("Choose a start and end date.")).toBeVisible();
     expect(screen.queryByText("The end date must be on or after the start date.")).not.toBeInTheDocument();
@@ -597,7 +597,7 @@ describe("chat draft question card", () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "Tax return", periodStart: null, periodEnd: null,
     }} />);
-    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(await screen.findByText("Choose exact start and end dates with Agent One before sending this request.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
     expect(state.createQuery).not.toHaveBeenCalled();
@@ -607,7 +607,7 @@ describe("chat draft question card", () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "last 3 days standup notes", periodStart: null, periodEnd: null,
     }} />);
-    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(await screen.findByText("Choose exact start and end dates with Agent One before sending this request.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
     expect(state.create).not.toHaveBeenCalled();

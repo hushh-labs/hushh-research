@@ -664,6 +664,11 @@ Filter the browser console for `DRIVE_REQUEST` and enable Info and Warnings.
 Enable Preserve log before starting the two-account journey. Tags cover
 `CREATE`, `REVIEW`, `ALLOW`, `DECLINE`, `STATUS`, `SEARCH_STATUS`, `SEARCH_RESULTS`, `PAYMENT`,
 `CHECKOUT`, `DELIVERY`, and `ONE-COPY` where those existing routes are exercised.
+Protected content headers use `ONE_COPY_PREVIEW` and `ONE_COPY_DOWNLOAD`;
+these transport records do not establish transfer completion. Verbose console
+records require an explicit Dev/UAT application build and are suppressed for
+production, missing/unknown identity or conflicting production labels, even
+when a debug toggle is enabled. Server audit/error logging retains its own policy.
 Unchanged GET observations are suppressed in a bounded, ten-minute memory map;
 mutations retain one attempt and one outcome per invocation. No diagnostics are
 persisted in browser storage or sent to analytics by this facility.

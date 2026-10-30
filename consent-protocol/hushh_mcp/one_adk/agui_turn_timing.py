@@ -52,6 +52,7 @@ from hushh_mcp.one_adk.output_privacy import (
     CHAT_KEY_RUN_ERROR,
     ThoughtSummaryReplayFilter,
     drop_empty_history_parts,
+    drop_replayed_tool_placeholders,
     normalize_history_error,
     public_event,
     safe_exception_event,
@@ -849,6 +850,7 @@ def record_session_phase(phase: str, elapsed_ms: float) -> None:
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
+    drop_replayed_tool_placeholders(llm_request)
     render_text_attachments_for_model(llm_request)
     guarded_response = before_external_read_model(callback_context, llm_request)
     if guarded_response is not None:

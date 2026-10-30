@@ -16,6 +16,8 @@ from hushh_mcp.services.google_connection_scope_policy import (
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_GUEST_PHOTO_SCOPE,
     CALENDAR_LIST_READ_SCOPE,
+    CALENDAR_MEET_DRIVE_READ_SCOPE,
+    CALENDAR_MEET_READ_SCOPE,
     GoogleConnectionError,
     GoogleConnectionService,
 )
@@ -277,6 +279,113 @@ def test_declined_guest_photo_scope_does_not_block_calendar_connection(
     assert published["grant_params"]["guest_photo_access"] is False
 
 
+@pytest.mark.parametrize("meeting_grants", [(), (CALENDAR_MEET_READ_SCOPE,)])
+def test_first_calendar_connection_keeps_base_grant_when_meeting_consent_is_partial(
+    monkeypatch: pytest.MonkeyPatch, meeting_grants: tuple[str, ...]
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        lambda *_args, **_kwargs: asyncio.sleep(
+            0, result={"sub": "google-sub", "email": "owner@example.com"}
+        ),
+    )
+    monkeypatch.setattr(
+        service, "_connection", lambda *_args, **_kwargs: asyncio.sleep(0, result=None)
+    )
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "sealed", "iv": "iv", "tag": "aad-gcm-v1"},
+    )
+    published: dict = {}
+    monkeypatch.setattr(
+        service, "_publish_authorization", lambda **kwargs: published.update(kwargs)
+    )
+    monkeypatch.setattr(
+        service,
+        "_primary_completion_status",
+        lambda *_args: asyncio.sleep(0, result={"connected": True}),
+    )
+    base = (*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE)
+    result = asyncio.run(
+        service._store_authorized_connection(
+            user_id="user-1",
+            token={
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "scope": " ".join((*base, *meeting_grants)),
+            },
+            service="calendar",
+            requested_scopes=(*base, CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE),
+            oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            attempt_id="synthetic-attempt",
+            expected_generation=connection_generation(None),
+        )
+    )
+    assert result["connected"] is True
+    assert set(published["grant_params"]["scope_csv"].split()) == set((*base, *meeting_grants))
+
+
+def test_first_calendar_after_mail_keeps_mail_and_partial_calendar_grants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mail_scope = "https://www.googleapis.com/auth/gmail.readonly"
+
+    class _MailOnlyDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
+            if "SELECT service, scope_csv FROM google_service_grants" in sql:
+                self.calls.append((sql, params))
+                return SimpleNamespace(data=[{"service": "gmail", "scope_csv": mail_scope}])
+            return super().execute_raw(sql, params)
+
+    db = _MailOnlyDb()
+    service = GoogleConnectionService(db=db)
+    existing = {
+        "status": "connected",
+        "provider_subject": "google-sub",
+        "refresh_token_ciphertext": "old",
+    }
+    monkeypatch.setattr(service, "_connection", AsyncMock(return_value=existing))
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        AsyncMock(return_value={"sub": "google-sub", "email": "owner@example.com"}),
+    )
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "sealed", "iv": "iv", "tag": "aad-gcm-v1"},
+    )
+    published: dict = {}
+    monkeypatch.setattr(
+        service, "_publish_authorization", lambda **kwargs: published.update(kwargs)
+    )
+    monkeypatch.setattr(
+        service, "_primary_completion_status", AsyncMock(return_value={"connected": True})
+    )
+    base = (*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE)
+    result = asyncio.run(
+        service._store_authorized_connection(
+            user_id="user-1",
+            token={
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "scope": " ".join((*base, mail_scope)),
+            },
+            service="calendar",
+            requested_scopes=(*base, CALENDAR_MEET_READ_SCOPE, CALENDAR_MEET_DRIVE_READ_SCOPE),
+            oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            attempt_id="synthetic-attempt",
+            expected_generation=connection_generation(existing),
+        )
+    )
+    assert result["connected"] is True
+    assert set(published["grant_params"]["scope_csv"].split()) == set((*base, mail_scope))
+    assert any("SELECT status FROM google_service_grants" in sql for sql, _ in db.calls)
+
+
 def test_calendar_web_oauth_does_not_assume_optional_scope_was_granted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -305,4 +414,4 @@ def test_calendar_web_oauth_does_not_assume_optional_scope_was_granted(
             )
         )
     assert exc_info.value.status_code == 403
-    assert exc_info.value.reason_code == "calendar_list_permission_required"
+    assert exc_info.value.reason_code == "google_permission_required"

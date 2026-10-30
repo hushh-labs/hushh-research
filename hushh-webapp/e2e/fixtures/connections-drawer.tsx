@@ -19,6 +19,8 @@ import { DriveRecentSharing } from "../../components/agent/drive-background-sear
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
 import { HistoryConnectorsPage } from "../../components/agent/history-connectors-page";
+// Standalone legacy drawer/provider coverage. Chat's actual footer destination
+// is verified with ProfilePane in profile-legal-connectors.layout.spec.ts.
 import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";

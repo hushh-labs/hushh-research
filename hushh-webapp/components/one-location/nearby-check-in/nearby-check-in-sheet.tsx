@@ -31,6 +31,8 @@ import {
   PLACE_RATING_PRIVACY_LINE,
 } from "@/lib/one-location/place-rating-consent";
 import { recordVisitNote } from "@/lib/one-location/visit-notes";
+import { recordLiveActivity } from "@/lib/pkm/live-activity/live-activity-journal";
+import { venueActivityLabel } from "@/lib/one-location/saved-place-activity";
 import {
   trackOneLocationJourneyAction,
   trackReviewHandoffOpened,
@@ -285,6 +287,11 @@ export function shortRatingPlaceName(
   const firstSegment = trimmed.split(",")[0]?.trim() || trimmed;
   if (firstSegment.length <= 48) return firstSegment;
   return `${firstSegment.slice(0, 47).trimEnd()}…`;
+}
+
+/** A checked_in label is the selected venue's structured name; an address-only prediction, or a venue named by its street address, gets none. */
+export function checkInActivityLabel(place: Pick<OneLocationNearbyPlaceSuggestion, "name" | "address"> | null): string | null {
+  return venueActivityLabel(shortRatingPlaceName(place?.name), place?.address);
 }
 
 function placePoint(
@@ -1748,6 +1755,7 @@ export function NearbyCheckInSheet({
         result: "success",
         routeId: "one_location_check_in",
       });
+      recordLiveActivity({ kind: "checked_in", label: checkInActivityLabel(selectedPlace) });
       setViewState("active");
       setCompletedCheckIn(null);
       setAddTimeOpen(false);
@@ -1966,6 +1974,7 @@ export function NearbyCheckInSheet({
           routeId: "one_location_check_in",
           entrySurface: "agent",
         });
+        recordLiveActivity({ kind: "checked_in" }); // The binding's placeLabel may carry an address.
         return {
           status: "succeeded",
           summary: `Check-in saved at ${binding.placeLabel} for ${binding.durationMinutes} minutes.`,

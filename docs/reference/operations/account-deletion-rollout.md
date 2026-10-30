@@ -782,6 +782,31 @@ response reports `ready_to_start_fresh` only when Firebase removal is confirmed,
 so it stays `false` while the shared identity is retained. Where generations are
 on, the next sign-in reaches start-fresh through `registration-status` instead.
 
+### Start-fresh recovery screens
+
+Each registration screen offers only a step that can change its answer:
+
+- Fresh proof comes from a Google, Apple or Microsoft sign-in (`registration_review`)
+  or a new email code (its purpose-bound enrollment). Any other session (phone,
+  password, custom token) can't supply it, during the identity wait or after it, so
+  that screen asks the person to sign out and choose a sign-in option, with Sign out
+  first; the title names a phone sign-in only when the session's own token says so.
+  The native app verifies Google and Apple only; a Microsoft sign-in is sent to the
+  web instead of a button that always fails.
+- `historical_cleanup_unconfirmed` and `identity_write_unconfirmed` are support-led
+  (`support@hushh.ai`). Neither expires or replays on its own (see migration 419
+  above), so the screen offers Email support and Sign out, with no refresh or polling.
+- Refresh appears only on the review, where its answer can change, and reads
+  "Checking…" while pending at every recovery mount. Forced validations coalesce: at
+  most one runs and one waits. Sign out is never disabled.
+- Dev and UAT builds trace this journey in the browser console; filter by `[KARMA]`.
+  Lines carry an opaque operation, sequence and elapsed time, then enums only:
+  `registration.shown` (state, reason, verification, the session's sign-in method,
+  rendered controls), `registration.refresh_*` and `session.validation_*` (outcome,
+  duration), `email_code.code_stale` (code, status) and `phone_transfer.transfer_refused`.
+  `lib/observability/journey-trace.ts` gates them on `resolveAppEnvironment()`, so
+  production prints nothing, whatever debug flag is set.
+
 ## Maintainer UAT backend-only erasure
 
 The test-account helper uses `AccountService.erase_uat_backend_account`, not
@@ -981,6 +1006,27 @@ blocks this initial rollout; it does not authorize SSO activation or an older
 reader. Release artifacts retain the plan, exact image probe, selected revision
 and these aggregate checks without phone numbers, OTPs or owner identifiers.
 
+The removed restoration revision `consent-protocol-00305-zuy` retains one direct
+closure observation from successful production run `40475676949`, attempt 2.
+The WorkOS qualifier authenticates that exact immutable archive through the
+existing restoration receipt owner and checks its pinned original member digest.
+Only audit requests within that observation's original horizon may use it.
+Later same-name events, changed source or creation identity, reappearance and
+contrary completion evidence refuse observation reuse. The carried observation stays
+separate from current inventory; fresh complete history, empty authority and
+stable live inventory remain required. This evidence grants no retained-reader
+or SSO activation authority and cannot be recursively carried from a new receipt.
+
+The final cold installed-schema proof also seals its complete WorkOS receipt
+beside the existing digest. Once lifecycle maintenance removes restoration
+revision `consent-protocol-00309-nir`, that original live observation can preserve
+its closure through the cold audit horizon. The operational reference or fully
+authenticated healthy activation/ordinary archive identifies the exact cold
+proof; its original upload, schema snapshot UID and receipt digest are checked.
+Fresh receipts preserve that original pointer separately from their live rows.
+They cannot turn a carried row into a new direct observation, cover a later
+same-name event, or qualify another retired issuer.
+
 The exact reviewed production restoration may appear in serving state or retained
 history without belonging to main ancestry. Its canonical source proof classifies
 it as pre-phone only after checking that the new phone authority writers are
@@ -1002,6 +1048,18 @@ after confirmed erasure. This is not qualification to replay the fallback's old
 migration adapter or roll back that client purge. Primary migration execution
 must retain the tombstone filters for migrations 135 and 428. Image, runtime,
 schema, fence and WorkOS checks remain independent.
+
+The forward cleanup upgrade from the whole-file bodies at `84b80bcab6` to
+`49dafdc2f1` is also reviewed as one coupled change: committed-erasure wakeup,
+the same supervised guarded drain, completion-notice support, the dormant 437
+legacy-settlement contract and its LangGraph lock update. All six files must
+match that ordered pair together, and migration 437 must match its reviewed
+source. A partial upgrade, edited body, reversed pair or unrelated consumer
+change refuses qualification. The existing 28-file consumer inventory and
+independent migration manifest remain authoritative. This supplies source
+compatibility only; it cannot change the original operational application's
+identity, replay an old migration adapter, enable phone recovery or settle
+production legacy generations.
 
 ## Phone recovery action admission (431)
 
@@ -1063,6 +1121,40 @@ partial migration cannot be retried as a new empty first rollout. The bounded
 health-tag lease is retired and the actual cold revision is revalidated before
 publishing the operational proof.
 
+The independent Production `protected-configuration-health` monitor is a
+non-database observer only after `deploy/observability/auth_health_inventory.py`
+qualifies its exact retained UID, namespace, creation, generation and whole task
+specification. Its pinned image was joined to successful Cloud Build
+`0f80cc7e-2265-4639-9a1a-199359b20600`; every image input in its generation-bound
+source archive equals the reviewed repository body. The fixed entrypoint checks
+protected lists and readiness and writes its own lease and health log. It does
+not invoke the application or a phone/SQL writer.
+
+Capacity collection retains this job in the complete inventory, verifies all
+active execution specifications and reports its zero database contribution.
+Phone qualification separately closes its exact immutable audit birth and every
+effective completed execution, including failed executions. Before/after phone
+producer equality excludes only this independently requalified observer, so its
+addition does not invalidate an earlier closed producer snapshot. Changed images,
+arguments, environment, sidecars, volumes, identities, missing history, execution
+overrides, job replacement and deletion refuse qualification. All other jobs
+retain the existing producer/history and capacity rules; this grants no new
+deployment source, schema mutation, recovery activation or traffic authority.
+A Production release of an application that predates this helper restores it
+from current tooling beside the capacity and phone tools after checking out that
+application, so the same owner qualifies the observer instead of failing to load.
+Generations 2 and 3 replaced only the image, each rebuilt by the same recipe from Main:
+Cloud Build `0ba45608-a030-4202-90b0-71062604cb15` from `1af94024` with unchanged job bodies,
+then `e0b7d6c3-bf93-40e3-8615-dd1745489bdb` from `bb9f6e8a`, whose job bodies add only bounded,
+redacted failure diagnostics. History must contain each exact reviewed replacement once, in
+order, and each execution keeps the task of the generation it was created under; any further
+change still refuses until reviewed.
+
+Its explicit backend scope selects qualification work without moving primary
+traffic. The subsequent standard release still applies the ordinary
+account-lifecycle atomicity gate across the actual serving backend and frontend
+sources; a lifecycle change requires both services.
+
 The production capacity owner counts every retained backend and worker revision,
 readiness jobs and reserve. Keep its existing300-slot limit and pools. Under the
 shared deployment lock, capacity maintenance may publish a separately typed
@@ -1070,6 +1162,13 @@ operational backend reference from the exact immutable proof; its historical
 healthy commit/message remain unchanged. Preparation is read-only, the intent is
 uploaded before CAS, and uncertain Git/cloud mutations require readback. Later
 passes reuse the same reference rather than republishing or renewing it.
+Operational publication revalidates the installed database through the existing
+read-only owner. Its maintenance job prepares the frozen protocol Python runtime
+and the production lane's pinned Cloud SQL Auth Proxy before starting the
+five-minute cleanup budget, and uses that interpreter for publication and cleanup.
+System Python alone does not supply the declared database driver, and the Cloud
+SDK does not install this proxy. This setup changes no credential, lock, proof
+or drain authority.
 
 The `worker` phase prepares and immutably publishes the existing private worker
 intent, then stages exactly one zero-traffic revision. It preserves IAM, service
@@ -1122,6 +1221,13 @@ retention can drain the older cold reader. Changed tags, attempts, UIDs, image,
 mode, configuration or Scheduler state fail closed. Qualified cleanup-only
 workflow failures retain the existing canonical health classifier; application
 failures and failed activation continuations remain ineligible.
+
+A retained document receipt may record effective delivery disabled separately
+from `stored_enabled`. Cold qualification, staging, standard reuse and same-source activation
+preserve that effective mode while checking both stored flags exactly. The stage
+or pending release is independently requalified; cold qualification revalidates
+the current healthy basis or its exact operational origin. Ordinary forward reader and
+rollback checks still run. This does not activate retained document intake.
 
 A frontend-only healthy release carries the unchanged backend's exact original
 run, source and revision identities as an untrusted selector. Maintenance and

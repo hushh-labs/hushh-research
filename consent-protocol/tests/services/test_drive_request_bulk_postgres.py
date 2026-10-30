@@ -57,6 +57,7 @@ from hushh_mcp.services.google_drive_permission_adapter import (
     PermissionSnapshot,
 )
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+from tests.helpers.drive_permission_claims import hold_uncertain_bulk_effect
 from tests.services.test_drive_sharing_store import (  # noqa: F401
     MIGRATIONS,
     connector_postgres_url,
@@ -1810,6 +1811,8 @@ async def test_paid_progressive_retry_rechecks_authority_and_never_replays_uncer
     request_bulk, sharing, blocker
 ):
     request_id, (original,) = await _paid_partial_progressive_request(request_bulk, sharing)
+    snapshot_sql = text("""SELECT position,state,attempts,updated_at FROM drive_bulk_share_effects
+      WHERE share_id=:share ORDER BY position""")
     with request_bulk.db.engine.begin() as connection:
         if blocker == "trust":
             connection.execute(
@@ -1832,15 +1835,17 @@ async def test_paid_progressive_retry_rechecks_authority_and_never_replays_uncer
                     "status": "refunded" if blocker == "refunded" else "awaiting_payment",
                 },
             )
-        elif blocker in {"unknown", "dispatching", "receipt"}:
+        elif blocker in {"unknown", "dispatching"}:
+            hold_uncertain_bulk_effect(
+                connection, request_bulk.cipher, original["shareId"], state=blocker
+            )
+        elif blocker == "receipt":
             connection.execute(
-                text("""UPDATE drive_bulk_share_effects SET state=:state,
-                  receipt_envelope=CASE WHEN :receipt THEN CAST(:envelope AS jsonb) ELSE NULL END
+                text("""UPDATE drive_bulk_share_effects SET state='skipped',
+                  receipt_envelope=CAST(:envelope AS jsonb)
                   WHERE share_id=:share AND position=1"""),
                 {
                     "share": original["shareId"],
-                    "state": "skipped" if blocker == "receipt" else blocker,
-                    "receipt": blocker == "receipt",
                     "envelope": request_bulk._seal(
                         {"managed": False},
                         user_id="owner",
@@ -1894,14 +1899,7 @@ async def test_paid_progressive_retry_rechecks_authority_and_never_replays_uncer
                     ),
                 },
             )
-        before = list(
-            connection.execute(
-                text(
-                    "SELECT position,state,attempts,updated_at FROM drive_bulk_share_effects WHERE share_id=:share ORDER BY position"
-                ),
-                {"share": original["shareId"]},
-            )
-        )
+        before = list(connection.execute(snapshot_sql, {"share": original["shareId"]}))
     review = await request_bulk.review(user_id="owner", share_id=original["shareId"])
     assert review["canRetry"] is False
     with pytest.raises((DriveSharingError, DriveReadError)):
@@ -1912,17 +1910,7 @@ async def test_paid_progressive_retry_rechecks_authority_and_never_replays_uncer
             review_digest=review["reviewDigest"],
         )
     with request_bulk.db.engine.begin() as connection:
-        assert (
-            list(
-                connection.execute(
-                    text(
-                        "SELECT position,state,attempts,updated_at FROM drive_bulk_share_effects WHERE share_id=:share ORDER BY position"
-                    ),
-                    {"share": original["shareId"]},
-                )
-            )
-            == before
-        )
+        assert list(connection.execute(snapshot_sql, {"share": original["shareId"]})) == before
         assert (
             connection.execute(
                 text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
@@ -4629,13 +4617,7 @@ async def test_unresolved_post_blocks_other_paid_share_but_remains_reconcilable(
               WHERE request_id=:older"""),
             {"older": older_request, "newer": newer_request},
         )
-        connection.execute(
-            text("""UPDATE drive_bulk_share_effects
-              SET state='dispatching',lease_id=:lease,
-                  lease_expires_at=clock_timestamp()+INTERVAL '120 seconds'
-              WHERE share_id=:share AND position=1"""),
-            {"share": older_share, "lease": str(uuid4())},
-        )
+        hold_uncertain_bulk_effect(connection, request_bulk.cipher, older_share, lease=str(uuid4()))
     # The older order paid later, but a possible provider POST always wins
     # over payment ordering until it has been reconciled.
     assert await request_bulk.due() == []

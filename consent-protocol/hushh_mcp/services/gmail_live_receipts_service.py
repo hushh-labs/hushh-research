@@ -36,6 +36,9 @@ from hushh_mcp.agents.email.runtime import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
+from hushh_mcp.services.gmail_receipt_amounts import SUFFIX_TOTAL as _SUFFIX_TOTAL
+from hushh_mcp.services.gmail_receipt_amounts import TOTAL as _TOTAL
+from hushh_mcp.services.gmail_receipt_amounts import receipt_currency as _currency
 from hushh_mcp.services.gmail_receipt_continuity import (
     bootstrap_checkpoint,
     bootstrap_window,
@@ -76,20 +79,6 @@ _ORDER_ID = re.compile(
     r"[A-Z0-9][A-Z0-9._/-]{3,79})\b",
     re.I,
 )
-_TOTAL = re.compile(
-    r"\b(grand\s+total|order\s+total|invoice\s+total|total\s+amount|"
-    r"total\s+(?:paid|charged)|amount\s+(?:paid|charged|due)|payment\s+(?:total|received)|"
-    r"total)\b\s*(?:is\s*)?[:=-]?\s*(?:(INR|USD|EUR|GBP)\s*)?"
-    r"([₹€£$])?\s*((?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})"
-    r"(?:\.[0-9]{1,2})?)(?![0-9])(?:\s*(INR|USD|EUR|GBP))?",
-    re.I,
-)
-_SUFFIX_TOTAL = re.compile(
-    r"(?<![\w.,])(?:(INR|USD|EUR|GBP)\s*)?([₹€£$])?\s*"
-    r"((?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,2})?)"
-    r"(?:\s*(INR|USD|EUR|GBP))?\s+(Paid|Due)\b",
-    re.I,
-)
 _REFUND = re.compile(r"\b(refund(?:ed|ing)?|return(?:ed|ing)|credit(?:ed|ing)?)\b", re.I)
 _CANCELLATION = re.compile(r"\b(cancel(?:led|ed|lation)|voided)\b", re.I)
 _FULFILLMENT = re.compile(
@@ -114,12 +103,18 @@ _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_RETRIES = 1
-# Only transient model failures are retried. Invalid or unverifiable extraction
-# is a permanent validation failure for this scan, and fails the page typed.
+# Transient model failures and unverifiable answers are asked once more. After
+# that, a transient failure fails the page typed so the device retries it, and
+# an invalid result fails it too. A well-formed answer whose evidence still
+# doesn't verify against its own message is not a verified receipt: it is
+# counted with extractor_not_receipt instead of failing every other receipt on
+# the page. One such message used to block an owner's whole sync (UAT, Oct 22-29).
+_UNVERIFIED = "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
         "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+        _UNVERIFIED,
     }
 )
 _EXTRACTOR_RETRY_DELAY_SECONDS = 1.0
@@ -260,17 +255,6 @@ def _iso_date(message: dict[str, Any], headers: dict[str, str]) -> str | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).isoformat()
-
-
-def _currency(code_before: str | None, symbol: str | None, code_after: str | None) -> str | None:
-    explicit = (code_before or code_after or "").upper()
-    symbol_currency = {"₹": "INR", "€": "EUR", "£": "GBP"}.get(symbol, "")
-    if symbol == "$" and not explicit:
-        # Preserve the source symbol without guessing a dollar jurisdiction.
-        return "$"
-    if explicit and symbol_currency and explicit != symbol_currency:
-        return None
-    return explicit or symbol_currency or None
 
 
 def _preferred_total(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1650,9 +1634,7 @@ class GmailLiveReceiptsService:
                 "verified_merchant": evidence["verified_merchant"],
                 "receipt_signals": evidence["receipt_signals"],
                 "order_candidates": evidence["order_candidates"],
-                # The validator already defines the only admissible final total.
-                # Do not ask the receipt agent to choose among subtotal/tax/fee or
-                # conflicting peer values that the API would reject anyway.
+                # Only the validator's admissible final total; never subtotal/tax/fee peers.
                 "total_candidates": [preferred_total] if preferred_total else [],
                 "event_candidates": evidence["event_candidates"],
             }
@@ -1662,6 +1644,8 @@ class GmailLiveReceiptsService:
                         item = await extract(message, evidence, model_input)
                         break
                     except GmailApiError as exc:
+                        if exc.code == _UNVERIFIED and attempt >= _EXTRACTOR_RETRIES:
+                            return None, evidence, "extractor_not_receipt"  # Not verified.
                         if (
                             exc.code not in _RETRYABLE_EXTRACTION_CODES
                             or attempt >= _EXTRACTOR_RETRIES

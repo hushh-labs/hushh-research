@@ -10,15 +10,16 @@ import asyncio
 import base64
 import io
 import json
+import re
 import secrets
-import struct
 import time
 import wave
-import zlib
 
 from google.genai import types
 
 from scripts.capability_probe_failure import failure_reason, settle_recording
+from scripts.managed_probe_media import _pdf, _png, _wav16
+from scripts.probe_vertex_research import probe_vertex_research as _probe_vertex_research
 
 
 def _synthetic_public_search_agent(root, *, compact: bool = False):
@@ -42,14 +43,24 @@ def _synthetic_public_search_agent(root, *, compact: bool = False):
 
         policy = load_managed_runtime_policy()
         if not isinstance(model, ManagedPrimaryTextModel) or policy is None:
-            raise ValueError("Compact Search qualification requires the managed Azure model")
+            raise ValueError("Compact Search qualification requires the managed model")
         descriptor = policy["azure"]["compact_public_search"]
         model = compact_public_search_model(model)
+        from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
         if (
-            model.model != descriptor["deployment"]
-            or model.default_reasoning_effort != descriptor["reasoning_effort"]
+            model.primary_provider != policy["provider"]
             or model.web_search_context_size != "low"
-            or model.text_verbosity != descriptor["text_verbosity"]
+            or (
+                model.model != resolve_fleet_model_name("gemini-default")
+                if policy["provider"] == "vertex"
+                else (
+                    model.model != descriptor["deployment"]
+                    or model.default_reasoning_effort != descriptor["reasoning_effort"]
+                    or model.web_search_context_size != "low"
+                    or model.text_verbosity != descriptor["text_verbosity"]
+                )
+            )
         ):
             raise ValueError("Compact Search qualification did not select the admitted model")
     if isinstance(model, ManagedPrimaryTextModel):
@@ -67,59 +78,6 @@ def _synthetic_public_search_agent(root, *, compact: bool = False):
     )
 
 
-def _png(rgb: bytes) -> bytes:
-    def chunk(kind: bytes, body: bytes) -> bytes:
-        return (
-            struct.pack("!I", len(body))
-            + kind
-            + body
-            + struct.pack("!I", zlib.crc32(kind + body) & 0xFFFFFFFF)
-        )
-
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack("!2I5B", 128, 128, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress((b"\x00" + rgb * 128) * 128))
-        + chunk(b"IEND", b"")
-    )
-
-
-def _pdf(text: str) -> bytes:
-    stream = f"BT /F1 20 Tf 40 100 Td ({text}) Tj ET".encode()
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
-    ]
-    output = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for index, obj in enumerate(objects, 1):
-        offsets.append(len(output))
-        output.extend(str(index).encode() + b" 0 obj\n" + obj + b"\nendobj\n")
-    xref = len(output)
-    output.extend(b"xref\n0 6\n0000000000 65535 f \n")
-    for offset in offsets:
-        output.extend(f"{offset:010d} 00000 n \n".encode())
-    output.extend(
-        b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF\n"
-    )
-    return bytes(output)
-
-
-def _wav16(pcm24: bytes) -> bytes:
-    samples = [item[0] for item in struct.iter_unpack("<h", pcm24)]
-    downsampled = [samples[index] for index in range(len(samples)) if index % 3 != 1]
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as recording:
-        recording.setnchannels(1)
-        recording.setsampwidth(2)
-        recording.setframerate(16000)
-        recording.writeframes(struct.pack(f"<{len(downsampled)}h", *downsampled))
-    return buffer.getvalue()
-
-
 async def _probe_public_search(*, compact: bool = False):
     from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
@@ -129,6 +87,7 @@ async def _probe_public_search(*, compact: bool = False):
     # provider/tool pairing while this readiness probe stayed green.
     root = build_one_text_agent()
     agent = _synthetic_public_search_agent(root, compact=compact)
+    native_compact = compact and getattr(agent.model, "primary_provider", None) == "vertex"
 
     async def observe(callback_context, llm_response):
         if not llm_response.partial and llm_response.grounding_metadata:
@@ -145,7 +104,13 @@ async def _probe_public_search(*, compact: bool = False):
         user_id="synthetic-public-reader",
         consent_token="",
         message=(
-            "Search IANA's example domains documentation. Name both example.net and example.org, "
+            "Search IANA's official public documentation about example.com, example.net and "
+            "example.org. Are example.net and example.org available for registration? "
+            "Put only registration_available=true or registration_available=false on the first line. "
+            "On subsequent lines give a short cited explanation naming both domains. "
+            "Do not use JSON."
+            if native_compact
+            else "Search IANA's example domains documentation. Name both example.net and example.org, "
             "state whether they are available for registration, and cite IANA. "
             "Return one JSON object with domains (an array of those two names), "
             "registration_available (a boolean), and explanation (a short string with the citation). "
@@ -162,9 +127,27 @@ async def _probe_public_search(*, compact: bool = False):
         raise ValueError("The actual Search child returned no received citations")
     proof = {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
     if compact:
+        _verify_compact_search_fact(result.final_text, native=native_compact)
+        proof["synthetic_content_verified"] = True
+    return proof
+
+
+def _verify_compact_search_fact(text: str, *, native: bool) -> None:
+    if native:
+        # Native Search publishes cited text. A fixed answer field retains the
+        # same known-fact negative control without demanding a JSON response.
+        answer, _, explanation = text.strip().partition("\n")
+        domains = set(re.findall(r"(?<![\w.-])example\.(?:net|org)(?![\w-]|\.[\w-])", explanation))
+        valid = answer == "registration_available=false" and domains == {
+            "example.net",
+            "example.org",
+        }
+        if not valid:
+            raise ValueError("Compact Search failed a requested synthetic public fact")
+    else:
         # This is a fixed public known-answer evaluation, never product routing.
         # Mentioning both entities alone must not admit the opposite factual answer.
-        answer = json.loads(result.final_text)
+        answer = json.loads(text)
         if (
             not isinstance(answer, dict)
             or set(answer) != {"domains", "registration_available", "explanation"}
@@ -178,11 +161,9 @@ async def _probe_public_search(*, compact: bool = False):
             or not answer["explanation"].strip()
         ):
             raise ValueError("Compact Search failed a requested synthetic public fact")
-        proof["synthetic_content_verified"] = True
-    return proof
 
 
-async def probe_managed_capabilities(provider: str) -> dict:
+async def probe_managed_capabilities(provider: str, *, deadline: float | None = None) -> dict:
     from hushh_mcp.constants import GEMINI_MODEL
     from hushh_mcp.managed_ai_config import PROFILE_PATH, load_managed_runtime_policy, profile_hash
     from hushh_mcp.runtime_providers import build_managed_runtime_client
@@ -206,8 +187,13 @@ async def probe_managed_capabilities(provider: str) -> dict:
 
     async def check(name, operation):
         at = time.monotonic()
+        dispatched = False
         try:
-            async with asyncio.timeout(65):
+            remaining = 65 if deadline is None else min(65, max(0, deadline - at))
+            if remaining <= 0:
+                raise TimeoutError("Capability was not dispatched before the probe deadline")
+            dispatched = True
+            async with asyncio.timeout(remaining):
                 result = await operation()
             report["capabilities"][name] = {
                 "ready": True,
@@ -221,6 +207,7 @@ async def probe_managed_capabilities(provider: str) -> dict:
                 "error_type": type(error).__name__,
                 "classification": classify_provider_error(error),
                 "failure_reason": failure_reason(name, error),
+                "dispatched": dispatched,
             }
         print(
             json.dumps({"managed_capability_check": name, **report["capabilities"][name]}),
@@ -232,6 +219,7 @@ async def probe_managed_capabilities(provider: str) -> dict:
             model=GEMINI_MODEL,
             contents=parts,
             config=types.GenerateContentConfig(
+                response_mime_type="application/json",
                 response_json_schema={
                     "type": "object",
                     "properties": {field: {"type": "string", "enum": allowed}},
@@ -323,7 +311,10 @@ async def probe_managed_capabilities(provider: str) -> dict:
         )
         if len(rows) != 1 or rows[0].url != "https://www.iana.org/help/example-domains":
             raise ValueError("Exact public source retrieval failed")
-        return {"http_receipts": 1}
+        return {
+            "http_receipts": 1,
+            **(await _probe_vertex_research(client) if provider == "vertex" else {}),
+        }
 
     async def narration():
         from hushh_mcp.services.voice_narration import narrate_digest_stream

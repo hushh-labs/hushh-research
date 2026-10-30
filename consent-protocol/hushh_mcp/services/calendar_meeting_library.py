@@ -32,6 +32,8 @@ class LibraryScan:
     limits: set = field(default_factory=set)
     pages: int = 0
     checked: int = 0
+    file_preflight_error: str | None = None
+    calendar_incomplete: bool = False
 
 
 def _position(index):
@@ -98,27 +100,15 @@ async def _prepare(insights, *, user_id, date, time_zone, cursor, query, kind):
 
 async def _preflight(scan):
     from hushh_mcp.services import calendar_meeting_artifacts as provider
-    from hushh_mcp.services.google_connection_service import (
-        CALENDAR_MEET_DRIVE_READ_SCOPE,
-        CALENDAR_MEET_READ_SCOPE,
-    )
 
     try:
         async with asyncio.timeout_at(scan.deadline - 2):
-            token = await scan.insights.calendar.connections.access_token(
-                user_id=scan.user_id, service="calendar", access_level="read"
-            )
-            scopes = await provider.inspect_token(token, scan.grant.provider_subject)
-            await scan.insights.calendar._check_read_binding(scan.user_id, scan.grant.binding)
-        if CALENDAR_MEET_READ_SCOPE not in scopes or CALENDAR_MEET_DRIVE_READ_SCOPE not in scopes:
-            raise provider.ArtifactUnavailable("permission_required")
+            await scan.artifacts._selected_token(scan.user_id, scan.grant)
     except provider.ArtifactUnavailable as error:
-        return error.state
-    except TimeoutError as exc:
-        raise GoogleConnectionError(
-            "Meeting permission check timed out. Try again.", status_code=504
-        ) from exc
-    return None
+        return error.state, "missing" if error.state == "permission_required" else "unverified"
+    except TimeoutError:
+        return "temporarily_unavailable", "unverified"
+    return None, "ready"
 
 
 async def _scan_event(scan, event, calendar_id):
@@ -133,21 +123,46 @@ async def _scan_event(scan, event, calendar_id):
         finish = datetime.fromisoformat(raw_end.replace("Z", "+00:00"))
     except ValueError as exc:
         raise GoogleConnectionError("Meeting time could not be verified.", status_code=502) from exc
-    if (
-        begin.tzinfo is None
-        or finish.tzinfo is None
-        or not (scan.start <= begin < scan.end)
-        or finish > datetime.now(UTC)
-    ):
-        return
-    if not event.get("conference_id") and not event.get("artifact_refs"):
-        if isinstance(event.get("conference_url"), str) and event["conference_url"].startswith(
-            "https://meet.google.com/"
-        ):
-            scan.limits.add("unverified")
+    if begin.tzinfo is None or finish.tzinfo is None or not (scan.start <= begin < scan.end):
         return
     scan.checked += 1
+    if scan.query.casefold() not in event.get("title", "").casefold():
+        return
     occurrence = scan.insights._occurrence_id_for_event(event, calendar_id, summarized=True)
+    source = {"calendar_id": calendar_id, "event_id": event["id"]}
+    row = scan.rows.get(occurrence)
+    if row is None:
+        row = {
+            **event,
+            "calendar_id": calendar_id,
+            "account_id": scan.insights.account_id,
+            "occurrence_id": occurrence,
+            "grant_id": scan.context["grant_id"],
+            "sources": [],
+            "artifact_kinds": [],
+            "availability": {},
+            "discovery": "unverified",
+            "file_state": "unknown",
+        }
+        scan.rows[occurrence] = row
+    if source not in row["sources"]:
+        row["sources"].append(source)
+    now = datetime.now(UTC)
+    if begin > now:
+        row["file_state"] = "upcoming"
+        return
+    if finish > now:
+        row["file_state"] = "in_progress"
+        return
+    if scan.file_preflight_error:
+        if not row["artifact_kinds"]:
+            row["file_state"] = scan.file_preflight_error
+            row["discovery"] = scan.file_preflight_error
+        return
+    if not event.get("conference_id") and not event.get("artifact_refs"):
+        if not row["artifact_kinds"]:
+            row["file_state"] = "unknown"
+        return
     try:
         remaining = scan.deadline - asyncio.get_running_loop().time()
         async with asyncio.timeout(min(20, remaining)):
@@ -161,6 +176,7 @@ async def _scan_event(scan, event, calendar_id):
             )
     except TimeoutError:
         scan.limits.add("temporarily_unavailable")
+        row["file_state"] = "temporarily_unavailable"
         return
     if not detail["complete"]:
         scan.limits.add(
@@ -171,28 +187,36 @@ async def _scan_event(scan, event, calendar_id):
         for item in detail["artifacts"]
         if item["state"] == "available" and item["kind"] in {"recording", "notes"}
     }
-    source = {"calendar_id": calendar_id, "event_id": event["id"]}
-    previous = scan.rows.get(occurrence)
-    if previous and source not in previous["sources"]:
-        previous["sources"].append(source)
-    if (
-        not kinds
-        or (scan.kind != "all" and scan.kind not in kinds)
-        or scan.query.casefold() not in event.get("title", "").casefold()
+    row["artifact_kinds"] = sorted(set(row["artifact_kinds"]) | kinds)
+    row["discovery"] = detail["discovery"]
+    for kind in ("recording", "notes"):
+        available = kind in row["artifact_kinds"]
+        state = (detail.get("availability") or {}).get(kind)
+        if not state:
+            state = next(
+                (item["state"] for item in detail["artifacts"] if item["kind"] == kind),
+                detail["discovery"],
+            )
+        if available:
+            row["availability"][kind] = "available"
+        elif row["availability"].get(kind) != "available":
+            row["availability"][kind] = state
+    if row["artifact_kinds"]:
+        row["file_state"] = "available"
+    elif any(state == "processing" for state in row["availability"].values()):
+        row["file_state"] = "processing"
+    elif any(
+        state in {"resource_denied", "permission_required", "provider_policy"}
+        for state in row["availability"].values()
     ):
-        return
-    if previous:
-        previous["artifact_kinds"] = sorted(set(previous["artifact_kinds"]) | kinds)
+        row["file_state"] = "access_required"
+    elif any(
+        state in {"temporarily_unavailable", "provider_configuration"}
+        for state in row["availability"].values()
+    ):
+        row["file_state"] = "temporarily_unavailable"
     else:
-        scan.rows[occurrence] = {
-            **event,
-            "calendar_id": calendar_id,
-            "account_id": scan.insights.account_id,
-            "occurrence_id": occurrence,
-            "grant_id": scan.context["grant_id"],
-            "sources": [source],
-            "artifact_kinds": sorted(kinds),
-        }
+        row["file_state"] = "unknown"
 
 
 def _advance(scan, page, events, offset, page_hash):
@@ -211,6 +235,7 @@ def _advance(scan, page, events, offset, page_hash):
     else:
         if page.get("truncated"):
             scan.limits.add("calendar_incomplete")
+            scan.calendar_incomplete = True
         scan.position = _position(scan.position["calendar_index"] + 1)
     return False
 
@@ -230,6 +255,7 @@ async def _scan_page(scan, source):
             )
     except TimeoutError:
         scan.limits.add("temporarily_unavailable")
+        scan.calendar_incomplete = True
         return True
     scan.pages += 1
     events = page.get("events")
@@ -272,6 +298,7 @@ async def _scan(scan):
             "writerWithoutPrivateAccess",
         }:
             scan.limits.add("calendar_unreadable")
+            scan.calendar_incomplete = True
             scan.position = _position(scan.position["calendar_index"] + 1)
             continue
         if await _scan_page(scan, source):
@@ -279,18 +306,7 @@ async def _scan(scan):
     await scan.insights.calendar._check_read_binding(scan.user_id, scan.grant.binding)
 
 
-def _result(scan, *, error=None):
-    if error:
-        return {
-            "complete": False,
-            "next_cursor": None,
-            "meetings": [],
-            "date": scan.date,
-            "time_zone": scan.time_zone,
-            "account_id": scan.insights.account_id,
-            "limitations": [error],
-            "checked_events": 0,
-        }
+def _result(scan, *, meeting_file_access="ready"):
     more = scan.position["calendar_index"] < len(scan.calendars)
     next_cursor = (
         scan.insights.schedule._seal(
@@ -307,6 +323,7 @@ def _result(scan, *, error=None):
     meetings = sorted(scan.rows.values(), key=lambda row: row["start"]["dateTime"], reverse=True)
     return {
         "complete": not more and not scan.limits,
+        "calendar_complete": not more and not scan.calendar_incomplete,
         "next_cursor": next_cursor,
         "meetings": meetings,
         "date": scan.date,
@@ -314,6 +331,7 @@ def _result(scan, *, error=None):
         "account_id": scan.insights.account_id,
         "limitations": sorted(scan.limits),
         "checked_events": scan.checked,
+        "meeting_file_access": meeting_file_access,
     }
 
 
@@ -328,8 +346,9 @@ async def meeting_library(insights, *, user_id, date, time_zone, cursor=None, qu
         query=query,
         kind=kind,
     )
-    error = await _preflight(scan)
+    error, meeting_file_access = await _preflight(scan)
     if error:
-        return _result(scan, error=error)
+        scan.file_preflight_error = error
+        scan.limits.add(error)
     await _scan(scan)
-    return _result(scan)
+    return _result(scan, meeting_file_access=meeting_file_access)

@@ -21,6 +21,9 @@ FIELDS = {
     "live_location",
     "embedding_model",
 }
+# Account identity is selected by name; deployment names are shared by every account.
+AZURE_ACCOUNT_FIELDS = ("tenant_id", "client_id", "primary_endpoint", "phi_endpoint")
+AZURE_DEPLOYMENT_FIELDS = frozenset({"primary_deployment", "phi_deployment"})
 
 
 def validate_profile(value: dict, *, local: bool = False) -> dict:
@@ -94,9 +97,152 @@ def load_private_drive_text_policy(path: Path = PROFILE_PATH) -> dict:
     return value
 
 
-def selected_managed_provider() -> str:
+def configured_managed_provider(
+    environment: str, path: Path = PROFILE_PATH, *, document: dict | None = None
+) -> str:
+    """Packaged fleet default; revision pins are resolved separately below.
+
+    Only UAT has an administrator-selected Azure/Vertex runtime. Other lanes
+    retain their existing Vertex contract; BYOK and owner-cloud routing are separate.
+    """
+    document = json.loads(path.read_text()) if document is None else document
+    # Version-one candidates predating the central selector declared Azure in
+    # their existing UAT processor policy. Preserve their release receipts.
+    selection = document.get("managed_provider_selection")
+    if selection is None and "managed_provider_selection" not in document:
+        selection = {"uat": document.get("private_drive_text_uat", {}).get("provider")}
+    if (
+        document.get("version") != 1
+        or not isinstance(selection, dict)
+        or set(selection) != {"uat"}
+        or not isinstance(selection["uat"], str)
+        or selection["uat"] not in {"azure_openai", "vertex"}
+    ):
+        raise ValueError("Invalid managed provider selection")
+    if environment not in document.get("environments", {}):
+        raise ValueError("Unknown managed AI runtime profile")
+    return selection["uat"] if environment == "uat" else "vertex"
+
+
+def validate_runtime_config(path: Path = PROFILE_PATH) -> dict:
+    """Validate all packaged settings without credentials, clients or inference.
+
+    Provider readiness separately qualifies the selected runtime's complete
+    capability bundle before any candidate is allowed to serve traffic.
+    """
+    document = json.loads(path.read_text())
+    environments = ("local", "dev", "uat", "production")
+    if set(document.get("environments", {})) != set(environments):
+        raise ValueError("Managed AI configuration requires every environment")
+    providers = {}
+    for environment in environments:
+        load_profile(environment, path)
+        providers[environment] = configured_managed_provider(environment, path)
+    load_private_drive_text_policy(path)
+    load_pwm_policy(path, environment="production", provider="vertex")
+    load_pwm_policy(path, environment="uat", provider="azure_openai")
+    _validate_standby_azure_accounts(document)
+    load_managed_runtime_policy(path, environment="uat", provider=providers["uat"])
+    return {"valid": True, "providers": providers, "config_fingerprint": profile_hash(document)}
+
+
+def _canonical_uuid(value: object) -> bool:
+    try:
+        return str(UUID(str(value))) == value
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _azure_accounts(document: dict) -> dict | None:
+    """Named managed Azure accounts; candidates predating them keep the inline block."""
+    if "managed_azure_accounts" not in document:
+        return None
+    value = document["managed_azure_accounts"]
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"selection", "accounts"}
+        or not isinstance(value["selection"], dict)
+        or set(value["selection"]) != {"uat"}
+        or not isinstance(value["accounts"], dict)
+        or not 1 <= len(value["accounts"]) <= 8
+        or value["selection"]["uat"] not in value["accounts"]
+    ):
+        raise ValueError("Invalid managed Azure account selection")
+    for name, account in value["accounts"].items():
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9-]{1,47}", name)
+            or not isinstance(account, dict)
+            or set(account) != {*AZURE_ACCOUNT_FIELDS, "readiness_exam_client_id"}
+        ):
+            raise ValueError("Invalid managed Azure account")
+    runtime_apps = {account["client_id"] for account in value["accounts"].values()}
+    for account in value["accounts"].values():
+        exam = account["readiness_exam_client_id"]
+        if exam is not None and (not _canonical_uuid(exam) or exam in runtime_apps):
+            raise ValueError("The readiness exam requires its own Entra application")
+    return value
+
+
+def _resolved_azure(document: dict, deployments: dict) -> dict:
+    """Join the selected account's identity to the shared deployment names."""
+    accounts = _azure_accounts(document)
+    if accounts is None:
+        return dict(deployments)  # Inline legacy block; the PWM contract checks it.
+    if not isinstance(deployments, dict) or set(deployments) != AZURE_DEPLOYMENT_FIELDS:
+        raise ValueError("Azure deployments must not repeat account identity")
+    account = accounts["accounts"][accounts["selection"]["uat"]]
+    return {**{key: account[key] for key in AZURE_ACCOUNT_FIELDS}, **deployments}
+
+
+def _validate_standby_azure_accounts(document: dict) -> None:
+    """Shape-check every account before merge, not only the selected one."""
+    accounts = _azure_accounts(document)
+    if accounts is None:
+        return
+    deployments = document["pwm_research_uat"]["azure"]
+    for account in accounts["accounts"].values():
+        _azure_config_validator()(
+            {**{key: account[key] for key in AZURE_ACCOUNT_FIELDS}, **deployments}
+        )
+
+
+def load_managed_azure_account(path: Path = PROFILE_PATH, *, document: dict | None = None) -> dict:
+    """UAT's selected managed Azure account: identifiers only, never credentials."""
+    document = json.loads(path.read_text()) if document is None else document
+    azure = load_pwm_policy(environment="uat", provider="azure_openai", document=document)["azure"]
+    accounts = _azure_accounts(document)
+    name = accounts["selection"]["uat"] if accounts else None
+    return {
+        "name": name,
+        **{key: azure[key] for key in AZURE_ACCOUNT_FIELDS},
+        "readiness_exam_client_id": (
+            accounts["accounts"][name]["readiness_exam_client_id"] if accounts else None
+        ),
+    }
+
+
+def managed_azure_inventory(path: Path = PROFILE_PATH) -> dict:
+    """Every deployment the selected account must host, derived from this one file."""
+    document = json.loads(path.read_text())
+    runtime = document["managed_runtime_uat"]["azure"]
+    primary = load_pwm_policy(environment="uat", provider="azure_openai", document=document)
+    descriptors = {
+        kind: {key: runtime[kind][key] for key in ("deployment", "model", "version")}
+        for kind in sorted(runtime)
+        if isinstance(runtime[kind], dict)
+    }
+    return {
+        "account": load_managed_azure_account(document=document),
+        # The primary model and version are not yet declared; record them when switching.
+        "deployments": {"primary": {"deployment": primary["azure"]["primary_deployment"]}}
+        | descriptors,
+    }
+
+
+def selected_managed_provider(path: Path = PROFILE_PATH, *, document: dict | None = None) -> str:
+    configured = configured_managed_provider("uat", path, document=document)
     selected = os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER") or os.getenv(
-        "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "azure_openai"
+        "HUSHH_UAT_MANAGED_TEXT_PROVIDER", configured
     )
     if selected not in {"azure_openai", "vertex"} or (
         os.getenv("HUSHH_UAT_MANAGED_AI_PROVIDER")
@@ -151,7 +297,11 @@ def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
 
 
 def load_managed_runtime_policy(
-    path: Path = PROFILE_PATH, *, environment: str | None = None
+    path: Path = PROFILE_PATH,
+    *,
+    environment: str | None = None,
+    provider: str | None = None,
+    document: dict | None = None,
 ) -> dict | None:
     """UAT processor selection only; callers retain information/action authority.
 
@@ -165,7 +315,8 @@ def load_managed_runtime_policy(
     )
     if env != "uat":
         return None
-    value = json.loads(path.read_text())["managed_runtime_uat"]
+    document = json.loads(path.read_text()) if document is None else document
+    value = document["managed_runtime_uat"]
     if (
         not isinstance(value, dict)
         or set(value)
@@ -188,13 +339,11 @@ def load_managed_runtime_policy(
     ):
         raise ValueError("Invalid managed capability inventory")
     _validate_managed_azure_bindings(value["azure"], required)
-    selected = selected_managed_provider()
-    digest = profile_hash(
-        {
-            "policy": value,
-            "azure": load_pwm_policy(path, environment="uat", provider="azure_openai")["azure"],
-        }
-    )
+    selected = selected_managed_provider(path, document=document) if provider is None else provider
+    if selected not in {"azure_openai", "vertex"}:
+        raise ValueError("Invalid managed provider selection")
+    azure = load_pwm_policy(path, environment="uat", provider="azure_openai", document=document)
+    digest = profile_hash({"policy": value, "azure": azure["azure"]})
     return {
         **value,
         "provider": selected,
@@ -214,10 +363,14 @@ def _azure_config_validator():
 
 
 def load_pwm_policy(
-    path: Path = PROFILE_PATH, *, environment: str | None = None, provider: str | None = None
+    path: Path = PROFILE_PATH,
+    *,
+    environment: str | None = None,
+    provider: str | None = None,
+    document: dict | None = None,
 ) -> dict:
     """Research limits and provider are one checked-in runtime contract."""
-    document = json.loads(path.read_text())
+    document = json.loads(path.read_text()) if document is None else document
     runtime_environment = (
         (
             environment
@@ -230,15 +383,16 @@ def load_pwm_policy(
     if provider is not None and provider not in {"azure_openai", "vertex"}:
         raise ValueError("Invalid research processor selection")
     selected = provider or (
-        selected_managed_provider() if runtime_environment == "uat" else "vertex"
-    )
-    value = dict(
-        document["pwm_research_uat"]
+        selected_managed_provider(path, document=document)
         if runtime_environment == "uat"
+        else "vertex"
+    )
+    uat_research = (
+        runtime_environment == "uat"
         and selected == "azure_openai"
         and "pwm_research_uat" in document
-        else document["pwm_research"]
     )
+    value = dict(document["pwm_research_uat"] if uat_research else document["pwm_research"])
     if runtime_environment == "uat":
         value["owner_source_provider"] = "public_https"
     provider = value.get("provider")
@@ -267,6 +421,8 @@ def load_pwm_policy(
     ):
         raise ValueError("PWM requires declared research and source-review providers")
     if azure:
+        if uat_research:  # Named accounts select UAT's managed identity only.
+            value["azure"] = _resolved_azure(document, value["azure"])
         _azure_config_validator()(value["azure"])
     limits = {
         "search_invocations": 32,

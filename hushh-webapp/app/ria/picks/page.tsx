@@ -31,10 +31,7 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { SegmentedTabs } from "@/components/profile/settings-ui";
-import {
-  RiaCompatibilityState,
-  RiaPageShell,
-} from "@/components/ria/ria-page-shell";
+import { RiaCompatibilityState, RiaPageShell, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
 import {
   Table,
@@ -2689,6 +2686,7 @@ export default function RiaPicksPage() {
         errorMessage: picksResource.error,
       }}
     >
+      <RiaVerificationGate>
           <div data-testid="ria-picks-primary">
             <SegmentedTabs
               value={source}
@@ -3209,6 +3207,7 @@ export default function RiaPicksPage() {
               ) : null}
             </>
           }
+      </RiaVerificationGate>
     </RiaPageShell>
   );
 }

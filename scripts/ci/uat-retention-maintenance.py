@@ -144,6 +144,15 @@ def api(repository: str, endpoint: str):
     return result
 
 
+def uncached_api(repository: str, endpoint: str):
+    """Re-read authority even when the surrounding maintenance pass caches lookups."""
+    token = _API_CACHE.set(None)
+    try:
+        return api(repository, endpoint)
+    finally:
+        _API_CACHE.reset(token)
+
+
 def trusted_run(run: dict, repository: str, workflow: str) -> bool:
     return (
         trusted_origin(run, repository, workflow) and run.get("conclusion") == "success"
@@ -355,6 +364,8 @@ def download_replayed_release(
     release_artifact_receipts.download_replayed_artifact(
         repository, artifact, directory, f"{LANES[environment]['prefix']}-release-status.json",
         run_command=retention.run_command, timeout=timeout,
+        allow_legacy_production=environment == "production"
+        and release_artifact_receipts.production_evidence_repair_enabled(),
     )
 
 # Preserve existing UAT-only imports while both lanes share the strict reader.
@@ -393,9 +404,85 @@ def governed_dispatch(
     )
 
 
+def _same_production_run(expected: dict, observed: dict) -> bool:
+    keys = (
+        "id", "head_sha", "head_branch", "path", "event", "run_attempt",
+        "status", "conclusion",
+    )
+    return (
+        isinstance(observed, dict)
+        and all(observed.get(key) == expected.get(key) for key in keys)
+        and all(
+            (observed.get(key) or {}).get(field) == (expected.get(key) or {}).get(field)
+            for key, field in (
+                ("repository", "id"), ("repository", "full_name"),
+                ("head_repository", "id"), ("head_repository", "full_name"),
+                ("actor", "login"), ("triggering_actor", "login"),
+            )
+        )
+    )
+
+
+def _assert_production_release_snapshot(repository: str, run: dict, inventory: dict) -> None:
+    run_id = run["id"]
+    refreshed = uncached_api(repository, f"runs/{run_id}")
+    current_inventory = uncached_api(repository, f"runs/{run_id}/artifacts?per_page=100")
+    if not _same_production_run(run, refreshed) or current_inventory != inventory:
+        raise retention.UnsafeState("production release attempt changed during lookup")
+
+
 def load_release(repository: str, run_id: int, directory: Path, environment: str) -> dict | None:
     prefix = LANES[environment]["prefix"]
     name = f"{prefix}-release-{run_id}"
+    if environment == "production" and release_artifact_receipts.production_evidence_repair_enabled():
+        # Production status is authority-bearing: never trust an extracted or
+        # pre-existing filesystem cache, including a symlinked parent. Select
+        # the current upload and decode its digest-verified archive in memory.
+        run = uncached_api(repository, f"runs/{run_id}")
+        if (
+            not isinstance(run, dict)
+            or run.get("id") != run_id
+            or run.get("status") != "completed"
+            or run.get("conclusion") not in {"success", "failure"}
+            or not governed_dispatch(run, repository, "production")
+        ):
+            raise retention.UnsafeState("production release origin is invalid")
+        inventory = uncached_api(repository, f"runs/{run_id}/artifacts?per_page=100")
+        entries = inventory.get("artifacts") if isinstance(inventory, dict) else None
+        if (
+            not isinstance(entries, list)
+            or type(inventory.get("total_count")) is not int
+            or inventory["total_count"] != len(entries)
+            or len(entries) > 100
+            or any(not isinstance(item, dict) for item in entries)
+        ):
+            raise retention.UnsafeState("release artifact inventory is incomplete")
+        if not any(item.get("name") == name for item in entries):
+            _assert_production_release_snapshot(repository, run, inventory)
+            return None
+        selected, _ = release_artifact_receipts.current_attempt_artifact(
+            repository, run, LANES["production"], api=uncached_api, timestamp=_github_timestamp
+        )
+        deadline = _LOOKUP_DEADLINE.get()
+        timeout = min(180.0, deadline - time.monotonic()) if deadline is not None else 180.0
+        archive = release_artifact_receipts.immutable_archive(
+            repository, selected, run_command=retention.run_command, timeout=timeout
+        )
+        try:
+            release = json.loads(
+                release_artifact_receipts._status_bytes(
+                    archive, "prod-release-status.json", allow_legacy_production=True
+                ),
+                object_pairs_hook=production_phone_receipt._unique_object,
+            )
+        except (ValueError, TypeError) as error:
+            raise retention.UnsafeState("production release artifact is invalid") from error
+        _assert_production_release_snapshot(repository, run, inventory)
+        if not isinstance(release, dict):
+            raise retention.UnsafeState("source release artifact is invalid")
+        if any(key.startswith("_maintenance_") for key in release):
+            raise retention.UnsafeState("source artifact contains internal maintenance authority")
+        return release
     artifact = None
     try:
         if not artifact_exists(repository, run_id, name):
@@ -875,6 +962,10 @@ def find_release(
             )
         run_id = run["id"]
         release = load_release(repository, run_id, directory, environment)
+        if environment == "production" and release_artifact_receipts.production_evidence_repair_enabled() and not _same_production_run(
+            run, uncached_api(repository, f"runs/{run_id}")
+        ):
+            raise retention.UnsafeState("production source changed during lookup")
         if release is None:
             # Successful NO_OP runs deliberately have no release artifact.
             continue
@@ -1494,7 +1585,7 @@ def checkpoint(args, run_id, observed, pending, status):
         receipt_file,
         {
             "schema_version": 1,
-            "checkpoint_version": 2,
+            "checkpoint_version": 3 if status == "preparing" else 2,
             "environment": args.environment,
             "project": LANES[args.environment]["project"],
             "release_run_id": run_id,

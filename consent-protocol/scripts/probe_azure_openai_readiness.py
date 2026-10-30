@@ -57,6 +57,8 @@ def valid_failure_reason(capability: str, reason: object) -> bool:
             and reason.startswith("live.")
             or capability == "one_text_root"
             and reason.startswith("root.")
+            or capability in {"public_search", "compact_public_search"}
+            and reason.startswith("search.")
         )
     )
 

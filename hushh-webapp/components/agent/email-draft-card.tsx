@@ -21,6 +21,10 @@ import {
   type ConnectionSummaryEntry,
 } from "@/lib/services/connections-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import type { GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import { deliveryFailure, recipientProblem } from "@/components/agent/email-draft-delivery";
+import { EmailDraftGmailNotice, useGmailSendGap, type GmailSendGap } from "@/components/agent/email-draft-gmail-readiness";
 
 export type SourceBoundEmailReplyAdapter = {
   /** Keeps reply routing server-derived from the source message/thread. */
@@ -92,6 +96,12 @@ type EmailDraftCardProps = {
   /** Explicit local edit; called synchronously before old Send can be used. */
   onDraftEdit?: (draft: EmailDraft) => void;
   canSendReviewed?: () => boolean;
+  /** The server's draft-time Gmail send readiness; the live connector status refines it. */
+  gmailSend?: GmailSendReadiness | null;
+  /** Starts the in-place Gmail send connect from the click; turns on the readiness notice. */
+  onEnableGmailSend?: () => void;
+  /** True while that connect's Google window is open. */
+  enablingGmailSend?: boolean;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -109,53 +119,19 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/**
- * Refusals the send route makes before it touches the prepared action: the
- * reply's original email was re-read and refused, or the route was switched
- * off. Nothing can have been sent, whatever stage the tap had reached.
- */
-const REFUSED_BEFORE_SEND = new Set([
-  "REPLY_SOURCE_CHANGED",
-  "REPLY_SOURCE_UNAVAILABLE",
-  "REPLY_SOURCE_RETRYABLE",
-  "REPLY_SOURCE_REF_EXPIRED",
-  "REPLY_SOURCE_REF_INVALID",
-  "REPLY_ACCOUNT_CHANGED",
-  "REPLY_TARGET_IS_OWNER",
-  "REPLY_TARGET_AMBIGUOUS",
-  "REPLY_RECIPIENT_INVALID",
-  "REPLY_HEADERS_INVALID",
-  "MAIL_REPLY_UNAVAILABLE",
-  "GMAIL_READ_PERMISSION_REQUIRED",
-  "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED",
-  "SOURCE_BINDING_CONFLICT",
-]);
-
-function deliveryFailure(cause: unknown, sendRequestStarted: boolean): EmailDeliveryError {
-  const unknown = () => new EmailDeliveryError(
-    "We could not confirm delivery. Check Sent Mail before trying again.",
-    502,
-    "EMAIL_ACTION_OUTCOME_UNKNOWN",
-  );
-  if (cause instanceof EmailDeliveryError && REFUSED_BEFORE_SEND.has(cause.code ?? "")) {
-    return cause;
-  }
-  if (cause instanceof EmailDeliveryError) {
-    if (sendRequestStarted && (
-      cause.code === "EMAIL_ACTION_ALREADY_USED" ||
-      cause.code === "ACTION_NOT_SENDABLE" ||
-      !cause.code ||
-      (cause.status >= 500 && !["GMAIL_SEND_FAILED", "DELIVERY_FAILED"].includes(cause.code))
-    )) return unknown();
-    return cause;
-  }
-  // Once the Send request starts, a lost response may hide a successful send.
-  return sendRequestStarted
-    ? unknown()
-    : new EmailDeliveryError("Mail could not be prepared. Review it and try again.", 500);
+export function EmailDraftCard(props: EmailDraftCardProps) {
+  // Reading Gmail status needs the signed-in owner, so only hosts that can connect opt in.
+  return props.onEnableGmailSend
+    ? <GmailAwareEmailDraftCard {...props} />
+    : <EmailDraftCardView {...props} gmailGap={null} />;
 }
 
-export function EmailDraftCard({
+function GmailAwareEmailDraftCard(props: EmailDraftCardProps) {
+  const gmailGap = useGmailSendGap(props.gmailSend ?? null, props.enablingGmailSend === true);
+  return <EmailDraftCardView {...props} gmailGap={gmailGap} />;
+}
+
+function EmailDraftCardView({
   initialInstruction,
   initialDraft = null,
   verbatimInitialBody = false,
@@ -177,7 +153,10 @@ export function EmailDraftCard({
   sendUnavailable = false,
   onDraftEdit,
   canSendReviewed,
-}: EmailDraftCardProps) {
+  onEnableGmailSend,
+  enablingGmailSend = false,
+  gmailGap,
+}: EmailDraftCardProps & { gmailGap: GmailSendGap | null }) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
     const sourceBody = initialDraft?.body ?? (autoDraft ? "" : initialInstruction);
@@ -476,6 +455,17 @@ export function EmailDraftCard({
   const send = () => {
     if (sendUnavailable || (reviewedSend && (reviewChangedRef.current ||
         Date.parse(reviewedSend.expiresAt) <= Date.now()))) return;
+    // A Send that cannot work yet starts the connect instead; the draft stays open.
+    if (gmailGap && onEnableGmailSend) {
+      onEnableGmailSend();
+      return;
+    }
+    // A local address problem keeps the editor open. The server still checks at Send.
+    const recipientError = sourceBoundReply || reviewedSend ? null : recipientProblem(draft);
+    if (recipientError) {
+      setError(recipientError);
+      return;
+    }
     if (draft.driveFileId && !sourceBoundReply && !attachmentReview) {
       void prepareAttachmentReview();
       return;
@@ -615,6 +605,7 @@ export function EmailDraftCard({
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
   const needsGeneratedDraft = autoDraft && !draft.body.trim();
+  const warning = roleClasses("warning");
 
   return (
     <section
@@ -640,15 +631,16 @@ export function EmailDraftCard({
             </p>
           </div>
         </div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-touch"
           onClick={onDismiss}
-          className="relative rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
+          className="-my-1.5 -mr-2 text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Dismiss draft"
         >
-          <X className="h-4 w-4" />
-          <MaterialRipple variant="none" effect="glass" />
-        </button>
+          <X className="h-4 w-4" aria-hidden="true" />
+        </Button>
       </div>
 
       {isDrafting ? (
@@ -801,10 +793,10 @@ export function EmailDraftCard({
 
           {missingDetails.length > 0 ? (
             <div
-              className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-sm font-medium text-amber-700 dark:text-amber-300"
+              className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium text-foreground ${warning.tile} ${warning.border}`}
               data-testid="one-email-draft-missing-details"
             >
-              <FilePenLine className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+              <FilePenLine className={`h-4 w-4 shrink-0 ${warning.glyph}`} aria-hidden="true" />
               <span>One still needs: {missingDetails.join(", ")}.</span>
             </div>
           ) : null}
@@ -855,12 +847,12 @@ export function EmailDraftCard({
                   )
                 ) : null}
               </span>
-              {autoDraft && !sourceBoundReply ? (
+              {needsGeneratedDraft && !sourceBoundReply ? (
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="h-7 border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
+                  size="compact"
+                  className="border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
                   data-testid="one-email-draft-retry"
                   onClick={() => void askOneToDraft()}
                   disabled={disabled}
@@ -873,11 +865,17 @@ export function EmailDraftCard({
         </div>
       )}
 
+      {gmailGap && onEnableGmailSend ? (
+        <div className="px-4 pb-3.5 sm:px-5">
+          <EmailDraftGmailNotice gap={gmailGap} enabling={enablingGmailSend}
+            onConnect={onEnableGmailSend} messageId={`${idPrefix}-gmail-send`} />
+        </div>
+      ) : null}
       <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/[0.16] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="standard"
           className="justify-center sm:justify-start"
           onClick={onDismiss}
         >
@@ -888,8 +886,7 @@ export function EmailDraftCard({
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="min-h-11"
+              size="standard"
               onClick={() => void saveToGmailDrafts()}
               disabled={disabled || needsGeneratedDraft || saveStartedRef.current}
               data-testid="one-email-draft-save-gmail"
@@ -899,10 +896,12 @@ export function EmailDraftCard({
           )}
           <Button
           type="button"
-          size="sm"
-          className="gap-2 rounded-xl px-4 sm:min-w-32"
+          size="standard"
+          className="sm:min-w-32"
           onClick={() => void send()}
-          disabled={disabled || needsGeneratedDraft || sendUnavailable || Boolean(reviewedSend && reviewChangedRef.current)}
+          disabled={disabled || needsGeneratedDraft || sendUnavailable || Boolean(reviewedSend && reviewChangedRef.current) ||
+            Boolean(gmailGap && enablingGmailSend)}
+          aria-describedby={gmailGap ? `${idPrefix}-gmail-send` : undefined}
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />

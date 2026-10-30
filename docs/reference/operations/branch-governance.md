@@ -29,19 +29,32 @@ default remains staged until its historical baseline and predecessor gates are
 qualified together. Main remains the release-control source; this transition
 does not rewind application source or database history.
 
-The approved direction for UAT-focused work is direct admission after CI on the
-exact selected application, without requiring a preceding Dev deployment. That
-path is not yet implemented: the current UAT workflow still requires a Dev
-receipt. It must gain a qualified exact-source CI proof and a distinct receipt
-before that requirement can change. Production continues to require acceptance
-of the same application and services in UAT.
+UAT-focused work can use exact-source CI without a preceding Dev deployment.
+The application must be the protected UAT tip. Full CI runs on that exact commit
+with `scope=all` and the observed serving application as `uat_base_sha`; the
+Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
+canonical workflow authority, reviewed invocation configuration, complete current
+attempts, service scope and the actual serving baseline under the deployment
+lock. It refreshes refs and repeats admission before runtime-secret changes and
+after image builds. A later failed CI rerun, moved tip or changed baseline refuses.
+Reviewed application tests and dependencies may evolve; this follows the existing
+protected-branch trust model, not malicious-code containment.
 
-The future direct receipt must identify the protected UAT application commit and
-tree, the trusted Main-owned validation workflow and its current run attempt,
-the exact security evidence, and the selected services. A PR merge-tree result or
-an older successful attempt alone is not proof of the selected application.
-Historical Dev-backed receipts must remain verifiable. If no qualified Dev image
-exists, UAT builds the selected source with its own environment configuration.
+The UAT selector retains the existing healthy, current full-service receipt checks
+before declaring `NO_OP`. Unknown or in-flight baseline evidence refuses. A direct
+candidate also on Main can use its explicit UAT CI evidence; an ordinary historical
+Main release can retain Dev-backed admission. Missing Dev image evidence selects
+a source build; explicit `promote-from-dev` still requires the real accepted image.
+Historical Dev-backed receipts and direct-CI UAT receipts remain distinct and
+verifiable. Production requires the accepted UAT application and selected services;
+its historical reader does not require today's UAT tip to equal an old release.
+Cloud Build release recipes under `deploy/` remain reviewed Main authority because
+the Main-owned UAT workflow consumes them from the candidate; any candidate delta
+there refuses until the recipe change is reviewed on Main.
+
+Source implementation is not a live qualification receipt. Reconcile the retained
+UAT history, run exact-candidate CI and verify admission before first use. No
+application deployment is authorized by this operations change.
 
 The capability graph's committed comparison metadata currently depends on the
 target base: the Dev sync has already produced different metadata from Main for
@@ -83,14 +96,10 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
-Explicit UAT candidates can use a CI-qualified commit in the protected `uat`
-history, with exact-SHA Dev acceptance still required before deployment. Main
-candidates retain mandatory Main smoke. Automatic selection retains its current
-Main baseline until the UAT selector and historical baseline are qualified. The
-prepared UAT-tip selector refuses unknown, concurrent or non-forward baselines.
-Its selection-time snapshot rechecks the remote UAT tip after reading receipts.
-Before activation, the deployment admission must recheck that same tip under
-the mutation lock; selection alone cannot fence a later branch update.
+Blank-SHA manual UAT selection uses the protected UAT tip through the existing
+`uat_application_selection.py` owner. Explicit historical Main candidates retain
+Main smoke and Dev-backed acceptance. For direct UAT, supply the validation run,
+current attempt and serving base; source selection alone is never admission.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
@@ -155,7 +164,7 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
-| UAT | Existing Main-based default and Dev acceptance remain active. The approved direction selects dependency-complete changes into protected `uat` and qualifies the exact assembled SHA in CI before UAT once the admission path is ready. |
+| UAT | The Main-based default and historical Dev-backed receipts remain supported. Source implements direct admission for protected UAT candidates after exact CI; first live use still requires reconciled history and passing branch-CI/admission proof. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
@@ -181,14 +190,14 @@ freshness boundaries before it is enabled.
 
 1. New development starts from the intended protected Dev baseline and targets Dev. Preserve the active branch and dependency context.
 2. After the UAT transition is authorized, curate UAT explicitly. A merge or cherry-pick produces a new assembled SHA; individual source receipts cannot qualify it.
-3. Until direct-CI admission is qualified, accept that assembled SHA on Dev and then UAT through Main-owned workflows and exact service receipts.
+3. The direct-CI source path admits a protected UAT candidate without a preceding Dev deployment only after exact full-scope CI, current-attempt, serving-base, and protected-security checks pass. Do not treat the end-to-end route as qualified until those proofs pass against reconciled history and the real serving baseline; the source change itself does not authorize a deployment.
 4. Promote accepted UAT content to Main without adding untested content; preserve the application/approval mapping. Concurrent Main changes require reconciliation and affected verification.
 5. Governed maintainer operations/hotfix PRs can target Main directly. Retain legacy train promotions without treating that branch as new intake or deploying automatically.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the preserved development branch and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-10. UAT uses an exact CI-qualified application with Dev acceptance. Main candidates require Main smoke; UAT-only candidates require canonical PR, queue or full branch validation.
+10. Protected UAT candidates use the exact-CI admission path; historical Main candidates retain Dev-backed acceptance and require Main smoke. UAT-only candidates also require canonical PR, queue, or full branch validation. Do not dispatch the direct path before its exact branch-CI and admission proof pass.
 11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
@@ -241,7 +250,7 @@ Before deleting a local backup branch, classify its unique commits as:
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
 3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
-4. Preflight requires reachability from Main or the curated UAT branch, plus exact-SHA Dev acceptance for each selected service.
+4. Preflight requires reachability from Main or the protected UAT branch. Direct UAT candidates require exact current-branch CI and the observed serving base; Main candidates retain exact-SHA Dev acceptance for each selected service.
 5. Main candidates require `Main Post-Merge Smoke Gate`. UAT-only candidates require an authenticated canonical PR, queue or full branch gate; diagnostics never qualify.
 6. The canonical GitHub deployment environment for this lane is `uat`.
 7. Cloud Run traffic changes must be made only by the GitHub UAT workflow service account. Human `gcloud run deploy` or `gcloud run services update-traffic` against UAT is deploy-authority drift, even for maintainers.
@@ -254,7 +263,7 @@ Before deleting a local backup branch, classify its unique commits as:
 2. Production deploys through governed dispatch with the exact UAT-accepted application SHA. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Manual operators must be listed in `production.manual_dispatch_users`. The sole unattended exception is `production.automatic_release_workflow`: the protected-main release cadence controller, with immutable exact-run authority, complete input binding and a verified UAT source. The bot is never added to the human cohort. See [automatic native release cadence](./ci.md#automatic-native-release-cadence).
+5. Manual operators must be listed in `production.manual_dispatch_users`. There is no unattended release exception. Automatic release cadence is retired; commits and workflow completions do not authorize deployment. See [explicit releases](./ci.md#explicit-releases-and-retired-cadence).
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model

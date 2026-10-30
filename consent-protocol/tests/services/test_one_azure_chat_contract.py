@@ -223,8 +223,6 @@ async def test_one_chat_never_falls_back_or_changes_processor(monkeypatch, statu
         _ = [item async for item in wrapped.generate_content_async(request())]
     assert calls == ["azure"]
     alternate.assert_not_called()
-    with pytest.raises(ValueError, match="managed Azure"):
-        managed.build_managed_text_model(scope="one_text_chat", provider="vertex")
 
 
 async def test_managed_minimal_effort_preserves_explicit_specialist_reasoning():

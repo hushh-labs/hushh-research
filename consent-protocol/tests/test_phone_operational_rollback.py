@@ -4,14 +4,66 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, _verify_args
+from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _verify_args
 from tests.test_phone_rollback_release import release_plan as release_plan
 
 pytestmark = pytest.mark.feature_auth_reliability
+
+
+def test_operational_maintenance_prepares_locked_database_runtime_before_budget():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/capacity-maintenance.yml").read_text())
+    steps = workflow["jobs"]["cleanup"]["steps"]
+    setup = next(
+        step
+        for step in steps
+        if step.get("uses") == "./consent-protocol/.github/actions/setup-python-uv"
+    )
+    select = next(step for step in steps if step.get("name") == "Select maintenance Python runtime")
+    proxy = next(
+        step for step in steps if step.get("name") == "Install operational Cloud SQL Auth Proxy"
+    )
+    budget = next(
+        step for step in steps if step.get("name") == "Start the five-minute cleanup budget"
+    )
+    publish = next(
+        step
+        for step in steps
+        if "production_backend_successor_control.py apply" in step.get("run", "")
+    )
+    assert (
+        setup["if"]
+        == select["if"]
+        == proxy["if"]
+        == "inputs.operational_backend_proof_run_id != ''"
+    )
+    assert setup["with"] == {
+        "python-version": "3.13",
+        "protocol-dir": "./consent-protocol",
+        "sync-dev-group": "false",
+    }
+    assert 'echo "$GITHUB_WORKSPACE/consent-protocol/.venv/bin" >> "$GITHUB_PATH"' in select["run"]
+    deploy = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    original = next(
+        step
+        for step in deploy["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Install Cloud SQL Auth Proxy"
+    )
+    assert proxy["run"] == original["run"]
+    assert (
+        steps.index(setup)
+        < steps.index(select)
+        < steps.index(proxy)
+        < steps.index(budget)
+        < steps.index(publish)
+    )
+    assert "python3 scripts/ci/production_backend_successor_control.py apply" in publish["run"]
 
 
 @pytest.fixture
@@ -157,6 +209,68 @@ def test_only_canonical_absence_allows_independent_cold_plan(operational_plan):
     assert state.plan.prepare(state.args)["mode"] == "cold"
     assert state.reference_calls == ["read", "record"]
     assert any(call[:4] == ["gcloud", "container", "images", "add-tag"] for call in state.calls)
+
+
+@pytest.mark.parametrize(
+    "phase,scope,allowed",
+    [("cold", "backend", True), ("standard", "backend", False)]
+    + [("cold", scope, False) for scope in ("all", "frontend", "auto")],
+)
+def test_cold_scope_selects_qualification_without_waiving_ordinary_atomicity(
+    tmp_path, phase, scope, allowed
+):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    steps = {step["name"]: step for step in workflow["jobs"]["deploy"]["steps"]}
+    script = steps["Resolve deployment scope"]["run"]
+    values = {
+        "github.event.inputs.scope": scope,
+        "github.event.inputs.sha": PRIMARY,
+        "steps.predeploy-state.outputs.backend_sha": FALLBACK,
+        "steps.predeploy-state.outputs.frontend_sha": "d" * 40,
+        "inputs.cadence_origin != ''": "false",
+    }
+    for key, value in values.items():
+        script = script.replace("${{ " + key + " }}", value)
+    assert "${{" not in script
+    tools = tmp_path / "release-tools"
+    tools.mkdir()
+    calls = tmp_path / "resolver-calls.json"
+    (tools / "resolve-deploy-scope.py").write_text(
+        "import json,os,sys\nfrom pathlib import Path\n"
+        "Path(os.environ['RESOLVER_CALLS']).write_text(json.dumps(sys.argv[1:]))\n"
+        "sys.exit('A narrow manual deploy would split the account-lifecycle boundary')\n"
+    )
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - Actual workflow shell with a rejecting scope-owner port.
+        ["bash", "-euo", "pipefail", "-c", script],
+        env={
+            **os.environ,
+            "PHONE_DEPLOY_PHASE": phase,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+            "RESOLVER_CALLS": str(calls),
+        },
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    if allowed:
+        assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+            "scope": "backend",
+            "deploy_backend": "true",
+            "deploy_frontend": "false",
+            "reason": "cold:qualification",
+        }
+    else:
+        assert not output.exists()
+    if phase == "standard":
+        args = json.loads(calls.read_text())
+        assert args[args.index("--backend-base-sha") + 1] == FALLBACK
+        assert args[args.index("--frontend-base-sha") + 1] == "d" * 40
+        assert "account-lifecycle boundary" in result.stderr
+    else:
+        assert not calls.exists()
 
 
 @pytest.mark.parametrize(

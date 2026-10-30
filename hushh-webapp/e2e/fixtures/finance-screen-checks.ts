@@ -48,16 +48,29 @@ export function registerFinanceScreenChecks(
       test(`Finance complete screens ${width}px ${theme}`, async ({ page }) => {
         await mount(page, width);
         await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
+        const importShell = page.getByTestId("finance-import-fixture").locator("[data-fullscreen-flow-shell]");
+        expect(await importShell.evaluate(el => el.getBoundingClientRect().width)).toBeLessThanOrEqual(880);
+        expect(await importShell.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const preferences = page.getByTestId("finance-preferences-fixture");
+        await expect(preferences.getByRole("radiogroup")).toHaveCount(3);
+        expect(await preferences.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const continueSetup = preferences.getByRole("button", { name: "Continue", exact: true });
+        await expect(continueSetup).toBeDisabled();
+        await preferences.getByRole("radio", { name: "Less than 3 years" }).click();
+        await preferences.getByRole("radio", { name: "Stay invested and review the situation" }).click();
+        await preferences.getByRole("radio", { name: "Moderate ups and downs for better returns" }).click();
+        expect(await preferences.locator("legend").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("15px");
+        await preferences.screenshot({ path: test.info().outputPath(`preferences-${width}-${theme}.png`) });
+        await continueSetup.click();
+        await expect(page.getByTestId("action-result")).toHaveText("Preferences saved");
         const overview = page.getByTestId("portfolio-overview-fixture");
         await overview.scrollIntoViewIfNeeded();
         const importAction = overview.getByRole("button", { name: "Import portfolio", exact: true });
         const manageAction = overview.getByRole("button", { name: "Manage portfolio", exact: true });
         const importBox = (await importAction.boundingBox())!;
         const manageBox = (await manageAction.boundingBox())!;
-        const optionsBox = (await overview.getByTestId("portfolio-overview-options").boundingBox())!;
+        await expect(overview.getByTestId("portfolio-overview-options")).toHaveCount(0);
         const valueBox = (await overview.getByTestId("portfolio-value-card").boundingBox())!;
-        expect(importBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
-        expect(manageBox.y).toBeGreaterThanOrEqual(optionsBox.y + optionsBox.height);
         expect(importBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
         expect(manageBox.y).toBeGreaterThanOrEqual(valueBox.y + valueBox.height);
         expect(importBox.x + importBox.width).toBeLessThanOrEqual(manageBox.x);
@@ -67,11 +80,16 @@ export function registerFinanceScreenChecks(
         await manageAction.click();
         await expect(page.getByTestId("action-result")).toHaveText("Open sources");
         await expect(overview.getByText("Invested", { exact: true })).toBeVisible();
-        expect(await overview.getByRole("heading", { name: "Your portfolio", exact: true }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
+        await expect(overview.getByRole("heading", { name: "Your portfolio", exact: true })).toHaveCount(0);
         expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
+        await expect(overview.getByText("Dated balance history unavailable.")).toBeVisible();
+        await expect(overview.getByRole("img", { name: "Sample Company: 91.9% of portfolio" })).toBeVisible();
+        await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
+        const performance = overview.getByTestId("portfolio-performance");
+        await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
+        await expect(performance.getByText("Investment return", { exact: true }).locator("..")).toContainText("Unavailable");
         if (width >= 1024) {
           // The workspace should use the available content width rather than
           // introducing a second, narrower reading measure below the tabs.
@@ -86,6 +104,15 @@ export function registerFinanceScreenChecks(
           const briefing = await overview.getByTestId("portfolio-briefing").boundingBox();
           expect(Math.abs(value!.y - briefing!.y)).toBeLessThanOrEqual(2);
           expect(value!.x + value!.width).toBeLessThanOrEqual(briefing!.x);
+          const buttonInsets = await overview.evaluate(element => {
+            const names = ["View analysis", "View performance", "View allocation"];
+            return names.map(name => {
+              const button = [...element.querySelectorAll("button")].find(item => item.textContent?.trim() === name)!;
+              const card = button.closest('[data-slot="card"]')!;
+              return card.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom;
+            });
+          });
+          for (const inset of buttonInsets) expect(Math.abs(inset - 24)).toBeLessThanOrEqual(2);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -95,7 +122,7 @@ export function registerFinanceScreenChecks(
         await expect(page.getByTestId("action-result")).toHaveText("Export report");
         await page.keyboard.press("Escape");
         await expect(report).toHaveCount(0);
-        await overview.getByTestId("portfolio-open-holdings").click();
+        await overview.getByRole("button", { name: /^All \d+/ }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open holdings");
         await overview.getByRole("button", { name: "Open sample holding" }).click();
         const holding = page.getByRole("dialog", { name: "TEST", exact: true });

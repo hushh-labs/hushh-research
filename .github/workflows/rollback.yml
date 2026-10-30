@@ -53,11 +53,23 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ github.sha }}
+      environment_name: ${{ inputs.environment }}
+      scope: ${{ 'all' }}
+
   rollback-uat:
+    needs: deployment-security
     name: "Rollback — UAT"
     if: github.event.inputs.environment == 'uat'
     runs-on: ubuntu-latest
@@ -74,6 +86,16 @@ jobs:
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -196,6 +218,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   rollback-production:
+    needs: deployment-security
     name: "Rollback — Production"
     permissions:
       contents: read
@@ -217,6 +240,16 @@ jobs:
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |

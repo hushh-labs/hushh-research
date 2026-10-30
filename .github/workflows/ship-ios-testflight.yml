@@ -1,5 +1,4 @@
 name: Ship iOS to TestFlight
-run-name: ${{ inputs.cadence_origin && format('Cadence {0} testflight · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Ship iOS to TestFlight' }}
 
 # This workflow creates a normal UAT-backed TestFlight build only. It never
 # creates an App Store version or submits the app for public App Store review.
@@ -10,14 +9,6 @@ run-name: ${{ inputs.cadence_origin && format('Cadence {0} testflight · {1}', i
 on:
   workflow_dispatch:
     inputs:
-      cadence_origin:
-        description: Internal exact-run release cadence authority (leave blank for manual builds)
-        type: string
-        default: ""
-      cadence_ordinal:
-        description: Internal successful UAT deployment ordinal
-        type: string
-        default: ""
       sha:
         description: Exact green main SHA to ship. Blank selects latest main.
         required: false
@@ -67,7 +58,18 @@ env:
   NODE_OPTIONS: --max-old-space-size=8192
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   preflight:
+    needs: deployment-security
     name: Resolve green UAT release source
     runs-on: ubuntu-latest
     environment:
@@ -78,6 +80,16 @@ jobs:
       release_sha: ${{ steps.resolve.outputs.sha }}
       marketing_version: ${{ steps.packaging.outputs.marketing_version }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Refuse non-main dispatches
         shell: bash
         run: |
@@ -108,7 +120,7 @@ jobs:
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
@@ -156,17 +168,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
-          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
         run: |
           set -euo pipefail
-          # Automated builds are bound to the healthy UAT release receipt by
-          # the exact-run actor gate above. UAT may advance, and frontend-only
-          # deployments intentionally retain an older backend. Never freeze or
-          # redeploy UAT to make its current backend match a queued app build.
-          if [ -n "$CADENCE_ORIGIN" ]; then
-            echo "Using the independently verified cadence receipt and backend lineage."
-            exit 0
-          fi
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
           git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
           service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
@@ -187,14 +190,14 @@ jobs:
           }
 
       - name: Materialize automatic packaging credentials
-        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
+        if: inputs.marketing_version == ''
         run: |
           set -euo pipefail
           python3 -m pip install --quiet pyjwt cryptography
           bash scripts/ci/materialize-ios-asc-key.sh
       - name: Resolve automatic packaging before allocating macOS
         id: packaging
-        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
+        if: inputs.marketing_version == ''
         env:
           RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
@@ -212,16 +215,18 @@ jobs:
 
   hardware-capture:
     name: Prove physical iPhone capture gate
-    needs: preflight
+    needs: [preflight, deployment-security]
     if: ${{ inputs.require_hardware == true }}
     uses: ./.github/workflows/ios-voice-device.yml
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
+      security_attempt: ${{ needs.deployment-security.outputs.attempt }}
     secrets: inherit
 
   ship:
     name: Build and distribute normal UAT TestFlight build
     needs:
+      - deployment-security
       - preflight
       - hardware-capture
     if: ${{ always() && needs.preflight.result == 'success' && (needs.hardware-capture.result == 'success' || needs.hardware-capture.result == 'skipped') }}
@@ -238,6 +243,16 @@ jobs:
       build_number: ${{ steps.build_number.outputs.next_build }}
       marketing_version: ${{ steps.identity.outputs.marketing_version }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - name: Check out current release authority
         uses: actions/checkout@v6
         with:
@@ -611,7 +626,7 @@ jobs:
 
   distribute:
     name: Process and distribute uploaded TestFlight build
-    needs: [preflight, ship]
+    needs: [preflight, ship, deployment-security]
     # Override implicit success(): the optional hardware ancestor may be skipped.
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.ship.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
@@ -623,6 +638,16 @@ jobs:
       IOS_MARKETING_VERSION: ${{ needs.ship.outputs.marketing_version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           ref: main

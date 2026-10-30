@@ -478,8 +478,10 @@ def test_manual_shell_blocks_traffic_on_denial_and_detects_missing_guard(tmp_pat
 
 def test_every_manual_rollback_job_installs_and_uses_the_reader_guard():
     jobs = yaml.safe_load((ROOT / ".github/workflows/rollback.yml").read_text())["jobs"]
-    assert set(jobs) == {"rollback-uat", "rollback-production"}
-    for job in jobs.values():
+    assert set(jobs) == {"deployment-security", "rollback-uat", "rollback-production"}
+    for name in ["rollback-uat", "rollback-production"]:
+        job = jobs[name]
+        assert "deployment-security" in job["needs"]
         assert job["env"]["HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD"] == "true"
         steps = job["steps"]
         setup = next(

@@ -42,7 +42,7 @@ export type VoiceUnavailableReason =
 const REASON_MESSAGES: Record<VoiceUnavailableReason, string> = {
   disabled: "Voice is not available.",
   not_configured: "Voice is not configured.",
-  private_runtime_required: "Use your private agent connection for voice. Check Hosting and try again.",
+  private_runtime_required: "Use Agent One connection for voice. Check Hosting and try again.",
   hosting_unavailable: "Your agent hosting could not be verified. Check Hosting and try again.",
   backend_origin_missing: "Voice needs a backend origin to connect to.",
   auth_missing: "Sign in and unlock your vault to use voice.",

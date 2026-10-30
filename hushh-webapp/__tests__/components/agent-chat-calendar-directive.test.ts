@@ -345,7 +345,48 @@ describe("getGmailEmailDraftPayload", () => {
         subject: "Hello",
         body: "Hello there",
       },
+      gmailSend: null,
     });
+  });
+
+  it("opens no card when the server refused the draft", () => {
+    const slots = { request: "Email Sharu the plan", to: "Sharu", body: "The plan" };
+    for (const result of [
+      { status: "invalid_draft", message: "Keep the draft within the supported size." },
+      { result: JSON.stringify({ status: "recipient_not_found" }) },
+      { status: "a_status_this_client_does_not_know" },
+    ]) {
+      expect(getGmailEmailDraftPayload(makeToolEvent("open_gmail_email_draft", result, slots))).toBeNull();
+    }
+    // Negative control: the same call opens once the server says draft_opened.
+    expect(
+      getGmailEmailDraftPayload(makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, slots)),
+    ).not.toBeNull();
+  });
+
+  it("lets the server's resolved envelope win over the model's recipients", () => {
+    const draft = getGmailEmailDraftPayload(
+      makeToolEvent("open_gmail_email_draft", {
+        status: "draft_opened",
+        envelope: { to: "Sharu <sharu@example.com>", cc: "", bcc: "" },
+        recipients: [{ name: "Sharu", role: "to" }],
+        gmail_send: "connect_required",
+      }, { request: "Email Sharu the plan", to: "Sharu", cc: "pat@example.com", subject: "Plan", body: "Hi" }),
+    );
+
+    expect(draft?.initialDraft).toEqual({
+      to: "Sharu <sharu@example.com>", cc: "", bcc: "", subject: "Plan", body: "Hi",
+    });
+    expect(draft?.gmailSend).toBe("connect_required");
+  });
+
+  it("keeps the model's draft for a result-less event or a malformed envelope", () => {
+    const slots = { request: "Email Pat", to: "pat@example.com" };
+    for (const result of [undefined, { status: "draft_opened", envelope: { to: "a@example.com\nBcc: b@example.com" } }]) {
+      const draft = getGmailEmailDraftPayload(makeToolEvent("open_gmail_email_draft", result, slots));
+      expect(draft?.initialDraft?.to).toBe("pat@example.com");
+      expect(draft?.gmailSend).toBeNull();
+    }
   });
 
   it("retains a resolved recipient while the bounded Email Draft Writer fills the missing body", () => {
