@@ -325,7 +325,7 @@ duplicate pushes, already-opened shares and unwatched shares remain suppressed.
 | Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap opens Shared with me |
 | Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
 | iOS background/terminated | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
-| iOS in-app alarm sent to background | No background audio mode. Up to 11 local alerts per alarm (after 5 s, then every minute for ten minutes) with the 10 s `one_location_sms_alarm_handoff.wav` siren; tapping one acknowledges like the push; cancelled on acknowledgement or return to the foreground |
+| iOS in-app alarm sent to background | No background audio mode. One series of up to 11 local alerts for all ringing alarms (after 5 s, then every minute for ten minutes) with the 10 s `one_location_sms_alarm_handoff.wav` siren and no actions; tapping one opens the app, where the alarm resumes until acknowledged; the series ends with the last acknowledgement or on return to the foreground |
 | iOS foreground | Shared red in-app emergency card and alarm; Capacitor's Firebase Messaging router presents only the badge to prevent a duplicate banner and duplicate sound |
 
 Incoming location-share body taps, including emergency body taps, open

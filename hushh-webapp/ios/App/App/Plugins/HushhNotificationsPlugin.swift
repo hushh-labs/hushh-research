@@ -116,8 +116,11 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         emergencyObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            EmergencySmsCueHandoff.cancel()
+            // Returning is the chance to resume: a missed interruption end must not
+            // leave the alarm silent. Resume first, then retire the hand-off alerts.
+            self?.emergencyInterrupted = false
             self?.resumeEmergencyCue()
+            EmergencySmsCueHandoff.cancel()
         })
         if FirebaseApp.app() != nil {
             emergencyAuthObserver = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -151,11 +154,13 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func stopEmergencyCue(grantId: String? = nil) {
-        EmergencySmsCueHandoff.cancel(grants: grantId.map { Set([$0]) })
         if let grantId {
             emergencyGrants.remove(grantId)
             if !emergencyGrants.isEmpty { return }
         }
+        // One hand-off series covers every ringing grant; it ends with the last one.
+        EmergencySmsCueHandoff.cancel()
+        emergencyInterrupted = false
         emergencyGeneration += 1
         emergencyPulse?.invalidate()
         emergencyPulse = nil
@@ -201,14 +206,13 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
               FirebaseApp.app() != nil, Auth.auth().currentUser?.uid == emergencyFirebaseUid,
               ChatPreviewKeys.recipientKey(["user_id": owner]) != nil else { return }
         emergencyPlayer?.pause()
-        let grants = emergencyGrants.filter { !SmsAlarmLedger.acknowledged(user: owner, grant: $0) }
-        guard !grants.isEmpty else { return }
+        guard emergencyGrants.contains(where: { !SmsAlarmLedger.acknowledged(user: owner, grant: $0) }) else { return }
         var task = UIBackgroundTaskIdentifier.invalid
         task = UIApplication.shared.beginBackgroundTask {
             UIApplication.shared.endBackgroundTask(task)
             task = .invalid
         }
-        EmergencySmsCueHandoff.schedule(owner: owner, grants: Array(grants)) {
+        EmergencySmsCueHandoff.schedule {
             guard task != .invalid else { return }
             UIApplication.shared.endBackgroundTask(task)
             task = .invalid
@@ -279,6 +283,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             catch { call.resolve(["played": false]); return }
             self.emergencyGrants.insert(grantId)
             if self.emergencyPlayer != nil {
+                self.resumeEmergencyCue() // A paused player restarts on the web's re-request.
                 call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false]); return
             }
             do {
@@ -578,65 +583,52 @@ private final class ChatNotificationHandler: NSObject, NotificationHandlerProtoc
     }
 }
 
-/// Carries a ringing in-app SMS alarm while iOS suspends the app. The app holds
+/// Carries ringing in-app SMS alarms while iOS suspends the app. The app holds
 /// no background audio mode (One Voice privacy contract), so on iOS 17-25, or
-/// without AlarmKit, a bounded series of local alerts with the alarm siren stands
-/// in until acknowledgement. They carry the SOS push's routing fields, so tapping
-/// one acknowledges the alarm exactly as tapping the push does.
+/// without AlarmKit, one bounded series of local alerts with the alarm siren
+/// stands in for all of them. Capacitor routes local taps to no handler, so an
+/// alert carries no action or routing data: tapping opens the app, where the
+/// in-app alarm resumes until it is acknowledged.
 enum EmergencySmsCueHandoff {
     static let sound = "one_location_sms_alarm_handoff.wav"
     static let soundSeconds = 10.0
     static let prefix = "hushh.sms-alarm.handoff."
     /// The first alert after 5 s, then one a minute for ten minutes.
     static let offsets: [TimeInterval] = [5] + (1...10).map { TimeInterval($0 * 60) }
-    /// iOS keeps at most 64 pending requests per app; leave room for others.
-    static let maxGrants = 4
 
-    static func requests(owner: String, grants: [String]) -> [UNNotificationRequest] {
-        grants.sorted().prefix(maxGrants).flatMap { grant in
-            offsets.enumerated().map { (index, offset) -> UNNotificationRequest in
-                let content = UNMutableNotificationContent()
-                content.title = "Unacknowledged SMS alert"
-                content.body = "An SMS alert needs your attention. Tap to acknowledge it."
-                content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
-                content.categoryIdentifier = "ONE_LOCATION_SMS_EMERGENCY"
-                content.threadIdentifier = prefix + grant
-                content.userInfo = ["type": "location_share_created", "share_kind": "sos",
-                                    "user_id": owner, "grant_id": grant]
-                return UNNotificationRequest(
-                    identifier: "\(prefix)\(grant).\(index)", content: content,
-                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: offset, repeats: false))
-            }
+    static func requests() -> [UNNotificationRequest] {
+        offsets.enumerated().map { (index, offset) -> UNNotificationRequest in
+            let content = UNMutableNotificationContent()
+            content.title = "Unacknowledged SMS alert"
+            content.body = "An SMS alert is still ringing. Open the app to acknowledge it."
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
+            content.threadIdentifier = prefix
+            return UNNotificationRequest(
+                identifier: "\(prefix)\(index)", content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: offset, repeats: false))
         }
     }
 
-    static func schedule(owner: String, grants: [String], completion: @escaping () -> Void) {
+    static func schedule(completion: @escaping () -> Void) {
         let center = UNUserNotificationCenter.current()
         let group = DispatchGroup()
-        for request in requests(owner: owner, grants: grants) {
+        for request in requests() {
             group.enter()
             center.add(request) { _ in group.leave() }
         }
         group.notify(queue: .main, execute: completion)
     }
 
-    /// Removes pending and delivered hand-off alerts for the given grants, or all of them.
-    static func cancel(grants: Set<String>? = nil) {
+    /// Removes every pending and delivered hand-off alert.
+    static func cancel() {
         let center = UNUserNotificationCenter.current()
         center.getPendingNotificationRequests { pending in
-            center.removePendingNotificationRequests(
-                withIdentifiers: pending.map(\.identifier).filter { matches($0, grants) })
+            center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter(isHandoff))
         }
         center.getDeliveredNotifications { delivered in
-            center.removeDeliveredNotifications(
-                withIdentifiers: delivered.map(\.request.identifier).filter { matches($0, grants) })
+            center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier).filter(isHandoff))
         }
     }
 
-    static func matches(_ identifier: String, _ grants: Set<String>?) -> Bool {
-        guard identifier.hasPrefix(prefix) else { return false }
-        guard let grants else { return true }
-        let grant = identifier.dropFirst(prefix.count).split(separator: ".").dropLast().joined(separator: ".")
-        return grants.contains(grant)
-    }
+    static func isHandoff(_ identifier: String) -> Bool { identifier.hasPrefix(prefix) }
 }
