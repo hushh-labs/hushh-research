@@ -996,6 +996,7 @@ tests/test_consent_signing_dev_rollout_contract.py
 tests/test_consent_token_asymmetric.py
 tests/test_database_connection_ceiling.py
 tests/test_dco_signoff_is_unmissable.py
+tests/test_dco_history_sync.py
 tests/test_debug_route_is_local_only.py
 tests/test_deprovision_routes_by_the_row.py
 tests/test_dev_migration_lane.py
@@ -1572,6 +1573,7 @@ tests/test_uat_readiness_verdict_collector.py
 tests/scripts/test_root_roundtrip_reasons.py
 tests/scripts/test_readiness_exam_premerge.py
 tests/scripts/test_readiness_exam_measurement.py
+tests/scripts/test_readiness_exam_runner.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
