@@ -530,7 +530,12 @@ steps:
           if [[ -n "${job_name:-}" ]]; then
             gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
           fi
-          exit "${probe_status}"
+          if [[ "${probe_status}" == "0" ]]; then exit 0; fi
+          # A failed check of the required provider has already decided the aggregate:
+          # exit 1 so the build ends now. Otherwise exit 3, which is allowed, and the
+          # aggregate decides after the other steps, as before.
+          if python3 scripts/ci/managed_provider_requirement.py --provider=azure_openai; then exit 1; fi
+          exit 3
         }
         trap finish_provider_probe EXIT
         if [[ "${_DEPLOY_ENV}" != "uat" ]]; then
@@ -648,7 +653,7 @@ steps:
         print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}))
         PY
         echo "Azure PWM UAT runtime probe passed."
-    allowFailure: true
+    allowExitCodes: [3]
     waitFor: ["build-backend-image", "verify-runtime-iam"]
     env:
       - "READINESS_BUILD_ID=${BUILD_ID}"
