@@ -107,13 +107,11 @@ Each rule names the check that enforces it today, or its gap.
      with bounded, capped backoff instead of a fixed 30-second window
      (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
      longer fails a passing exam.
-   - Enforced: a failed check of the provider UAT requires ends the build at once
-     (exit 1, which cancels running steps), because the aggregate can no longer
-     pass; any other failed check exits 3, which the build allows, and the
-     aggregate decides as before (`tests/scripts/test_managed_provider_requirement.py`).
-   - Gap: the verdict still travels through log search, the exam starts about
-     11 minutes into UAT and runs sequentially, and a passing build still waits
-     for the diagnostic Vertex step.
+   - Gap: the verdict still travels through log search; the exam starts about
+     11 minutes into UAT, runs sequentially, and the aggregate waits for the
+     Vertex step. Ending the build from a provider step cancels sibling steps
+     before their own job cleanup runs (UAT build a7482d0a left a job that
+     blocked the next release), so fail-fast needs cleanup outside the build.
 8. **Prove the check catches what it claims.** A new or changed check ships with a
    negative control (a known-bad input that must fail) and a positive control, both
    run before merge.
