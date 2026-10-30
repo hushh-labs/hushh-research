@@ -34,7 +34,7 @@ administrator policy extends selected-UAT processing to text/media, Search, exac
 public-source retrieval, Location transcription/semantics, narration, Live Voice
 and compatible embeddings. It grants no owner-information or action authority.
 Every declared capability must have an Azure replacement before this release
-can proceed; candidate admission accepts either complete provider bundle.
+can proceed; admission requires the configured provider's complete bundle.
 Production and BYOK retain their existing processor contracts.
 
 `runtime_providers/managed_text.py` owns policy resolution, central Azure binding,

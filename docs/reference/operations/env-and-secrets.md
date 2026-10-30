@@ -372,8 +372,9 @@ host, from this file. To move UAT to another Azure account:
      disabled and public network access, hosting every printed deployment under the
      same name, model, version, deployment type and capacity. Record the primary
      deployment's model and version, which the file does not declare yet. The two
-     GPT deployments need the Responses `web_search` tool; realtime and audio API
-     `2025-04-01-preview` must be available;
+     GPT deployments need the Responses `web_search` tool. Live and speech use the
+     v1 surface (`/openai/v1`); transcription also needs the dated Audio API
+     `2025-04-01-preview` on the same resource;
    - a `*.services.ai.azure.com` host for `phi_endpoint`, which validation still
      requires although nothing calls Phi; an AI Services resource provides one;
    - an Entra app registration with no secret or certificate, whose federated
@@ -391,17 +392,29 @@ host, from this file. To move UAT to another Azure account:
    `readiness_exam_client_id` names the account's separate probe-only exam app, or
    `null` until it exists; it never equals the runtime `client_id`.
 3. Change `managed_azure_accounts.selection.uat` to the new name in a one-line PR and
-   ship a normal UAT release. The exact-image candidate exam under the UAT runtime
-   identity qualifies the new account. A failure there is deterministic: fix the
-   account rather than retrying.
-4. The switch rotates Azure bindings without new owner consent. Drive requests
-   migrate on their next claim; run `scripts/ops/run_uat_text_recovery_job.py`
-   (preview, then apply) for failed ones. Saved personal research restarts within
+   ship a normal UAT release. Until the pre-merge exam can examine a standby
+   account, that release's exact-image candidate exam under the UAT runtime
+   identity is the new account's first live qualification (a guardrail 1 gap), so
+   switch while the old account still serves. Read the exam's reason code: a
+   transport result (timeout, 429 or 5xx) usually means the new account's quota or
+   capacity, so fix that and dispatch once more. A semantic or configuration
+   failure is deterministic: never retry it; fix the account or select the last
+   passing one.
+4. The switch rotates Azure bindings without new owner consent. Trusted (Allow)
+   Drive requests with a ready plan migrate once, on their next claim; an owner's
+   own requests migrate once when that owner acts on them. A request migrates only
+   once, so a later switch, including a rollback, supersedes it and its owner makes
+   a new request. Each UAT release already runs the bounded recovery job
+   (`scripts/ops/run_uat_text_recovery_job.py`), which always applies, to at most
+   20 eligible requests; a preview is `consent-protocol/scripts/recover_uat_text_requests.py`
+   without `--apply`, inside the runtime. Saved personal research restarts within
    its preserved budget.
 
 To roll back, select the previous account while it still serves. Once it is gone,
-fix forward or set `managed_provider_selection.uat` to `vertex`; an image from
-before the switch points at the old account.
+fix forward: an image from before the switch points at the old account. Selecting
+Vertex (`managed_provider_selection.uat`) is a fallback only once the latest UAT
+Vertex readiness job has passed its whole bundle; its `structured_text` check
+failed intermittently on 2026-10-29.
 
 The deployment compiler reads the packaged default and pins both existing
 `HUSHH_UAT_MANAGED_AI_PROVIDER` and `HUSHH_UAT_MANAGED_TEXT_PROVIDER` values on

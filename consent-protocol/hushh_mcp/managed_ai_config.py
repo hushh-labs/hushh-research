@@ -175,8 +175,10 @@ def _azure_accounts(document: dict) -> dict | None:
             or set(account) != {*AZURE_ACCOUNT_FIELDS, "readiness_exam_client_id"}
         ):
             raise ValueError("Invalid managed Azure account")
+    runtime_apps = {account["client_id"] for account in value["accounts"].values()}
+    for account in value["accounts"].values():
         exam = account["readiness_exam_client_id"]
-        if exam is not None and (not _canonical_uuid(exam) or exam == account["client_id"]):
+        if exam is not None and (not _canonical_uuid(exam) or exam in runtime_apps):
             raise ValueError("The readiness exam requires its own Entra application")
     return value
 

@@ -130,6 +130,16 @@ def _shared_exam_identity(document):
     account["readiness_exam_client_id"] = account["client_id"]
 
 
+def _exam_identity_is_another_runtime_app(document):
+    document["managed_azure_accounts"]["accounts"]["spare"] = {
+        **SPARE,
+        "client_id": "cccccccc-dddd-4eee-8fff-000000000000",
+    }
+    accounts = document["managed_azure_accounts"]
+    account = accounts["accounts"][accounts["selection"]["uat"]]
+    account["readiness_exam_client_id"] = "cccccccc-dddd-4eee-8fff-000000000000"
+
+
 def _noncanonical_exam_identity(document):
     account = next(iter(document["managed_azure_accounts"]["accounts"].values()))
     account["readiness_exam_client_id"] = SPARE["readiness_exam_client_id"].upper()
@@ -150,6 +160,7 @@ def _insecure_standby(document):
         (_account_extra_key, "Invalid managed Azure account$"),
         (_both_forms, "must not repeat account identity"),
         (_shared_exam_identity, "own Entra application"),
+        (_exam_identity_is_another_runtime_app, "own Entra application"),
         (_noncanonical_exam_identity, "own Entra application"),
         (_insecure_standby, "primary_endpoint"),
     ],
