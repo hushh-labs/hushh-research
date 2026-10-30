@@ -1,0 +1,227 @@
+{
+  "signingKey": "test-golden-vector-signing-key-do-not-use-in-prod",
+  "consentTokenPrefix": "HCT",
+  "cases": [
+    {
+      "name": "vault_owner_non_commercial",
+      "input": {
+        "userId": "user_alpha",
+        "agentId": "agent_hushh_default",
+        "scope": "vault.owner",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl9hbHBoYXxhZ2VudF9odXNoaF9kZWZhdWx0fHZhdWx0Lm93bmVyfDE3MDAwMDAwMDAwMDB8NDEwMjQ0NDgwMDAwMA==.b63316afec164d27c57fa6ff75bd2e6d87012750120d30b4c08b278d45c219ca",
+      "expectedSignature": "b63316afec164d27c57fa6ff75bd2e6d87012750120d30b4c08b278d45c219ca",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "kai_analyze_commercial",
+      "input": {
+        "userId": "user_beta",
+        "agentId": "agent_kai",
+        "scope": "agent.kai.analyze",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": true
+      },
+      "expectedToken": "HCT:dXNlcl9iZXRhfGFnZW50X2thaXxhZ2VudC5rYWkuYW5hbHl6ZXwxNzAwMDAwMDAwMDAwfDQxMDI0NDQ4MDAwMDB8Y29tbWVyY2lhbA==.0388be1b1ebbe1abaf6b998bf2916bbfb0fbc26f05e8aacd8b84072864cd7485",
+      "expectedSignature": "0388be1b1ebbe1abaf6b998bf2916bbfb0fbc26f05e8aacd8b84072864cd7485",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "dynamic_attr_scope",
+      "input": {
+        "userId": "user_gamma",
+        "agentId": "agent_one",
+        "scope": "attr.financial.holdings",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl9nYW1tYXxhZ2VudF9vbmV8YXR0ci5maW5hbmNpYWwuaG9sZGluZ3N8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.381c031aa28305c18efb37140dfbecd472871a3100ce4452e43d32d9ebf55a43",
+      "expectedSignature": "381c031aa28305c18efb37140dfbecd472871a3100ce4452e43d32d9ebf55a43",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "dynamic_attr_wildcard_scope",
+      "input": {
+        "userId": "user_delta",
+        "agentId": "agent_kai",
+        "scope": "attr.financial.*",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl9kZWx0YXxhZ2VudF9rYWl8YXR0ci5maW5hbmNpYWwuKnwxNzAwMDAwMDAwMDAwfDQxMDI0NDQ4MDAwMDA=.acc9f89cd8ae16f7e9be19427e0da02b62a37e0f15158e8e3e7c5d8ed00a3609",
+      "expectedSignature": "acc9f89cd8ae16f7e9be19427e0da02b62a37e0f15158e8e3e7c5d8ed00a3609",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "pkm_write",
+      "input": {
+        "userId": "user_epsilon",
+        "agentId": "agent_one",
+        "scope": "pkm.write",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl9lcHNpbG9ufGFnZW50X29uZXxwa20ud3JpdGV8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.4b581776fdfcd682855218ea99aa8d6aeae475ff5ea47f9f5720723b1ed9191d",
+      "expectedSignature": "4b581776fdfcd682855218ea99aa8d6aeae475ff5ea47f9f5720723b1ed9191d",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "unicode_user_id",
+      "input": {
+        "userId": "user_pärth_日本語",
+        "agentId": "agent_one",
+        "scope": "vault.owner",
+        "issuedAt": 1700000000000,
+        "expiresAt": 4102444800000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl9ww6RydGhf5pel5pys6KqefGFnZW50X29uZXx2YXVsdC5vd25lcnwxNzAwMDAwMDAwMDAwfDQxMDI0NDQ4MDAwMDA=.b78d42ca17af77a39e2e749142208e1a5302835974a336921fa0d79374327742",
+      "expectedSignature": "b78d42ca17af77a39e2e749142208e1a5302835974a336921fa0d79374327742",
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "expired_token",
+      "input": {
+        "userId": "user_zeta",
+        "agentId": "agent_kai",
+        "scope": "agent.kai.chat",
+        "issuedAt": 1700000000000,
+        "expiresAt": 1700000001000,
+        "commercial": false
+      },
+      "expectedToken": "HCT:dXNlcl96ZXRhfGFnZW50X2thaXxhZ2VudC5rYWkuY2hhdHwxNzAwMDAwMDAwMDAwfDE3MDAwMDAwMDEwMDA=.4f8562b3a06e4f27e81d94d39c84946b0d094eff78015c3c9449aac612f9cb67",
+      "expectedSignature": "4f8562b3a06e4f27e81d94d39c84946b0d094eff78015c3c9449aac612f9cb67",
+      "expectedValid": false,
+      "expectedReason": "Token expired"
+    }
+  ],
+  "malformedCases": [
+    {
+      "name": "bad_prefix",
+      "rawToken": "XYZ:abc.def",
+      "expectedValid": false,
+      "expectedReasonContains": "Invalid token prefix"
+    },
+    {
+      "name": "no_dot_separator",
+      "rawToken": "HCT:abcdefgh",
+      "expectedValid": false,
+      "expectedReasonContains": "Malformed token"
+    },
+    {
+      "name": "not_base64",
+      "rawToken": "HCT:not-valid-base64!!!.deadbeef",
+      "expectedValid": false,
+      "expectedReasonContains": "Malformed token"
+    },
+    {
+      "name": "tampered_signature",
+      "rawToken": "HCT:dXNlcl90YW1wZXJ8YWdlbnRfb25lfHZhdWx0Lm93bmVyfDE3MDAwMDAwMDAwMDB8NDEwMjQ0NDgwMDAwMA==.7844770106845008c0e7417969f468383344eaec4d7d9de620d09a0855c12bb0",
+      "expectedValid": false,
+      "expectedReasonContains": "Invalid signature"
+    }
+  ],
+  "gateCases": [
+    {
+      "name": "scope_exact_match",
+      "token": "HCT:dTF8YTF8dmF1bHQub3duZXJ8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.f118adcf982d30cd1cc5a469faa4a24190d83b447401c518b810b183de725bae",
+      "expectedScope": "vault.owner",
+      "requireCommercial": null,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "scope_vault_owner_grants_anything",
+      "token": "HCT:dTJ8YTF8dmF1bHQub3duZXJ8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.71743375ba32f5ea572d147d4ff5997f55fa77275ebdeaa86390e4e680c67d81",
+      "expectedScope": "attr.financial.holdings",
+      "requireCommercial": null,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "scope_wildcard_domain_grants_specific",
+      "token": "HCT:dTN8YTF8YXR0ci5maW5hbmNpYWwuKnwxNzAwMDAwMDAwMDAwfDQxMDI0NDQ4MDAwMDA=.02979c66963075a7af3aabc4560c8b0939a515090ea7f0701a5db458789b4728",
+      "expectedScope": "attr.financial.holdings",
+      "requireCommercial": null,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "scope_mismatch_cross_domain",
+      "token": "HCT:dTR8YTF8YXR0ci5maW5hbmNpYWwuKnwxNzAwMDAwMDAwMDAwfDQxMDI0NDQ4MDAwMDA=.848fa8a8675fc254945c6f250d60050c2cbd2c964d349b95cb98733a34646cbf",
+      "expectedScope": "attr.food.groceries",
+      "requireCommercial": null,
+      "expectedValid": false,
+      "expectedReason": "Scope mismatch: token has 'attr.financial.*', but 'attr.food.groceries' required"
+    },
+    {
+      "name": "scope_mismatch_static",
+      "token": "HCT:dTV8YTF8YWdlbnQua2FpLmNoYXR8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.604a1a15cee174d9c8b204ef553a18839a6fe8967e99d99d0e8661b1a9139ed0",
+      "expectedScope": "agent.kai.execute",
+      "requireCommercial": null,
+      "expectedValid": false,
+      "expectedReason": "Scope mismatch: token has 'agent.kai.chat', but 'agent.kai.execute' required"
+    },
+    {
+      "name": "commercial_required_and_present",
+      "token": "HCT:dTZ8YTF8YWdlbnQua2FpLmNoYXR8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAwfGNvbW1lcmNpYWw=.2d15130a721f5062bddca8fc9e9c5b93a79428b51747111ecd9c1889d1605dbd",
+      "expectedScope": null,
+      "requireCommercial": true,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "commercial_required_but_absent",
+      "token": "HCT:dTd8YTF8YWdlbnQua2FpLmNoYXR8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.70a7cc33667742fa1e41a003eabcf1e616e5e2146c95ac8bd148d66df9e74714",
+      "expectedScope": null,
+      "requireCommercial": true,
+      "expectedValid": false,
+      "expectedReason": "Commercial consent required for this operation"
+    },
+    {
+      "name": "non_commercial_required_and_matches",
+      "token": "HCT:dTh8YTF8YWdlbnQua2FpLmNoYXR8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAw.b3f6d61d41e2665668a8db287abb902570ed120371ce5787094d7446648c19fa",
+      "expectedScope": null,
+      "requireCommercial": false,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "non_commercial_required_but_token_is_commercial",
+      "token": "HCT:dTl8YTF8YWdlbnQua2FpLmNoYXR8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAwfGNvbW1lcmNpYWw=.52fd35c53780ccace3ab3ab16b0f30e71cf877f3c7066c5ffa1c949f2a08838a",
+      "expectedScope": null,
+      "requireCommercial": false,
+      "expectedValid": false,
+      "expectedReason": "Non-commercial consent required for this operation"
+    },
+    {
+      "name": "scope_and_commercial_both_pass",
+      "token": "HCT:dTEwfGExfGF0dHIuZmluYW5jaWFsLip8MTcwMDAwMDAwMDAwMHw0MTAyNDQ0ODAwMDAwfGNvbW1lcmNpYWw=.df411d754df811810801beb79e9ef845db0673328a4d6dc9862561d03203caa4",
+      "expectedScope": "attr.financial.holdings",
+      "requireCommercial": true,
+      "expectedValid": true,
+      "expectedReason": null
+    },
+    {
+      "name": "expiry_checked_before_scope",
+      "token": "HCT:dTExfGExfGFnZW50LmthaS5jaGF0fDE3MDAwMDAwMDAwMDB8MTY5OTk5OTk5OTAwMA==.377bb0cf789778fe8fc599b7d17d5c4cf6454328128c47d85296fdcb9ab14b8c",
+      "expectedScope": "agent.kai.execute",
+      "requireCommercial": null,
+      "expectedValid": false,
+      "expectedReason": "Token expired"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_requests_compat",
+  "surface_title": "RIA Requests Compatibility Route",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_requests_compat",
+      "label": "Open RIA Requests",
+      "meaning": "Routes legacy RIA requests links to the consent center.",
+      "aliases": [
+        "open ria requests",
+        "open advisor requests",
+        "show advisor consent requests"
+      ],
+      "search_keywords": [
+        "requests",
+        "consent",
+        "access manager"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/requests",
+          "/consents"
+        ],
+        "screens": [
+          "ria_requests_compat"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Consent center must be available."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "consent_center_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/requests"
+      },
+      "control_ids": [
+        "ria_requests_compat_route"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/requests/page.tsx"
+      ],
+      "speaker_persona": "nav"
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_clients",
+  "surface_title": "RIA Client Roster",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_clients",
+      "label": "Open RIA Clients",
+      "meaning": "Navigates to the RIA client roster route.",
+      "aliases": [
+        "open ria clients",
+        "show my advisor clients",
+        "open client roster"
+      ],
+      "search_keywords": [
+        "clients",
+        "client roster",
+        "connected investors"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients"
+      },
+      "control_ids": [
+        "ria_route_tab_clients"
+      ],
+      "state_exposure": [
+        "visible client count"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.clients.open_client_workspace",
+      "label": "Open Client Workspace",
+      "meaning": "Represents visible client row buttons. Choosing a specific dynamic client remains manual until voice carries a selected client id.",
+      "aliases": [
+        "open this client",
+        "open investor workspace",
+        "show the selected client"
+      ],
+      "search_keywords": [
+        "client workspace",
+        "investor",
+        "relationship"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A connected client row must be selected."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_clients_client_row"
+      ],
+      "state_exposure": [
+        "visible client names",
+        "visible client relationship states"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.ria_marketplace_connect",
+      "label": "Open RIA Connect Marketplace",
+      "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
+      "aliases": [
+        "open connect",
+        "browse marketplace",
+        "find investor connections"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "connect",
+        "relationships"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace"
+        ],
+        "screens": [
+          "marketplace",
+          "ria_route_tabs"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria",
+          "investor"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace"
+      },
+      "control_ids": [
+        "ria_route_tab_connect",
+        "ria_clients_browse_marketplace"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "speaker_persona": "one"
+    }
+  ]
+}

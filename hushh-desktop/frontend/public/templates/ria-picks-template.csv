@@ -1,0 +1,4 @@
+ticker,company_name,sector,tier,tier_rank,conviction_weight,recommendation_bias,investment_thesis,fcf_billions
+MSFT,Microsoft,Technology,Core,1,0.92,Accumulate,Durable cloud and productivity cash flows with AI optionality,74.1
+LLY,Eli Lilly,Healthcare,Core,2,0.88,Accumulate,Obesity and diabetes pipeline strength with strong pricing power,12.7
+SPGI,S&P Global,Financials,Satellite,3,0.76,Monitor,High-quality index and ratings franchise with recurring data revenues,5.4

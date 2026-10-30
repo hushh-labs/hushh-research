@@ -1,0 +1,911 @@
+"use client";
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Rows3, Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
+
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
+import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/profile/settings-ui";
+import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import type {
+  KaiHomePickSource,
+  KaiHomeRenaissanceItem,
+} from "@/lib/services/api-service";
+import { cn } from "@/lib/utils";
+
+const ALL_FILTER = "all";
+const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
+const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
+
+function parsePageSize(value: string, options: readonly number[], fallback: number): number {
+  const parsed = Number(value);
+  return options.includes(parsed) ? parsed : fallback;
+}
+
+function formatCurrency(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Price unavailable";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCompactNumber(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatFcf(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "FCF N/A";
+  return `$${value.toFixed(value >= 10 ? 0 : 1)}B FCF`;
+}
+
+function formatBias(value: string | null | undefined): string | null {
+  const text = String(value || "").trim();
+  return text ? text.replaceAll("_", " ") : null;
+}
+
+function formatAsOf(value: string | null | undefined): string {
+  const text = String(value || "").trim();
+  if (!text) return "Snapshot time unavailable";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "Snapshot time unavailable";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function tierTone(tier: string | null | undefined): string {
+  const normalized = String(tier || "").trim().toUpperCase();
+  if (normalized === "ACE") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (normalized === "KING") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
+  if (normalized === "QUEEN") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (normalized === "JACK") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
+  return "bg-muted text-muted-foreground";
+}
+
+function sourceStateTone(source: KaiHomePickSource): string {
+  if (source.state === "pending") {
+    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  if (source.state === "unavailable") {
+    return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+  }
+  return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+}
+
+function rowSearchText(row: KaiHomeRenaissanceItem): string {
+  return [
+    row.symbol,
+    row.quote_symbol,
+    row.company_name,
+    row.sector,
+    row.tier,
+    row.investment_thesis,
+    row.recommendation_bias,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function MarketListControlField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0 space-y-2", className)}>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+export function RiaPicksList({
+  rows = [],
+  sources = [],
+  activeSourceId = "default",
+  onSourceChange,
+  controlMode = "inline",
+}: {
+  rows?: KaiHomeRenaissanceItem[];
+  sources?: KaiHomePickSource[];
+  activeSourceId?: string;
+  onSourceChange?: (sourceId: string) => void;
+  controlMode?: "inline" | "adaptive-surface";
+}) {
+  const isMobile = useIsMobile();
+  const useAdaptiveSurfaceControls = controlMode === "adaptive-surface" && isMobile;
+  const pageSizeOptions: readonly number[] = isMobile
+    ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
+    : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
+  const defaultPageSize = pageSizeOptions[0] ?? 6;
+  const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
+  const [activeMobileControl, setActiveMobileControl] = useState<"search" | "filters" | "rows" | null>(
+    null
+  );
+  const [query, setQuery] = useState("");
+  const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
+  const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPageSize((current) => {
+      if (pageSizeOptions.includes(current)) {
+        return current;
+      }
+      return defaultPageSize;
+    });
+  }, [defaultPageSize, pageSizeOptions]);
+
+  const availableSources = useMemo<KaiHomePickSource[]>(
+    () =>
+      sources.length > 0
+        ? sources
+        : [
+            {
+              id: "default",
+              label: "Default list",
+              kind: "default",
+              state: "ready",
+              is_default: true,
+            },
+          ],
+    [sources]
+  );
+
+  const activeSource = useMemo(
+    () =>
+      availableSources.find((source) => source.id === activeSourceId) ??
+      availableSources[0] ??
+      null,
+    [activeSourceId, availableSources]
+  );
+  const displaySource = activeSource ?? availableSources[0] ?? null;
+
+  const sectors = useMemo(
+    () =>
+      [...new Set(rows.map((row) => String(row.sector || "").trim()).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [rows]
+  );
+
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return rows.filter((row) => {
+      const matchesTier =
+        tierFilter === ALL_FILTER || String(row.tier || "").trim().toUpperCase() === tierFilter;
+      const matchesSector =
+        sectorFilter === ALL_FILTER || String(row.sector || "").trim() === sectorFilter;
+      const matchesQuery = !normalizedQuery || rowSearchText(row).includes(normalizedQuery);
+      return matchesTier && matchesSector && matchesQuery;
+    });
+  }, [query, rows, sectorFilter, tierFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeSourceId, pageSize, query, sectorFilter, tierFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
+
+  const currentPageRows = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return filteredRows.slice(startIndex, startIndex + pageSize);
+  }, [filteredRows, page, pageSize]);
+
+  const pageNumbers = useMemo(() => {
+    if (isMobile) {
+      if (totalPages <= 3) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1);
+      }
+
+      if (page <= 2) {
+        return [1, 2, "ellipsis-end", totalPages] as const;
+      }
+
+      if (page >= totalPages - 1) {
+        return [1, "ellipsis-start", totalPages - 1, totalPages] as const;
+      }
+
+      return [1, "ellipsis-start", page, "ellipsis-end", totalPages] as const;
+    }
+
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    if (page <= 4) {
+      return [1, 2, 3, 4, 5, "ellipsis-end", totalPages] as const;
+    }
+
+    if (page >= totalPages - 3) {
+      return [1, "ellipsis-start", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as const;
+    }
+
+    return [1, "ellipsis-start", page - 1, page, page + 1, "ellipsis-end", totalPages] as const;
+  }, [isMobile, page, totalPages]);
+
+  const visibleStart = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const visibleEnd = Math.min(page * pageSize, filteredRows.length);
+  const activeFilterLabels = [
+    query.trim() ? `Search: ${query.trim()}` : null,
+    tierFilter !== ALL_FILTER ? `Tier ${tierFilter}` : null,
+    sectorFilter !== ALL_FILTER ? sectorFilter : null,
+  ].filter(Boolean) as string[];
+
+  const goToPage = (nextPage: number) => {
+    setPage(Math.max(1, Math.min(totalPages, nextPage)));
+  };
+
+  if (!rows.length) {
+    return (
+      <SettingsGroup className={marketSettingsGroupClassName}>
+        <div className="px-4 py-4 text-sm text-muted-foreground">
+          The default list is unavailable at the moment.
+        </div>
+      </SettingsGroup>
+    );
+  }
+
+  return (
+    <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
+      <SettingsGroup className={marketSettingsGroupClassName}>
+        <div className="space-y-3 px-4 py-3 sm:px-4">
+          {useAdaptiveSurfaceControls ? (
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={activeSource?.id || "default"}
+                      onValueChange={(nextValue) => {
+                        if (!onSourceChange || nextValue === activeSource?.id) return;
+                        onSourceChange(nextValue);
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-10 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                          displaySource ? sourceStateTone(displaySource) : undefined
+                        )}
+                      >
+                        <SelectValue placeholder="Default list" />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        {availableSources.map((source) => (
+                          <SelectItem key={source.id} value={source.id}>
+                            {source.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "search" ? null : "search"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "search" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Search list"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "filters" ? null : "filters"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "filters" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Filter list"
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveMobileControl((current) => (current === "rows" ? null : "rows"))
+                    }
+                    className={cn(
+                      "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
+                      activeMobileControl === "rows" && "bg-primary/10 text-primary"
+                    )}
+                    aria-label="Rows per page"
+                  >
+                    <Rows3 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {activeMobileControl === "search" ? (
+                  <SurfaceInset className="px-3 py-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        aria-label="Search symbol, company, sector, or thesis"
+                        placeholder="Search symbol, company, sector, or thesis"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+                      />
+                    </div>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeMobileControl === "filters" ? (
+                  <SurfaceInset className="grid gap-3 px-3 py-3">
+                    <Select value={tierFilter} onValueChange={setTierFilter}>
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder="All tiers" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                        <SelectItem value="ACE">ACE</SelectItem>
+                        <SelectItem value="KING">KING</SelectItem>
+                        <SelectItem value="QUEEN">QUEEN</SelectItem>
+                        <SelectItem value="JACK">JACK</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder="All sectors" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                        {sectors.map((sector) => (
+                          <SelectItem key={sector} value={sector}>
+                            {sector}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeMobileControl === "rows" ? (
+                  <SurfaceInset className="px-3 py-3">
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) => {
+                        setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
+                        <SelectValue placeholder={`${defaultPageSize} per page`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pageSizeOptions.map((option) => (
+                          <SelectItem key={option} value={String(option)}>
+                            {option} per page
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SurfaceInset>
+                ) : null}
+
+                {activeFilterLabels.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {activeFilterLabels.map((label) => (
+                      <Badge
+                        key={label}
+                        variant="outline"
+                        className="border-[color:var(--app-card-border-standard)] bg-background/75 text-muted-foreground"
+                      >
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <MarketListControlField label="List source">
+                  <Select
+                    value={activeSource?.id || "default"}
+                    onValueChange={(nextValue) => {
+                      if (!onSourceChange || nextValue === activeSource?.id) return;
+                      onSourceChange(nextValue);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={cn(
+                        "h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
+                        displaySource ? sourceStateTone(displaySource) : undefined
+                      )}
+                    >
+                      <SelectValue placeholder="Default list" />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {availableSources.map((source) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+
+                <MarketListControlField label="Tier">
+                  <Select value={tierFilter} onValueChange={setTierFilter}>
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder="All tiers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
+                      <SelectItem value="ACE">ACE</SelectItem>
+                      <SelectItem value="KING">KING</SelectItem>
+                      <SelectItem value="QUEEN">QUEEN</SelectItem>
+                      <SelectItem value="JACK">JACK</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+
+                <MarketListControlField label="Sector">
+                  <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder="All sectors" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
+                      {sectors.map((sector) => (
+                        <SelectItem key={sector} value={sector}>
+                          {sector}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                <MarketListControlField label="Search">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      aria-label="Search symbol, company, sector, or thesis"
+                      placeholder="Search symbol, company, sector, or thesis"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
+                    />
+                  </div>
+                </MarketListControlField>
+
+                <MarketListControlField label="Rows">
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(value) => {
+                      setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
+                      <SelectValue placeholder={`${defaultPageSize} per page`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pageSizeOptions.map((option) => (
+                        <SelectItem key={option} value={String(option)}>
+                          {option} per page
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </MarketListControlField>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs leading-5 text-muted-foreground">
+              {filteredRows.length > 0
+                ? `Showing ${visibleStart}-${visibleEnd} of ${filteredRows.length} matching names.`
+                : `Showing 0 matching names · ${rows.length} total investable names.`}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {tierFilter !== ALL_FILTER ? (
+                <Badge
+                  variant="outline"
+                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
+                >
+                  Tier {tierFilter}
+                </Badge>
+              ) : null}
+              {sectorFilter !== ALL_FILTER ? (
+                <Badge
+                  variant="outline"
+                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
+                >
+                  {sectorFilter}
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {filteredRows.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">
+            No picks match the current filters.
+          </div>
+        ) : (
+          <div
+            className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
+          >
+            {currentPageRows.map((row) => {
+              const changePct =
+                typeof row.change_pct === "number" && Number.isFinite(row.change_pct)
+                  ? row.change_pct
+                  : null;
+              const metadataLine = [
+                row.symbol,
+                row.sector,
+                formatBias(row.recommendation_bias),
+                typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
+                  ? formatFcf(row.fcf_billions)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" • ");
+
+              return (
+                <button
+                  key={`${row.symbol}-${row.tier || "tierless"}`}
+                  type="button"
+                  onClick={() => setSelectedRow(row)}
+                  className={cn(
+                    "group relative isolate flex w-full gap-3 text-left transition-colors",
+                    isMobile
+                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] backdrop-blur-[16px] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
+                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8"
+                  )}
+                >
+                  <div className="shrink-0">
+                    <SymbolAvatar
+                      symbol={String(row.quote_symbol || row.symbol || "—")}
+                      name={row.company_name}
+                      size="md"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+                        {row.symbol || "—"}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className={cn("border-0 px-2 py-0.5 text-[10px] font-semibold", tierTone(row.tier))}
+                      >
+                        {row.tier || "CORE"}
+                      </Badge>
+                      {row.alias_repaired ? (
+                        <Badge
+                          variant="outline"
+                          className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                        >
+                          Repaired
+                        </Badge>
+                      ) : null}
+                      {row.degraded ? (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/16 bg-amber-500/8 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                        >
+                          Delayed
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                      <p className="truncate text-xs font-medium text-foreground/85">
+                        {row.company_name || row.symbol}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-5 text-muted-foreground sm:truncate">
+                      {metadataLine || "Metadata is still syncing for this name."}
+                    </p>
+                  </div>
+                  <div className={cn("shrink-0 text-right", isMobile ? "min-w-[5.25rem]" : "")}>
+                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                      {formatCurrency(row.price)}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xs font-medium",
+                        changePct === null && "text-muted-foreground",
+                        changePct !== null &&
+                          changePct >= 0 &&
+                          "text-emerald-600 dark:text-emerald-400",
+                        changePct !== null &&
+                          changePct < 0 &&
+                          "text-rose-600 dark:text-rose-400"
+                      )}
+                    >
+                      {changePct === null
+                        ? "Change unavailable"
+                        : `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+                    </p>
+                  </div>
+                  <MaterialRipple variant="none" effect="fade" className="z-10" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {filteredRows.length > pageSize ? (
+          <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <div className="space-y-1">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Page {page} of {totalPages}
+              </p>
+            </div>
+            <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
+              <PaginationContent className="flex-nowrap justify-start sm:justify-end">
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    className={cn(page === 1 && "pointer-events-none opacity-50")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goToPage(page - 1);
+                    }}
+                  />
+                </PaginationItem>
+                {pageNumbers.map((pageNumber) => {
+                  if (typeof pageNumber !== "number") {
+                    return (
+                      <PaginationItem key={pageNumber}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    );
+                  }
+
+                  return (
+                    <PaginationItem key={pageNumber}>
+                      <PaginationLink
+                        href="#"
+                        isActive={pageNumber === page}
+                        size="icon"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          goToPage(pageNumber);
+                        }}
+                      >
+                        {pageNumber}
+                      </PaginationLink>
+                    </PaginationItem>
+                  );
+                })}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    className={cn(page === totalPages && "pointer-events-none opacity-50")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goToPage(page + 1);
+                    }}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        ) : null}
+      </SettingsGroup>
+
+      <KaiControlSurface
+        open={Boolean(selectedRow)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRow(null);
+        }}
+        eyebrow="Advisor ideas"
+        title={selectedRow ? `${selectedRow.symbol} · ${selectedRow.company_name}` : "Pick detail"}
+        description={
+          selectedRow
+            ? "Advisor list detail with the current market snapshot and thesis."
+            : undefined
+        }
+      >
+        {selectedRow ? (
+          <div className="space-y-4">
+            <RenaissanceVerdictCard row={selectedRow} />
+            <SurfaceInset className="flex items-start gap-3 p-4">
+              <SymbolAvatar
+                symbol={String(selectedRow.quote_symbol || selectedRow.symbol || "—")}
+                name={selectedRow.company_name}
+                size="lg"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-lg font-semibold tracking-tight text-foreground">
+                    {selectedRow.company_name || selectedRow.symbol}
+                  </p>
+                  <Badge
+                    variant="secondary"
+                    className={cn("border-0 text-[10px] font-semibold", tierTone(selectedRow.tier))}
+                  >
+                    {selectedRow.tier || "CORE"}
+                  </Badge>
+                  {selectedRow.degraded ? (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                    >
+                      Delayed
+                    </Badge>
+                  ) : null}
+                  {selectedRow.alias_repaired ? (
+                    <Badge
+                      variant="outline"
+                      className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-semibold text-muted-foreground"
+                    >
+                      Symbol repaired
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {[
+                    selectedRow.symbol,
+                    selectedRow.sector,
+                    formatBias(selectedRow.recommendation_bias),
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-2xl font-semibold tracking-tight text-foreground">
+                    {formatCurrency(selectedRow.price)}
+                  </span>
+                  {typeof selectedRow.change_pct === "number" &&
+                  Number.isFinite(selectedRow.change_pct) ? (
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                        selectedRow.change_pct >= 0
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                      )}
+                    >
+                      {selectedRow.change_pct >= 0 ? (
+                        <TrendingUp className="mr-1 h-3.5 w-3.5" />
+                      ) : (
+                        <TrendingDown className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {selectedRow.change_pct >= 0 ? "+" : ""}
+                      {selectedRow.change_pct.toFixed(2)}%
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </SurfaceInset>
+
+            <SettingsGroup
+              eyebrow="Context"
+              title="Market snapshot and conviction"
+              className={marketSettingsGroupClassName}
+            >
+              <SettingsRow
+                title="Market cap"
+                description="Current capitalization snapshot from the latest available quote."
+                trailing={formatCompactNumber(selectedRow.market_cap)}
+              />
+              <SettingsRow
+                title="Free cash flow"
+                description="Renaissance free-cash-flow cue from the default list."
+                trailing={formatFcf(selectedRow.fcf_billions)}
+              />
+              <SettingsRow
+                title="Quote freshness"
+                description={
+                  selectedRow.degraded
+                    ? "This row is using delayed or incomplete quote context."
+                    : "Quote context is current for the latest market snapshot."
+                }
+                trailing={
+                  selectedRow.quote_status === "unsupported"
+                    ? "Unsupported"
+                    : formatAsOf(selectedRow.as_of)
+                }
+              />
+            </SettingsGroup>
+
+            <SettingsGroup
+              eyebrow="Thesis"
+              title="Why this name is in the list"
+              className={marketSettingsGroupClassName}
+            >
+              <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
+                {selectedRow.investment_thesis ||
+                  "Renaissance thesis is unavailable for this name right now."}
+              </div>
+            </SettingsGroup>
+
+            <div className="flex flex-wrap gap-2">
+              {selectedRow.sector ? (
+                <Badge
+                  variant="outline"
+                  className="border-emerald-500/16 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+                >
+                  {selectedRow.sector}
+                </Badge>
+              ) : null}
+              {selectedRow.recommendation_bias ? (
+                <Badge
+                  variant="outline"
+                  className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
+                >
+                  {formatBias(selectedRow.recommendation_bias)}
+                </Badge>
+              ) : null}
+              <Badge
+                variant="outline"
+                className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
+              >
+                {activeSource?.label || "Default list"}
+              </Badge>
+            </div>
+          </div>
+        ) : null}
+      </KaiControlSurface>
+
+    </div>
+  );
+}
+
+export const RenaissanceMarketList = RiaPicksList;
