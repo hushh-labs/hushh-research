@@ -157,7 +157,7 @@ jobs:
           }
 
       - name: Authenticate to Google Cloud with workload identity
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -166,7 +166,9 @@ jobs:
           export_environment_variables: true
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          cache: true
 
       - name: Materialize UAT iOS build contract
         shell: bash
@@ -242,7 +244,7 @@ jobs:
 
       - name: Upload redacted aggregate timing evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: one-voice-device-capture-${{ steps.resolve.outputs.sha }}
           if-no-files-found: error

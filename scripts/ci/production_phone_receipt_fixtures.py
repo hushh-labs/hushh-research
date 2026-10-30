@@ -198,9 +198,10 @@ class LeaseFixture:
             {},
         )
         self.sources = {
-            run["head_sha"]: "\n".join(
-                (lease.MARKER, lease.BEGIN, lease.CLEANUP, lease.UPLOAD, "bootstrap.py")
-            ).encode(),
+            run["head_sha"]: (phone.ROOT / lease.WORKFLOW)
+            .read_text()
+            .replace(lease.INTENT, "")
+            .encode(),
             legacy[
                 "head_sha"
             ]: b"name: legacy production deployment\non: workflow_dispatch\n",

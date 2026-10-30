@@ -194,6 +194,18 @@ def _started(run: dict) -> tuple[datetime, int]:
         raise Refused("CI chronology is unavailable") from None
 
 
+def _exact_candidate_job(jobs, base):
+    legacy_name = f"Exact UAT Candidate ({base})"
+    matches = [
+        job for job in jobs if job.get("name") in {"Exact UAT Candidate", legacy_name}
+    ]
+    require(
+        len(matches) == 1,
+        "UAT CI did not complete its exact-source and aggregate gates",
+    )
+    return matches[0]
+
+
 
 def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
     prefix = f"repos/{REPOSITORY}/actions"
@@ -205,8 +217,8 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
         and inventory["total_count"] == len(jobs) <= 100,
         "UAT CI job inventory is incomplete",
     )
-    exact_name = f"Exact UAT Candidate ({base})"
-    for name in REQUIRED_JOBS | {exact_name}:
+    exact_job = _exact_candidate_job(jobs, base)
+    for name in REQUIRED_JOBS:
         matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
@@ -217,9 +229,7 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
             "UAT CI did not complete its exact-source and aggregate gates",
         )
         required_step = None
-        if name == exact_name:
-            required_step = "Verify the exact UAT checkout"
-        elif name.startswith("Web Targeted Contracts ("):
+        if name.startswith("Web Targeted Contracts ("):
             required_step = "Run targeted web contract checks"
         elif name.startswith("Protocol Database ("):
             required_step = "Run serial database contracts"
@@ -232,6 +242,22 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
                 len(verified) == 1 and verified[0].get("conclusion") == "success",
                 "A required UAT CI step was not verified",
             )
+    require(
+        exact_job.get("run_id") == run_id
+        and exact_job.get("head_sha") == candidate
+        and exact_job.get("status") == "completed"
+        and exact_job.get("conclusion") == "success",
+        "UAT CI did not complete its exact-source and aggregate gates",
+    )
+    exact_steps = [
+        step
+        for step in exact_job.get("steps", [])
+        if step.get("name") == "Verify the exact UAT checkout"
+    ]
+    require(
+        len(exact_steps) == 1 and exact_steps[0].get("conclusion") == "success",
+        "A required UAT CI step was not verified",
+    )
     gate = next(job for job in jobs if job["name"] == "Branch Validation Gate")
     check_url = gate.get("check_run_url", "")
     match = re.fullmatch(

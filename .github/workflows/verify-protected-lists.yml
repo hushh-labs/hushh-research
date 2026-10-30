@@ -57,9 +57,9 @@ jobs:
       GCP_PROJECT_ID: hushh-pda-uat
       AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -67,7 +67,7 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
       - name: Verify UAT protected lists are intact
         run: |
@@ -92,9 +92,9 @@ jobs:
       GCP_PROJECT_ID: hushh-pda
       AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -102,7 +102,7 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
       - name: Verify production protected lists are intact
         run: |
@@ -148,14 +148,14 @@ jobs:
         with:
           protocol-dir: ./consent-protocol
           sync-dev-group: "false"
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
           project_id: hushh-pda-uat
           create_credentials_file: true
           export_environment_variables: true
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Execute reviewed monitoring operation without application deployment
         env:
           HEALTH_OPERATION: ${{ inputs.health_build_operation }}
