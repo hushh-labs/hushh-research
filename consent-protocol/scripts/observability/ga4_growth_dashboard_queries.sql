@@ -21,6 +21,8 @@
 -- Prod note:
 --   stream_id `13702689760` is the current HushhVoice iOS stream on the
 --   production property. Exclude it from Kai growth reporting.
+--   Legacy/test Android stream `13694989021` and explicit Firebase debug-mode
+--   events are also excluded; export presence is not customer activity proof.
 
 -- 1. Investor funnel progression.
 WITH base_events AS (
@@ -43,7 +45,13 @@ WITH base_events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'app_version') AS app_version
   FROM `{{PROJECT_ID}}.{{DATASET}}.events_*`
   WHERE event_name IN ('growth_funnel_step_completed', 'investor_activation_completed')
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -69,7 +77,13 @@ WITH base_events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'workspace_source') AS workspace_source
   FROM `{{PROJECT_ID}}.{{DATASET}}.events_*`
   WHERE event_name IN ('growth_funnel_step_completed', 'ria_activation_completed')
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -98,7 +112,13 @@ WITH base_events AS (
     'investor_activation_completed',
     'ria_activation_completed'
   )
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -147,7 +167,13 @@ WHERE event_name IN (
   'investor_activation_completed',
   'ria_activation_completed'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 GROUP BY event_date, source, medium, campaign
 ORDER BY event_date DESC, users DESC;
 
@@ -176,31 +202,62 @@ WHERE event_name IN (
   'import_save_completed',
   'phone_verification_started',
   'phone_verification_completed',
-  'persona_switched'
+  'persona_switched',
+  'one_memory_action',
+  'one_wallet_action',
+  'one_calendar_action',
+  'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 GROUP BY event_date, platform
 ORDER BY event_date DESC, users DESC;
 
--- 6. Feature engagement.
+-- 6. Feature engagement. CRM is dev-only and is deliberately excluded from
+-- production customer KPIs. Anonymous device IDs are not people; the
+-- identified-account column is a lower bound until User-ID coverage improves.
 SELECT
   PARSE_DATE('%Y%m%d', event_date) AS event_date,
   event_name,
+  COALESCE(
+    NULLIF((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'action'), ''),
+    '(not set)'
+  ) AS action,
+  COALESCE(
+    NULLIF((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'result'), ''),
+    '(not set)'
+  ) AS result,
   COALESCE(
     NULLIF((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'portfolio_source'), ''),
     '(not set)'
   ) AS portfolio_source,
   COUNT(*) AS event_count,
-  COUNT(DISTINCT user_pseudo_id) AS users
+  COUNT(DISTINCT user_pseudo_id) AS device_or_browser_ids,
+  COUNT(DISTINCT NULLIF(user_id, '')) AS identified_accounts
 FROM `{{PROJECT_ID}}.{{DATASET}}.events_*`
 WHERE event_name IN (
   'market_insights_loaded',
   'portfolio_viewed',
   'recommendation_viewed',
-  'marketplace_profile_viewed'
+  'marketplace_profile_viewed',
+  'one_memory_action',
+  'one_wallet_action',
+  'one_calendar_action',
+  'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
-GROUP BY event_date, event_name, portfolio_source
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
+GROUP BY event_date, event_name, action, result, portfolio_source
 ORDER BY event_date DESC, event_count DESC;
 
 -- 7. Missing-param and instrumentation health.
@@ -236,9 +293,19 @@ WITH observed AS (
     'import_save_completed',
     'phone_verification_started',
     'phone_verification_completed',
-    'persona_switched'
+    'persona_switched',
+    'one_memory_action',
+    'one_wallet_action',
+    'one_calendar_action',
+    'one_kyc_action'
   )
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -252,7 +319,7 @@ SELECT
   COUNTIF(event_name IN ('growth_funnel_step_completed', 'investor_activation_completed', 'ria_activation_completed') AND (entry_surface IS NULL OR entry_surface = '')) AS missing_entry_surface_events,
   COUNT(DISTINCT stream_id) AS streams_seen,
   COUNT(DISTINCT resolved_platform) AS platforms_seen,
-  COUNT(DISTINCT user_pseudo_id) AS users_seen
+  COUNT(DISTINCT user_pseudo_id) AS device_or_browser_ids_seen
 FROM observed
 GROUP BY event_date
 ORDER BY event_date DESC;
@@ -277,6 +344,16 @@ WHERE event_name IN (
   'import_save_completed',
   'phone_verification_started',
   'phone_verification_completed',
-  'persona_switched'
+  'persona_switched',
+  'one_memory_action',
+  'one_wallet_action',
+  'one_calendar_action',
+  'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760');
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    );

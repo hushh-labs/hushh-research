@@ -1,0 +1,19 @@
+.reader {
+  --type-form-label-size: 15px;
+  --type-form-label-line: 22px;
+  --type-form-label-weight: 550;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --type-helper-text-size: 13px;
+  --type-button-label-size: 13px;
+}
+@media (max-width: 620px) { .reader { --type-input-value-size: 16px; } }
+.value {
+  width: 100%;
+  max-width: 36ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: right;
+}

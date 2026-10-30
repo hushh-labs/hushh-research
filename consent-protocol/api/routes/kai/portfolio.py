@@ -23,11 +23,11 @@ import io
 import json
 import logging
 import math
-import os
 import re
 import time
 from collections import Counter
 from datetime import datetime, timezone
+from functools import lru_cache, partial
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import (
@@ -44,25 +44,20 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_vault_owner_token
 from api.middlewares.observability import get_request_id
-from api.routes.kai._streaming import (
-    HEARTBEAT_INTERVAL_SECONDS,
-    PORTFOLIO_IMPORT_TIMEOUT_SECONDS,
-    CanonicalSSEStream,
-)
+from api.routes.kai._streaming import PORTFOLIO_IMPORT_TIMEOUT_SECONDS, CanonicalSSEStream
 from api.routes.kai.import_run_manager import (
     KaiPortfolioImportRunManager,
     PortfolioImportRunRecord,
 )
-from hushh_mcp.constants import (
-    KAI_LLM_TEMPERATURE,
-    KAI_LLM_THINKING_ENABLED,
-    KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
-    KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
-    KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
-    KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
+from hushh_mcp.agents.portfolio_import.runtime import (
+    _EXTRACTION_SCHEMA as _PORTFOLIO_EXTRACT_SCHEMA,
 )
+from hushh_mcp.agents.portfolio_import.runtime import (
+    load_portfolio_gene,
+    run_portfolio_gene,
+)
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.kai_import import (
     FINANCIAL_STATEMENT_EXTRACT_V2_REQUIRED_KEYS,
     ImportStrictParseError,
@@ -74,9 +69,9 @@ from hushh_mcp.kai_import import (
     build_timing_payload,
     build_token_counts_payload,
     evaluate_import_quality_gate_v2,
-    run_stream_pass_v2,
 )
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.kai_import.statement_extract import build_raw_statement_extract
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
@@ -139,12 +134,67 @@ _HOLDING_KEY_HINTS = frozenset(
 
 
 def _resolve_portfolio_import_model() -> str:
-    """Resolve operator override while keeping the documented Flash default."""
-    for key in ("KAI_PORTFOLIO_IMPORT_MODEL", "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"):
-        candidate = os.getenv(key, "").strip()
-        if candidate:
-            return candidate
-    return KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+    """Portfolio import runs the fleet text model, like every other text agent.
+
+    It used to consult two environment keys that no lane set, in front of a constant
+    that was already equal to the fleet model: three names for one answer.
+    """
+    return GEMINI_MODEL
+
+
+@lru_cache(maxsize=1)
+def _portfolio_import_extract_gene() -> Any:
+    """Load the manifest-owned Portfolio Import extraction gene once."""
+
+    return load_portfolio_gene("agent_portfolio_import_extract")
+
+
+async def _run_portfolio_import_extract_gene(
+    *,
+    content: bytes,
+    is_csv_upload: bool,
+    prompt: str,
+    context_excerpt: str,
+    context_confidence: float,
+    user_id: str,
+    consent_token: str,
+    model_name: str,
+) -> tuple[dict[str, Any], str, int]:
+    """Run the bounded Portfolio Import extractor through the shared ADK turn."""
+
+    from google.genai import types
+
+    gene = _portfolio_import_extract_gene()
+
+    parts: list[Any] = [types.Part.from_text(text=prompt)]
+    excerpt = str(context_excerpt or "").strip()
+    if excerpt:
+        parts.append(
+            types.Part.from_text(text="Statement excerpt (deterministic page filter):\n" + excerpt)
+        )
+    include_full_document = is_csv_upload or not excerpt or context_confidence < 0.35
+    if include_full_document:
+        parts.append(
+            types.Part.from_bytes(
+                data=content,
+                mime_type="text/csv" if is_csv_upload else "application/pdf",
+            )
+        )
+    parsed, elapsed_ms = await run_portfolio_gene(
+        gene_id=gene.id,
+        prompt=prompt,
+        document_parts=parts[1:],
+        output_schema=_PORTFOLIO_EXTRACT_SCHEMA,
+        user_id=user_id,
+        consent_token=consent_token,
+        model_name=model_name,
+        timeout_seconds=120.0,
+    )
+    from hushh_mcp.kai_import.strict_json import parse_statement_extraction
+
+    normalized = parse_statement_extraction(parsed)
+    source = "full_document" if include_full_document else "excerpt_only"
+    return normalized, source, elapsed_ms
 
 
 _POSITIONS_PAGE_KEYWORDS = (
@@ -2079,7 +2129,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 async def import_portfolio(
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> PortfolioImportResponse:
     """
     Import a brokerage statement and analyze the portfolio.
@@ -2142,6 +2192,7 @@ async def import_portfolio(
         user_id=user_id,
         file_content=content,
         filename=file.filename,
+        consent_token=str(token_data.get("token") or ""),
     )
 
     if (
@@ -2181,7 +2232,7 @@ async def import_portfolio(
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
     user_id: str = Path(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> PortfolioSummaryResponse:
     """
     Get portfolio summary from PKM (without decrypting holdings).
@@ -2242,7 +2293,7 @@ async def get_dashboard_profile_picks(
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> DashboardProfilePicksResponse:
     """
     Build profile-based dashboard picks from real user context.
@@ -2694,14 +2745,13 @@ async def _portfolio_import_stream_generator(
     content: bytes,
     filename: str,
     is_csv_upload: bool,
+    user_id: str,
+    consent_token: str,
 ) -> AsyncGenerator[dict[str, str], None]:
     """Generate canonical SSE frames for one portfolio-import run."""
     hard_timeout_seconds = PORTFOLIO_IMPORT_TIMEOUT_SECONDS
     stream = CanonicalSSEStream("portfolio_import")
 
-    from google.genai import types
-
-    thinking_enabled = KAI_PORTFOLIO_IMPORT_ENABLE_THINKING and KAI_LLM_THINKING_ENABLED
     extraction_model = _resolve_portfolio_import_model()
 
     try:
@@ -2715,11 +2765,9 @@ async def _portfolio_import_stream_generator(
             )
             await asyncio.sleep(0.1)
 
-            client = build_managed_runtime_client("gemini")
             logger.info(
-                "SSE: Portfolio import model=%s strict_json=true no_pre_gate=true thinking=%s",
+                "SSE: Portfolio import model=%s strict_json=true adk_single_turn=true",
                 extraction_model,
-                thinking_enabled,
             )
 
             yield stream.event(
@@ -2772,30 +2820,86 @@ async def _portfolio_import_stream_generator(
             )
 
             extract_full_result: dict[str, Any] = {}
-            async for frame in run_stream_pass_v2(
-                request=request,
-                stream=stream,
-                client=client,
-                types_module=types,
-                phase="extract_full",
-                model_name=extraction_model,
+            yield stream.event(
+                "stage",
+                {
+                    "stage": "extracting",
+                    "phase": "extract_full",
+                    "message": "Extracting portfolio statement data...",
+                    "progress_pct": 3.0,
+                },
+            )
+            if await request.is_disconnected():
+                logger.info("[Portfolio Import] Client disconnected before extraction")
+                return
+            parsed_data, content_source, elapsed_ms = await _run_portfolio_import_extract_gene(
+                content=content,
+                is_csv_upload=is_csv_upload,
                 prompt=full_extract_prompt,
                 context_excerpt=full_context_excerpt,
                 context_confidence=full_context_confidence,
-                stage_message="Extracting portfolio statement data...",
-                progress_message="Streaming extraction",
-                include_holdings_preview=True,
-                result_store=extract_full_result,
-                content=content,
-                is_csv_upload=is_csv_upload,
-                temperature=KAI_LLM_TEMPERATURE,
-                max_output_tokens=KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
-                thinking_enabled=thinking_enabled,
-                thinking_level_raw=KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
-                heartbeat_interval_seconds=HEARTBEAT_INTERVAL_SECONDS,
-                required_keys=FINANCIAL_STATEMENT_EXTRACT_V2_REQUIRED_KEYS,
-            ):
-                yield frame
+                user_id=user_id,
+                consent_token=consent_token,
+                model_name=extraction_model,
+            )
+            serialized_payload = json.dumps(parsed_data, separators=(",", ":"))
+            extract_full_result.update(
+                {
+                    "phase": "extract_full",
+                    "source": content_source,
+                    "parsed": parsed_data,
+                    "text": serialized_payload,
+                    "chunk_count": 1,
+                    "thought_count": 0,
+                    "elapsed_ms": elapsed_ms,
+                    "holdings_detected": len(parsed_data.get("detailed_holdings") or [])
+                    if isinstance(parsed_data.get("detailed_holdings"), list)
+                    else 0,
+                    "holdings_preview": _build_holdings_preview(
+                        [
+                            row
+                            for row in (parsed_data.get("detailed_holdings") or [])
+                            if isinstance(row, dict)
+                        ],
+                        max_items=40,
+                    ),
+                    "parse_diagnostics": {
+                        "mode": "adk_single_turn",
+                        "raw_length": len(serialized_payload),
+                        "repair_attempted": False,
+                        "repair_applied": False,
+                        "repair_actions": [],
+                    },
+                }
+            )
+            yield stream.event(
+                "chunk",
+                {
+                    "phase": "extract_full",
+                    "text": serialized_payload,
+                    "total_chars": len(serialized_payload),
+                    "chunk_count": 1,
+                    "token_source": "response",
+                    "holdings_detected": extract_full_result["holdings_detected"],
+                    "holdings_preview": extract_full_result["holdings_preview"],
+                    "progress_pct": 78.0,
+                },
+            )
+            yield stream.event(
+                "stage",
+                {
+                    "stage": "extracting",
+                    "phase": "extract_full",
+                    "message": "Extract full pass complete",
+                    "chunk_count": 1,
+                    "thought_count": 0,
+                    "total_chars": len(serialized_payload),
+                    "holdings_detected": extract_full_result["holdings_detected"],
+                    "content_source": content_source,
+                    "duration_ms": elapsed_ms,
+                    "progress_pct": 78.0,
+                },
+            )
 
             if extract_full_result.get("client_disconnected"):
                 logger.info("[Portfolio Import] Client disconnected during extraction")
@@ -3092,30 +3196,14 @@ async def _portfolio_import_stream_generator(
                 )
                 return
 
-            raw_extract_v2 = {
-                "statement_details": statement_details,
-                "portfolio_summary": portfolio_summary,
-                "detailed_holdings": detailed_holdings,
-                "cash_balance": cash_balance,
-                "total_value": total_value,
-                # Compatibility defaults for existing consumers.
-                "account_metadata": {},
-                "asset_allocation": [],
-                "portfolio_detail": {},
-                "transactions": {},
-                "reconciliation_summary": {},
-                "investment_objective": {},
-                "management_contacts": {},
-                "derived_metrics": {},
-                "income_summary": {},
-                "realized_gain_loss": {},
-                "cash_flow": {},
-                "cash_management": {},
-                "projections_and_mrd": {},
-                "historical_values": [],
-                "ytd_metrics": {},
-                "legal_and_disclosures": {},
-            }
+            raw_extract_v2 = build_raw_statement_extract(
+                statement_details=statement_details,
+                portfolio_summary=portfolio_summary,
+                detailed_holdings=detailed_holdings,
+                cash_balance=cash_balance,
+                total_value=total_value,
+                historical_values=parsed_data.get("historical_values"),
+            )
             portfolio_data_v2 = build_financial_portfolio_canonical_v2(
                 raw_extract_v2=raw_extract_v2,
                 account_info=account_info,
@@ -3218,12 +3306,17 @@ async def _portfolio_import_stream_generator(
 def _portfolio_import_stream_factory(
     run: PortfolioImportRunRecord,
     background_request: Any,
+    *,
+    user_id: str | None = None,
+    consent_token: str = "",
 ) -> AsyncGenerator[dict[str, str], None]:
     return _portfolio_import_stream_generator(
         request=background_request,
         content=run.content,
         filename=run.filename,
         is_csv_upload=run.is_csv_upload,
+        user_id=user_id or run.user_id,
+        consent_token=consent_token,
     )
 
 
@@ -3238,7 +3331,7 @@ class _AlwaysConnectedImportStreamRequest:
 async def start_portfolio_import_run(
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         logger.warning("User ID mismatch: token=%s, request=%s", token_data["user_id"], user_id)
@@ -3268,7 +3361,11 @@ async def start_portfolio_import_run(
         filename=file.filename,
         content=content,
         is_csv_upload=is_csv_upload,
-        generator_factory=_portfolio_import_stream_factory,
+        generator_factory=partial(
+            _portfolio_import_stream_factory,
+            user_id=user_id,
+            consent_token=str(token_data.get("token") or ""),
+        ),
     )
     if state == "active":
         raise HTTPException(
@@ -3286,7 +3383,7 @@ async def start_portfolio_import_run(
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
     user_id: str = Query(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3302,7 +3399,7 @@ async def stream_portfolio_import_run(
     run_id: str = Path(..., max_length=128),
     user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3321,7 +3418,10 @@ async def stream_portfolio_import_run(
         )
 
     start_cursor = _parse_import_cursor(cursor)
-    if start_cursor > run.latest_cursor:
+    # A run held by another process is followed, not replayed from a local
+    # buffer; its cursor only numbers the terminal frame past what the client
+    # has seen, so the stale-cursor 410 does not apply.
+    if not run.is_durable_replay and start_cursor > run.latest_cursor:
         raise HTTPException(
             status_code=410,
             detail={
@@ -3345,7 +3445,7 @@ async def stream_portfolio_import_run(
 async def cancel_portfolio_import_run(
     run_id: str = Path(..., max_length=128),
     user_id: str = Query(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3369,7 +3469,7 @@ async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Backward-compatible import stream endpoint.
 
@@ -3403,7 +3503,11 @@ async def import_portfolio_stream(
         filename=file.filename,
         content=content,
         is_csv_upload=is_csv_upload,
-        generator_factory=_portfolio_import_stream_factory,
+        generator_factory=partial(
+            _portfolio_import_stream_factory,
+            user_id=user_id,
+            consent_token=str(token_data.get("token") or ""),
+        ),
     )
     if state == "active":
         logger.info("[Portfolio Import] Reusing active run %s for user %s", run.run_id, user_id)

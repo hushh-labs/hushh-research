@@ -77,21 +77,14 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
     throw new Error(`reCAPTCHA container '${containerId}' not found in DOM`);
   }
 
-  // Replace the container element entirely with a fresh node.
-  // Google's reCAPTCHA library tracks which DOM elements have been rendered
-  // in an internal registry keyed by element reference. Clearing children
-  // or calling .clear() does not remove the element from that registry,
-  // so re-rendering on the same element throws
-  // "reCAPTCHA has already been rendered in this element".
-  // Swapping in a brand-new element with the same id sidesteps the registry.
-  const freshContainer = document.createElement("div");
-  freshContainer.id = containerId;
-  for (const cls of Array.from(container.classList)) {
-    freshContainer.classList.add(cls);
-  }
-  container.replaceWith(freshContainer);
+  // React owns the host and may use it as an insertion anchor when the phone
+  // form changes. Keep that node stable; only the SDK-owned child is replaced.
+  // Google remembers rendered element identities even after clear(), so every
+  // verifier still receives a fresh target to prevent duplicate rendering.
+  const sdkContainer = document.createElement("div");
+  container.replaceChildren(sdkContainer);
 
-  recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+  recaptchaVerifier = new RecaptchaVerifier(auth, sdkContainer, {
     size: "invisible",
     callback: () => {
       console.log("reCAPTCHA solved");
@@ -125,17 +118,10 @@ export function resetRecaptcha() {
     recaptchaWidgetId = null;
   }
 
-  // Also replace the container element so Google's internal registry
-  // does not retain a reference to the old element.
+  // Release SDK-owned children without detaching React's host. The next start
+  // creates a fresh SDK target rather than reusing Google's previous element.
   const container = document.getElementById("recaptcha-container");
-  if (container) {
-    const freshContainer = document.createElement("div");
-    freshContainer.id = "recaptcha-container";
-    for (const cls of Array.from(container.classList)) {
-      freshContainer.classList.add(cls);
-    }
-    container.replaceWith(freshContainer);
-  }
+  container?.replaceChildren();
 }
 
 export { app, auth };

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
@@ -39,10 +39,12 @@ describe("AgentSectionDropdown", () => {
     expect(await screen.findByTestId("agent-section-search")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_finance")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_ria")).toBeTruthy();
-    expect(screen.queryByTestId("top_agent_section_gmail")).toBeNull();
+    expect(screen.getByTestId("top_agent_section_gmail")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_consent")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_pkm")).toBeTruthy();
-    expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
+    expect(
+      screen.queryByTestId("top_agent_section_connected-systems"),
+    ).toBeNull();
     expect(
       document.querySelectorAll('[data-testid^="top_agent_section_"]').length,
     ).toBe(getAgentSections().length);
@@ -55,19 +57,15 @@ describe("AgentSectionDropdown", () => {
     ).toContain("w-[360px]");
   });
 
-  it("navigates through the shared agent section registry", async () => {
+  it("does not offer the standalone KYC compatibility route in the agent switcher", async () => {
     render(<AgentSectionDropdown pathname={ROUTES.ONE_HOME} />);
 
     fireEvent.click(
       screen.getByRole("combobox", { name: "Switch agent section" }),
     );
-    fireEvent.click(await screen.findByTestId("top_agent_section_email"));
-
-    await waitFor(() =>
-      expect(navigationMock.push).toHaveBeenCalledWith(ROUTES.ONE_KYC),
-    );
-    expect(useKaiSession.getState().lastAgentNavScope).toBe("one");
-    expect(useKaiSession.getState().lastAgentSectionId).toBe("email");
+    await screen.findByTestId("agent-section-search");
+    expect(screen.queryByTestId("top_agent_section_email")).toBeNull();
+    expect(navigationMock.push).not.toHaveBeenCalled();
   });
 
   it("preserves the prior section label on common routes", () => {

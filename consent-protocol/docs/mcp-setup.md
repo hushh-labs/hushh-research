@@ -13,8 +13,9 @@ Founder-language mapping:
 ## Visual Map
 
 Both transports mount the same `mcp_server.py` server object and the same guard
-chain. The only behavioral fork is `is_local_stdio_transport()`, which enables
-auto-keypair and local decrypt on stdio and never on `/mcp`.
+chain. `is_local_stdio_transport()` enables auto-keypair and legacy free export
+decryption on stdio. Paid exports remain encrypted on every transport and require
+the app's active registered X25519 recipient key.
 
 ```mermaid
 flowchart TB
@@ -72,7 +73,7 @@ That page is the canonical public source for:
 - the promoted UAT endpoint
 - remote vs npm bridge usage
 - host setup examples
-- public tools and resources
+- five public tools; no advertised resources
 
 This doc covers runtime details, contributor-local fallback, and operational notes.
 
@@ -143,7 +144,8 @@ For national phone numbers, callers may also provide:
 
 If no country hint is provided, national phone numbers stay ambiguous and are not auto-parsed to any default region.
 
-Read-only self-documentation resources:
+The public catalog advertises no resources. Direct reads of these known
+informational URIs remain available for compatibility in supported profiles:
 
 - `hushh://info/server`
 - `hushh://info/protocol`
@@ -182,7 +184,9 @@ instructions.
 The local stdio MCP process (spawned by `npx -y @hushh/mcp` or a direct
 `python mcp_server.py` invocation) runs as the developer's own trusted
 software on their own machine, with loopback network access the LLM host's
-own sandbox typically does not have. On this transport only:
+own sandbox typically does not have. The following compatibility behavior applies
+to free sharing. Paid sharing returns ciphertext for trusted recipient decryption
+outside model context and requires an active server-registered app recipient key:
 
 - `get_encrypted_scoped_export` decrypts and narrows the export locally,
   returning only a bounded `information` object. Ciphertext and wrapped-key metadata
@@ -236,15 +240,25 @@ The transport is already compatible:
 - no SSE downgrade
 - no query-string credential
 
-Authentication is the remaining host-compatibility boundary. Hussh supports
-the existing developer token in `Authorization: Bearer <token>` and OAuth
-authorization code with S256 PKCE. Claude custom connectors should use
-the OAuth discovery document at `/.well-known/oauth-authorization-server`;
-create the confidential client and register its exact callback URI in
-`/developers` first. MuleSoft and generic remote hosts may continue injecting
-the bearer header. Do not work around either path with stdio, `?token=`, or an
-unauthenticated endpoint. OAuth authenticates the connector only; each read
-still follows the scoped consent lifecycle and encryption rules above.
+Claude and ChatGPT use OAuth discovery at
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server`. After migration 409 and deployment,
+choose the host's published identity (CIMD, preferred) or automatic registration
+(DCR). Hussh supports public-client PKCE without a client secret for CIMD, and
+public or confidential clients for DCR. A manually configured confidential client
+remains supported; the preceding Hussh Technologies configuration is that explicit
+manual mode, not a shared identity for automatically registered clients.
+
+Send the canonical MCP resource (`https://api.uat.hushh.ai/mcp/` for UAT) during
+authorization and code exchange. Use each host's exact callback from its current
+metadata or configuration; do not hard-code one platform's callback for another.
+OAuth success only signs in the connector. Scoped consent, encrypted exports and
+connector-controlled decryption still apply. Never put a private encryption key
+into a chat, OAuth registration, or client metadata document.
+
+See [OAuth / PKCE for remote connector hosts](./reference/developer-api.md#oauth--pkce-for-remote-connector-hosts)
+for supported authentication methods, rate/size limits, migration and rollback.
+Deployed Claude and ChatGPT acceptance is a separate release check.
 
 ### MuleSoft trusted connector for Salesforce and Agentforce
 

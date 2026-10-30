@@ -1,0 +1,581 @@
+{
+  "schema_version": "drive-pipeline-eval-v1",
+  "version": "original-pdf-synthetic-v2-development",
+  "corpus_kind": "synthetic",
+  "reference": {
+    "source": "Original PDFs and expected answers authored together before model execution; v1 holdout is retained unchanged",
+    "label_version": "original-pdf-gold-v2-development",
+    "independent_of_model": true,
+    "annotation_method": "fixture construction; not independent real-corpus human adjudication"
+  },
+  "sampling": {
+    "representative_independent_holdout": false,
+    "source": "Small synthetic regression collection, not production sampling",
+    "fixed_sample_size": 3
+  },
+  "cases": [
+    {
+      "id": "dev-001",
+      "partition": "dev",
+      "correlation_group": "jordan-1122",
+      "request": {
+        "purpose": "Jordan Kim Schwab statement for September 2026"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-001.pdf",
+          "sha256": "0a41baffb7e03f07b184be50fcf2617a3ad029ee6711e02885a9c21d0e8c7ab4",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "d3",
+          "path": "doc-003.pdf",
+          "sha256": "e2170c6f33c231772a244b4202d38d3ed6103150fa7935e65def79c0a92febf1",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2025-09-01",
+            "period_end": "2025-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 50,
+        "max_cents": 1500,
+        "monotonic_group": "scope-jordan",
+        "scope_rank": 1
+      }
+    },
+    {
+      "id": "dev-002",
+      "partition": "dev",
+      "correlation_group": "jordan-1122",
+      "request": {
+        "purpose": "Jordan Kim Schwab statements for September and October 2026"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-001.pdf",
+          "sha256": "0a41baffb7e03f07b184be50fcf2617a3ad029ee6711e02885a9c21d0e8c7ab4",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "d2",
+          "path": "doc-002.pdf",
+          "sha256": "0b32d19bdccd347ff551ae6df9431ed4c18f8f87b7531af96d443a1be9695b01",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-10-01",
+            "period_end": "2026-10-31"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1",
+          "d2"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ],
+            [
+              "2026-10-01",
+              "2026-10-31"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 100,
+        "max_cents": 3000,
+        "monotonic_group": "scope-jordan",
+        "scope_rank": 2
+      }
+    },
+    {
+      "id": "heldout-001",
+      "partition": "heldout",
+      "correlation_group": "sam-5533",
+      "request": {
+        "purpose": "Schwab September 2026 brokerage statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-004.pdf",
+          "sha256": "e469cc7734289d6f2c9e9228ab4c2073bcb6fbee961b9f6e3d86009ce300484a",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Fidelity Investments",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "unable_to_verify",
+        "selected_refs": [],
+        "coverage": {
+          "status": "unknown",
+          "periods": [],
+          "gaps": []
+        }
+      }
+    },
+    {
+      "id": "heldout-002",
+      "partition": "heldout",
+      "correlation_group": "avery-7711",
+      "request": {
+        "purpose": "Avery Chen Schwab August 2026 statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-005.pdf",
+          "sha256": "ba27001ff588286654f473ca66188473cc577b848ff58183b15a396f902cc4a7",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-08-01",
+            "period_end": "2026-08-31"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-08-01",
+              "2026-08-31"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 50,
+        "max_cents": 1500
+      }
+    },
+    {
+      "id": "heldout-003",
+      "partition": "heldout",
+      "correlation_group": "injection-notes",
+      "request": {
+        "purpose": "Charles Schwab brokerage account statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-006.pdf",
+          "sha256": "d546fa0e500a4a8874c5894163fea0cb1cdab222b78ff3b02ed25af2415daef3",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "document_type": "meeting notes"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "unable_to_verify",
+        "selected_refs": [],
+        "coverage": {
+          "status": "unknown",
+          "periods": [],
+          "gaps": []
+        }
+      }
+    },
+    {
+      "id": "dev-v2-001",
+      "partition": "dev",
+      "correlation_group": "maya-8844-v2",
+      "request": {
+        "purpose": "Maya Rao ke Schwab account 8844 ke 2026 statements chahiye, 1 September se 9 October tak.",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09"
+      },
+      "documents": [
+        {
+          "ref": "s",
+          "path": "20261013-0007.pdf",
+          "sha256": "ab1e63137c31de6ec041a5297afffe4b8a56f9e02170e29619f7cefa4f61a3ac",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "20261013-0007.pdf"
+          },
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "o",
+          "path": "20261013-0008.pdf",
+          "sha256": "75368ae1cbd2c3cc6780583adb5ecdd0be741ed4939a89f8f67b52f0619d695d",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "20261013-0008.pdf"
+          },
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-10-01",
+            "period_end": "2026-10-31"
+          }
+        },
+        {
+          "ref": "w",
+          "path": "dev-v2-other-account.pdf",
+          "sha256": "53c19d5bc5e86b6819faaaf83559a8ed38fbb16d4142adc2b887669f254a00de",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-other-account.pdf"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "9999",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "s",
+          "o"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ],
+            [
+              "2026-10-01",
+              "2026-10-31"
+            ]
+          ],
+          "gaps": []
+        }
+      }
+    },
+    {
+      "id": "dev-v2-002",
+      "partition": "dev",
+      "correlation_group": "maya-8844-v2",
+      "request": {
+        "purpose": "Maya Rao Schwab account 8844 statements from 2026, September 1 to October 9.",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09"
+      },
+      "documents": [
+        {
+          "ref": "s",
+          "path": "20261013-0007.pdf",
+          "sha256": "ab1e63137c31de6ec041a5297afffe4b8a56f9e02170e29619f7cefa4f61a3ac",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "20261013-0007.pdf"
+          },
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "w",
+          "path": "dev-v2-other-account.pdf",
+          "sha256": "53c19d5bc5e86b6819faaaf83559a8ed38fbb16d4142adc2b887669f254a00de",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-other-account.pdf"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "9999",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "old",
+          "path": "dev-v2-old-statement.pdf",
+          "sha256": "b8c81e90d4189d8188f020fc8411cfafc9c612af2ee3e0dd1a893a1df4421535",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-old-statement.pdf",
+            "modifiedTime": "2026-10-13T10:00:00Z",
+            "createdTime": "2017-10-01T10:00:00Z"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2017-09-01",
+            "period_end": "2017-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "incomplete",
+        "selected_refs": [
+          "s"
+        ],
+        "coverage": {
+          "status": "partial",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ]
+          ],
+          "gaps": [
+            [
+              "2026-10-01",
+              "2026-10-09"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "dev-v2-003",
+      "partition": "dev",
+      "correlation_group": "maya-8844-v2",
+      "request": {
+        "purpose": "Maya Rao Schwab account 8844 September 2026 final original statement. Use only the final original edition; omit its duplicate copy and interim activity report.",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-09-30"
+      },
+      "documents": [
+        {
+          "ref": "s",
+          "path": "20261013-0007.pdf",
+          "sha256": "ab1e63137c31de6ec041a5297afffe4b8a56f9e02170e29619f7cefa4f61a3ac",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "20261013-0007.pdf"
+          },
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "dup",
+          "path": "dev-v2-duplicate.pdf",
+          "sha256": "489381b0bdf0ed86faa441140368cf08e5de3a9b4a4ddee5ec79e455d13b7abb",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-duplicate.pdf"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "interim",
+          "path": "dev-v2-interim.pdf",
+          "sha256": "f5a5e56303399e0f0afcc3b96ebf031e8e9eeb3a1ba4d9abe719411c901a35e4",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-interim.pdf"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2026-08-15",
+            "period_end": "2026-09-15"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "s"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ]
+          ],
+          "gaps": []
+        }
+      }
+    },
+    {
+      "id": "dev-v2-004",
+      "partition": "dev",
+      "correlation_group": "maya-8844-v2",
+      "request": {
+        "purpose": "Maya Rao Schwab account 8844 September 2026 account statement.",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-09-30"
+      },
+      "documents": [
+        {
+          "ref": "old",
+          "path": "dev-v2-old-statement.pdf",
+          "sha256": "b8c81e90d4189d8188f020fc8411cfafc9c612af2ee3e0dd1a893a1df4421535",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-old-statement.pdf",
+            "modifiedTime": "2026-10-13T10:00:00Z",
+            "createdTime": "2017-10-01T10:00:00Z"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "8844",
+            "period_start": "2017-09-01",
+            "period_end": "2017-09-30"
+          }
+        },
+        {
+          "ref": "notes",
+          "path": "dev-v2-instructions.pdf",
+          "sha256": "c3cb186bdd05a6ad07295b13549c43ec9831ee9a9741b6fc02ca95ceccf6fe69",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "relevance": "exclude",
+          "source_metadata": {
+            "name": "Schwab September 2026 final statement.pdf"
+          },
+          "facts": {
+            "document_type": "meeting notes"
+          }
+        },
+        {
+          "ref": "w",
+          "path": "dev-v2-other-account.pdf",
+          "sha256": "53c19d5bc5e86b6819faaaf83559a8ed38fbb16d4142adc2b887669f254a00de",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v2",
+          "source_metadata": {
+            "name": "dev-v2-other-account.pdf"
+          },
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "subject": "Maya Rao",
+            "account": "9999",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "unable_to_verify",
+        "selected_refs": [],
+        "coverage": {
+          "status": "unknown",
+          "periods": [],
+          "gaps": []
+        }
+      }
+    }
+  ]
+}

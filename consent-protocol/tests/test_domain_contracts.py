@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +17,11 @@ from hushh_mcp.services.domain_contracts import (
     FINANCIAL_DOMAIN_CONTRACT_VERSION,
     FINANCIAL_INTENT_MAP,
     FINANCIAL_SUBINTENT_REGISTRY,
+    GENERIC_DOMAIN_CONTRACT_VERSION,
     LEGACY_DOMAIN_ALIASES,
+    RESERVED_BRANCH_MIGRATION_DOMAINS,
+    RESERVED_BRANCH_MIGRATION_MARKER,
+    RESERVED_BRANCH_MIGRATION_VERSION,
     RETIRED_DOMAIN_REGISTRY_KEYS,
     DomainContractEntry,
     DomainSubintentEntry,
@@ -29,6 +34,7 @@ from hushh_mcp.services.domain_contracts import (
     domain_registry_payload,
     get_canonical_domain_metadata,
     is_allowed_top_level_domain,
+    needs_reserved_branch_migration,
     normalize_domain_key,
     resolve_domain_alias,
 )
@@ -257,10 +263,43 @@ class TestVersionHelpers:
         assert current_domain_contract_version("kai_profile") == FINANCIAL_DOMAIN_CONTRACT_VERSION
 
     def test_current_domain_contract_version_default(self) -> None:
-        assert current_domain_contract_version("food") == FINANCIAL_DOMAIN_CONTRACT_VERSION
+        assert current_domain_contract_version("food") == GENERIC_DOMAIN_CONTRACT_VERSION
 
     def test_current_domain_contract_version_unknown_dynamic_domain(self) -> None:
-        assert current_domain_contract_version("custom_music") == FINANCIAL_DOMAIN_CONTRACT_VERSION
+        assert current_domain_contract_version("custom_music") == GENERIC_DOMAIN_CONTRACT_VERSION
+
+    def test_the_reserved_branch_relocation_never_bumps_a_domain_version(self) -> None:
+        """Shipped builds refuse to write a domain stored at a newer version.
+
+        The relocation is recorded by a manifest marker instead, which those
+        builds never read.
+        """
+        for domain in RESERVED_BRANCH_MIGRATION_DOMAINS:
+            assert current_domain_contract_version(domain) == GENERIC_DOMAIN_CONTRACT_VERSION
+            assert needs_reserved_branch_migration(domain, {})
+            assert not needs_reserved_branch_migration(
+                domain, {RESERVED_BRANCH_MIGRATION_MARKER: RESERVED_BRANCH_MIGRATION_VERSION}
+            )
+        assert not needs_reserved_branch_migration("food", {})
+
+    def test_migration_domains_and_marker_match_the_typescript_contract(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "hushh-webapp/lib/personal-knowledge-model/upgrade-contracts.ts"
+        ).read_text(encoding="utf-8")
+        version = re.search(r"RESERVED_BRANCH_MIGRATION_VERSION = (\d+);", source)
+        marker = re.search(r'RESERVED_BRANCH_MIGRATION_MARKER = "([a-z_]+)"', source)
+        generic = re.search(r"CURRENT_DYNAMIC_DOMAIN_CONTRACT_VERSION = (\d+);", source)
+        domains = re.search(
+            r"RESERVED_BRANCH_MIGRATION_DOMAINS: readonly string\[\] = \[(.*?)\];", source, re.S
+        )
+        assert version and generic and domains and marker
+        assert int(version.group(1)) == RESERVED_BRANCH_MIGRATION_VERSION
+        assert marker.group(1) == RESERVED_BRANCH_MIGRATION_MARKER
+        assert int(generic.group(1)) == GENERIC_DOMAIN_CONTRACT_VERSION
+        assert (
+            set(re.findall(r'"([a-z_]+)"', domains.group(1))) == RESERVED_BRANCH_MIGRATION_DOMAINS
+        )
 
 
 # ---------------------------------------------------------------------------

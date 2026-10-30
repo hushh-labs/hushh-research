@@ -30,6 +30,7 @@ function makePreVaultState(
     setupStateUpdatedAt: null,
     phoneVerified: null,
     setupCapabilityIds: [],
+    setupCapabilityDeclinedIds: [],
     setupCapabilitiesUpdatedAt: null,
     ...overrides,
   };
@@ -155,6 +156,32 @@ describe("resolveCapabilitySetupState — finance", () => {
         preVaultState: makePreVaultState({
           setupCompleted: false,
           setupCapabilityIds: ["finance"],
+        }),
+      }),
+    );
+    expect(status.state).toBe("completed");
+  });
+
+  it("reports an explicitly declined capability as skipped, not not-started", () => {
+    const status = resolveCapabilitySetupState(
+      "finance",
+      baseInputs({
+        preVaultState: makePreVaultState({
+          setupCapabilityDeclinedIds: ["finance"],
+        }),
+      }),
+    );
+    expect(status.state).toBe("skipped");
+    expect(isCapabilitySetupComplete(status)).toBe(true);
+  });
+
+  it("lets a later completion win even if the capability was previously declined", () => {
+    const status = resolveCapabilitySetupState(
+      "finance",
+      baseInputs({
+        preVaultState: makePreVaultState({
+          setupCapabilityIds: ["finance"],
+          setupCapabilityDeclinedIds: ["finance"],
         }),
       }),
     );

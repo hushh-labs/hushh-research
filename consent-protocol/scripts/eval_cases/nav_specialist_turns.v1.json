@@ -1,0 +1,248 @@
+{
+  "schema_version": "nav.specialist_turns.v1",
+  "cases": [
+    {
+      "id": "active_literal",
+      "family": "active",
+      "prompt": "Show all active consent grants",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "active_natural",
+      "family": "active",
+      "prompt": "Who can see my information right now?",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "active_address",
+      "family": "active",
+      "prompt": "Does Alex still have my address?",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "active_permissions",
+      "family": "active",
+      "prompt": "List approved permissions",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "previous_literal",
+      "family": "previous",
+      "prompt": "Show previous consent requests",
+      "expected": [
+        "list_previous_consent_grants"
+      ],
+      "directive": false,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "previous_natural",
+      "family": "previous",
+      "prompt": "Who did I share with before?",
+      "expected": [
+        "list_previous_consent_grants"
+      ],
+      "directive": false,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "previous_revoked",
+      "family": "previous",
+      "prompt": "List revoked access",
+      "expected": [
+        "list_previous_consent_grants"
+      ],
+      "directive": false,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "revoke_natural",
+      "family": "revoke",
+      "prompt": "Stop sharing my location with Alex",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "revoke_grant",
+      "family": "revoke",
+      "prompt": "Revoke Alex's access",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "details_natural",
+      "family": "details",
+      "prompt": "What can Alex see?",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "details_literal",
+      "family": "details",
+      "prompt": "Show details of active consent grants",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "expiry_natural",
+      "family": "expiry",
+      "prompt": "When does Alex's access end?",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "expiry_literal",
+      "family": "expiry",
+      "prompt": "What active permissions expire tomorrow?",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "explain_consent",
+      "family": "explanatory",
+      "prompt": "How does sharing my information work?",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "explain_revoke",
+      "family": "explanatory",
+      "prompt": "What happens when I stop sharing?",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "redirect_add",
+      "family": "redirect",
+      "prompt": "Add Alex to my trusted people",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "redirect_remove",
+      "family": "redirect",
+      "prompt": "Remove Alex from my trusted people",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "finance",
+      "family": "out_of_scope",
+      "prompt": "Analyze Nvidia earnings",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "ambiguous_all",
+      "family": "ambiguous",
+      "prompt": "Show everything I share now and shared before",
+      "expected": [
+        "list_active_consent_grants",
+        "list_previous_consent_grants"
+      ],
+      "directive": true,
+      "contains": [
+        "Alex"
+      ]
+    },
+    {
+      "id": "ambiguous_access",
+      "family": "ambiguous",
+      "prompt": "What about access?",
+      "expected": [
+        "no_tool"
+      ],
+      "directive": false
+    },
+    {
+      "id": "empty",
+      "family": "active",
+      "prompt": "Show all active consent grants",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": false,
+      "fixture": "empty"
+    },
+    {
+      "id": "unavailable",
+      "family": "active",
+      "prompt": "Show all active consent grants",
+      "expected": [
+        "list_active_consent_grants"
+      ],
+      "directive": false,
+      "fixture": "unavailable"
+    }
+  ]
+}

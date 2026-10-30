@@ -1,12 +1,29 @@
 name: Deploy to Dev
 
 # Dev Fast Lane: dev deploys are decoupled from main. main stays the
-# UAT -> production signoff lane; dev deploys the agentic intake branch
-# (integration/pr-train) by default, or any CI-green ref a governed
+# UAT -> production signoff lane; dev deploys the protected development branch
+# (dev) by default, or any CI-green ref a governed
 # maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "Shared Dev, commerce sandbox, or coordinated pod publication"
+        required: true
+        default: "shared-dev"
+        type: choice
+        options:
+          - shared-dev
+          - scope-commerce-sandbox
+          - pod-publication
+      pod_action:
+        description: "Pod publication only: prepare an artifact, or activate a Main-reviewed coordinated pin"
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - activate
       scope:
         description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
@@ -18,10 +35,15 @@ on:
           - backend
           - frontend
       ref:
-        description: "Branch/ref to deploy (default: integration/pr-train, the agentic intake lane)"
+        description: "Branch/ref to deploy (default: dev, the development intake lane)"
         required: false
-        default: "integration/pr-train"
+        default: "dev"
         type: string
+      build_pod_image:
+        description: "Build the dev-only pod image; does not approve owner installation"
+        required: false
+        default: false
+        type: boolean
       sha:
         description: "Exact CI-green SHA to deploy (blank defaults to head of ref; must be reachable from ref)"
         required: false
@@ -30,6 +52,7 @@ on:
 permissions:
   contents: read
   checks: read
+  actions: read
   id-token: write
 
 env:
@@ -38,7 +61,7 @@ env:
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://dev.one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://dev.one.hussh.ai
   DEV_CLOUDSQL_INSTANCE: hushh-pda-dev:us-central1:hushh-dev-pg
   DEV_DB_UNIX_SOCKET: /cloudsql/hushh-pda-dev:us-central1:hushh-dev-pg
   # One Email KYC runs in dev via topic fanout: dev consumes the SAME UAT
@@ -50,19 +73,44 @@ env:
   DEV_ONE_EMAIL_WEBHOOK_AUDIENCE: https://consent-protocol-621416509462.us-central1.run.app/api/one/email/webhook
   BACKEND_REVISION_RETENTION: "3"
   FRONTEND_REVISION_RETENTION: "10"
+  DEV_TARGET: shared-dev
+  DEV_DB_NAME: postgres
+  DEPLOY_SECRET_PREFIX: ""
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-dev
+  group: deploy-dev${{ inputs.target == 'scope-commerce-sandbox' && '-scope-commerce-sandbox' || '' }}
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
+      environment_name: dev
+      scope: ${{ inputs.scope || 'auto' }}
+
   deploy:
+    needs: deployment-security
     name: Deploy Dev Scope
-    runs-on: ubuntu-latest
+    if: inputs.target != 'pod-publication'
+    runs-on: ubuntu-24.04
     environment: dev
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
       # The workflow DEFINITION always runs from main (single routing
       # authority); the CONTENT deployed comes from inputs.ref / inputs.sha.
       - name: Assert manual dispatch originates from main
@@ -86,6 +134,22 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface dev --actor "${GITHUB_ACTOR}"
 
+      - name: Resolve fixed deployment target
+        shell: bash
+        env:
+          REQUESTED_TARGET: ${{ inputs.target || 'shared-dev' }}
+          BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [[ "${REQUESTED_TARGET}" == "scope-commerce-sandbox" && "${BUILD_POD_IMAGE}" == "true" ]]; then
+            echo "Commerce preview does not publish or install pod images." >&2; exit 1
+          fi
+          python3 scripts/deploy/commerce-preview-target.py --target "$REQUESTED_TARGET" --github-env "$GITHUB_ENV"
+          # Cloud Run limits service name + tag to 46 characters. Bind one
+          # bounded tag to this run/attempt for both probes and cleanup.
+          candidate_digest="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}" | sha256sum)"
+          echo "DEV_CANDIDATE_TAG=c${candidate_digest:0:12}" >> "$GITHUB_ENV"
+
       - name: Capture deployment timing start
         id: timing-start
         shell: bash
@@ -97,12 +161,12 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_REF="${{ github.event.inputs.ref }}"
-          DEPLOY_REF="${DEPLOY_REF:-integration/pr-train}"
+          DEPLOY_REF="${DEPLOY_REF:-dev}"
           git fetch --no-tags origin "$DEPLOY_REF"
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
           else
-            DEPLOY_SHA="$(git rev-parse "origin/${DEPLOY_REF}")"
+            DEPLOY_SHA="${{ needs.deployment-security.outputs.application_sha }}"
           fi
           echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
@@ -117,14 +181,33 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
+          cp deploy/account-deletion/{install,remove}_release_fence.sql \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/verify_release_boundary.sql "${RUNNER_TEMP}/release-tools/account-deletion/"
+          cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          mkdir -p deploy/account-deletion
+          cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
+          cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
+          mkdir -p deploy/drive
+          cp "${RUNNER_TEMP}/release-tools/rollback_after_worker_failure.sh" deploy/drive/
+          cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -168,28 +251,58 @@ jobs:
           python-version: "3.13"
           protocol-dir: ./consent-protocol
 
+      - name: Build fixed preview bootstrap image
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: bootstrap-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="bootstrap-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=${image_tag},_BUILD_TARGET=commerce-preview-bootstrap"
+          repository="gcr.io/${{ env.GCP_PROJECT_ID }}/scope-commerce-bootstrap"
+          digest="$(gcloud container images describe "${repository}:${image_tag}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${repository}@${digest}" \
+            > /tmp/dev-bootstrap-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${repository}@${digest}" \
+            --manifest-json /tmp/dev-bootstrap-image-manifest.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --json-output /tmp/dev-bootstrap-image.json)"
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+
+      - name: Bootstrap fixed private preview services
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/deploy/commerce-preview-bootstrap.py --phase ensure \
+            --image "${{ steps.bootstrap-image.outputs.image_reference }}" \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --report-path /tmp/dev-preview-bootstrap.json
+
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
         shell: bash
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-predeploy-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-predeploy-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-predeploy-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-predeploy-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
 
           backend_sha=""
           if [ -n "${backend_revision}" ]; then
@@ -212,6 +325,11 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            python3 scripts/deploy/commerce-preview-target.py --target scope-commerce-sandbox \
+              --backend-json /tmp/dev-predeploy-state-backend.json --frontend-json /tmp/dev-predeploy-state-frontend.json \
+              --github-env "$GITHUB_ENV"
+          fi
 
       - name: Resolve deployment scope
         id: scope
@@ -219,20 +337,146 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/resolve-deploy-scope.py \
-            --requested-scope "${{ github.event.inputs.scope }}" \
+            --requested-scope "${{ inputs.target == 'scope-commerce-sandbox' && 'all' || github.event.inputs.scope }}" \
             --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Resolve dev verification plan
+        id: verification-plan
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+            --deploy-backend "${{ steps.scope.outputs.deploy_backend }}" \
+            --deploy-frontend "${{ steps.scope.outputs.deploy_frontend }}" \
+            --run-live-model-checks false \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output /tmp/dev-verification-plan.json
+
+      - name: Install selected owner-verification dependencies
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Prepare selected owner-verification dependencies
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          if [[ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" == "true" ]]; then
+            (cd hushh-webapp && npx playwright install --with-deps chromium)
+          fi
+
+      - name: Validate candidate build capabilities
+        id: candidate-capabilities
+        shell: bash
+        env:
+          BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          RUN_PKM_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          RUN_REVIEWER_BYOK: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          CANDIDATE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" - <<'PYBUILD'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          import yaml
+          required_files = []
+          if os.environ.get("RUN_PKM_GATE") == "true":
+              required_files.append("scripts/ci/run-release-pkm-gate.sh")
+          reviewer_script = None
+          if os.environ.get("RUN_REVIEWER_BYOK") == "true":
+              # Current candidates use .agents; older main candidates retain .codex.
+              # A partial canonical tree must refuse, never borrow legacy files.
+              canonical = Path(".agents/skills/reviewer-app-testing")
+              reviewer_root = (canonical if canonical.exists() else
+                               Path(".codex/skills/reviewer-app-testing")) / "scripts"
+              reviewer_script = reviewer_root / "verify-reviewer-byok-navigation.mjs"
+              required_files.extend((reviewer_script, reviewer_root / "reviewer-rehearsal-preflight.mjs"))
+          if any(not Path(filename).is_file() for filename in required_files):
+              raise SystemExit("Candidate lacks selected preservation or owner-verification support")
+          interfaces = [
+              (["bash", "scripts/ci/verify-dev-candidate.sh", "--help"],
+               ("<image-reference>", "<probe-path>")),
+              (["bash", "scripts/ci/cloudrun-retention.sh", "--help"],
+               ("[protected_revision]",)),
+              ([sys.executable, "scripts/ci/verify-cloudrun-revision-provenance.py", "--help"],
+               ("--candidate-revision", "--expected-image-reference", "--candidate-tag")),
+              ([sys.executable, "scripts/ops/verify-env-secrets-parity.py", "--help"],
+               ("--require-voice", "--require-calendar")),
+          ]
+          for command, required in interfaces:
+              result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+              if result.returncode or any(option not in result.stdout for option in required):
+                  raise SystemExit(f"Candidate deployment interface is incompatible: {command[1]}")
+          if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox":
+              for command, required in (
+                  (["bash", "scripts/ci/verify-dev-candidate.sh", "--help"], "CANDIDATE_ID_TOKEN"),
+                  ([sys.executable, "scripts/deploy/commerce-preview-public-admission.py", "--help"], "--run-id"),
+              ):
+                  result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                  if result.returncode or required not in result.stdout:
+                      raise SystemExit("Candidate lacks private preview admission capabilities")
+              for filename in ("backend", "frontend", "frontend-image"):
+                  path = Path(f"deploy/{filename}.cloudbuild.yaml")
+                  if "_SECRET_PREFIX" not in (yaml.safe_load(path.read_text()).get("substitutions") or {}):
+                      raise SystemExit("Candidate does not support isolated commerce bindings")
+          config = yaml.safe_load(Path("deploy/backend.cloudbuild.yaml").read_text())
+          substitutions = config.get("substitutions") or {}
+          if os.environ["DEPLOY_BACKEND"] == "true":
+              if not {"_SKIP_IMAGE_BUILD", "_IMAGE_REFERENCE"} <= substitutions.keys():
+                  raise SystemExit("Candidate cannot deploy the prebuilt immutable backend image")
+          if os.environ["BUILD_POD_IMAGE"] == "true":
+              if os.environ["DEPLOY_BACKEND"] != "true":
+                  raise SystemExit("Pod image publication requires backend or all deployment scope")
+              ids = {step.get("id") for step in config.get("steps", [])}
+              if not {"build-pod-image", "resolve-pod-image-digest"} <= ids:
+                  raise SystemExit("Candidate does not support explicit pod image publication")
+              reuse_pin = Path("deploy/pod-release-reuse.json")
+              if reuse_pin.is_file():
+                  subprocess.run([
+                      sys.executable, "scripts/deploy/reuse-pod-release.py",
+                      "--config", str(reuse_pin), "--project", "hushh-pda-dev",
+                      "--descriptor-sha", os.environ["CANDIDATE_SHA"],
+                      "--check-source-only",
+                  ], check=True, timeout=45)
+          if reviewer_script is not None:
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+                  output.write(f"reviewer_byok_script={reviewer_script.as_posix()}\n")
+          PYBUILD
+
       - name: Sync canonical hosted runtime secrets
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            # Operator-owned prefixed settings are mandatory. Never mirror UAT
+            # credentials or rewrite shared dev configuration during preview.
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase resources --report-path /tmp/dev-runtime-secret-sync.json
+            exit 0
+          fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "false")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment uat \
+            --environment dev \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \
@@ -245,14 +489,15 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai,dev.one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --one-location-read-only-state-enabled "false" \
             --hushh-trusted-device-enabled "false" \
+            "${drive_group_args[@]}" \
             > /tmp/dev-runtime-secret-sync.json
 
           # Same main-workflow vs train-tree skew guard as the backend sync:
@@ -269,8 +514,101 @@ jobs:
             --environment "$FE_ENV" \
             > /tmp/dev-frontend-runtime-secret-sync.json
 
-      - name: Install Cloud SQL Auth Proxy
+      # The web image does not depend on migrations or the backend candidate,
+      # so it builds while they run. It starts after the runtime secret sync,
+      # because the build compiles NEXT_PUBLIC_* values from Secret Manager.
+      # The lane comes back for it right before the frontend deploy.
+      - name: Start frontend image build in parallel
+        id: start-frontend-image-build
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          # The single definition of every value compiled into the web image.
+          # The deploy step reuses it, so the build and deploy cannot disagree.
+          build_substitutions="_APP_ENV=dev,_DEPLOY_ENV=dev,_IMAGE_TAG=${image_tag}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            build_substitutions="$(printf '%s' "$build_substitutions" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind frontend-image)"
+          fi
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
+          # Skew guard: this workflow runs from main, but a train SHA may predate
+          # the build-only config. Such a SHA keeps the combined build-and-deploy.
+          if [ ! -f deploy/frontend-image.cloudbuild.yaml ] \
+            || ! grep -q '_SKIP_IMAGE_BUILD' deploy/frontend.cloudbuild.yaml; then
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Frontend image build::This SHA predates the prebuilt frontend image; using the combined build-and-deploy."
+            exit 0
+          fi
+          build_id="$(gcloud builds submit \
+            --async \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/frontend-image.cloudbuild.yaml \
+            --format='value(id)' \
+            "--substitutions=${build_substitutions}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Frontend image build did not return a Cloud Build id." >&2
+            exit 1
+          fi
+          echo "Started frontend image build ${build_id}."
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
+          echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build and pin backend image before lifecycle migration
+        id: build-backend-image
         if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=${image_tag}"
+
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          image_digest="$(gcloud container images describe \
+            "${image_repository}:${image_tag}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --format='value(image_summary.digest)')"
+          if [[ ! "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Backend image build did not resolve an immutable sha256 digest." >&2
+            exit 1
+          fi
+          image_reference="${image_repository}@${image_digest}"
+          # Buildx attestations live in a parent index. Pin its executable child
+          # before migration; Cloud Run must later report this exact digest.
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${image_reference}" \
+            > /tmp/dev-backend-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${image_reference}" \
+            --manifest-json /tmp/dev-backend-image-manifest.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --json-output /tmp/dev-backend-image.json)"
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an already failed frontend image before lifecycle migration
+        id: check-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          # The workflow is main-owned; the helper comes from the candidate.
+          # Historical candidates retain the required final image join.
+          if ! grep -Fq -- '--status-only)' scripts/ci/await-prebuilt-image.sh; then
+            echo "::notice title=Frontend image status::This candidate predates the early check; retaining the final image join."
+            exit 0
+          fi
+          bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" --status-only
+
+      - name: Install Cloud SQL Auth Proxy
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -279,31 +617,70 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Install PostgreSQL client for selected lifecycle or preservation
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Decide account generation admission before the deletion fence
+        id: generation-admission
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET != 'scope-commerce-sandbox'
+        shell: bash
+        env:
+          ACCOUNT_GENERATION_ADMISSION_ENABLED: ${{ vars.ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED || 'true' }}
+        run: |
+          set -euo pipefail
+          # Cloud Build accepts only true/false; a bad value would fail after the fence.
+          case "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" in
+            true|false) ;;
+            *) echo "::error::ACCOUNT_GENERATION_ADMISSION_DEV_ENABLED must be true or false." >&2; exit 1 ;;
+          esac
+          # Only targets whose web app keys data by the validated owner may admit replacements.
+          enabled=false
+          if [ "${ACCOUNT_GENERATION_ADMISSION_ENABLED}" = true ] \
+             && [ -f hushh-webapp/__tests__/lib/auth/application-owner-ratchet.contract.test.ts ]; then
+            enabled=true
+          fi
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Apply dev DB migrations and predeploy schema gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
 
-          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
-          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
+
+          # Refuse a listener inherited from another job/instance.
+          python3 - <<'PYPORT'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 6543))
+          PYPORT
 
           cloud-sql-proxy \
             --address 127.0.0.1 \
             --port 6543 \
             ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
             "${{ env.DEV_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-dev.log 2>&1 &
-          PROXY_PID=$!
+          export PROXY_PID=$!
           trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
           python3 - <<'PY'
+          import os
           import socket
           import time
 
           deadline = time.time() + 20
           while time.time() < deadline:
+              os.kill(int(os.environ["PROXY_PID"]), 0)
               with socket.socket() as sock:
                   sock.settimeout(0.5)
                   if sock.connect_ex(("127.0.0.1", 6543)) == 0:
@@ -312,27 +689,75 @@ jobs:
           raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
           PY
 
+          kill -0 "${PROXY_PID}"
+          export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
-          export DB_NAME=postgres
+          export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
 
-          (
-            cd consent-protocol
-            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
-          )
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase database --report-path /tmp/dev-preview-predeploy-database.json
+          fi
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            MIGRATOR_DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+            MIGRATOR_DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
+            echo "::add-mask::${MIGRATOR_DB_USER}"
+            echo "::add-mask::${MIGRATOR_DB_PASSWORD}"
+            if [[ "${MIGRATOR_DB_USER}" != "scope_commerce_sandbox_migrator" || "${DB_USER}" != "scope_commerce_sandbox" ]]; then
+              echo "Preview migration identity is not pinned." >&2; exit 1
+            fi
+            (
+              export DB_USER="${MIGRATOR_DB_USER}" DB_PASSWORD="${MIGRATOR_DB_PASSWORD}"
+              cd consent-protocol
+              # The isolated preview has a verified baseline; record pending
+              # migrations so authenticated readiness observes the actual head.
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode ledger
+            )
+            unset MIGRATOR_DB_USER MIGRATOR_DB_PASSWORD
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase database --report-path /tmp/dev-preview-postmigration-database.json
+          else
+            python3 deploy/account-deletion/activate_release.py --qualify-source "${{ steps.resolve-sha.outputs.sha }}"
+            PGHOST=127.0.0.1 PGPORT=6543 PGDATABASE="${DEV_DB_NAME}" PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+              psql --no-psqlrc --set=ON_ERROR_STOP=1 --file deploy/account-deletion/install_release_fence.sql \
+              > /tmp/dev-account-deletion-fence-installation.log
+            (
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            )
+          fi
+          # Migration 440 refuses dispatch without a common keyed claim, including
+          # old workers. Adopt already-dispatched uncertainty before new writers.
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && -f consent-protocol/db/migrations/440_drive_permission_file_claim_lanes.sql ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/adopt_drive_permission_file_claims.py \
+              --release-environment dev > /tmp/dev-drive-file-claim-adoption.json
+          fi
           # Skew guard (same class as the secret-sync probes): the dev
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/prod_core_schema.json"
+          fi
           if [ ! -f "$CONTRACT_FILE" ]; then
+            if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+              echo "Preview requires its canonical full release contract." >&2; exit 1
+            fi
             CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
             echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
           fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh dev
 
       - name: Deploy backend using Cloud Build
         id: deploy-backend
@@ -341,8 +766,32 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_ONE_VOICE_LIVE_ENABLED=true##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_BUILD_POD_IMAGE=${{ inputs.build_pod_image && 'true' || 'false' }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment dev --format substitutions)"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=true"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=https://consent-protocol-621416509462.us-central1.run.app##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=account-deletion-cleanup@hushh-pda-dev.iam.gserviceaccount.com"
+          fi
+          # Google connections use the normalized OAuth secret names. Keep the
+          # dev lane aligned with backend.cloudbuild.yaml so these optional
+          # credentials cannot silently disappear from the service.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY"
+          # Keep credentials bound after the rollout switch turns off so existing
+          # paid-required requests can finish Checkout and webhook settlement.
+          ANSWER_STRIPE_MODE="test"
+          case "$ANSWER_STRIPE_MODE" in
+            test) ANSWER_KEY_SECRET=STRIPE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET ;;
+            live) ANSWER_KEY_SECRET=STRIPE_LIVE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET ;;
+            *) echo "Invalid answer Stripe mode" >&2; exit 1 ;;
+          esac
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_DEV_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_DEV_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_DEV_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_DEV_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE="
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_DEV_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
+          # The isolated commerce sandbox keeps its own database baseline; enable on shared Dev only.
+          if [[ "${DEV_TARGET:-shared-dev}" != "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_GENERATION_ADMISSION_ENABLED=${{ steps.generation-admission.outputs.enabled || 'false' }}"
+          fi
           # Skew guard (same class as #4399/#4401/#4402): the workflow file
           # (from main) may pass substitutions the train SHA's cloudbuild
           # template doesn't declare — gcloud rejects unmatched keys. Filter
@@ -357,6 +806,9 @@ jobs:
             fi
           done < <(printf '%s' "${SUBSTITUTIONS//##/$'\n'}" | awk 'NF')
           SUBSTITUTIONS="$FILTERED"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="$(printf '%s' "$SUBSTITUTIONS" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind backend)"
+          fi
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
@@ -366,31 +818,80 @@ jobs:
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
-      - name: Retain latest backend revisions
-        if: steps.scope.outputs.deploy_backend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
+      - name: Wait for frontend image and pin its digest
+        id: build-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          started_at="$(date +%s)"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+            --image-repository "${image_repository}" \
+            --image-tag "${FRONTEND_IMAGE_TAG}" \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --manifest-json /tmp/dev-frontend-prebuilt-image-manifest.json \
+            --json-output /tmp/dev-frontend-prebuilt-image.json)"
+          if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Frontend image did not pin to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
         if: steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
+        env:
+          FRONTEND_PREBUILT: ${{ steps.start-frontend-image-build.outputs.prebuilt }}
+          FRONTEND_IMAGE_REFERENCE: ${{ steps.build-frontend-image.outputs.image_reference }}
+          FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          gcloud builds submit \
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+          if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
+            echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
+            exit 1
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="$(printf '%s' "$SUBSTITUTIONS" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind frontend)"
+          fi
+          source_arg="."
+          case "${FRONTEND_PREBUILT}" in
+            true)
+              # Deploy exactly the digest pinned above; never rebuild or re-resolve a tag.
+              if [[ ! "${FRONTEND_IMAGE_REFERENCE}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+                echo "Refusing frontend deploy: the pinned image digest is missing or malformed." >&2
+                exit 1
+              fi
+              SUBSTITUTIONS="${SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_IMAGE_REFERENCE}"
+              # Deploy-only: nothing in the build context is read, so skip the upload.
+              source_arg="--no-source"
+              ;;
+            false)
+              echo "Combined build-and-deploy for a SHA that predates the prebuilt frontend image."
+              ;;
+            *)
+              echo "Refusing frontend deploy: prebuilt-image mode was not resolved." >&2
+              exit 1
+              ;;
+          esac
+          gcloud builds submit "${source_arg}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=dev,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=deploy-dev,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=${SUBSTITUTIONS}"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
-
-      - name: Retain latest frontend revisions
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -419,6 +920,76 @@ jobs:
           "${{ steps.candidate-state.outputs.backend_revision }}"
           "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
+      - name: Authenticate private preview backend probe
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-backend-probe-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: false
+          export_environment_variables: false
+          token_format: id_token
+          id_token_audience: ${{ env.PREVIEW_BACKEND_ORIGIN }}
+          id_token_include_email: true
+
+      - name: Authenticate private preview frontend probe
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-frontend-probe-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: false
+          export_environment_variables: false
+          token_format: id_token
+          id_token_audience: ${{ env.APP_FRONTEND_ORIGIN }}
+          id_token_include_email: true
+
+      - name: Verify selected candidates before traffic promotion
+        id: verify-candidates
+        shell: bash
+        env:
+          CANDIDATE_TAG: ${{ env.DEV_CANDIDATE_TAG }}
+          BACKEND_PROBE_ID_TOKEN: ${{ steps.preview-backend-probe-auth.outputs.id_token }}
+          FRONTEND_PROBE_ID_TOKEN: ${{ steps.preview-frontend-probe-auth.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
+            CANDIDATE_ID_TOKEN="$BACKEND_PROBE_ID_TOKEN" bash scripts/ci/verify-dev-candidate.sh \
+              "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_SERVICE }}" \
+              "${{ steps.candidate-state.outputs.backend_revision }}" \
+              "${{ steps.build-backend-image.outputs.image_reference }}" \
+              "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /health
+          fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+            image_tag="dev-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+            image_digest="$(gcloud container images describe "${image_repository}:${image_tag}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+            [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            image_reference="${image_repository}@${image_digest}"
+            gcloud auth configure-docker gcr.io --quiet
+            docker buildx imagetools inspect --raw "$image_reference" > /tmp/dev-frontend-manifest.json
+            image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+              --image-reference "$image_reference" --manifest-json /tmp/dev-frontend-manifest.json \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" --json-output /tmp/dev-frontend-image.json)"
+            CANDIDATE_ID_TOKEN="$FRONTEND_PROBE_ID_TOKEN" bash scripts/ci/verify-dev-candidate.sh \
+              "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_SERVICE }}" \
+              "${{ steps.candidate-state.outputs.frontend_revision }}" "$image_reference" \
+              "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /login
+          fi
+
+      - name: Verify isolated preview bindings before traffic promotion
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+            --phase mounts --report-path /tmp/dev-preview-candidate-bindings.json
+
       - name: Promote deployed revisions to dev traffic
         shell: bash
         run: |
@@ -438,28 +1009,33 @@ jobs:
               --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
           fi
 
+      - name: Admit verified preview application invocation
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-public-admission.py \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --run-id "${{ github.run_id }}" \
+            --report-path /tmp/dev-preview-public-admission.json
+
       - name: Resolve current deployed Cloud Run state
         id: current-state
         shell: bash
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-current-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-current-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-current-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-current-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
@@ -481,6 +1057,7 @@ jobs:
             --expected-source deploy-dev \
             --expected-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --expected-run-id "${{ github.run_id }}" \
+            --expected-image-reference "${{ steps.build-backend-image.outputs.image_reference }}" \
             --report-path /tmp/dev-backend-provenance.json
 
       - name: Verify frontend deployment provenance
@@ -504,6 +1081,11 @@ jobs:
         id: verify-parity-1
         continue-on-error: true
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase mounts --report-path /tmp/dev-runtime-parity-attempt-1.json
+            exit $?
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
@@ -513,6 +1095,7 @@ jobs:
             --require-market-data \
             --require-gmail \
             --require-one-email \
+            --require-calendar \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -524,6 +1107,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase mounts --report-path /tmp/dev-runtime-parity-attempt-2.json
+            exit $?
+          fi
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
@@ -535,6 +1123,7 @@ jobs:
             --require-market-data \
             --require-gmail \
             --require-one-email \
+            --require-calendar \
             --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
@@ -548,25 +1137,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
-          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
+
+          # Refuse a listener inherited from another job/instance.
+          python3 - <<'PYPORT'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 6543))
+          PYPORT
 
           cloud-sql-proxy \
             --address 127.0.0.1 \
             --port 6543 \
             ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
             "${{ env.DEV_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-dev-postdeploy.log 2>&1 &
-          PROXY_PID=$!
+          export PROXY_PID=$!
           trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
           python3 - <<'PY'
+          import os
           import socket
           import time
 
           deadline = time.time() + 20
           while time.time() < deadline:
+              os.kill(int(os.environ["PROXY_PID"]), 0)
               with socket.socket() as sock:
                   sock.settimeout(0.5)
                   if sock.connect_ex(("127.0.0.1", 6543)) == 0:
@@ -575,9 +1173,11 @@ jobs:
           raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
           PY
 
+          kill -0 "${PROXY_PID}"
+          export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
-          export DB_NAME=postgres
+          export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
 
@@ -585,7 +1185,13 @@ jobs:
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/prod_core_schema.json"
+          fi
           if [ ! -f "$CONTRACT_FILE" ]; then
+            if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+              echo "Preview requires its canonical full release contract." >&2; exit 1
+            fi
             CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
             echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
           fi
@@ -594,6 +1200,7 @@ jobs:
             --report-path /tmp/dev-db-migration-guard-postdeploy.json
 
       - name: Bootstrap dev runtime files for semantic verification
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
         shell: bash
         run: |
           set -euo pipefail
@@ -601,6 +1208,7 @@ jobs:
           bash scripts/env/use_profile.sh dev
 
       - name: Load maintainer smoke overlay
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
         shell: bash
         run: |
           set -euo pipefail
@@ -621,11 +1229,18 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+
+
       - name: Semantic dev verification
         id: verify-dev-1
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase app --report-path /tmp/dev-release-verify-attempt-1.json
+            exit $?
+          fi
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
@@ -640,6 +1255,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase app --report-path /tmp/dev-release-verify-attempt-2.json
+            exit $?
+          fi
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
@@ -649,11 +1269,27 @@ jobs:
             --web-env hushh-webapp/.env.local \
             --report-path /tmp/dev-release-verify-attempt-2.json
 
+      - name: Verify selected reviewer BYOK navigation and cold re-unlock
+        id: verify-reviewer-byok
+        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-dev-1.outcome == 'success' || steps.verify-dev-2.outcome == 'success')
+        continue-on-error: true
+        shell: bash
+        env:
+          REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
+          REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          REVIEWER_BYOK_SCRIPT: ${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}
+        run: |
+          set -euo pipefail
+          test -n "$REVIEWER_BYOK_SCRIPT"
+          node "$REVIEWER_BYOK_SCRIPT"
+
       - name: Classify dev release outcome
         if: always()
         id: classify-dev-release
         shell: bash
         env:
+          FRONTEND_IMAGE_CHECK_OUTCOME: ${{ steps.check-frontend-image.outcome }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           PARITY_ATTEMPT_1: ${{ steps.verify-parity-1.outcome }}
@@ -663,6 +1299,8 @@ jobs:
           DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-dev-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-dev-2.outcome }}
+          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -719,6 +1357,7 @@ jobs:
           backend_secret_names = set(
               required.get("backend", [])
               + required.get("gmail", [])
+              + required.get("calendar", [])
               + required.get("one_email", [])
               + required.get("voice", [])
               + required.get("plaid", [])
@@ -731,6 +1370,7 @@ jobs:
           backend_runtime_entries = (
               (runtime_contract.get("backend") or [])
               + (runtime_contract.get("backend_gmail") or [])
+              + (runtime_contract.get("backend_calendar") or [])
               + (runtime_contract.get("backend_one_email") or [])
               + (runtime_contract.get("backend_voice") or [])
           )
@@ -760,6 +1400,7 @@ jobs:
               frontend_failure = True
 
           semantic_failures = set(semantic_report.get("failures") or [])
+          semantic_degraded = sorted(semantic_report.get("degraded") or [])
           advisory_semantic_failures = sorted(
               item for item in semantic_failures if item.startswith("signed_in_routes:")
           )
@@ -773,7 +1414,7 @@ jobs:
                   append_unique(blocking, ["runtime_behavior_failed"])
               if "smoke_auth" in blocking_semantic_failures:
                   append_unique(blocking, ["smoke_overlay_dependency_leak"])
-              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session"}:
+              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session", "voice_relay_session", "location_command_recovery"}:
                   backend_failure = True
               if "frontend_login" in blocking_semantic_failures:
                   frontend_failure = True
@@ -781,6 +1422,27 @@ jobs:
           if db_outcome == "failure":
               append_unique(blocking, ["db_contract_drift"])
               backend_failure = True
+
+          reviewer_required = os.environ.get("REVIEWER_BYOK_REQUIRED") == "true"
+          reviewer_outcome = os.environ.get("REVIEWER_BYOK_OUTCOME", "")
+          reviewer_success = not reviewer_required or reviewer_outcome == "success"
+          if reviewer_required and not reviewer_success:
+              append_unique(blocking, ["reviewer_byok_unverified"])
+              backend_failure = os.environ.get("DEPLOY_BACKEND") == "true"
+              frontend_failure = os.environ.get("DEPLOY_FRONTEND") == "true"
+
+          # An isolated preview attestation failure covers both candidate lanes.
+          # An empty generic report must never turn a failed probe healthy.
+          if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox" and (not parity_success or not semantic_success):
+              append_unique(blocking, ["commerce_preview_unverified"])
+              backend_failure = os.environ.get("DEPLOY_BACKEND") == "true"
+              frontend_failure = os.environ.get("DEPLOY_FRONTEND") == "true"
+
+          if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure":
+              append_unique(blocking, ["frontend_image_build_failed"])
+              # This check precedes lifecycle and serving mutations.
+              backend_failure = False
+              frontend_failure = False
 
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
@@ -817,8 +1479,24 @@ jobs:
                   "blocking_failures": sorted(blocking_semantic_failures),
                   "advisory_failures": advisory_semantic_failures,
               },
+              "reviewer_byok": {
+                  "required": reviewer_required,
+                  "outcome": reviewer_outcome,
+                  "success": reviewer_success,
+              },
               "db_contract": {
                   "outcome": db_outcome,
+              },
+              "dependency_health": {
+                  # A dev release can be simultaneously correct and not fully
+                  # functional, and this lane had no way to say so: it read only
+                  # `failures`, so a capability the verifier deliberately marked
+                  # degraded left no trace in the summary at all. That matters
+                  # more here than on UAT, because the smoke account has no
+                  # provisioned pod, so private voice is degraded on EVERY dev
+                  # release. An amber nobody can see is the same as green.
+                  "degraded": bool(semantic_degraded),
+                  "degraded_capabilities": semantic_degraded,
               },
           }
 
@@ -853,32 +1531,72 @@ jobs:
           set -euo pipefail
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
+      - name: Quarantine failed preview first release
+        if: always() && env.DEV_TARGET == 'scope-commerce-sandbox' && (failure() || steps.classify-dev-release.outputs.release_failed == 'true')
+        id: quarantine-preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/dev-preview-bootstrap.json ]]; then
+            python3 scripts/deploy/commerce-preview-bootstrap.py --phase quarantine \
+              --report-path /tmp/dev-preview-bootstrap.json
+          fi
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
         shell: bash
         run: |
           set -euo pipefail
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-final-state-backend.json
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-final-state-backend.json)"
+          backend_revision="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          backend_url="$(printf '%s' "${backend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/dev-final-state-frontend.json
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /tmp/dev-final-state-frontend.json)"
+          frontend_revision="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_url="$(printf '%s' "${frontend_state}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+          for component in backend frontend; do
+            if [ "${component}" = backend ]; then
+              revision="${backend_revision}"
+            else
+              revision="${frontend_revision}"
+            fi
+            serving_sha=""
+            if [ -n "${revision}" ]; then
+              serving_sha="$(gcloud run revisions describe "${revision}" \
+                --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+                --format='value(metadata.labels.deploy-sha)')"
+            fi
+            echo "${component}_sha=${serving_sha}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Activate tombstone-aware account deletion
+        id: activate-account-deletion
+        if: env.DEV_TARGET == 'shared-dev' && steps.classify-dev-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/account-deletion/activate_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --backend-url https://consent-protocol-621416509462.us-central1.run.app \
+            --oidc-audience https://consent-protocol-621416509462.us-central1.run.app \
+            --scheduler-job account-deletion-cleanup-dev --scheduler-service-account account-deletion-cleanup \
+            --expected-sha "${{ steps.resolve-sha.outputs.sha }}" --expected-run-id "${{ github.run_id }}" \
+            --cloudsql-instance "${{ env.DEV_CLOUDSQL_INSTANCE }}" --db-name "${DEV_DB_NAME}" \
+            --fence-required true --evidence-prefix /tmp/dev-account-deletion
+          echo "activated=true" >> "$GITHUB_OUTPUT"
 
       - name: Write dev release status artifact
         if: always()
@@ -890,8 +1608,11 @@ jobs:
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
 
-          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" != "true" ]; then
+          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
+            if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && "${{ steps.scope.outputs.deploy_backend }}" == "true" && "${{ steps.activate-account-deletion.outcome }}" != "success" ]]; then
+              STATUS="blocked"
+            fi
           else
             if [ "${{ steps.classify-dev-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
               BACKEND_ROLLBACK_REQUIRED=true
@@ -913,6 +1634,25 @@ jobs:
             fi
           fi
 
+          # A quarantined or incomplete first release cannot be healthy or an
+          # application rollback. Later application baselines keep normal rollback.
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            STATUS="$(python3 - "$STATUS" <<'PYBOOTSTRAP'
+          import json
+          import sys
+          from pathlib import Path
+          path = Path('/tmp/dev-preview-bootstrap.json')
+          if not path.exists():
+              print('blocked')
+          else:
+              report = json.loads(path.read_text())
+              status = sys.argv[1] if '${{ steps.classify-dev-release.outputs.release_failed }}' in ('true', 'false') else 'blocked'
+              first = any(lane.get('kind') == 'bootstrap' for lane in report.get('lanes', {}).values())
+              print('quarantined' if first and report.get('status') == 'quarantined' else
+                    'blocked' if report.get('status') != 'ready_for_configuration' or (first and status != 'healthy') else status)
+          PYBOOTSTRAP
+            )"
+          fi
           export STATUS
           python3 - <<'PY'
           import json
@@ -940,9 +1680,19 @@ jobs:
               },
               "final": {
                   "backend_revision": "${{ steps.final-state.outputs.backend_revision }}",
+                  "backend_sha": "${{ steps.final-state.outputs.backend_sha }}",
                   "backend_url": "${{ steps.final-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
+                  "frontend_sha": "${{ steps.final-state.outputs.frontend_sha }}",
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
+              },
+              "verification_plan": {
+                  "reason": "${{ steps.verification-plan.outputs.reason }}",
+                  "not_applicable": "${{ env.DEV_TARGET == 'scope-commerce-sandbox' }}",
+                  "pkm_preservation_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
+                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
+                  "reviewer_byok_outcome": "${{ steps.verify-reviewer-byok.outcome }}",
               },
               "verification": {
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
@@ -955,6 +1705,8 @@ jobs:
                   "attempt_2": "${{ steps.verify-dev-2.outcome }}",
                   "semantic_success": "${{ steps.classify-dev-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
+                  "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "blocking_classifications": "${{ steps.classify-dev-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {
@@ -964,10 +1716,49 @@ jobs:
               "timing_seconds": {
                   "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
                   "frontend_cloud_build": "${{ steps.deploy-frontend.outputs.duration_seconds || '0' }}",
+                  # Time the lane blocked on the parallel web image build. Near
+                  # zero means the build was fully hidden behind the backend path.
+                  "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
           Path("/tmp/dev-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment dev --status /tmp/dev-release-status.json \
+            --output /tmp/dev-acceptance/acceptance.json
+
+      - name: Upload immutable dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/dev-acceptance/acceptance.json
+          if-no-files-found: ignore
+
+      - name: Cancel an unused parallel frontend image build
+        # Hygiene only: a release that stopped before the frontend deploy leaves
+        # the web build running. It never affects release classification.
+        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
+          case "${status}" in
+            QUEUED|PENDING|WORKING)
+              gcloud builds cancel "${FRONTEND_IMAGE_BUILD_ID}" --project="${{ env.GCP_PROJECT_ID }}"
+              ;;
+            *)
+              echo "Frontend image build ${FRONTEND_IMAGE_BUILD_ID} is already ${status}; nothing to cancel."
+              ;;
+          esac
 
       - name: Upload dev deploy artifacts
         if: always()
@@ -981,6 +1772,14 @@ jobs:
             /tmp/dev-runtime-parity-attempt-1.json
             /tmp/dev-runtime-parity-attempt-2.json
             /tmp/dev-backend-provenance.json
+            /tmp/dev-candidate-*.json
+            /tmp/dev-backend-image.json
+            /tmp/dev-bootstrap-image.json
+            /tmp/dev-preview-bootstrap.json
+            /tmp/dev-preview-public-admission.json
+            /tmp/dev-frontend-image.json
+            /tmp/dev-frontend-prebuilt-image.json
+            /tmp/dev-frontend-prebuilt-image-manifest.json
             /tmp/dev-frontend-provenance.json
             /tmp/dev-db-migration-guard-predeploy.json
             /tmp/dev-db-migration-guard-postdeploy.json
@@ -990,6 +1789,9 @@ jobs:
             /tmp/dev-release-verify-attempt-2.json
             /tmp/dev-release-classification.json
             /tmp/dev-release-status.json
+            /tmp/dev-account-deletion-*.json
+            /tmp/dev-account-deletion-*.log
+            /tmp/dev-verification-plan.json
 
       - name: Deployment summary
         if: always()
@@ -1012,12 +1814,28 @@ jobs:
             echo ""
             echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
+            echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason || 'isolated_preview' }}\`"
+            echo "- PKM preservation: \`${{ steps.verify-pkm-preservation.outcome || 'not_selected' }}\`"
+            echo "- Reviewer BYOK: \`${{ steps.verify-reviewer-byok.outcome || 'not_selected' }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/dev-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-dev-release.outputs.blocking_classifications || 'none' }}\`"
+            # Degradation beside the status, not buried in an artifact. A dev
+            # release that deployed correctly while a capability is unavailable
+            # must read as exactly that, and not as a clean success.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/dev-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            if [[ -n "${degraded_capabilities}" ]]; then
+              echo "- **Dependency health: DEGRADED**"
+              echo "- Degraded capabilities: \`${degraded_capabilities}\`"
+              echo "  > The application deployed correctly. These capabilities"
+              echo "  > are unavailable to the smoke account, most often because"
+              echo "  > it has no provisioned pod. This is not a code defect."
+            else
+              echo "- Dependency health: \`healthy\`"
+            fi
             echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
             echo "- Frontend URL: \`${{ env.APP_FRONTEND_ORIGIN }}\`"
             echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"
@@ -1047,6 +1865,18 @@ jobs:
             echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Remove this run's candidate tags
+        if: always() && steps.verify-candidates.outcome != 'skipped'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          for service in "${{ env.BACKEND_SERVICE }}" "${{ env.FRONTEND_SERVICE }}"; do
+            gcloud run services update-traffic "$service" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --remove-tags="${{ env.DEV_CANDIDATE_TAG }}" --quiet
+          done
+
       - name: Fail workflow when dev release did not end healthy
         if: always()
         shell: bash
@@ -1057,3 +1887,140 @@ jobs:
             echo "Dev release finished with status: $STATUS"
             exit 1
           fi
+
+      - name: Retain latest backend revisions
+        if: steps.scope.outputs.deploy_backend == 'true'
+        continue-on-error: true
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Retain latest frontend revisions
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
+  pod-publication:
+    needs: deployment-security
+    name: Pod Release Publication
+    if: inputs.target == 'pod-publication'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: dev
+    env:
+      GH_TOKEN: ${{ github.token }}
+      POD_ACTION: ${{ inputs.pod_action }}
+      POD_SOURCE: ${{ inputs.sha }}
+      POD_REF: ${{ inputs.ref }}
+      POD_FOLDER: /tmp/pod-publication
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Admit Main-owned pod publication
+        shell: bash
+        env:
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          LEGACY_BUILD_FLAG: ${{ inputs.build_pod_image && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$POD_ACTION" == prepare || "$POD_ACTION" == activate ]]
+          [[ "$REQUESTED_SCOPE" == auto && "$LEGACY_BUILD_FLAG" == false ]]
+          [[ "$POD_SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          python3 scripts/ci/assert-governed-actor.py --surface dev --actor "$GITHUB_ACTOR"
+          git fetch --no-tags -- origin "$POD_REF"
+          mkdir -p "$POD_FOLDER"
+      - name: Verify exact pod source CI and ref
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: ${{ inputs.ref }}
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$POD_SOURCE"
+      - name: Verify landed publication control source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+      - name: Verify metadata reuse with Main-owned source guard
+        if: inputs.pod_action == 'prepare'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_source="$POD_SOURCE"
+          reuse_sha=""
+          if git cat-file -e "$POD_SOURCE:deploy/pod-release-reuse.json" 2>/dev/null; then
+            git show "$POD_SOURCE:deploy/pod-release-reuse.json" > "$RUNNER_TEMP/pod-reuse-pin.json"
+            "$PROTOCOL_PYTHON" scripts/deploy/reuse-pod-release.py \
+              --config "$RUNNER_TEMP/pod-reuse-pin.json" --project hushh-pda-dev \
+              --descriptor-sha "$POD_SOURCE" --check-source-only
+            image_source="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceRevision"])' "$RUNNER_TEMP/pod-reuse-pin.json")"
+            reuse_sha="$(sha256sum "$RUNNER_TEMP/pod-reuse-pin.json" | cut -d' ' -f1)"
+          fi
+          echo "POD_IMAGE_SOURCE=$image_source" >> "$GITHUB_ENV"
+          echo "POD_REUSE_PIN_SHA=$reuse_sha" >> "$GITHUB_ENV"
+      - name: Verify Dev workload identity settings
+        shell: bash
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PROVIDER" && -n "$ACCOUNT" ]]
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-dev
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Capture coordinated application baseline
+        if: inputs.pod_action == 'prepare'
+        run: >-
+          "$PROTOCOL_PYTHON" scripts/deploy/publish-pod-catalog.py --inspect
+          --source "$POD_SOURCE" --output "$POD_FOLDER/baseline.json"
+      - name: Prepare common pod artifact without deploying the application
+        if: inputs.pod_action == 'prepare'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/deploy/prepare-pod-publication.py "$RUNNER_TEMP/prepare-pod-publication.py"
+          git checkout --detach "$POD_SOURCE"
+          "$PROTOCOL_PYTHON" "$RUNNER_TEMP/prepare-pod-publication.py"             --root "$GITHUB_WORKSPACE" --sha "$POD_SOURCE" --run-id "$GITHUB_RUN_ID"             --attempt "$GITHUB_RUN_ATTEMPT" --verified-reuse-sha "$POD_REUSE_PIN_SHA" --output "$RUNNER_TEMP/pod-build.yaml"
+          build_id="$(gcloud builds submit --async --project=hushh-pda-dev             --config="$RUNNER_TEMP/pod-build.yaml" --format='value(id)')"
+          [[ "$build_id" =~ ^[a-f0-9-]{36}$ ]]
+          printf '%s\n' "$build_id" > "$POD_FOLDER/build-id.txt"
+          gcloud builds log "$build_id" --stream --project=hushh-pda-dev
+          gcloud builds describe "$build_id" --project=hushh-pda-dev             --format='value(status)' | grep -qx SUCCESS
+          gcloud storage cp             "gs://hushh-pda-dev_cloudbuild/pod-releases/$POD_IMAGE_SOURCE/$GITHUB_RUN_ID/release.json"             "$POD_FOLDER/release.json"
+          # Prepared bytes are neither qualified nor advertised by this phase.
+          printf 'artifact_prepared_not_qualified_or_activated\n' > "$POD_FOLDER/outcome.txt"
+      - name: Activate reviewed pod catalog during coordinated release
+        if: inputs.pod_action == 'activate'
+        run: >-
+          "$PROTOCOL_PYTHON" scripts/deploy/publish-pod-catalog.py
+          --source "$POD_SOURCE" --output "$POD_FOLDER/activation.json"
+      - name: Retain bounded publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pod-publication-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.POD_FOLDER }}
+          if-no-files-found: warn

@@ -21,6 +21,7 @@
 
 # next.js
 /.next/
+/.next-*/
 /.next-prod/
 /.next-native-uat/
 /out/
@@ -97,3 +98,6 @@ DerivedData/
 /www/
 /dist/
 !/dist/.gitkeep
+
+# Generated from pinned OCR dependencies at Next startup/build.
+/public/vendor/wallet-ocr/

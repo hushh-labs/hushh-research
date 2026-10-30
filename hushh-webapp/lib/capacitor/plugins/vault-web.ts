@@ -374,10 +374,13 @@ export class HushhVaultWeb extends WebPlugin {
     passkeyDeviceLabel?: string;
     passkeyLastUsedAt?: number;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }> {
+    const headers: HeadersInit = { "Content-Type": "application/json", "X-Hushh-Consent": `Bearer ${options.vaultOwnerToken}` };
+    if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
     const response = await fetch("/api/vault/wrapper/upsert", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(options),
     });
     if (!response.ok) throw new Error("Failed to upsert wrapper");
@@ -415,10 +418,13 @@ export class HushhVaultWeb extends WebPlugin {
     primaryMethod: string;
     primaryWrapperId?: string;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }> {
+    const headers: HeadersInit = { "Content-Type": "application/json", "X-Hushh-Consent": `Bearer ${options.vaultOwnerToken}` };
+    if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
     const response = await fetch("/api/vault/primary/set", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(options),
     });
     if (!response.ok) throw new Error("Failed to set primary method");
@@ -438,6 +444,7 @@ export class HushhVaultWeb extends WebPlugin {
     userId: string;
     displayName: string;
     rpId: string;
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     prfSalt: string;
@@ -451,11 +458,20 @@ export class HushhVaultWeb extends WebPlugin {
     rpId: string;
     credentialId?: string;
     prfSalt: string;
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     vaultKeyHex: string;
   }> {
     throw new Error("authenticatePasskeyPrf is not available in web fallback");
+  }
+
+  async cancelPasskeyAuthentication(_options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }> {
+    // Web PRF calls navigator.credentials directly; that path is cancelled by
+    // cancelPendingPrfAuthentication rather than this native-plugin fallback.
+    return { cancelled: false };
   }
 
   // ==================== Domain Data Methods (Web Fallback) ====================

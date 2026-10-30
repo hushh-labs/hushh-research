@@ -5,14 +5,16 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 - Actions WITHOUT a wired ``delegate_agent_id`` execute as client directives:
   ``run_app_action`` validates policy + slots and parks a
-  ``{kind: "action"}`` directive the relay forwards to the app. Zero LLM
+  ``{kind: "action"}`` directive for the app's governed executor. Zero LLM
   calls, zero agent hops; the app re-checks guards before executing.
 - Actions whose ``delegate_agent_id`` maps to a wired specialist tool are
   REFUSED with a redirect to that ``ask_*`` tool, so contract ownership can
   never be bypassed by the model picking the wrong lane.
 - ``manual_only`` actions are refused with where-to-do-it guidance;
   ``confirm_required`` actions park a directive flagged
-  ``needsConfirmation`` so the app runs its confirmation surface.
+  ``needsConfirmation`` so the app runs its confirmation surface. A governed
+  ``allow_direct`` mutation is treated the same way; generated policy cannot
+  bypass the directive ledger.
 
 ``list_app_actions`` exposes the manifest as an on-demand ranked index
 (bounded) instead of bloating the system instruction with 94 entries.
@@ -20,22 +22,117 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import hashlib
+import hmac
 import json
 import logging
 import re
-from typing import Any
+import time
+import uuid
+from datetime import datetime
+from typing import Any, Callable, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from google.adk.models.llm_response import LlmResponse
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.pii_sanitizer import mask_email
+from hushh_mcp.consent.scope_matcher import (
+    fallback_scopes,
+    is_proposable_entry,
+    match_scopes,
+    tokens,
+)
+from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import ConsentScope
+from hushh_mcp.one_adk import action_retrieval
+from hushh_mcp.one_adk.action_retrieval import (
+    RetrievedAction,
+    is_retrieval_available,
+    lexical_score,
+    retrieval_error,
+    search_actions,
+)
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.one_adk.shared_with_me_card import (
+    SHARED_WITH_ME_CARD_KIND,
+    build_shared_with_me_cards,
+)
+from hushh_mcp.one_adk.voice_domain_policy import (
+    is_voice_domain_disabled,
+    is_voice_entirely_disabled,
+    resolve_voice_domain,
+    voice_domain_label,
+)
+from hushh_mcp.operons.location.policy import (
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
+    normalize_duration_hours,
+)
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import (
+    GLOBAL_SESSION_ACTION_IDS,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.live_voice_context import (
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.agent_task_context import (
+    read_agent_task_context,
     read_completed_action,
     read_failed_action,
-    read_live_voice_context,
+    read_unknown_action_attempts,
+    record_completed_action,
+    record_failed_action,
+    record_unknown_action_attempt,
+)
+from hushh_mcp.services.client_connector_service import get_client_connector_service
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.consent_lifecycle_service import (
+    ConsentLifecycleError,
+    ConsentLifecycleService,
+)
+from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
+    get_canonical_domain_metadata,
+    normalize_domain_key,
+)
+from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
+from hushh_mcp.services.information_request_service import (
+    InformationRequestService,
+)
+from hushh_mcp.services.one_location_agent_service import (
+    OneLocationAgentError,
+    OneLocationAgentService,
+)
+from hushh_mcp.services.one_location_circle_service import (
+    OneLocationCircleError,
+    OneLocationCircleService,
+)
+from hushh_mcp.services.one_location_nearby_presence_service import (
+    NearbyPresenceError,
+    OneLocationNearbyPresenceService,
+)
+from hushh_mcp.services.people_search_sql import normalize_directory_name
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.requester_identity import looks_technical_label
+from hushh_mcp.services.ria_iam_service import RIAIAMService
+from hushh_mcp.services.spoken_name_resolver import (
+    UnresolvedPersonName,
+    ambiguous_match_names,
+    join_names_for_speech,
+    match_by_name,
+    match_circle_by_name,
+    normalize_spoken_name,
+    resolve_spoken_names,
+    split_spoken_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,9 +140,32 @@ logger = logging.getLogger(__name__)
 # Session state keys shared with agent_tree/adk_live (duplicated string to
 # avoid a circular import; guarded by a test asserting equality).
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+_STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
+# Typed chat carries a complete, request-authenticated screen snapshot on
+# every turn. Keep it authoritative for that chat session so an older live
+# socket publication cannot make a consent card wait forever. This is a
+# non-sensitive transport marker, not a credential or user data.
+_STATE_TYPED_CHAT_CONTEXT = "hussh:typed_chat_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
+_STATE_USER_ID = "hussh:user_id"
+_STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
+_STATE_TIMEZONE = "hussh:timezone"
+_STATE_DOCUMENT_CLOCK_RECEIPT = "temp:hussh:document_clock_receipt"
+_STATE_DOCUMENT_PERIOD_CLARIFICATION = "hussh:document_period_clarification"
+_STATE_DOCUMENT_PERIOD_REPLY = "temp:hussh:document_period_reply"
+_STATE_CONVERSATION_ID = "hussh:conversation_id"
+
+_DOCUMENT_PERIOD_QUESTIONS = {
+    "year": "Which year should I use?",
+    "day_month_order": "Do these dates use day/month or month/day?",
+    "requested_period": "What date range should the documents cover?",
+    "owner_timezone": "Which timezone should I use?",
+    "relative_anchor": "What dates should this period cover?",
+    "relative_window": "Do you mean complete calendar periods or a range ending today?",
+    "complete_period": "What complete start and end dates should I use?",
+}
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -53,12 +173,26 @@ _STATE_GOAL_RUN = "hussh:goal_run"
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
     "agent_location": "ask_location_agent",
+    "agent_personal_information": "ask_memory_agent",
     "agent_connections": "ask_consent_agent",
     "agent_connected_systems": "ask_connected_systems_agent",
     "agent_nav": "ask_consent_agent",
 }
 
 _MAX_LIST_RESULTS = 10
+# Retrieval truncates before reachability is known, so ask for more than
+# the window and trim after filtering.
+_RETRIEVAL_OVERFETCH = 3
+# Enough to settle a shared-alias tie in favour of the screen the person is
+# on, without letting a weak on-screen match beat a strong off-screen one.
+# Sized from the real gap: the shared-alias tie is 2 points, so this settles it
+# while staying far below a genuine relevance difference.
+_ON_SCREEN_RANK_BONUS = 5.0
+# The semantic branch scores on a different scale: RRF scores cluster around
+# 1-2 and a shared-alias tie measures ~0.03 ("people tab" reaches both
+# connect.open_people and location.open_people). Sized to settle that tie and
+# no more, so a genuinely better match is never displaced.
+_ON_SCREEN_SEMANTIC_BONUS = 0.05
 _MAX_QUERY_TOKENS = 8
 # On-screen actions a queried call may keep for context after the real matches.
 _MAX_QUERY_FILLER = 4
@@ -112,41 +246,105 @@ _AVAILABILITY_ORDER = {
 }
 
 
-def _voice_context(tool_context: ToolContext) -> Any:
-    """The freshest sanitized browser context available to this tool.
+def _agent_context(tool_context: ToolContext) -> Any:
+    """Return the freshest sanitized browser context available to this tool.
 
-    ``run_live`` opens one long invocation per socket, so ``tool_context.state``
-    is frozen at connect time: after a navigation the relay knows the new
-    screen while every tool still reads the screen the person was on when they
-    started talking. A cross-screen journey could therefore never continue, and
-    each retry re-read the same stale value instead of converging.
-
-    Prefer the relay's live publication, keyed by this session, and fall back
-    to session state for non-live callers (typed chat, tests) which have no
-    socket and no staleness problem.
+    ``tool_context.state`` can be frozen before a route settles. Prefer the
+    latest browser publication keyed by this task, then fall back to session
+    state when no newer context is available.
     """
+    state = getattr(tool_context, "state", None)
+    state_getter = getattr(state, "get", None)
+    current = state_getter(_STATE_VOICE_CONTEXT) if callable(state_getter) else None
+    if callable(state_getter) and state_getter(_STATE_TYPED_CHAT_CONTEXT) is True:
+        return current
+
     session_id = getattr(getattr(tool_context, "session", None), "id", None)
-    live = read_live_voice_context(session_id) if session_id else None
-    if isinstance(live, dict):
-        return live
-    return tool_context.state.get(_STATE_VOICE_CONTEXT)
+    published = read_agent_task_context(session_id) if session_id else None
+    if isinstance(published, dict):
+        return published
+    return current
+
+
+def _tool_session_id(tool_context: ToolContext | None) -> str:
+    """Use the authenticated conversation id when ADK omits session.id.
+
+    AG-UI's text bridge currently supplies the conversation id in trusted
+    state but leaves ToolContext.session.id empty. Consent picker handles
+    are still owner- and conversation-bound; this fallback only restores that
+    existing binding and never creates identity authority.
+    """
+    if tool_context is None:
+        return ""
+    live_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "").strip()
+    if live_id:
+        return live_id
+    state = getattr(tool_context, "state", None)
+    value = (
+        state.get(_STATE_CONVERSATION_ID) if state is not None and hasattr(state, "get") else None
+    )
+    return str(value or "").strip()
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
-    """Return the browser-declared executable ids when live context exists.
+    """Return browser-declared executable ids when published context exists.
 
     The browser may publish arbitrary descriptive metadata, but action ids are
     filtered against the generated gateway before reaching this state. An
-    absent context preserves compatibility for non-live callers; a present but
+    absent context preserves compatibility for older callers; a present but
     empty list deliberately means no executable controls are available.
     """
-    context = _voice_context(tool_context)
-    if not isinstance(context, dict) or "available_action_ids" not in context:
+    context = _agent_context(tool_context)
+    if not isinstance(context, dict):
         return None
     ids = context.get("available_action_ids")
+    available = (
+        {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+        if isinstance(ids, list)
+        else set()
+    )
+    executable = context.get("executable_action_ids")
+    if isinstance(executable, list):
+        available.update(
+            str(value).strip() for value in executable if isinstance(value, str) and value.strip()
+        )
+    if "available_action_ids" in context or "executable_action_ids" in context:
+        return available
+    return None
+
+
+def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
+    """Everything the current route may run, independent of the prompt budget.
+
+    The browser ranks and truncates what the model is told about, because a
+    prompt has a budget. Execution does not: an action this route declares is
+    runnable whether or not it won a slot in the inventory. Keeping the two
+    apart is what stops a ranking decision from surfacing as a refusal.
+
+    Server-derived, from the generated route orchestration index, so it cannot
+    be widened by a forged frame. Absent for older
+    payloads, where the caller falls back to the declared inventory.
+    """
+    context = _agent_context(tool_context)
+    if not isinstance(context, dict) or "executable_action_ids" not in context:
+        return None
+    ids = context.get("executable_action_ids")
     if not isinstance(ids, list):
         return set()
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+
+
+def _voice_settings(tool_context: ToolContext) -> dict[str, Any]:
+    """The person's own restrictions on their already-authorized voice agent.
+
+    Already bounded and allowlisted by sanitize_voice_settings on the way in;
+    this only re-reads what the trust boundary already validated. Absent
+    context (older callers, tests) means no restriction, matching
+    sanitize_voice_settings' own fail-open default.
+    """
+    context = _agent_context(tool_context)
+    settings = context.get("voice_settings") if isinstance(context, dict) else None
+    return settings if isinstance(settings, dict) else {}
 
 
 def _slot_fingerprint(slots: dict[str, Any]) -> str:
@@ -183,7 +381,16 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
     return None
 
 
-def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
+_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS: frozenset[str] = frozenset(
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("execution_policy") == "confirm_required"
+)
+
+
+def _directive_flags(
+    entry: dict[str, Any] | None, *, require_tap_confirmation: bool = False
+) -> dict[str, bool]:
     """Return the generated contract's browser-execution boundary.
 
     Goal steps bypass ``run_app_action`` when they construct a route or
@@ -195,27 +402,3532 @@ def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
             "needsConfirmation": True,
             "trustedActivationRequired": True,
         }
+    action_id = str(entry.get("action_id") or "").strip()
     trusted_activation = str(entry.get("activation_policy") or "") == "trusted_activation_required"
-    # Voice does not ask. `confirm_required` no longer raises a card, because
-    # being asked "are you sure?" after saying a thing out loud is the thing
-    # people find most tiring about talking to this app -- and a spoken yes to
-    # a question One just asked adds no information the sentence did not
-    # already carry. Product owner's call, made explicitly and more than once.
+    confirm_required = str(entry.get("execution_policy") or "") == "confirm_required"
+    # `trusted_activation_required` is a different kind of thing from an
+    # ordinary confirmation: the provider window must be opened by a fresh
+    # human gesture. The two provider sign-ins open a browser popup, which
+    # platforms permit only during a fresh human gesture.
     #
-    # `trusted_activation_required` survives, and is a different kind of thing.
-    # The two provider sign-ins open a browser popup, which platforms permit
-    # only during a fresh user gesture; removing that would not streamline
-    # sign-in, it would break it. Two actions of 151.
-    #
-    # What this costs, stated rather than buried: a misheard sentence now runs
-    # a `confirm_required` action directly, including submitting a phone code
-    # and starting a location share. The mitigation is elsewhere and
-    # deliberate -- destructive actions resolve exactly one named target or
-    # refuse, and ambiguity names the candidates rather than picking one.
+    # `require_tap_confirmation` controls how an already-issued confirmation
+    # is completed. It must not turn the generated `confirm_required` policy
+    # on or off: every such action needs the directive-ledger path, and
+    # governed destructive `allow_direct` actions are added to that boundary
+    # explicitly.
+    needs_confirmation = (
+        trusted_activation
+        or confirm_required
+        or action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS
+    )
     return {
-        "needsConfirmation": trusted_activation,
+        "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
     }
+
+
+# Action ids that skip the client-directive/local-handler round trip entirely
+# and mutate through the backend service layer directly, the same functions
+# the REST endpoints call. Deliberately narrow: only actions with no
+# client-only secret (no live-coordinate encryption) and no editable draft
+# state (nothing a person picks and reconsiders before confirming) belong
+# here -- see the "Backend-direct voice execution" plan for the full
+# reasoning. Extend this set action by action, not by widening the shape.
+BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("text_backend_executor")
+    and not entry["text_backend_executor"].get("required_slots")
+)
+BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("confirmation_only")
+)
+
+# Proposals parked by propose_information_request, keyed by an opaque id the
+# model hands back to consent.request. The model never sees a scope ref.
+_STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
+_STATE_INFORMATION_PERSON_CHOICES = "hussh:information_person_choices"
+_STATE_SELECTED_INFORMATION_PERSON = "hussh:selected_information_person"
+# A picker handle belongs to one incoming turn.  Keeping it under ADK's
+# temporary-state prefix prevents an old browser selection from surviving into
+# a later typed prompt while still making it available to every tool in the
+# current invocation.
+_STATE_REQUESTED_INFORMATION_PERSON = "temp:hussh:requested_person_selection"
+
+
+class InformationPersonAmbiguous(ConsentLifecycleError):
+    def __init__(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        candidates_complete: bool = True,
+    ) -> None:
+        super().__init__("PERSON_AMBIGUOUS", "Choose which person you mean before we continue.")
+        self.candidates = candidates
+        self.candidates_complete = candidates_complete
+
+
+def _information_person_error(
+    exc: ConsentLifecycleError, tool_context: ToolContext, user_id: str
+) -> dict[str, Any]:
+    status = {
+        "PERSON_AMBIGUOUS": "needs_clarification",
+        "PERSON_REQUIRED": "needs_clarification",
+        "PERSON_NOT_FOUND": "not_found",
+        "PERSON_PROFILE_NOT_READY": "unavailable",
+    }.get(exc.code, "failed")
+    result: dict[str, Any] = {"status": status, "message": exc.message}
+    if isinstance(exc, InformationPersonAmbiguous):
+        session_id = _tool_session_id(tool_context)
+        if not session_id:
+            return result
+        choices, handles = [], {}
+        for candidate in exc.candidates[:20]:
+            person_ref = str(candidate.get("publicPersonRef") or "").strip()
+            if not person_ref:
+                continue
+            handle = uuid.uuid4().hex
+            display_name = _person_display_name(candidate) or "Hussh member"
+            handles[handle] = {
+                "owner": user_id,
+                "session": session_id,
+                "personRef": person_ref,
+                "displayName": display_name,
+                "expiresAt": time.time() + 900,
+            }
+            choices.append(
+                {
+                    "selectionHandle": handle,
+                    "personRef": person_ref,
+                    "displayName": display_name,
+                    "detail": (
+                        candidate.get("maskedEmail")
+                        or candidate.get("maskedPhone")
+                        or mask_email(str(candidate.get("email") or ""))
+                    )
+                    or None,
+                    "profilePath": f"/people/{person_ref}",
+                }
+            )
+        tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = handles
+        result["candidates"] = choices
+        if not exc.candidates_complete or len(exc.candidates) > len(choices):
+            result["candidatesIncomplete"] = True
+            result["message"] = (
+                "I found more than one possible match, and I cannot safely choose from a "
+                "partial list. Narrow the name or provide an email address for the person "
+                "you mean."
+            )
+    return result
+
+
+_STATE_LAST_INFORMATION_REQUEST = "hussh:last_information_request"
+# Opaque handles for the other two ends of the lifecycle, parked by the read
+# tool that listed them and resolved in _resolved_directive_slots. Same shape
+# and same reason as the proposal handles above: a revoke needs a raw scope and
+# a cancel needs a bundle id, and neither is something the model may hold or
+# say out loud.
+_STATE_ACTIVE_GRANT_HANDLES = "hussh:active_grant_handles"
+_STATE_SENT_REQUEST_HANDLES = "hussh:sent_request_handles"
+_INFORMATION_REQUEST_DEFAULT_HOURS = 168
+_INFORMATION_REQUEST_MAX_HOURS = 720
+_INFORMATION_REQUEST_MAX_PROPOSALS = 5
+
+# Directory search shape connect.send_request's resolution mirrors exactly --
+# app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
+_DIRECTORY_RESOLVE_MAX_PAGES = 5
+_DIRECTORY_RESOLVE_PAGE_SIZE = 50
+
+
+def _stable_lifecycle_handle(prefix: str, stable_key: str) -> str:
+    """Create an opaque handle that survives list reordering.
+
+    The underlying consent identifier never reaches the model, but a
+    positional ``g1``/``r1`` handle can retarget an older utterance when the
+    service order changes between listing and mutation. A keyed digest keeps
+    the handle stable for the same lifecycle record and unguessable without
+    exposing the raw scope or bundle identifier.
+    """
+    key = get_core_security_settings().app_signing_key.encode("utf-8")
+    digest = hmac.new(
+        key,
+        f"one-consent-handle:{prefix}:{stable_key}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+    return f"{prefix}_{digest}"
+
+
+# Unlike BACKEND_DIRECT_ACTION_IDS, these two are only backend-direct when
+# the model actually named a person -- there is no backend concept of
+# "whatever's currently selected in the composer" for the frontend-driven
+# tap-then-voice hybrid flow these actions were built for. When `person` is
+# absent, _is_backend_direct() falls through to the normal directive-parking
+# path below, which still correctly uses the browser's own selection state,
+# completely unaffected.
+BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS: frozenset[str] = frozenset(
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("required_slots")
+)
+
+
+def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
+    """The one predicate every backend-direct eligibility check must share.
+
+    Used identically at all three sites that need to agree on this (the
+    available_action_ids guard exemption, the screen-reachability guard
+    exemption, and the final dispatch decision) so they can never drift out
+    of sync with each other -- exactly the failure mode this whole
+    initiative exists to eliminate.
+    """
+    if clean_id in BACKEND_DIRECT_ACTION_IDS:
+        return True
+    if clean_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
+        return all(
+            str(clean_slots.get(slot) or "").strip()
+            for slot in (get_action_gateway_action(clean_id) or {})["text_backend_executor"][
+                "required_slots"
+            ]
+        )
+    return False
+
+
+# Backend-direct errors that carry a spoken-safe .message, across the three
+# service modules these actions mutate through.
+_BackendDirectError = (
+    OneLocationCircleError,
+    OneLocationAgentError,
+    ConnectionsError,
+    NearbyPresenceError,
+    ConsentLifecycleError,
+)
+
+
+async def _verify_backend_direct_authorization(
+    tool_context: ToolContext,
+) -> tuple[bool, str, str]:
+    """Re-validate auth for a backend-direct mutation, matching the REST layer exactly.
+
+    A backend-direct action skips the browser round trip that would
+    otherwise carry a REST call through ``require_vault_owner_token`` --
+    without this, a directive-parked action would be LESS guarded than the
+    same action run by tap, because the WebSocket's own consent token
+    (``_STATE_CONSENT_TOKEN``) is stored raw and unvalidated the moment it
+    arrives (``adk_live.py``'s app_context handler only length-bounds it).
+    This re-runs the identical cryptographic check
+    (``validate_token_with_db`` against ``ConsentScope.VAULT_OWNER``,
+    including the DB-backed revocation check) the REST endpoints already
+    depend on, plus a same-user cross-check the REST layer gets for free
+    from its own auth dependency binding token to path.
+
+    Returns ``(authorized, user_id, reason)`` -- ``reason`` is a message
+    safe to hand back to the model on refusal, never the raw validation
+    error.
+    """
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        return False, "", "This action requires confirmation in the owner app."
+    session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
+    if not session_user_id:
+        return False, "", "The user is not signed in."
+    token = resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
+    if not token:
+        return False, "", "The vault is locked. Unlock it, then try again."
+    valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    if not valid or token_obj is None:
+        return (
+            False,
+            "",
+            "The vault is locked or the session has expired. Unlock it, then try again.",
+        )
+    if str(token_obj.user_id) != session_user_id:
+        # Should be structurally impossible (the token was minted for the
+        # session that sent it) -- refuse rather than assume, since silently
+        # trusting a mismatch here is exactly the class of bug this
+        # re-validation exists to catch.
+        logger.warning("backend_direct_token_user_mismatch action_user=%s", session_user_id)
+        return False, "", "The vault is locked. Unlock it, then try again."
+    return True, session_user_id, ""
+
+
+async def _run_backend_direct_action(
+    clean_id: str,
+    clean_slots: dict[str, Any],
+    tool_context: ToolContext,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    """Compatibility seam that refuses governed direct execution.
+
+    The action ids remain named for generated-contract compatibility, but
+    current mutations must use the browser directive ledger and its mounted
+    confirmation handler. This guard is retained so a future caller cannot
+    accidentally revive a direct model-to-service path.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    fingerprint = _slot_fingerprint(clean_slots)
+    if clean_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
+        # Defense in depth: these ids must be routed through a clientDirective
+        # and the ActionDirectiveStore. Never let a future caller revive the
+        # old model-writable confirmation path by invoking this helper directly.
+        logger.warning(
+            "one_adk_action_decision action=%s status=ledger_confirmation_required",
+            clean_id,
+        )
+        return {
+            "status": "blocked",
+            "message": "This action must be confirmed in the Agent One app before it can run.",
+        }
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        logger.info("one_adk_action_decision action=%s status=unauthorized", clean_id)
+        # Not recorded as a failure: an unauthorized attempt is not something
+        # retrying-with-the-same-inputs would ever fix by itself (it needs a
+        # sign-in/unlock in between), so it must not trip the "already
+        # failed, don't try again" guard the way a real execution failure
+        # should.
+        return {"status": "blocked", "message": reason}
+
+    try:
+        result_message, result_subject = await _execute_backend_direct_mutation(
+            clean_id, clean_slots, user_id, tool_context
+        )
+    except _BackendDirectError as exc:
+        record_failed_action(session_id, clean_id, fingerprint, exc.message)
+        logger.info("one_adk_action_decision action=%s status=failed reason=%s", clean_id, exc.code)
+        _park_action_result_directive(tool_context, clean_id, status="failed", message=exc.message)
+        return {"status": "failed", "message": exc.message}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        record_failed_action(session_id, clean_id, fingerprint, "unexpected_error")
+        logger.exception(
+            "one_adk_action_decision action=%s status=failed reason=unexpected", clean_id
+        )
+        failure_message = f"{label} did not go through. Try again in a moment."
+        _park_action_result_directive(
+            tool_context, clean_id, status="failed", message=failure_message
+        )
+        return {"status": "failed", "message": failure_message}
+
+    record_completed_action(session_id, clean_id, fingerprint)
+    logger.info("one_adk_action_decision action=%s status=completed backend_direct=true", clean_id)
+    _park_action_result_directive(
+        tool_context,
+        clean_id,
+        status="completed",
+        message=result_message,
+        subject=result_subject,
+    )
+    return {
+        "status": "completed",
+        "message": result_message,
+    }
+
+
+def _park_action_result_directive(
+    tool_context: ToolContext,
+    action_id: str,
+    *,
+    status: Literal["completed", "failed"],
+    message: str,
+    subject: dict[str, str] | None = None,
+) -> None:
+    """Give a backend-direct mutation the same on-screen visibility any other
+    action already gets, without a browser round trip.
+
+    A BACKEND_DIRECT_ACTION_IDS mutation already knows its true outcome by
+    the time this runs -- there is nothing for the browser to execute or
+    settle back, unlike a `kind: "action"` directive. This rides the exact
+    same turn-boundary `hussh:pending_directive` -> `clientDirective`
+    delivery every other directive already uses (adk_live.py), just a kind
+    the browser renders as an already-terminal step instead of dispatching
+    to a local handler. adk_live.py's settlement-tracking/GC bookkeeping
+    must treat this kind as never awaiting a settlement -- there is nothing
+    for the browser to report back.
+
+    ``subject`` names who the action was about (a resolved person's display
+    name, already joined for speech the same way the spoken message was) so
+    the action-result card can show a name, not just the message text.
+    ``None`` for actions that never named a specific person -- the card
+    still renders, just without a name line.
+    """
+    payload: dict[str, Any] = {"actionId": action_id, "status": status, "message": message}
+    if subject is not None:
+        payload["subject"] = subject
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"] = {
+        "kind": "action_result",
+        "payload": payload,
+    }
+
+
+def _park_publish_location_envelopes_directive(
+    tool_context: ToolContext, shares: list[dict[str, str]]
+) -> None:
+    """Ask the browser to encrypt-and-publish the live coordinate for grants
+    location.share_selected just created backend-direct.
+
+    Coordinates must never reach the backend in plaintext -- this is the one
+    step a backend-direct mutation cannot do itself. Deliberately a NEW kind,
+    not the `kind: "action"` + delegateAgentId: "agent_location" shape the
+    older text-chat specialist pathway already uses for the same underlying
+    work (runLocationDirective's publish_share branch): reusing that shape
+    here would pull this into adk_live.py's issue()/settlement/GC
+    bookkeeping, which only ever applies to `kind == "action"` -- there is
+    nothing for the browser to settle back for this one, the grant already
+    exists. Payload carries only grantId/recipientKeyId/label per share,
+    never a public key: runLocationDirective already refuses to trust one
+    from a directive and re-reads it from server state itself.
+    """
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"] = {
+        "kind": "publish_location_envelopes",
+        "payload": {"shares": shares},
+    }
+
+
+def _parse_share_duration(value: Any) -> tuple[float | None, str]:
+    """A spoken/slot share duration -> (duration_hours, duration_mode).
+
+    "until_stopped" is the one non-numeric value SHARE_VOICE_DURATION_VALUES
+    (page.tsx) accepts -- everything else goes through the same authoritative
+    normalize_duration_hours() create_grant itself is built on, rather than
+    re-deriving the frontend's own silent clamp.
+    """
+    raw = str(value or "").strip()
+    if raw == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE:
+        return None, UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    try:
+        return normalize_duration_hours(raw), TIMED_LOCATION_SHARE_DURATION_MODE
+    except ValueError as exc:
+        raise OneLocationAgentError("LOCATION_SHARE_DURATION_INVALID", str(exc)) from exc
+
+
+def _resolve_named_circle(
+    circle_service: OneLocationCircleService, user_id: str, spoken: str
+) -> dict[str, Any]:
+    """Resolve a spoken circle name against this user's circles, or raise.
+
+    Shared by every backend-direct action that names an existing circle
+    (leave/delete/add-to/rename) so "which circle did you mean" reads the
+    same way regardless of which of them asked.
+    """
+    circles: list[dict[str, Any]] = circle_service.list_circles(user_id=user_id)
+    match = match_circle_by_name(circles, spoken, lambda c: str(c.get("name") or ""))
+    if match.match is None and match.ambiguous:
+        names = ", ".join(str(c.get("name") or "") for c in match.ambiguous[:4])
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_AMBIGUOUS",
+            f"More than one circle matches that: {names}. Say which one.",
+        )
+    resolved: dict[str, Any] | None = match.match
+    if resolved is None:
+        available = ", ".join(str(c.get("name") or "") for c in circles[:6])
+        message = (
+            f"You do not have a circle by that name. Your circles are: {available}."
+            if available
+            else "You do not have any circles yet."
+        )
+        raise OneLocationCircleError("LOCATION_CIRCLE_NOT_FOUND", message)
+    return resolved
+
+
+def _expand_unresolved_via_circles(
+    unresolved: list[UnresolvedPersonName[Any]],
+    candidates: list[dict[str, Any]],
+    circle_service: OneLocationCircleService,
+    user_id: str,
+) -> tuple[list[dict[str, Any]], list[UnresolvedPersonName[Any]]]:
+    """Let a share/request recipient name also be a Circle name.
+
+    ``location.share_selected`` and ``location.send_request`` resolve
+    recipients only against individual connections -- a spoken name that
+    matches no person falls through here to try the user's Circles instead.
+    A Circle match expands to its members, intersected with ``candidates``
+    (the already-eligibility-checked recipient pool ``list_verified_recipients``
+    returned) rather than the Circle's raw roster, so this can never grant
+    access to someone the existing connection/Circle-membership predicate
+    would not already have offered by name.
+
+    Only entries still unresolved after person-matching are tried here, and
+    only ``not_found`` ones -- an ``ambiguous`` person match is a real
+    person-name collision and saying the same word also names a Circle would
+    not resolve it.
+    """
+    circles: list[dict[str, Any]] | None = None
+    expanded: list[dict[str, Any]] = []
+    still_unresolved: list[UnresolvedPersonName[Any]] = []
+    seen_user_ids: set[str] = set()
+    for entry in unresolved:
+        if entry.kind != "not_found":
+            still_unresolved.append(entry)
+            continue
+        if circles is None:
+            circles = circle_service.list_circles(user_id=user_id)
+        match = match_circle_by_name(circles, entry.spoken_text, lambda c: str(c.get("name") or ""))
+        if match.match is None:
+            still_unresolved.append(entry)
+            continue
+        circle_id = str(match.match.get("id") or "")
+        detail = circle_service.get_circle(user_id=user_id, circle_id=circle_id)
+        member_ids = {str(m.get("userId") or "") for m in (detail.get("members") or [])}
+        for candidate in candidates:
+            candidate_id = str(candidate.get("userId") or "")
+            if candidate_id in member_ids and candidate_id not in seen_user_ids:
+                expanded.append(candidate)
+                seen_user_ids.add(candidate_id)
+        if not any(str(c.get("userId") or "") in member_ids for c in candidates):
+            # The Circle exists but nobody in it is an eligible recipient --
+            # same "not found" outcome a person search would have given, not
+            # a new error, since raising a Circle-specific message here would
+            # imply the Circle itself was the problem rather than who is in it.
+            still_unresolved.append(entry)
+    return expanded, still_unresolved
+
+
+def _unresolved_people_note(
+    unresolved: list[UnresolvedPersonName[Any]], name_of: Callable[[Any], str], noun: str
+) -> str:
+    """One trailing sentence naming what a multi-person resolution left out.
+
+    Empty string when everyone named resolved. Shared by every backend-direct
+    action that now accepts more than one person in a turn -- silently
+    dropping "Bob" from "stop sharing with Sarah and Bob" without saying so
+    would leave the person thinking Bob was included.
+    """
+    if not unresolved:
+        return ""
+    parts: list[str] = []
+    for entry in unresolved:
+        if entry.kind == "ambiguous":
+            names = ambiguous_match_names(entry.matches, name_of)
+            parts.append(f'more than one match for "{entry.spoken_text}" ({names})')
+        else:
+            parts.append(f'no {noun} for "{entry.spoken_text}"')
+    return " Could not do this for: " + "; ".join(parts) + "."
+
+
+def _partial_failure_note(failed_names: list[str]) -> str:
+    """One trailing sentence naming who a resolved mutation failed for.
+
+    Distinct from _unresolved_people_note: those people never had a real
+    target to act on. These did -- the attempt itself failed partway (a
+    transient service error, a stale key, a race with something else that
+    changed their state) -- so they need a different sentence, one that
+    says try again rather than one that reads like they were never found.
+    """
+    if not failed_names:
+        return ""
+    return f" Could not complete this for {join_names_for_speech(failed_names)} -- try again."
+
+
+def _parse_positive_hours(value: Any, *, default: float) -> float:
+    """A spoken/slot duration, or a safe default when absent or nonsense.
+
+    location.send_request has no established voice-side duration floor/accept
+    set the way location.share_selected's does (SHARE_VOICE_DURATION_VALUES) --
+    deliberately not inventing one here; this only guards against a missing or
+    malformed value, matching the frontend's own plain default (page.tsx's
+    durationHours state starts at "1").
+    """
+    try:
+        hours = float(str(value))
+    except (TypeError, ValueError):
+        return default
+    return hours if hours > 0 else default
+
+
+async def _execute_backend_direct_mutation(
+    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
+) -> tuple[str, dict[str, str] | None]:
+    """Resolve slots and call the real service function. Raises on failure.
+
+    Returns the sentence the model should say -- computed here, server-side,
+    rather than left generic, for the same reason ``_proposal_summary`` in
+    the Calendar service composes its own sentence: this is the one place
+    that knows exactly what happened -- alongside an optional subject naming
+    who the action was about, for the browser's action-result card. ``None``
+    for the three circle-only branches, which name a circle, not a person.
+
+    ``tool_context`` is only used by location.share_selected, to park the
+    ``publish_location_envelopes`` directive alongside the mutation -- every
+    other branch ignores it.
+    """
+    if action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
+        # This compatibility seam is intentionally not executable for any
+        # currently governed mutation. A direct caller must fail closed just
+        # like run_app_action, which constructs the ledger-backed directive.
+        raise AssertionError(f"{action_id} must be executed through the directive ledger")
+
+    if action_id in ("location.leave_circle", "location.delete_circle"):
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_name = str(matched.get("name") or "this circle")
+        circle_id = str(matched.get("id") or "")
+        if action_id == "location.leave_circle":
+            circle_service.leave_circle(user_id=user_id, circle_id=circle_id)
+            return f"Left {circle_name}.", None
+        circle_service.delete_circle(owner_user_id=user_id, circle_id=circle_id)
+        return f"Deleted {circle_name}.", None
+
+    if action_id == "location.create_circle":
+        circle_service = OneLocationCircleService()
+        spoken_name = str(slots.get("name") or "").strip()
+        spoken_kind = str(slots.get("kind") or "").strip().lower()
+        kind = spoken_kind if spoken_kind in ("family", "friends") else "other"
+        # Exact name only, matching the browser handler: a near match must
+        # still create the circle that was asked for, not silently reuse an
+        # existing one that merely sounds similar.
+        existing = circle_service.list_circles(user_id=user_id)
+        duplicate = next(
+            (
+                c
+                for c in existing
+                if normalize_spoken_name(str(c.get("name") or ""))
+                == normalize_spoken_name(spoken_name)
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return (
+                f"You already have a circle called {duplicate.get('name') or spoken_name}.",
+                None,
+            )
+        created = circle_service.create_circle(owner_user_id=user_id, name=spoken_name, kind=kind)
+        created_name = str(created.get("name") or spoken_name)
+        return f"Created the circle {created_name}. Nobody is in it yet -- say who to add.", None
+
+    if action_id == "location.rename_circle":
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        spoken_name = str(slots.get("name") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_id = str(matched.get("id") or "")
+        old_name = str(matched.get("name") or "this circle")
+        if normalize_spoken_name(old_name) == normalize_spoken_name(spoken_name):
+            return f"{old_name} is already called that.", None
+        existing = circle_service.list_circles(user_id=user_id)
+        duplicate = next(
+            (
+                c
+                for c in existing
+                if str(c.get("id") or "") != circle_id
+                and normalize_spoken_name(str(c.get("name") or ""))
+                == normalize_spoken_name(spoken_name)
+            ),
+            None,
+        )
+        if duplicate is not None:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_NAME_TAKEN",
+                f"You already have a circle called {duplicate.get('name') or spoken_name}. "
+                "Pick a different name.",
+            )
+        renamed = circle_service.update_circle(
+            owner_user_id=user_id, circle_id=circle_id, name=spoken_name
+        )
+        return f"Renamed {old_name} to {renamed.get('name') or spoken_name}.", None
+
+    if action_id == "location.add_to_circle":
+        circle_service = OneLocationCircleService()
+        spoken_circle = str(slots.get("circle") or "").strip()
+        matched = _resolve_named_circle(circle_service, user_id, spoken_circle)
+        circle_id = str(matched.get("id") or "")
+        circle_name = str(matched.get("name") or "this circle")
+        raw_people = str(slots.get("person") or "").strip()
+        if not raw_people:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_BATCH_INVALID", "Say who you want to add to the circle."
+            )
+        eligible = circle_service.list_eligible_direct_connections(
+            actor_user_id=user_id, circle_id=circle_id
+        )
+        resolution = resolve_spoken_names(
+            eligible, raw_people, lambda c: str(c.get("displayName") or "")
+        )
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ", ".join(str(c.get("displayName") or "") for c in ambiguous.matches[:4])
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_INVITE_AMBIGUOUS",
+                    f"More than one person matches that name: {names}. Say which one.",
+                )
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_NOT_FOUND",
+                f"Nobody who can be added to {circle_name} matches that name. "
+                "They have to be connected to you and not already in it.",
+            )
+        added = circle_service.create_member_invites(
+            actor_user_id=user_id,
+            circle_id=circle_id,
+            invitee_user_ids=[str(c.get("userId") or "") for c in resolution.resolved],
+        )
+        added_names = [
+            str(c.get("displayName") or "")
+            for c in resolution.resolved
+            if str(c.get("userId") or "") in set(added.get("addedUserIds") or [])
+        ]
+        if not added_names:
+            added_names = [str(c.get("displayName") or "") for c in resolution.resolved]
+        return (
+            f"Added {join_names_for_speech(added_names)} to {circle_name}.",
+            {"name": join_names_for_speech(added_names)},
+        )
+
+    if action_id in ("location.stop_share", "location.approve_request", "location.decline_request"):
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        if action_id == "location.stop_share":
+            candidates = agent_service.list_active_owner_grants(owner_user_id=user_id)
+            name_of = lambda g: str(g.get("recipientDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(candidates, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise OneLocationAgentError(
+                        "LOCATION_GRANT_AMBIGUOUS",
+                        f'More than one active share matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_NOT_FOUND",
+                    "Nobody currently has your location shared with that name.",
+                )
+            stopped_names: list[str] = []
+            failed_names: list[str] = []
+            for grant in resolution.resolved:
+                grant_name = str(grant.get("recipientDisplayName") or "them")
+                try:
+                    agent_service.revoke_grant(
+                        owner_user_id=user_id, grant_id=str(grant.get("id") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                    failed_names.append(grant_name)
+                    continue
+                stopped_names.append(grant_name)
+            if not stopped_names:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_STOP_FAILED",
+                    f"Could not stop sharing with {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
+                )
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "active share"
+            ) + _partial_failure_note(failed_names)
+            return (
+                f"Stopped sharing your location with {join_names_for_speech(stopped_names)}.{note}",
+                {"name": join_names_for_speech(stopped_names)},
+            )
+
+        candidates = agent_service.list_pending_owner_requests(owner_user_id=user_id)
+        name_of = lambda r: str(r.get("requesterDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_AMBIGUOUS",
+                    f'More than one request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND", "Nobody is waiting on your decision with that name."
+            )
+        settled_names: list[str] = []
+        failed_names = []
+        for request in resolution.resolved:
+            request_name = str(request.get("requesterDisplayName") or "their")
+            request_id = str(request.get("id") or "")
+            try:
+                if action_id == "location.approve_request":
+                    agent_service.approve_request(
+                        owner_user_id=user_id,
+                        request_id=request_id,
+                        approval_mode="manual",
+                        duration_hours=None,
+                        duration_mode=None,
+                    )
+                else:
+                    agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(request_name)
+                continue
+            settled_names.append(request_name)
+        verb = "Approved" if action_id == "location.approve_request" else "Declined"
+        if not settled_names:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_SETTLE_FAILED",
+                f"Could not settle {join_names_for_speech(failed_names)}'s request. "
+                "Try again in a moment.",
+            )
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "request"
+        ) + _partial_failure_note(failed_names)
+        return (
+            f"{verb} {join_names_for_speech(settled_names)}'s request.{note}",
+            {"name": join_names_for_speech(settled_names)},
+        )
+
+    if action_id == "location.share_selected":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        expanded, resolution.unresolved = _expand_unresolved_via_circles(
+            resolution.unresolved, candidates, OneLocationCircleService(), user_id
+        )
+        resolution.resolved.extend(expanded)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_SHARE_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_SHARE_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours, duration_mode = _parse_share_duration(slots.get("duration_hours"))
+        shared_names: list[str] = []
+        shares: list[dict[str, str]] = []
+        failed_names = []
+        for recipient in resolution.resolved:
+            recipient_name = str(recipient.get("displayName") or "them")
+            try:
+                grant = agent_service.create_grant(
+                    owner_user_id=user_id,
+                    recipient_user_id=str(recipient.get("userId") or ""),
+                    recipient_key_id=(str(recipient.get("keyId") or "") or None),
+                    duration_hours=duration_hours,
+                    duration_mode=duration_mode,
+                    # The recipient directory already proved an active One
+                    # connection and Location key. A phone claim belongs only
+                    # to the emergency SMS lane, not this ordinary share.
+                    require_recipient_phone_verified=False,
+                    enforce_connection=True,
+                )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                # A recipient refused mid-batch (a stale key, a transient DB
+                # error, ...) must never cost the recipients before them
+                # their already-created grant, and must never leave a grant
+                # that DID get created here without its publish directive --
+                # both loop bodies below run only over what actually
+                # succeeded, never over the raw resolved list.
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(recipient_name)
+                continue
+            shared_names.append(recipient_name)
+            # No public key in this payload -- runLocationDirective re-reads
+            # it from server state itself rather than trusting a directive a
+            # model produced. Grants with no key yet still publish nothing
+            # (runLocationDirective's own "hasn't set up location sharing
+            # yet" refusal already covers that gap) -- unaffected here.
+            shares.append(
+                {
+                    "grantId": str(grant.get("id") or ""),
+                    "recipientKeyId": str(recipient.get("keyId") or ""),
+                    "recipientUserId": str(recipient.get("userId") or ""),
+                    "label": recipient_name,
+                }
+            )
+        if not shared_names:
+            raise OneLocationAgentError(
+                "LOCATION_SHARE_FAILED",
+                f"Could not share your location with {join_names_for_speech(failed_names)}. "
+                "Try again in a moment.",
+            )
+        # Fires for whatever grants DID get created, even when a later
+        # recipient in the same batch failed -- an already-created grant
+        # with no publish directive is a recipient permanently stuck on
+        # "waiting for location," which is worse than the grant not
+        # existing at all.
+        _park_publish_location_envelopes_directive(tool_context, shares)
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "connection"
+        ) + _partial_failure_note(failed_names)
+        # Reports success as soon as the grant exists -- the client-side
+        # encrypt-and-publish step this directive triggers is real async work
+        # a backend-direct call cannot await. If it later fails, the grant
+        # still exists (recipient sees "waiting for location"), which is
+        # already today's product state for that gap, not a new one.
+        return (
+            f"Shared your location with {join_names_for_speech(shared_names)}.{note}",
+            {"name": join_names_for_speech(shared_names)},
+        )
+
+    if action_id == "location.send_request":
+        agent_service = OneLocationAgentService()
+        raw_people = str(slots.get("person") or "").strip()
+        # Same pool share_selected resolves recipients against -- the
+        # browser's own select_ask_recipient handler asks and shares from
+        # "the identical pool of people" (page.tsx's own comment), so voice
+        # answers the same question the same way regardless of direction.
+        candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
+        name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        expanded, resolution.unresolved = _expand_unresolved_via_circles(
+            resolution.unresolved, candidates, OneLocationCircleService(), user_id
+        )
+        resolution.resolved.extend(expanded)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_TARGET_AMBIGUOUS",
+                    f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_TARGET_NOT_FOUND",
+                f"{raw_people or 'That person'} is not one of your connections.",
+            )
+        duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
+        asked_names: list[str] = []
+        failed_names = []
+        for target in resolution.resolved:
+            target_name = str(target.get("displayName") or "them")
+            try:
+                agent_service.request_access(
+                    requester_user_id=user_id,
+                    owner_user_id=str(target.get("userId") or ""),
+                    requested_duration_hours=duration_hours,
+                    requested_duration_mode="timed",
+                )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(target_name)
+                continue
+            asked_names.append(target_name)
+        if not asked_names:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_SEND_FAILED",
+                f"Could not ask {join_names_for_speech(failed_names)} for their location. "
+                "Try again in a moment.",
+            )
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "connection"
+        ) + _partial_failure_note(failed_names)
+        return (
+            f"Asked {join_names_for_speech(asked_names)} for their location.{note}",
+            {"name": join_names_for_speech(asked_names)},
+        )
+
+    if action_id in (
+        "connect.remove_connection",
+        "connect.cancel_request",
+        "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
+    ):
+        connections_service = ConnectionsService()
+        raw_people = str(slots.get("person") or "").strip()
+        if action_id == "connect.send_request":
+            if not raw_people:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_PERSON_REQUIRED", "Say who you want to connect with."
+                )
+
+            def _directory_name(c: dict[str, Any]) -> str:
+                return str(c.get("displayName") or "")
+
+            # Voice never chose scopes for a request before -- the tap flow's
+            # own dialog is where that choice normally lives, and skipping it
+            # must never be silent. This is the one opt-in exception: reuse
+            # exactly what THIS recipient was already asked/offered last time,
+            # never a guess extrapolated from someone else or a first request.
+            # Read lazily, once, only if a request actually reaches the point
+            # of being created -- every earlier outcome (ambiguous, not
+            # found, already connected) never needs this preference at all.
+            reuse_last_scopes: bool | None = None
+
+            def _reuse_last_scopes() -> bool:
+                nonlocal reuse_last_scopes
+                if reuse_last_scopes is None:
+                    reuse_last_scopes = bool(
+                        connections_service.get_voice_preferences(user_id=user_id).get(
+                            "shareScopesFromLastRequest"
+                        )
+                    )
+                return reuse_last_scopes
+
+            sent_names: list[str] = []
+            already_connected_names: list[str] = []
+            blocked_notes: list[str] = []
+            not_found_names: list[str] = []
+            ambiguous_entry: tuple[str, list[dict[str, Any]]] | None = None
+
+            for spoken_name in split_spoken_names(raw_people):
+                search_term = max(spoken_name.split() or [spoken_name], key=len)
+                directory_candidates: list[dict[str, Any]] = []
+                page = 1
+                while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+                    result = connections_service.search_directory(
+                        user_id,
+                        query=search_term,
+                        page=page,
+                        limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+                        name_only=True,
+                    )
+                    directory_candidates.extend(result.get("items") or [])
+                    if not result.get("hasMore"):
+                        break
+                    page += 1
+                matches = match_by_name(directory_candidates, spoken_name, _directory_name)
+                if not matches:
+                    not_found_names.append(spoken_name)
+                    continue
+                if len(matches) > 1:
+                    if ambiguous_entry is None:
+                        ambiguous_entry = (spoken_name, matches)
+                    continue
+                person = matches[0]
+                display_name = _directory_name(person) or spoken_name
+                relationship = str(person.get("relationship") or "none")
+                # The backend already distinguishes these four states; asking
+                # to connect with someone already connected is success (the
+                # thing they wanted is already true), not a refusal.
+                if relationship == "connected":
+                    already_connected_names.append(display_name)
+                elif relationship == "pending_outgoing":
+                    blocked_notes.append(f"already asked {display_name}, waiting on them")
+                elif relationship == "pending_incoming":
+                    blocked_notes.append(
+                        f"{display_name} already asked you -- call connect.accept_request "
+                        "for them instead, once the person confirms"
+                    )
+                elif relationship != "none":
+                    blocked_notes.append(f"a new request isn't available for {display_name}")
+                else:
+                    addressee_user_id = str(person.get("userId") or "")
+                    requested_scope_handles: list[str] | None = None
+                    offered_scope_handles: list[str] | None = None
+                    if _reuse_last_scopes():
+                        last_scopes = connections_service.get_last_request_scope_handles(
+                            requester_user_id=user_id,
+                            addressee_user_id=addressee_user_id,
+                        )
+                        requested_scope_handles = last_scopes["requestedScopeHandles"] or None
+                        offered_scope_handles = last_scopes["offeredScopeHandles"] or None
+                    try:
+                        connections_service.create_request(
+                            user_id,
+                            addressee_user_id=addressee_user_id,
+                            requested_scope_handles=requested_scope_handles,
+                            offered_scope_handles=offered_scope_handles,
+                        )
+                    except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                        # A transient failure sending to person 2 of 3 must
+                        # never abort the loop and lose whatever already
+                        # sent to person 1 -- the same reasoning every other
+                        # multi-person branch in this function follows.
+                        logger.exception(
+                            "one_adk_backend_direct_partial_failure action=%s", action_id
+                        )
+                        blocked_notes.append(f"could not send to {display_name}, try again")
+                        continue
+                    sent_names.append(display_name)
+
+            if not sent_names and not already_connected_names:
+                if ambiguous_entry is not None:
+                    spoken_name, matches = ambiguous_entry
+                    names = ambiguous_match_names(matches, _directory_name)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one person matches "{spoken_name}": {names}. Say which one.',
+                    )
+                if blocked_notes:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_BLOCKED", "; ".join(blocked_notes).capitalize() + "."
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"I could not find {join_names_for_speech(not_found_names) or 'that person'} "
+                    "in Connect.",
+                )
+
+            parts: list[str] = []
+            if sent_names:
+                parts.append(f"Sent a connection request to {join_names_for_speech(sent_names)}.")
+            if already_connected_names:
+                parts.append(
+                    f"Already connected to {join_names_for_speech(already_connected_names)}, "
+                    "so nothing to send there."
+                )
+            extra = list(blocked_notes)
+            if not_found_names:
+                extra.append(f"could not find {join_names_for_speech(not_found_names)}")
+            if ambiguous_entry is not None:
+                spoken_name, matches = ambiguous_entry
+                names = ambiguous_match_names(matches, _directory_name)
+                extra.append(f'more than one match for "{spoken_name}" ({names})')
+            if extra:
+                parts.append("Also: " + "; ".join(extra) + ".")
+            # sent_names/already_connected_names cannot both be empty here --
+            # the earlier guard already raised if neither had anything in it.
+            subject_names = sent_names + already_connected_names
+            return " ".join(parts), {"name": join_names_for_speech(subject_names)}
+
+        if action_id == "connect.remove_connection":
+            connections = connections_service.list_connections(user_id=user_id)
+            name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(connections, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_AMBIGUOUS",
+                        f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_NOT_FOUND",
+                    f"{raw_people or 'That person'} is not one of your connections.",
+                )
+            removed_names: list[str] = []
+            failed_names = []
+            for connection in resolution.resolved:
+                connection_name = str(connection.get("displayName") or "this person")
+                try:
+                    connections_service.remove_connection(
+                        user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                    failed_names.append(connection_name)
+                    continue
+                removed_names.append(connection_name)
+            if not removed_names:
+                raise ConnectionsError(
+                    "CONNECTION_REMOVE_FAILED",
+                    f"Could not remove {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
+                )
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "connection"
+            ) + _partial_failure_note(failed_names)
+            return (
+                f"Removed {join_names_for_speech(removed_names)}. They can no longer be picked "
+                f"for location sharing.{note}",
+                {"name": join_names_for_speech(removed_names)},
+            )
+
+        if action_id == "connect.cancel_request":
+            # cancel_request's real target is the pending CONNECTION REQUEST,
+            # not the connection graph -- but ConnectionsService.cancel_request()
+            # already accepts the counterpart's user id as a fallback when no
+            # request id resolves, so matching against connections here would
+            # silently answer the wrong question (only settled connections,
+            # never pending outgoing asks). List outgoing requests instead.
+            outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
+            name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one pending request matches "{ambiguous.spoken_text}": '
+                        f"{names}. Say which one.",
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"You have no pending request to {raw_people or 'that person'}.",
+                )
+            cancelled_names: list[str] = []
+            failed_names = []
+            for request in resolution.resolved:
+                request_name = str(request.get("counterpartDisplayName") or "that person")
+                try:
+                    connections_service.cancel_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                    failed_names.append(request_name)
+                    continue
+                cancelled_names.append(request_name)
+            if not cancelled_names:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_CANCEL_FAILED",
+                    f"Could not cancel your request to {join_names_for_speech(failed_names)}. "
+                    "Try again in a moment.",
+                )
+            note = _unresolved_people_note(
+                resolution.unresolved, name_of, "pending request"
+            ) + _partial_failure_note(failed_names)
+            return (
+                f"Cancelled your connection request to "
+                f"{join_names_for_speech(cancelled_names)}.{note}",
+                {"name": join_names_for_speech(cancelled_names)},
+            )
+
+        # connect.accept_request / connect.reject_request: the pending
+        # request lives in the INCOMING direction from this user's side --
+        # the same reasoning as cancel_request's own comment above applies
+        # here too, matching against settled connections would silently
+        # answer the wrong question for a request that has not been
+        # accepted yet.
+        incoming = connections_service.list_requests(user_id=user_id, direction="incoming")
+        name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(incoming, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_AMBIGUOUS",
+                    f'More than one pending request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_NOT_FOUND",
+                f"You have no pending request from {raw_people or 'that person'}.",
+            )
+        settled_names = []
+        failed_names = []
+        for request in resolution.resolved:
+            request_name = str(request.get("counterpartDisplayName") or "that person")
+            try:
+                if action_id == "connect.accept_request":
+                    # No scope selection here -- voice never chose one, the
+                    # same reasoning send_request's own scope-reuse toggle
+                    # documents. accept_request already accepts None for
+                    # both and settles with none selected either way.
+                    connections_service.accept_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+                else:
+                    connections_service.reject_request(
+                        user_id=user_id, request_id=str(request.get("id") or "")
+                    )
+            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
+                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+                failed_names.append(request_name)
+                continue
+            settled_names.append(request_name)
+        if not settled_names:
+            verb = "accept" if action_id == "connect.accept_request" else "decline"
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_RESOLVE_FAILED",
+                f"Could not {verb} the request from {join_names_for_speech(failed_names)}. "
+                "Try again in a moment.",
+            )
+        note = _unresolved_people_note(
+            resolution.unresolved, name_of, "pending request"
+        ) + _partial_failure_note(failed_names)
+        if action_id == "connect.accept_request":
+            message = (
+                f"Accepted {join_names_for_speech(settled_names)}'s connection request. "
+                f"You're connected now.{note}"
+            )
+        else:
+            message = f"Declined {join_names_for_speech(settled_names)}'s connection request.{note}"
+        return message, {"name": join_names_for_speech(settled_names)}
+
+    if action_id == "location.checkout_nearby":
+        # No coordinates, no place, nothing client-only -- checking out only
+        # ever clears the caller's own presence row. No subject: this action
+        # never names a person or a place.
+        OneLocationNearbyPresenceService().checkout(user_id=user_id)
+        return "Checked you out. You're no longer visible to people nearby.", None
+
+    raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
+
+
+async def _read_tool_result(label: str, key: str, call: Callable[[], Any]) -> dict[str, Any]:
+    """Run a read tool's service call and shape the result the same way every
+    read tool already does: ``{"status": "ok", <key>: <value>}`` on success,
+    or the same clean failed-status dict ``_run_backend_direct_action``
+    already gives every mutation, on a raised error.
+
+    A DB hiccup (or any other unexpected exception) escaping a tool call
+    crashes the whole live session outright -- Gemini Live's tool-response
+    serialization has no error boundary of its own around a raised Python
+    exception, so one escaping here is indistinguishable, from the model's
+    side, from the process dying mid-turn. ``call`` is a zero-arg wrapper
+    around the actual (synchronous) service call.
+    """
+    try:
+        value = call()
+    except _BackendDirectError as exc:
+        logger.info("one_adk_read_tool_failed label=%s reason=%s", label, exc.code)
+        return {"status": "failed", "message": exc.message}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    return {"status": "ok", key: value}
+
+
+async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dict[str, Any] | None]:
+    """Shared auth gate for the backend-direct read tools below.
+
+    Same re-validated check the backend-direct mutations use
+    (``_verify_backend_direct_authorization``) -- these tools return
+    consent-scoped personal and location data, so they get the real
+    VAULT_OWNER re-validation, not a lighter signed-in-only check.
+    """
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        return None, {"status": "blocked", "message": reason}
+    return user_id, None
+
+
+def _publish_tool_trace(
+    tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
+) -> None:
+    """Park a read tool's display-safe result for the relay to forward to the
+    browser alongside the spoken answer, so the app can render a card in sync
+    with the readout (#6434).
+
+    Only ever park what is already safe to speak -- never the raw service
+    result. Optional: a read tool that returns nothing worth a visual (an
+    empty list, no data yet) should simply not call this, not call it with an
+    empty payload.
+    """
+    tool_context.state[f"{_STATE_PENDING_TOOL_TRACE}:{tool_name}"] = {
+        "kind": kind,
+        "payload": payload,
+    }
+
+
+def _trace_list_rows(
+    rows: list[dict[str, Any]],
+    *,
+    id_key: str,
+    name_key: str,
+    photo_key: str | None = None,
+    detail_fn: Callable[[dict[str, Any]], str | None] | None = None,
+) -> list[dict[str, Any]]:
+    """Reduce a raw service row list to the card-safe {id, name, detail,
+    photoUrl} shape every list-shaped voice card renders -- never the raw
+    row (key material, capability scopes, unmasked contact info, etc). A row
+    with no usable id is dropped rather than shown with a broken React key.
+    """
+    items = [
+        {
+            "id": str(row.get(id_key) or ""),
+            "name": str(row.get(name_key) or "").strip() or "Hussh member",
+            "detail": detail_fn(row) if detail_fn else None,
+            "photoUrl": (str(row.get(photo_key)) if photo_key and row.get(photo_key) else None),
+        }
+        for row in rows
+    ]
+    return [item for item in items if item["id"]]
+
+
+def _publish_list_trace(
+    tool_context: ToolContext,
+    tool_name: str,
+    *,
+    kind: Literal["people_list", "circles_list"],
+    heading: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """`_publish_tool_trace`, specialized for the list-shaped card -- parks
+    nothing when there is nothing to show (an empty list is not a card).
+    """
+    if not items:
+        return
+    _publish_tool_trace(
+        tool_context, tool_name, kind=kind, payload={"heading": heading, "items": items}
+    )
+
+
+async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's own Location circles: name, kind, and role in each.
+
+    Reads live from the backend, not from whatever the current screen has
+    published -- safe to call from anywhere, any time.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your circles", "circles", lambda: OneLocationCircleService().list_circles(user_id=user_id)
+    )
+    if result.get("status") == "ok":
+
+        def _circle_detail(row: dict[str, Any]) -> str:
+            count = int(row.get("memberCount") or 0)
+            noun = "member" if count == 1 else "members"
+            role = str(row.get("role") or "member").capitalize()
+            return f"{count} {noun} · {role}"
+
+        items = _trace_list_rows(
+            result.get("circles") or [], id_key="id", name_key="name", detail_fn=_circle_detail
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_circles",
+            kind="circles_list",
+            heading="Your circles",
+            items=items,
+        )
+    return result
+
+
+async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
+    """List who the person is currently sharing their live location with."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your location shares",
+        "shares",
+        lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
+    )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="recipientUserId",
+            name_key="recipientDisplayName",
+            photo_key="recipientPhotoUrl",
+            detail_fn=lambda row: row.get("recipientMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_shares",
+            kind="people_list",
+            heading="Sharing your location with",
+            items=items,
+        )
+    return result
+
+
+async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
+    """List who is currently sharing their live location with this person."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "who's sharing with you",
+        "shares",
+        lambda: OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id),
+    )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_location_shared_with_me",
+            kind="people_list",
+            heading="Sharing their location with you",
+            items=items,
+        )
+    return result
+
+
+async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List location access requests waiting on this person's approve/decline."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your pending location requests",
+        "requests",
+        lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
+    )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="requesterUserId",
+            name_key="requesterDisplayName",
+            photo_key="requesterPhotoUrl",
+            detail_fn=lambda row: row.get("requesterMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_location_requests",
+            kind="people_list",
+            heading="Location requests waiting on you",
+            items=items,
+        )
+    return result
+
+
+def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce a raw connections row list to the card-safe fields -- the same
+    name+masked-email shape disambiguation candidates already show over
+    voice, never the raw row (public key material, unmasked email, etc).
+    """
+    people = []
+    for row in connections:
+        email = row.get("email")
+        people.append(
+            {
+                "id": str(row.get("connectionId") or row.get("userId") or ""),
+                "name": str(row.get("displayName") or "").strip() or "Hussh member",
+                "detail": mask_email(str(email)) if email else None,
+                "photoUrl": row.get("photoUrl") or None,
+            }
+        )
+    return [p for p in people if p["id"]]
+
+
+async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's Connect connections."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your connections",
+        "connections",
+        lambda: ConnectionsService().list_connections(user_id=user_id),
+    )
+    if result.get("status") == "ok":
+        people = _connections_trace_people(result.get("connections") or [])
+        _publish_list_trace(
+            tool_context,
+            "list_my_connections",
+            kind="people_list",
+            heading="Your connections",
+            items=people,
+        )
+    return result
+
+
+# Domains this tool will never read back over voice, even though they are
+# real PKM domains: runtime_secrets is BYOK model credential material, not
+# personal information -- there is no phrasing of "what do you know about my
+# X" that should ever resolve to it. Kept separate from the general domain
+# registry rather than filtered ad hoc, so a new sensitive domain has one
+# obvious place to be added.
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+
+_PKM_READABLE_DOMAIN_KEYS = tuple(
+    entry.domain_key
+    for entry in CANONICAL_DOMAIN_REGISTRY
+    if entry.domain_key not in _VOICE_UNREADABLE_PKM_DOMAINS
+)
+
+
+async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own redacted PKM summary for one domain and report it.
+
+    Covers every general information domain (financial, health, travel,
+    subscriptions, professional, identity, and the rest of the canonical PKM
+    registry) through one tool rather than one per domain, since they are all
+    read the same way -- the discovery-only index, never decrypted holdings.
+    Live app data with its own service (Connect's actual connections list,
+    Location's circles) is deliberately out of scope here; use the
+    dedicated read tools for those instead.
+
+    The summary is whatever sanitized, non-sensitive metadata
+    update_domain_summary() has accumulated for that domain -- it may be
+    partial or empty even when the domain itself exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+
+    # Typed chat has exactly one approved memory source: browser-supplied
+    # Soul.md. A model selecting this compatibility tool cannot reopen a
+    # second memory lane through the discovery index.
+    if tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat":
+        return {
+            "status": "unavailable",
+            "message": "Use the supplied Soul.md for chat memory. Legacy domain summaries are not a chat memory source.",
+        }
+
+    requested = normalize_domain_key(domain)
+    if requested not in _PKM_READABLE_DOMAIN_KEYS:
+        return {
+            "status": "failed",
+            "message": (
+                f'"{domain}" is not a domain I can read. Available domains: '
+                + ", ".join(_PKM_READABLE_DOMAIN_KEYS)
+                + "."
+            ),
+        }
+
+    label = (
+        get_canonical_domain_metadata(requested).display_name
+        if get_canonical_domain_metadata(requested)
+        else requested
+    )
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around
+    # a *synchronous* service call (every existing read tool's service method
+    # is sync), but get_index_v2 is genuinely async. Same shape and same
+    # failure-boundary reasoning as _read_tool_result -- an exception must
+    # never escape a live-session tool call -- just awaited instead of called.
+    try:
+        index = await get_pkm_service().get_index_v2(user_id)
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    available = list(index.available_domains) if index else []
+    if requested not in available:
+        return {"status": "ok", "result": {"has_data": False, "domain": requested, "summary": {}}}
+    summary = (index.domain_summaries or {}).get(requested) or {}
+    if summary:
+        # Only when there is something to show -- an empty summary dict would
+        # otherwise render as a blank card while the spoken answer already
+        # says "nothing on record yet".
+        _publish_tool_trace(
+            tool_context,
+            "read_my_pkm_domain_summary",
+            kind="pkm_domain_summary",
+            payload={"domain": requested, "label": label, "summary": dict(summary)},
+        )
+    return {
+        "status": "ok",
+        "result": {"has_data": True, "domain": requested, "summary": dict(summary)},
+    }
+
+
+async def discover_person_information(
+    person: str,
+    tool_context: ToolContext,
+    domain: str = "",
+    selection_handle: str = "",
+    page: int = 1,
+    catalog_revision: str = "",
+) -> dict[str, Any]:
+    """Resolve a connected person and list the exact information they expose for requests.
+
+    This is discovery only. It returns opaque ``scopeRef`` values and a public
+    profile route; it never creates consent, exposes raw ``attr.*`` scopes, or
+    reads a granted value. Requests use the existing proposal and explicit
+    browser confirmation, in Chat or Profile.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        try:
+            person_ref, resolved_name = await asyncio.to_thread(
+                _resolve_person_for_information,
+                ConnectionsService(),
+                user_id,
+                person,
+                tool_context,
+                selection_handle,
+            )
+        except ConsentLifecycleError as exc:
+            return _information_person_error(exc, tool_context, user_id)
+        connection = {"displayName": resolved_name}
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+            catalog_page=page,
+            catalog_revision=catalog_revision,
+            catalog_domain=domain.strip(),
+        )
+        if profile.get("personRef") != person_ref:
+            return {
+                "status": "failed",
+                "message": "The selected person could not be verified. Please choose them again.",
+            }
+        requested_domain = normalize_spoken_name(domain)
+        scopes = []
+        for item in profile.get("requestableScopes") or []:
+            item_domain = str(item.get("domain") or "").strip()
+            if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
+                continue
+            scopes.append(
+                {
+                    "scopeRef": item.get("scopeRef"),
+                    "label": item.get("label") or "Information",
+                    "description": item.get("description"),
+                    "domain": item_domain or "Other",
+                    "sensitivity": item.get("sensitivity") or "sensitive",
+                    "pathSegments": item.get("pathSegments") or [],
+                }
+            )
+        active_grants = profile.get("grants") or []
+        shared_with_you = [
+            {
+                "label": g.get("label") or "Shared information",
+                "domain": g.get("domain") or "Other",
+                "scopeRef": g.get("scopeRef"),
+                "sensitivity": g.get("sensitivity") or "sensitive",
+                "status": g.get("status") or "granted",
+                "expiresAt": g.get("expiresAt"),
+                "requestId": g.get("requestId"),
+            }
+            for g in active_grants
+        ]
+        return {
+            "status": "ok",
+            "person": {
+                "displayName": profile.get("displayName")
+                or connection.get("displayName")
+                or "Hussh member",
+                "personRef": person_ref,
+                "profilePath": f"/people/{person_ref}",
+                "relationship": (profile.get("relationship") or {}).get("status"),
+            },
+            "domainFilter": domain.strip() or None,
+            "sharedWithYou": shared_with_you,
+            "sharedCount": len(shared_with_you),
+            "requestableScopes": scopes,
+            "scopeCount": len(scopes),
+            "scopeCatalog": profile.get("scopeCatalog"),
+            "nextStep": (
+                "scopeCount is the current page; scopeCatalog.totalCount describes all matching fields. "
+                "Use scopeCatalog.nextPage and catalogRevision only when more fields are requested. "
+                "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
+                "For new requests, let the card present the fields and ask for the purpose and duration. "
+                "Keep the selected person for the proposal; open their profile only if requested."
+            ),
+        }
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("discover_person_information failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+async def list_information_shared_with_me(
+    tool_context: ToolContext,
+    person: str = "",
+) -> dict[str, Any]:
+    """Show what connections have already shared with this person, as a secure card.
+
+    Call it when the person asks whether they have, or asks to see, something
+    another person already shared ("do we have access to Manish's tax
+    record?", "show me it"). The chat renders a "Shared with you" card that
+    decrypts the values on the person's own device. This result holds labels,
+    field names and dates only, never a value. Reply in one short line such as
+    "Here's what Manish shared with you:" and let the card show the rest.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        selected_person_ref: str | None = None
+        selected_person_name: str | None = None
+        if (
+            str(person or "").strip()
+            or tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+            or tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON)
+        ):
+            selected_person_ref, selected_person_name = await asyncio.to_thread(
+                _resolve_person_for_information,
+                ConnectionsService(),
+                user_id,
+                str(person or ""),
+                tool_context,
+            )
+        shares = await InformationRequestService().list_granted_shares(
+            requester_user_id=user_id,
+            person_ref=selected_person_ref,
+        )
+        # Contract C6: one card per person, no values. The chat renders it
+        # from this result; the model reads the same labels and field names.
+        cards = build_shared_with_me_cards(shares)
+        # Model-facing guidance, not a line to repeat. Measured on UAT
+        # 2026-09-28: the old sentence was read out verbatim next to an offer to
+        # "prepare a card" while a card was already on screen.
+        empty_message = (
+            f"Nothing from {selected_person_name} yet. If they asked about something of "
+            f"{selected_person_name}'s, call propose_information_request now with their "
+            "words and question instead of replying; do not tell them nothing was shared "
+            "or offer to prepare a card."
+            if selected_person_name
+            else "No connections have shared information with you yet."
+        )
+        names = [card["person"]["displayName"] for card in cards]
+        lead = names[0] if len(names) == 1 else "your connections"
+        return {
+            "status": "ok",
+            **(
+                {"person": {"displayName": selected_person_name, "personRef": selected_person_ref}}
+                if selected_person_ref and selected_person_name
+                else {}
+            ),
+            "kind": SHARED_WITH_ME_CARD_KIND,
+            "cards": cards,
+            **({"card": cards[0]} if len(cards) == 1 else {}),
+            "count": sum(len(card["items"]) for card in cards),
+            "nextStep": (
+                f'Reply in one short line, for example "Here\'s what {lead} shared with you:". '
+                "The secure card below it is already on screen and opens the values on the "
+                "person's own device, asking them to unlock if needed. You have labels and "
+                "field names only: never guess, restate or invent a value, and do not say you "
+                "cannot display it, that a card may be available, or to open Profile. Never "
+                "say grant, scope, domain or PKM."
+                if cards
+                else empty_message
+            ),
+        }
+    except ConsentLifecycleError as exc:
+        return _information_person_error(exc, tool_context, user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_information_shared_with_me failed")
+        return {
+            "status": "failed",
+            "message": "Shared information records are temporarily unavailable.",
+        }
+
+
+def _directory_candidates(
+    connections_service: ConnectionsService, user_id: str, spoken_name: str
+) -> tuple[list[dict[str, Any]], bool]:
+    """Page the server-owned directory for one spoken name, exactly as connect.send_request does."""
+    # Preserve every name token.  The directory service ranks and filters the
+    # complete query before pagination; reducing "Kushal Trivedi" to the
+    # longest token can pull in a different Kushal and make the fallback
+    # disagree with the connection resolver.  Fold the same supported
+    # separators as the canonical SQL/fallback directory implementation.
+    search_term = normalize_directory_name(spoken_name)
+    candidates: list[dict[str, Any]] = []
+    page = 1
+    while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+        result = connections_service.search_directory(
+            user_id,
+            query=search_term,
+            page=page,
+            limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+            name_only=True,
+        )
+        candidates.extend(result.get("items") or [])
+        if not result.get("hasMore"):
+            return candidates, True
+        page += 1
+    return candidates, False
+
+
+def _person_display_name(person: dict[str, Any]) -> str:
+    return str(person.get("displayName") or "")
+
+
+def _remember_information_person(
+    tool_context: ToolContext | None,
+    user_id: str,
+    person_ref: str,
+    display_name: str,
+    spoken: str,
+) -> tuple[str, str]:
+    """Retain an unambiguous lookup under the same boundary as a picker choice.
+
+    This is conversation context, not information-access authority. Profile and
+    mutation services must still revalidate current exposure and consent.
+    """
+    session_id = _tool_session_id(tool_context)
+    if tool_context is not None and session_id:
+        handle = uuid.uuid4().hex
+        tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = {
+            handle: {
+                "owner": user_id,
+                "session": session_id,
+                "personRef": person_ref,
+                "displayName": display_name,
+                "expiresAt": time.time() + 900,
+            },
+        }
+        tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
+            "handle": handle,
+            "displayName": display_name,
+            "spoken": spoken,
+        }
+    return person_ref, display_name
+
+
+def _resolve_person_for_information(
+    connections_service: ConnectionsService,
+    user_id: str,
+    spoken: str,
+    tool_context: ToolContext | None = None,
+    selection_handle: str = "",
+) -> tuple[str, str]:
+    """Resolve one named person to ``(public_person_ref, display_name)``.
+
+    Connections first, then the server-owned directory, the same two sources
+    the Connect screen offers. Ambiguity names the candidates and refuses; a
+    request is never sent to a guess. A relationship grants nothing here: the
+    catalog and every mutation are still re-checked by the person profile
+    service against the subject's own exposure choices.
+    """
+    spoken = str(spoken or "").strip()
+    confirm_changed_person = False
+    retained_selection = False
+    if tool_context:
+        requested = str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
+        # Only the temp-prefixed value was admitted by the browser for this
+        # turn.  ``selection_handle`` is model-visible tool input and must
+        # never become identity authority; an echoed old handle otherwise
+        # revives the stale-selection failure on an otherwise valid name.
+        model_selection_handle = str(selection_handle or "")
+        selection_handle = requested
+        selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+        if model_selection_handle and not requested and not isinstance(selected, dict):
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED", "Choose a person in the conversation before we continue."
+            )
+        if not selection_handle:
+            if isinstance(selected, dict):
+                # Email punctuation is identity-bearing, not a name separator.
+                # Distinct addresses must take the authorized exact-lookup path.
+                retained_values = [
+                    str(selected.get(key) or "").strip() for key in ("displayName", "spoken")
+                ]
+                matches_retained = (
+                    spoken.casefold()
+                    in {value.casefold() for value in retained_values if "@" in value}
+                    if "@" in spoken
+                    else normalize_spoken_name(spoken)
+                    in {
+                        normalize_spoken_name(value)
+                        for value in retained_values
+                        if "@" not in value
+                    }
+                )
+                if spoken and not matches_retained:
+                    confirm_changed_person = True
+                else:
+                    selection_handle = str(selected.get("handle") or "")
+                    retained_selection = bool(selection_handle)
+    if selection_handle:
+        # Without a tool context there is no admission record to check the
+        # handle against, which is the same refusal the mismatch below raises.
+        # Stating it here keeps the rest of this block free of None handling
+        # for a case that can never reach it.
+        if tool_context is None:
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED",
+                "Choose a person in the conversation before we continue.",
+            )
+        requested_handle = str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
+        selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+        admitted_handle = str(selected.get("handle") or "") if isinstance(selected, dict) else ""
+        if not requested_handle and selection_handle != admitted_handle:
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED",
+                "Choose a person in the conversation before we continue.",
+            )
+        choices = tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES)
+        choice = choices.get(selection_handle) if isinstance(choices, dict) else None
+        session_id = _tool_session_id(tool_context)
+        if not isinstance(choice, dict):
+            if retained_selection:
+                # A persisted selection is only a convenience. If its
+                # short-lived admission record was pruned or belongs to an
+                # earlier conversation, clear it and resolve the spoken name
+                # again so duplicate names produce a fresh picker.
+                retained_person = selected if isinstance(selected, dict) else {}
+                spoken = spoken or str(retained_person.get("displayName") or "").strip()
+                tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = None
+                selection_handle = ""
+            else:
+                raise ConsentLifecycleError(
+                    "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+                )
+        elif (
+            choice.get("owner") != user_id or not session_id or choice.get("session") != session_id
+        ):
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+            )
+        if (
+            selection_handle
+            and isinstance(choice, dict)
+            and float(choice.get("expiresAt") or 0) <= time.time()
+        ):
+            if retained_selection:
+                # A persisted conversational selection is a convenience, not
+                # identity authority. Discard only the stale retention and
+                # resolve the explicit utterance (or its retained display
+                # name when the model omitted the redundant person argument)
+                # through the current owner-scoped connection/directory
+                # contract.
+                retained_person = selected if isinstance(selected, dict) else {}
+                spoken = spoken or str(retained_person.get("displayName") or "").strip()
+                # ADK's State intentionally exposes assignment rather than
+                # dict deletion so this delta is persisted safely by the
+                # session service.
+                tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = None
+                selection_handle = ""
+            else:
+                raise ConsentLifecycleError(
+                    "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+                )
+        # `choice` is a dict here: the branch above either raised or cleared the
+        # handle when it was not one.
+        if selection_handle and isinstance(choice, dict):
+            # The handle fixes identity; the profile service rechecks current authority.
+            previous = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+            tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
+                "handle": selection_handle,
+                "displayName": choice["displayName"],
+                "spoken": (
+                    previous.get("spoken", "")
+                    if isinstance(previous, dict) and previous.get("handle") == selection_handle
+                    else ""
+                ),
+            }
+            return str(choice["personRef"]), str(choice["displayName"])
+    if not spoken:
+        raise ConsentLifecycleError("PERSON_REQUIRED", "Say whose information you mean.")
+    connections = connections_service.list_connections(user_id=user_id)
+    if "@" in spoken:
+        # Email is exact-only and limited to contacts already visible to this owner.
+        matches = [
+            p
+            for p in connections
+            if str(p.get("email") or "").strip().casefold() == spoken.casefold()
+        ]
+        if len(matches) != 1 or not matches[0].get("publicPersonRef"):
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND", "Choose a person from your connections to continue."
+            )
+        if confirm_changed_person:
+            raise InformationPersonAmbiguous(matches)
+        return _remember_information_person(
+            tool_context,
+            user_id,
+            str(matches[0]["publicPersonRef"]),
+            _person_display_name(matches[0]) or "Hussh member",
+            spoken,
+        )
+    resolution = resolve_spoken_names(connections, spoken, _person_display_name)
+    person: dict[str, Any] | None = None
+    if resolution.unresolved:
+        unresolved = resolution.unresolved[0]
+        if unresolved.kind == "ambiguous":
+            raise InformationPersonAmbiguous(list(unresolved.matches))
+        try:
+            candidates, candidates_complete = _directory_candidates(
+                connections_service, user_id, spoken
+            )
+        except Exception:  # noqa: BLE001 - the directory is a fallback, never a blocker
+            logger.exception("information_request_directory_lookup_failed")
+            candidates = []
+            candidates_complete = True
+        matches = match_by_name(candidates, spoken, _person_display_name)
+        if not candidates_complete:
+            raise InformationPersonAmbiguous(matches, candidates_complete=False)
+        if not matches:
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND",
+                f"{unresolved.spoken_text or spoken} is not in your connections or the directory.",
+            )
+        if len(matches) > 1:
+            raise InformationPersonAmbiguous(matches)
+        person = matches[0]
+    elif len(resolution.resolved) != 1:
+        raise ConsentLifecycleError(
+            "PERSON_AMBIGUOUS", "Name one person whose information you want."
+        )
+    else:
+        person = resolution.resolved[0]
+    person_ref = str(person.get("publicPersonRef") or "").strip()
+    if not person_ref:
+        raise ConsentLifecycleError(
+            "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
+        )
+    if confirm_changed_person:
+        raise InformationPersonAmbiguous([person])
+    return _remember_information_person(
+        tool_context,
+        user_id,
+        person_ref,
+        _person_display_name(person) or "Hussh member",
+        spoken,
+    )
+
+
+def _split_requested_fields(fields: str) -> list[str]:
+    parts = re.split(r",|;|\band\b|\n", str(fields or ""))
+    seen: list[str] = []
+    for part in parts:
+        cleaned = part.strip(" .")
+        if cleaned and normalize_spoken_name(cleaned) not in {
+            normalize_spoken_name(x) for x in seen
+        }:
+            seen.append(cleaned)
+    return seen
+
+
+def _match_requested_fields(
+    requestable: list[dict[str, Any]], fields: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Match the person's words to catalog labels; a domain name selects that whole domain."""
+    matched: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    for spoken in _split_requested_fields(fields):
+        wanted = normalize_spoken_name(spoken)
+        if not wanted:
+            continue
+        exact = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("label") or "")) == wanted
+        ]
+        partial = [
+            item
+            for item in requestable
+            if wanted in normalize_spoken_name(str(item.get("label") or ""))
+            or normalize_spoken_name(str(item.get("label") or "")) in wanted
+        ]
+        by_domain = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("domain") or "")) == wanted
+        ]
+        chosen = exact or partial or by_domain
+        if not chosen:
+            unmatched.append(spoken)
+            continue
+        for item in chosen:
+            if all(item.get("scopeRef") != m.get("scopeRef") for m in matched):
+                matched.append(item)
+    return matched, unmatched
+
+
+def _pending_scope_labels(scopes: list[dict[str, Any]]) -> list[str]:
+    return [str(item.get("label") or "Information") for item in scopes]
+
+
+def _propose_scopes(
+    requestable: list[dict[str, Any]],
+    fields: str,
+    question: str,
+    *,
+    ignore_words: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], list[str], dict[str, str]]:
+    """Resolve what was asked about to catalog rows: the model's words first.
+
+    1. The model's own words, verbatim, by label or domain (unchanged rule).
+    2. Words that named nothing, through label-and-synonym catalog search
+       ("favorite restaurant" reaches Food preferences), best row each.
+    3. Only if still nothing: the person's question, the same way.
+    Returns (matched rows, words that still matched nothing, scopeRef -> why).
+
+    A record's schema field ("Kind", "Status") or app state
+    ("parse_fallback") is never preselected, whatever it scores: One picks
+    the category a person means ("Food preferences"). Measured 2026-09-28:
+    "What's Kushal's favorite restaurant?" proposed "Kind".
+    """
+    requestable = [item for item in requestable if is_proposable_entry(item)]
+    matched, unmatched = _match_requested_fields(requestable, fields)
+    reasons = {str(item.get("scopeRef")): "Matches what you asked for" for item in matched}
+
+    def _add(item: dict[str, Any], why: str) -> None:
+        ref = str(item.get("scopeRef"))
+        if ref not in reasons:
+            matched.append(item)
+            reasons[ref] = why
+
+    still_unmatched: list[str] = []
+    for spoken in unmatched:
+        # The question is context: "income" in a tax question is about taxes.
+        best = match_scopes(
+            requestable, spoken, limit=1, ignore_words=ignore_words, context=question
+        )
+        if best:
+            _add(dict(best[0].entry), best[0].why)
+        else:
+            still_unmatched.append(spoken)
+    if not matched and str(question or "").strip():
+        best = match_scopes(requestable, question, limit=1, ignore_words=ignore_words)
+        if best:
+            _add(dict(best[0].entry), best[0].why)
+    return matched, still_unmatched, reasons
+
+
+def _proposed_item(item: Any, why: str) -> dict[str, str]:
+    return {
+        "scope": str(item.get("scopeRef") or ""),
+        "label": str(item.get("label") or "Information"),
+        "why": why or "Matches what you asked for",
+        # C7: the catalog's server-side answer; deny by default when absent.
+        "sensitivity": "standard" if item.get("sensitivity") == "standard" else "sensitive",
+    }
+
+
+def _proposal_alternatives(
+    requestable: list[dict[str, Any]],
+    matched: list[dict[str, Any]],
+    words: str,
+    ignore_words: tuple[str, ...],
+    limit: int = 3,
+) -> list[dict[str, str]]:
+    """The next-best rows, so Change can offer a near miss without a round trip."""
+    chosen = {str(item.get("scopeRef")) for item in matched}
+    alternatives: list[dict[str, str]] = []
+    proposable = [item for item in requestable if is_proposable_entry(item)]
+    for match in match_scopes(proposable, words, limit=None, ignore_words=ignore_words):
+        if str(match.entry.get("scopeRef")) in chosen:
+            continue
+        alternatives.append(_proposed_item(match.entry, match.why))
+        if len(alternatives) >= limit:
+            break
+    return alternatives
+
+
+def _duration_default(hours: int) -> str:
+    """ "7d" for whole days, else a label ("5 hours"); the card accepts both forms."""
+    if hours % 24 == 0:
+        return f"{hours // 24}d"
+    return f"{hours} {'hour' if hours == 1 else 'hours'}"
+
+
+_REASON_FALLBACK = "To answer a question about you."
+_POSSESSIVE = re.compile(r"(?:'|\u2019)s$")
+
+
+def _reason_suggestion(fields: str, question: str, ignore_words: tuple[str, ...]) -> str:
+    """A reason built from the person's own words, used only when One gave none.
+
+    One authors the reason from the question and its intent
+    (``agent.yaml``: "To pick a restaurant for dinner"). This fallback runs only
+    when that came back empty, and it is built from what the person asked
+    about ("To know your favorite restaurant."), never from a catalog label:
+    the label-built "I'd like to know your kind." reached the owner on
+    2026-09-28. The caller records that it ran (``reasonSource``).
+    """
+    ignored = {word for raw in ignore_words for word in tokens(raw)}
+    for source in (fields, question):
+        kept = []
+        for raw in str(source or "").split():
+            word = _POSSESSIVE.sub("", raw.strip(' \t.,;:!?"()[]'))
+            content = tokens(word)
+            if not word or not content or any(token in ignored for token in content):
+                continue
+            kept.append(word.lower() if not word.isupper() else word)
+        phrase = " ".join(kept).strip()
+        if phrase:
+            return f"To know your {phrase}."[:500]
+    return _REASON_FALLBACK
+
+
+async def _already_pending(
+    user_id: str,
+    person_ref: str,
+    matched: list[dict[str, Any]],
+    *,
+    read_port: Any = None,
+) -> dict[str, Any] | None:
+    """The newest request to this person still waiting on any of ``matched``."""
+    try:
+        if read_port is not None:
+            waiting = await asyncio.to_thread(
+                read_port.pending, person_ref, [str(item.get("scopeRef") or "") for item in matched]
+            )
+        else:
+            waiting = await InformationRequestService().pending_for_scope_refs(
+                requester_user_id=user_id,
+                person_ref=person_ref,
+                scope_refs=[str(item.get("scopeRef") or "") for item in matched],
+            )
+    except Exception:  # noqa: BLE001 - a failed check must not block a new request
+        if read_port is not None:
+            raise
+        logger.warning("one.proposal_pending_check_unavailable")
+        return None
+    return waiting[0] if waiting else None
+
+
+def _already_pending_result(
+    waiting: dict[str, Any],
+    matched: list[dict[str, Any]],
+    *,
+    person_ref: str,
+    display_name: str,
+) -> dict[str, Any]:
+    """Report a request that is already waiting, with its living card; never a Send.
+
+    Carries no ``proposed`` list on purpose: that key renders a fresh ask card
+    with Send, which is exactly the defect.
+    """
+    labels = [str(label) for label in waiting.get("labels") or []] or _pending_scope_labels(matched)
+    seconds = int(waiting.get("durationSeconds") or 0)
+    days, hours = divmod(seconds // 3600, 24)
+    duration = (
+        f"{days} {'day' if days == 1 else 'days'}"
+        if days and not hours
+        else f"{seconds // 3600} {'hour' if seconds // 3600 == 1 else 'hours'}"
+    )
+    domain_by_label = {
+        str(item.get("label") or ""): str(item.get("domainLabel") or "Information")
+        for item in matched
+    }
+    logger.info("one.proposal_already_pending items=%d", len(labels))
+    return {
+        "status": "already_pending",
+        "person": {
+            "displayName": display_name,
+            "personRef": person_ref,
+            "profilePath": f"/people/{person_ref}",
+        },
+        "bundleId": waiting.get("bundleId"),
+        "fields": labels,
+        "purpose": waiting.get("purpose"),
+        "sentAt": waiting.get("sentAt"),
+        # The same descriptor the request card renders after Send, so the
+        # chat can show the living card for the request that is waiting.
+        "livingCard": {
+            "personName": display_name,
+            "purpose": waiting.get("purpose"),
+            "durationLabel": duration,
+            "status": "pending",
+            "direction": "outgoing",
+            "phase": "submitted",
+            "subjectRef": person_ref,
+            "bundleId": waiting.get("bundleId"),
+            "fields": [
+                {"label": label, "domain": domain_by_label.get(label, "Information")}
+                for label in labels
+            ],
+        },
+        "nextStep": (
+            f"Say in one short line that your request to {display_name} for "
+            f"{', '.join(labels[:5])} is already waiting on them, and that the request card "
+            "shows where it stands. Do not ask them to tap Send, do not offer to send it "
+            "again, and do not call another consent action."
+        ),
+    }
+
+
+async def list_pending_information_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List the information requests waiting on the owner's decision: who asks, for what, until when.
+
+    Labels only, never a raw scope or an internal id. Approval is not a tool:
+    the browser shows each request as a card and the owner's tap approves it,
+    because the export is encrypted in their unlocked browser. To decline one,
+    run consent.deny with its requestId; the app shows the confirmation.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        pending = await ConsentLifecycleService().list_pending_incoming(user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_pending_information_requests failed")
+        return {
+            "status": "failed",
+            "message": "Your pending requests are temporarily unavailable. Please try again.",
+        }
+    # The ids the app turns into the owner's pending cards (one per waiting
+    # item). A request with none cannot be shown as a card from here.
+    request_ids: list[str] = []
+    for item in pending:
+        ids = item.get("requestIds")
+        for request_id in ids if isinstance(ids, list) else [item.get("requestId")]:
+            text = str(request_id or "").strip()
+            if text and text not in request_ids:
+                request_ids.append(text)
+    request_ids = request_ids[:20]
+    if not pending:
+        next_step = "Nothing is waiting on them right now."
+    elif request_ids:
+        next_step = (
+            "Say who is asking and for what in one short line. The app shows each waiting "
+            "request as a card below your reply, with Allow and Don't allow; allowing is the "
+            "owner's tap, never yours. To decline one from here, name it and run "
+            'run_app_action("consent.deny") with its requestId; the app shows the confirmation.'
+        )
+    else:
+        next_step = (
+            "Say who is asking and for what. No card can be shown for these here, so do not "
+            "say a card is on screen; they can decide in the Consent Center."
+        )
+    return {
+        "status": "ok",
+        "pendingRequests": pending,
+        "count": len(pending),
+        "pendingRequestIds": request_ids,
+        "cardsShown": bool(request_ids),
+        "nextStep": next_step,
+    }
+
+
+async def list_active_grants(tool_context: ToolContext) -> dict[str, Any]:
+    """List what this person is currently sharing and with whom, ready to end.
+
+    The other end of the lifecycle from list_pending_information_requests.
+    Names each thing in plain words and hands back an opaque grant id; pass
+    that id to consent.revoke to end one. Never says a scope or a token.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        grants = await ConsentLifecycleService().list_active_grants(user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_active_grants failed")
+        return {
+            "status": "failed",
+            "message": "What you're sharing is temporarily unavailable. Please try again.",
+        }
+
+    # The scope and the request id are what revoke_active_grant matches on, and
+    # they are exactly what must not reach the model. Park them against a
+    # handle and return only the words.
+    handles: dict[str, dict[str, Any]] = {}
+    spoken: list[dict[str, Any]] = []
+    for grant in grants:
+        scope = str(grant.get("scope") or "").strip()
+        request_id = str(grant.get("requestId") or "").strip()
+        if not scope:
+            # Without the scope or a request identity the revoke action cannot
+            # be targeted safely. Do not manufacture a positional target.
+            continue
+        stable_key = f"{scope}\x1f{request_id or grant.get('holderLabel') or ''}"
+        handle = _stable_lifecycle_handle("g", stable_key)
+        if handle in handles:
+            # A collision or duplicate projection must fail closed rather than
+            # make one spoken row point at two possible grants.
+            continue
+        handles[handle] = grant
+        spoken.append(
+            {
+                "grantId": handle,
+                "label": grant.get("label"),
+                "sharedWith": grant.get("holderLabel"),
+                "expiresAt": grant.get("expiresAt"),
+            }
+        )
+    tool_context.state[_STATE_ACTIVE_GRANT_HANDLES] = handles
+    return {
+        "status": "ok",
+        "grants": spoken,
+        "count": len(spoken),
+        "nextStep": (
+            "Say what is shared and with whom. To end one, run "
+            'run_app_action("consent.revoke") with its grantId; the app shows the '
+            "confirmation."
+            if spoken
+            else "They are not sharing anything right now."
+        ),
+    }
+
+
+async def _list_outgoing_information_requests_only(
+    tool_context: ToolContext, *, user_id: str
+) -> dict[str, Any]:
+    """Keep cancellable information bundles separate from Drive requests."""
+    try:
+        # One extra row distinguishes a complete list from the newest page.
+        sent = await InformationRequestService().list_outgoing(requester_user_id=user_id, limit=11)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_my_outgoing_information_requests failed")
+        return {
+            "status": "failed",
+            "message": "The requests you sent are temporarily unavailable. Please try again.",
+        }
+
+    handles: dict[str, dict[str, Any]] = {}
+    spoken: list[dict[str, Any]] = []
+    for record in sent[:10]:
+        bundle_id = str(record.get("bundleId") or "").strip()
+        if not bundle_id:
+            # cancel_request requires the bundle identity; an unbound row is
+            # informational only and must not become an actionable target.
+            continue
+        handle = _stable_lifecycle_handle("r", bundle_id)
+        if handle in handles:
+            continue
+        handles[handle] = record
+        raw_person = str(record.get("displayName") or "").strip()
+        person: str | None = (
+            None
+            if raw_person.casefold() == "that person" or looks_technical_label(raw_person)
+            else raw_person
+        )
+        spoken.append(
+            {
+                "requestId": handle,
+                "person": person,
+                "purpose": record.get("purpose"),
+                "sentAt": record.get("sentAt"),
+            }
+        )
+    # Keep the service's newest-first order for the unnamed "one I just sent"
+    # fallback, while each named handle remains keyed to its bundle identity.
+    tool_context.state[_STATE_SENT_REQUEST_HANDLES] = handles
+    return {
+        "status": "ok",
+        "requests": spoken,
+        "count": len(spoken),
+        "hasMore": len(sent) > 10,
+        "hasUnknownPeople": any(not row["person"] for row in spoken),
+    }
+
+
+async def list_my_outgoing_information_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List sent information bundles, Drive file requests and Drive questions.
+
+    Only the information-bundle ``requests`` have opaque cancel handles. Drive
+    rows are read from their own requester-scoped projection and remain status
+    only; they cannot become targets of ``consent.cancel_request``.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    information = await _list_outgoing_information_requests_only(tool_context, user_id=user_id)
+    try:
+        drive = await DriveSharingProjectionStore().list_outgoing_for_chat(user_id=user_id)
+    except Exception:  # noqa: BLE001 - never turn a failed Drive read into zero requests
+        logger.exception("list_my_outgoing_information_requests drive_status_failed")
+        if information["status"] != "ok":
+            return {
+                "status": "failed",
+                "message": "Your sent request statuses are temporarily unavailable. Please try again.",
+            }
+        return {
+            "status": "partial",
+            "requests": information["requests"],
+            "informationRequestsHasMore": information["hasMore"],
+            "informationRequestsHaveUnknownPeople": information["hasUnknownPeople"],
+            "documentRequests": [],
+            "documentRequestsHasMore": False,
+            "documentRequestsHaveUnknownPeople": False,
+            "message": "Information requests were checked, but Drive document request status is temporarily unavailable.",
+            "nextStep": "Report the information requests shown, and say Drive request status could not be checked. If informationRequestsHasMore is true, these are only the newest information requests. A row without a person label may be the named person's request. Do not claim a named person has no request from a partial list.",
+        }
+
+    document_requests = drive["items"]
+    document_requests_has_more = bool(drive["hasMore"])
+    unnamed_document_requests = any(not row.get("person") for row in document_requests)
+    if information["status"] != "ok":
+        return {
+            "status": "partial",
+            "requests": [],
+            "informationRequestsHasMore": None,
+            "informationRequestsHaveUnknownPeople": None,
+            "documentRequests": document_requests,
+            "documentRequestsHasMore": document_requests_has_more,
+            "documentRequestsHaveUnknownPeople": unnamed_document_requests,
+            "message": "Drive document requests were checked, but information request status is temporarily unavailable.",
+            "nextStep": "Report the Drive request statuses shown. Do not claim there are no information requests. A named person's Drive status is not ruled out if more rows exist or a row has no person label.",
+        }
+
+    requests = information["requests"]
+    information_requests_has_more = bool(information["hasMore"])
+    unnamed_information_requests = bool(information["hasUnknownPeople"])
+    return {
+        "status": "ok",
+        "requests": requests,
+        "informationRequestsHasMore": information_requests_has_more,
+        "informationRequestsHaveUnknownPeople": unnamed_information_requests,
+        "documentRequests": document_requests,
+        "documentRequestsHasMore": document_requests_has_more,
+        "documentRequestsHaveUnknownPeople": unnamed_document_requests,
+        **(
+            {"count": len(requests) + len(document_requests)}
+            if not (information_requests_has_more or document_requests_has_more)
+            else {}
+        ),
+        "nextStep": (
+            "Report information requests, Drive file requests and Drive questions separately. "
+            "A pending file request was sent; this list does not verify which files are available. "
+            "Only information requests have consent.cancel_request handles. "
+            "If informationRequestsHasMore or documentRequestsHasMore is true, only the newest requests are shown. "
+            "For a named person missing from this list, do not claim there are no requests "
+            "if informationRequestsHasMore, informationRequestsHaveUnknownPeople, "
+            "documentRequestsHasMore, or "
+            "documentRequestsHaveUnknownPeople is true."
+            if requests or document_requests
+            else "No sent information requests, Drive file requests or Drive questions were found."
+        ),
+    }
+
+
+async def propose_information_request(
+    person: str,
+    fields: str,
+    purpose: str,
+    tool_context: ToolContext,
+    duration_hours: int = _INFORMATION_REQUEST_DEFAULT_HOURS,
+    selection_handle: str = "",
+    question: str = "",
+) -> dict[str, Any]:
+    """Prepare a request to one named person for what was asked about, ready to confirm.
+
+    Call it directly when someone asks about another person's information
+    ("What is Kushal's favorite restaurant?") or asks you to request it. Pass
+    the person, the things in the person's own words as ``fields``, their
+    question as they said it as ``question``, and ``purpose``: their reason if
+    they gave one, otherwise a short reason you infer from the question ("To
+    pick a restaurant for dinner"); they can edit it on the card. The server picks the
+    closest thing that person makes requestable, from labels only, and parks a
+    proposal; the card shows it with Send and Change. Nothing is sent: the
+    person's tap on that card is the authorization, so do not ask for a spoken
+    yes or call another consent action. If connectorReady is false the owner's
+    secure key is not ready and nothing can be asked for yet; tell them to
+    unlock their private agent and try again.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        private_discovery = private_information_discovery(user_id)
+        connections_service = private_discovery or ConnectionsService()
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            connections_service,
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
+        )
+        profile = (
+            await asyncio.to_thread(private_discovery.catalog, person_ref)
+            if private_discovery
+            else await PersonProfileService().get_requestable_catalog(
+                viewer_user_id=user_id,
+                public_person_ref=person_ref,
+            )
+        )
+        if profile.get("personRef") != person_ref:
+            return {
+                "status": "failed",
+                "message": "The selected person could not be verified. Please choose them again.",
+            }
+        requestable = [
+            item for item in (profile.get("requestableScopes") or []) if item.get("scopeRef")
+        ]
+        profile_path = f"/people/{person_ref}"
+        if not requestable:
+            return {
+                "status": "nothing_requestable",
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
+                "message": f"{display_name} has not made any information requestable yet.",
+            }
+        matched, unmatched, reasons = _propose_scopes(
+            requestable, fields, question, ignore_words=(display_name, person)
+        )
+        if not matched:
+            by_domain: dict[str, list[str]] = {}
+            for item in requestable[:40]:
+                by_domain.setdefault(str(item.get("domain") or "Other"), []).append(
+                    str(item.get("label") or "Information")
+                )
+            return {
+                "status": "needs_clarification",
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
+                "unmatchedFields": unmatched,
+                "availableFields": by_domain,
+                "proposed": [],
+                "alternatives": [
+                    _proposed_item(match.entry, match.why)
+                    for match in fallback_scopes(
+                        [item for item in requestable if is_proposable_entry(item)], limit=3
+                    )
+                ],
+                "message": (
+                    f"Nothing {display_name} makes available matches that. Name the "
+                    "alternatives in plain words and ask which one they mean. Nothing was sent."
+                ),
+            }
+        if len(matched) > 50:
+            return {
+                "status": "needs_clarification",
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
+                "fieldCount": len(matched),
+                "maxFieldsPerRequest": 50,
+                "unmatchedFields": unmatched,
+                "message": (
+                    f"I found {len(matched)} matching fields for {display_name}. "
+                    "A request can include up to 50 fields, so narrow this to a specific "
+                    "domain or name the exact fields you want. Nothing has been sent."
+                ),
+            }
+        # A5 (localhost run 4): asked again while the same request waits on
+        # the same person, One said "tap Send" on a fresh card. What is
+        # already waiting is reported as waiting, with its living card.
+        waiting = await _already_pending(user_id, person_ref, matched, read_port=private_discovery)
+        if waiting is not None:
+            pending_refs = set(waiting["scopeRefs"])
+            if all(str(item.get("scopeRef")) in pending_refs for item in matched):
+                return _already_pending_result(
+                    waiting, matched, person_ref=person_ref, display_name=display_name
+                )
+            # Only part of it is waiting: propose the rest, never the same item twice.
+            matched = [item for item in matched if str(item.get("scopeRef")) not in pending_refs]
+        # Contract C4: One authors the reason from the question (or passes the
+        # person's own), and the person can edit it on the card before Send.
+        # Only an empty one is filled here, from the person's words, and the
+        # substitution is recorded rather than passed off as One's.
+        cleaned_purpose = str(purpose or "").strip()
+        reason_source = "agent"
+        if not cleaned_purpose:
+            cleaned_purpose = _reason_suggestion(fields, question, (display_name, person))
+            reason_source = "fallback"
+            logger.info("one.proposal_reason_fallback")
+        reason_suggestion = cleaned_purpose
+        if not 8 <= len(cleaned_purpose) <= 500:
+            return {
+                "status": "needs_clarification",
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
+                "message": "Ask for a purpose of at least a short sentence (8 to 500 characters); "
+                "the other person reads it before deciding.",
+            }
+        try:
+            hours = int(duration_hours or _INFORMATION_REQUEST_DEFAULT_HOURS)
+        except (TypeError, ValueError):
+            hours = _INFORMATION_REQUEST_DEFAULT_HOURS
+        if not 1 <= hours <= _INFORMATION_REQUEST_MAX_HOURS:
+            return {
+                "status": "needs_clarification",
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
+                "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
+            }
+        if private_discovery:
+            connector_ready = profile["connectorReady"]
+        else:
+            connector = await get_client_connector_service().get(user_id=user_id)
+            connector_ready = bool((connector or {}).get("configured"))
+        proposal_id = uuid.uuid4().hex
+        proposals = dict(tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {})
+        proposals[proposal_id] = {
+            "personRef": person_ref,
+            "displayName": display_name,
+            "scopeRefs": [str(item.get("scopeRef")) for item in matched],
+            "labels": _pending_scope_labels(matched),
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+        }
+        for stale in list(proposals)[:-_INFORMATION_REQUEST_MAX_PROPOSALS]:
+            proposals.pop(stale, None)
+        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = proposals
+        # No parked consent.request directive here. The ask card this result
+        # renders has its own Send, which is the single path to a request; a
+        # parked directive drew a second "Ask ... / Cancel" bar under it that
+        # stayed after Send and could send a second request (2026-09-28). A
+        # model that still calls run_app_action("consent.request") with this
+        # proposal id gets the confirmation from that tool, as before.
+        result = {
+            "status": "proposal_ready",
+            "proposalId": proposal_id,
+            "person": {
+                "displayName": display_name,
+                "personRef": person_ref,
+                "profilePath": profile_path,
+            },
+            "fields": _pending_scope_labels(matched),
+            "unmatchedFields": unmatched,
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+            # Contract C4 shape. ``scope`` is the opaque per-person reference
+            # (the same one the catalog search returns), never a raw scope.
+            "proposed": [
+                _proposed_item(item, reasons.get(str(item.get("scopeRef")), "")) for item in matched
+            ],
+            "alternatives": _proposal_alternatives(
+                requestable, matched, f"{fields} {question}", (display_name, person)
+            ),
+            "duration_default": _duration_default(hours),
+            "reason_suggestion": reason_suggestion,
+            "reasonSource": reason_source,
+            "connectorReady": connector_ready,
+            "nextStep": (
+                f"Say one short line, for example \"I'll ask {display_name}. Here's what "
+                "I'd request:\" The card already shows what, why and for how long, with "
+                "Send and Change, so do not repeat it, do not offer to prepare a card, and do "
+                "not say they have not shared anything with you. Never say grant, scope, "
+                "domain or PKM. Do not ask for a spoken yes or call another consent action: "
+                "their tap on Send is what authorizes it, and nothing is sent until then."
+                if connector_ready
+                else "The owner's secure key is not ready yet, so nothing can be asked for. "
+                "Say exactly that in plain words, tell them to unlock their private agent and try "
+                "again, and do not use the word connector: it means nothing to them."
+            ),
+        }
+        return result
+    except ConsentLifecycleError as exc:
+        return _information_person_error(exc, tool_context, user_id)
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("propose_information_request failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+def _document_request_user_texts(tool_context: ToolContext) -> tuple[str, ...]:
+    """Keep current authenticated user messages separate for exact evidence checks."""
+    from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
+
+    def plain_text(content: Any) -> str:
+        if getattr(content, "role", None) != "user":
+            return ""
+        return "\n".join(
+            part.text
+            for part in (getattr(content, "parts", None) or [])
+            if isinstance(getattr(part, "text", None), str) and not getattr(part, "thought", False)
+        )[:4096]
+
+    pieces = [plain_text(getattr(tool_context, "user_content", None))]
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    if isinstance(invocation_id, str) and invocation_id:
+        events = getattr(getattr(tool_context, "session", None), "events", None) or []
+        for event in reversed(events):
+            metadata = getattr(event, "custom_metadata", None)
+            if (
+                getattr(event, "invocation_id", None) != invocation_id
+                or getattr(event, "author", None) != "user"
+                or not isinstance(metadata, dict)
+                or metadata.get("kind") != QUEUED_INPUT_KIND
+            ):
+                continue
+            queued_text = plain_text(getattr(event, "content", None))
+            if queued_text:
+                pieces.append(queued_text)
+            if len(pieces) >= 17:
+                break
+    return tuple(piece for piece in pieces if piece)
+
+
+def _pending_document_period(tool_context: ToolContext, user_id: str, person_ref: str):
+    """Admit only this conversation's immediately preceding host clarification."""
+    from hushh_mcp.one_adk.document_period_assessment import PendingPeriodContext
+
+    pending = tool_context.state.get(_STATE_DOCUMENT_PERIOD_CLARIFICATION)
+    if not isinstance(pending, dict):
+        return None
+    session = getattr(tool_context, "session", None)
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    session_id = getattr(session, "id", None)
+    if not session_id or not invocation_id:
+        return None
+    prior_user_invocation = next(
+        (
+            getattr(event, "invocation_id", None)
+            for event in reversed(getattr(session, "events", None) or [])
+            if getattr(event, "author", None) == "user"
+            and getattr(getattr(event, "content", None), "role", None) == "user"
+            and getattr(event, "invocation_id", None) != invocation_id
+        ),
+        None,
+    )
+    if (
+        not prior_user_invocation
+        or pending.get("invocation_id") != prior_user_invocation
+        or pending.get("user_id") != user_id
+        or pending.get("person_ref") != person_ref
+        or pending.get("session_id") != getattr(session, "id", None)
+    ):
+        return None
+    try:
+        return PendingPeriodContext.model_validate(pending.get("context"))
+    except ValueError:
+        return None
+
+
+def _document_period_question(context: Any) -> str | None:
+    """Read only a host-selected question bound to this authenticated input."""
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    reply = context.state.get(_STATE_DOCUMENT_PERIOD_REPLY)
+    if not isinstance(reply, dict):
+        return None
+    user_id = context.state.get(_STATE_USER_ID)
+    invocation_id = getattr(context, "invocation_id", None)
+    session_id = getattr(getattr(context, "session", None), "id", None)
+    if (
+        not user_id
+        or not invocation_id
+        or not session_id
+        or reply.get("user_id") != user_id
+        or reply.get("invocation_id") != invocation_id
+        or reply.get("session_id") != session_id
+        or reply.get("user_texts_sha256")
+        != user_texts_sha256(_document_request_user_texts(context))
+    ):
+        return None
+    dimension = reply.get("missing_dimension")
+    return _DOCUMENT_PERIOD_QUESTIONS.get(dimension) if isinstance(dimension, str) else None
+
+
+def _latch_document_period_question(context: Any, user_id: str, dimension: str) -> str:
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    question = _DOCUMENT_PERIOD_QUESTIONS[dimension]
+    context.state[_STATE_DOCUMENT_PERIOD_REPLY] = {
+        "user_id": user_id,
+        "session_id": getattr(getattr(context, "session", None), "id", None),
+        "invocation_id": getattr(context, "invocation_id", None),
+        "user_texts_sha256": user_texts_sha256(_document_request_user_texts(context)),
+        "missing_dimension": dimension,
+    }
+    return question
+
+
+def document_period_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """Finish a validated date question without another model/tool retry loop."""
+    question = _document_period_question(callback_context)
+    if question is None:
+        return None
+    from google.genai import types
+
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+    from hushh_mcp.one_adk.queued_input import STOPPED_ANSWER, current_run, registry
+
+    run = current_run()
+    if run is not None and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id):
+        return LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
+            turn_complete=True,
+        )
+    guarded_response = before_external_read_model(callback_context, llm_request)
+    if guarded_response is not None:
+        return guarded_response
+    return LlmResponse(
+        content=types.Content(role="model", parts=[types.Part(text=question)]),
+        turn_complete=True,
+    )
+
+
+async def propose_document_request(
+    person: str,
+    purpose: str,
+    tool_context: ToolContext,
+    period_start: str = "",
+    period_end: str = "",
+    selection_handle: str = "",
+    date_evidence: str = "",
+) -> dict[str, Any]:
+    """Assess the requested document period and prepare an editable review card.
+
+    Call for every document request, including ambiguous or absent dates. Leave
+    period_start/end empty so One's bounded period assessor reads the current
+    authenticated messages independently. Optional candidate dates must exactly
+    match its result in YYYY-MM-DD format. For an explicitly relative period,
+    call get_current_time first; absolute dates never need a clock or timezone.
+    Return one focused clarification when needed; no request is sent here.
+    date_evidence is retained for older callers and supplies no date authority.
+    """
+    from hushh_mcp.one_adk.document_period_assessment import (
+        HostClockReceipt,
+        PendingPeriodContext,
+        assess_document_period,
+        user_texts_sha256,
+    )
+    from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
+
+    user_texts = _document_request_user_texts(tool_context)
+
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    question = _document_period_question(tool_context)
+    if question is not None:
+        return {"status": "needs_clarification", "message": question}
+    try:
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            ConnectionsService(),
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
+        )
+        _, relationship = await asyncio.to_thread(
+            PersonProfileService().get_relationship_target,
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        if relationship.get("status") != "connected":
+            return {
+                "status": "connection_required",
+                "message": "Connect with this person before requesting documents.",
+            }
+        invocation_id = str(getattr(tool_context, "invocation_id", "") or "")
+        receipt_data = tool_context.state.get(_STATE_DOCUMENT_CLOCK_RECEIPT)
+        try:
+            receipt = HostClockReceipt.model_validate(receipt_data) if receipt_data else None
+        except ValueError:
+            receipt = None
+        if receipt is not None and (
+            receipt.invocation_id != invocation_id
+            or receipt.user_texts_sha256 != user_texts_sha256(user_texts)
+        ):
+            receipt = None
+        pending_context = _pending_document_period(tool_context, user_id, person_ref)
+        result = await assess_document_period(
+            current_user_texts=user_texts,
+            user_id=user_id,
+            consent_token=resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
+            or "",
+            invocation_id=invocation_id,
+            clock_receipt=receipt,
+            pending_context=pending_context,
+            candidate_start=period_start or None,
+            candidate_end=period_end or None,
+        )
+        assessment = result.assessment
+        if (
+            result.status in {"clarify", "clock_required", "timezone_required"}
+            and assessment is not None
+        ):
+            missing_dimension = (
+                "relative_anchor"
+                if result.status == "clock_required"
+                else "owner_timezone"
+                if result.status == "timezone_required"
+                else assessment.missing_dimension
+            )
+            if missing_dimension is None:
+                return {"status": "failed", "reason": "invalid_response"}
+            if missing_dimension == "relative_anchor" and receipt is None:
+                return {
+                    "status": "clock_required",
+                    "nextStep": "Call get_current_time, then retry this document request once.",
+                }
+            prior_texts = pending_context.original_user_texts if pending_context else []
+            context_texts = [*prior_texts, *user_texts]
+            if len(context_texts) > 17:
+                tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
+                return {
+                    "status": "needs_clarification",
+                    "message": _latch_document_period_question(
+                        tool_context, user_id, "complete_period"
+                    ),
+                }
+            session_id = getattr(getattr(tool_context, "session", None), "id", None)
+            tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = {
+                "user_id": user_id,
+                "person_ref": person_ref,
+                "session_id": session_id,
+                "invocation_id": invocation_id,
+                "context": PendingPeriodContext(
+                    original_user_texts=context_texts,
+                    asked_missing_dimension=missing_dimension,
+                ).model_dump(),
+            }
+            return {
+                "status": "needs_clarification",
+                "message": _latch_document_period_question(
+                    tool_context, user_id, missing_dimension
+                ),
+                "nextStep": "Ask only this question. Keep the requested person and documents.",
+            }
+        if result.status == "candidate_mismatch":
+            return {
+                "status": "date_candidate_mismatch",
+                "message": "The proposed dates do not match the requested period.",
+                "nextStep": "Do not show a card. Retry once with both date arguments empty.",
+            }
+        if result.status != "supported" or assessment is None:
+            return {
+                "status": "failed",
+                "reason": result.status,
+                "message": "I couldn't verify the requested dates. Please try again.",
+            }
+        assessed_start, assessed_end = assessment.period_start, assessment.period_end
+        terms = ShareRequestPurpose.model_validate(
+            {
+                "purpose": str(purpose or "").strip(),
+                "periodStart": assessed_start,
+                "periodEnd": assessed_end,
+            }
+        )
+        tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
+        return {
+            "status": "proposal_ready",
+            "person": {"personRef": person_ref, "displayName": display_name},
+            "purpose": terms.model_dump(),
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "Show the dates and purpose in the card. Nothing is sent until the person taps Request files or Ask as a question. Only Request files needs a Google sign-in check.",
+        }
+    except ConsentLifecycleError as error:
+        return _information_person_error(error, tool_context, user_id)
+    except (ValueError, PersonProfileNotFoundError):
+        return {
+            "status": "needs_clarification",
+            "message": "Choose one connected person and a valid purpose or date range.",
+        }
+    except Exception:
+        logger.exception("propose_document_request failed")
+        return {"status": "failed", "message": "The document request cannot be prepared right now."}
+
+
+async def propose_drive_share(
+    files_request: str,
+    tool_context: ToolContext,
+    person: str = "",
+    trusted_circle: bool = False,
+    selection_handle: str = "",
+) -> dict[str, Any]:
+    """Stage sharing the owner's own Drive files with one connected person,
+    or with their Trusted circle (trusted_circle=true, person left empty).
+
+    Nothing is searched or shared here. The chat card searches the owner's
+    Drive only when the owner taps it, shows the exact files it found (and,
+    for the circle, exactly who can receive them), and shares only what the
+    owner then picks and confirms, as Viewer.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    request = str(files_request or "").strip()
+    # A selected saved-search result may lead to this review-only card after
+    # one verified read. Bind the draft to that live title, never to a model
+    # argument influenced by untrusted filename or content instructions.
+    from hushh_mcp.one_adk.external_read_boundary import (
+        STATE_EXECUTION_SURFACE,
+        STATE_SELECTED_DRIVE_SHARE,
+    )
+
+    marker = tool_context.state.get(STATE_SELECTED_DRIVE_SHARE)
+    if (
+        tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and isinstance(marker, dict)
+        and marker.get("invocation") == tool_context.invocation_id
+        and isinstance(marker.get("titleRef"), str)
+        and marker["titleRef"].startswith("one_secret_ref:")
+    ):
+        request = resolve_request_secret(marker["titleRef"])
+        if not request:
+            return {
+                "status": "needs_clarification",
+                "message": "That Drive result expired. Select it again before sharing.",
+            }
+    if not request or len(request) > 2000 or len(request.encode()) > 2048:
+        return {
+            "status": "needs_clarification",
+            "message": "Say which Drive files to share, for example a name, type or date.",
+        }
+    if trusted_circle is not True and not str(person or "").strip():
+        return {
+            "status": "needs_clarification",
+            "message": "Say which connected person to share with, or the Trusted circle.",
+        }
+    if trusted_circle is True:
+        return {
+            "status": "proposal_ready",
+            "audience": "trusted_circle",
+            "filesRequest": request,
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "Review the files and people connected with by request on the card. Nothing is shared until Share.",
+        }
+    try:
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            ConnectionsService(),
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
+        )
+        _, relationship = await asyncio.to_thread(
+            PersonProfileService().get_relationship_target,
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        if relationship.get("status") != "connected":
+            return {
+                "status": "connection_required",
+                "message": "Connect with this person before sharing Drive files.",
+            }
+        return {
+            "status": "proposal_ready",
+            "person": {"personRef": person_ref, "displayName": display_name},
+            "filesRequest": request,
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "Review the files on the card. Nothing is shared until Share.",
+        }
+    except ConsentLifecycleError as error:
+        return _information_person_error(error, tool_context, user_id)
+    except (ValueError, PersonProfileNotFoundError):
+        return {
+            "status": "needs_clarification",
+            "message": "Choose one connected person to share with.",
+        }
+    except Exception:
+        logger.exception("propose_drive_share failed")
+        return {"status": "failed", "message": "Drive sharing cannot be prepared right now."}
+
+
+async def propose_drive_bulk_share(tool_context: ToolContext) -> dict[str, Any]:
+    """Stage review of one complete saved search; never grant Drive access.
+
+    A conversational "these files" has no authority of its own. With more
+    than one recent complete search, the owner must choose the search in the
+    recent-searches panel rather than letting the model guess a result set.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    async def require_current() -> None:
+        authorized, current_user_id, _ = await _verify_backend_direct_authorization(tool_context)
+        if not authorized or current_user_id != user_id:
+            raise PermissionError("owner session changed")
+
+    try:
+        from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+
+        result = await DriveOwnerSearchService().list(
+            user_id=user_id, require_current=require_current
+        )
+        jobs = result["jobs"]
+        if jobs and jobs[0].get("status") in {"queued", "running"}:
+            return {
+                "status": "search_in_progress",
+                "message": "That Drive search is still running. You can share all results after it finishes.",
+            }
+        if jobs and (
+            jobs[0].get("status") != "completed" or jobs[0].get("incompleteSearch") is not False
+        ):
+            return {
+                "status": "search_incomplete",
+                "message": "The latest Drive search is incomplete. Narrow or restart the search.",
+            }
+        complete = [
+            job
+            for job in jobs
+            if job.get("status") == "completed" and job.get("incompleteSearch") is False
+        ]
+        if len(complete) > 1:
+            return {
+                "status": "needs_clarification",
+                "message": "Choose which recent Drive search to share.",
+            }
+        if not complete:
+            return {
+                "status": "needs_clarification",
+                "message": "Start a Drive search, then choose its results to share.",
+            }
+        if complete[0].get("matched", 0) < 1:
+            return {
+                "status": "no_files",
+                "message": "That search found no files to share.",
+            }
+        await require_current()
+        return {
+            "status": "proposal_ready",
+            "audience": "trusted_circle",
+            "searchJobId": complete[0]["jobId"],
+            # Stable for this saved result set: repeated tool calls or card
+            # remounts cannot create a second approval for the same search.
+            "clientRequestId": complete[0]["jobId"],
+            "nextStep": "Review the exact search results and Trusted circle members. Nothing is shared until you tap Share.",
+        }
+    except PermissionError:
+        return {
+            "status": "blocked",
+            "message": "Unlock your private agent, then try again.",
+        }
+    except Exception:
+        logger.exception("propose_drive_bulk_share failed")
+        return {
+            "status": "failed",
+            "message": "Could not prepare the Drive results for review right now.",
+        }
+
+
+async def list_pending_connection_requests(
+    tool_context: ToolContext,
+    direction: Literal["incoming", "outgoing"] = "incoming",
+) -> dict[str, Any]:
+    """List pending Connect requests. "incoming" = waiting on this person to accept;
+    "outgoing" = this person's own asks still waiting on someone else."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your pending connection requests",
+        "requests",
+        lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
+    )
+    if result.get("status") == "ok":
+        # No photo/masked-contact field on a connection-request row (see
+        # ConnectionsService.list_requests) -- name only, same as any other
+        # row a service genuinely has nothing more to say about.
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="counterpartUserId",
+            name_key="counterpartDisplayName",
+        )
+        heading = (
+            "Requests you've sent"
+            if direction == "outgoing"
+            else "Connection requests waiting on you"
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_connection_requests",
+            kind="people_list",
+            heading=heading,
+            items=items,
+        )
+    return result
+
+
+async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List this person's own asks for someone else's location still waiting
+    on that person's approve/decline -- the mirror of
+    list_pending_location_requests, which is the incoming direction."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    result = await _read_tool_result(
+        "your outgoing location requests",
+        "requests",
+        lambda: OneLocationAgentService().list_pending_requester_requests(
+            requester_user_id=user_id
+        ),
+    )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_outgoing_location_requests",
+            kind="people_list",
+            heading="Requests you've sent",
+            items=items,
+        )
+    return result
+
+
+async def get_location_circle_members(circle: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List who is actually in a named Location circle, by name and role.
+
+    list_my_location_circles only returns a member COUNT per circle, not who
+    they are -- this is the tool for "who's in Family" once the circle is
+    named. Resolves 'circle' the same way every backend-direct circle action
+    does (_resolve_named_circle): exact, then word-boundary, then substring,
+    refusing to guess on ambiguity.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    circle_service = OneLocationCircleService()
+    try:
+        resolved = _resolve_named_circle(circle_service, user_id, circle)
+        detail = circle_service.get_circle(user_id=user_id, circle_id=str(resolved.get("id") or ""))
+    except OneLocationCircleError as exc:
+        return {"status": "not_found", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", "circle members")
+        return {
+            "status": "failed",
+            "message": "Could not check who's in that circle right now. Try again in a moment.",
+        }
+    # Deliberately not the raw member payload: that also carries each
+    # member's public recipient key (keyId/publicKeyJwk/keyAlgorithm), which
+    # has no business flowing through a voice transcript even though it is
+    # cryptographically "public" -- the browser needs it to render a share
+    # picker, a spoken roster does not.
+    members = [
+        {
+            "displayName": str(member.get("displayName") or "Circle member"),
+            "role": str(member.get("role") or "member"),
+            "relationship": str(member.get("relationship") or "none"),
+        }
+        for member in (detail.get("members") or [])
+    ]
+    circle_name = str(detail.get("name") or "That circle")
+    # No stable id on a member row (deliberately -- see the comment above);
+    # the row's position is a fine React key for a roster that only exists
+    # for the life of this one card.
+    trace_items = [
+        {
+            "id": f"member-{index}",
+            "name": member["displayName"],
+            "detail": member["role"].capitalize(),
+            "photoUrl": None,
+        }
+        for index, member in enumerate(members)
+    ]
+    _publish_list_trace(
+        tool_context,
+        "get_location_circle_members",
+        kind="people_list",
+        heading=f"{circle_name} members",
+        items=trace_items,
+    )
+    return {
+        "status": "ok",
+        "circle": {"name": str(detail.get("name") or ""), "kind": str(detail.get("kind") or "")},
+        "members": members,
+    }
+
+
+def _resolved_directive_slots(
+    action_id: str, slots: dict[str, Any], tool_context: ToolContext
+) -> dict[str, Any]:
+    """Expand an opaque handle into the mutation the browser must actually run.
+
+    Every consent action executes in the browser, because the directive ledger
+    is what actually authorises a consent mutation -- a model saying it heard a
+    yes is not authority, which is why `confirmed` is stripped a few hundred
+    lines above this. But the browser cannot resolve any of these handles: the
+    proposal, the grant and the sent request all live in this session's state,
+    parked by the read tool that listed them.
+
+    So the server resolves them here and hands over the result. The model only
+    ever passes the opaque handle. It never names a scope, a person ref, a
+    duration, a token or a bundle id, so it cannot widen a request between the
+    read-back the owner agreed to and the mutation that actually runs -- which
+    is the whole property that makes doing this from chat safe, and the reason
+    the handles exist rather than the real identifiers.
+
+    An unknown handle expands to nothing and the directive goes out as it came
+    in; the handler refuses it rather than guessing.
+    """
+    if action_id == "consent.request":
+        proposal_id = str(slots.get("proposal_id") or slots.get("proposalId") or "").strip()
+        if not proposal_id:
+            return slots
+        proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
+        proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
+        if not isinstance(proposal, dict):
+            return slots
+        return {
+            **slots,
+            "personRef": proposal.get("personRef"),
+            "displayName": proposal.get("displayName"),
+            "scopeRefs": list(proposal.get("scopeRefs") or []),
+            "labels": list(proposal.get("labels") or []),
+            "purpose": proposal.get("purpose"),
+            "durationHours": proposal.get("durationHours"),
+            # The idempotency key the browser must send, minted here so it is
+            # STABLE for this proposal. The bundle id is a uuid5 of a hash of
+            # this key (information_request_service.create), and the table's
+            # unique (requester_user_id, idempotency_hash) makes a redelivered
+            # directive a no-op -- but only if the key is the same one. A key
+            # the browser generates per attempt defeats the constraint
+            # entirely and turns one retried directive into two live requests,
+            # which is exactly how one ask showed up twice.
+            "idempotencyKey": f"agent-chat-{proposal_id}",
+        }
+
+    if action_id == "consent.revoke":
+        handle = str(slots.get("grant_id") or slots.get("grantId") or "").strip()
+        grants = tool_context.state.get(_STATE_ACTIVE_GRANT_HANDLES) or {}
+        grant = grants.get(handle) if isinstance(grants, dict) else None
+        if not isinstance(grant, dict):
+            return slots
+        return {
+            **slots,
+            "scope": grant.get("scope"),
+            "requestId": grant.get("requestId"),
+            "label": grant.get("label"),
+            "holderLabel": grant.get("holderLabel"),
+        }
+
+    if action_id == "consent.cancel_request":
+        handle = str(slots.get("request_id") or slots.get("requestId") or "").strip()
+        sent = tool_context.state.get(_STATE_SENT_REQUEST_HANDLES) or {}
+        if not isinstance(sent, dict) or not sent:
+            return slots
+        # "withdraw the one I just sent" is the usual case and names nothing.
+        # The listing parks its rows newest-first, so the first record is that
+        # request; named handles are keyed to the bundle and cannot retarget
+        # when a later listing changes order.
+        record = sent.get(handle) if handle else next(iter(sent.values()), None)
+        if not isinstance(record, dict):
+            return slots
+        return {
+            **slots,
+            "bundleId": record.get("bundleId"),
+            "displayName": record.get("displayName"),
+        }
+
+    if action_id == "consent.deny":
+        # The only consent target the model may legitimately hold verbatim:
+        # list_pending_information_requests returns requestId precisely so a
+        # decline can name one. Normalised to the camelCase the browser
+        # handlers read, so every consent directive has one slot spelling.
+        request_id = str(slots.get("request_id") or slots.get("requestId") or "").strip()
+        if not request_id:
+            return slots
+        return {**slots, "requestId": request_id}
+
+    return slots
 
 
 async def run_app_action(
@@ -223,21 +3935,99 @@ async def run_app_action(
 ) -> dict[str, Any]:
     """Run a governed app action by its exact action id.
 
-    Use list_app_actions first when unsure of the id. Pass required inputs in
-    slots (e.g. {"symbol": "NVDA"}). The app validates guards and confirms
-    sensitive actions; never claim an outcome beyond this tool's status.
+    For the exact follow-up phrases "cancel that request I just sent", "cancel
+    the request I just sent", or "withdraw that", One calls
+    ``consent.cancel_request`` with an empty slot object; this tool resolves the
+    newest open request and parks one confirmation directive.
+    Call list_app_actions first unless the person's own words are already a
+    close match to a visible label -- do not decide this by how confident it
+    feels. Pass required inputs in slots (e.g. {"symbol": "NVDA"}). The app
+    validates guards and confirms sensitive actions; never claim an outcome
+    beyond this tool's status.
     """
     clean_id = str(action_id or "").strip()
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
+    if entry is not None and (
+        clean_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS
+        or str(entry.get("execution_policy") or "") == "confirm_required"
+    ):
+        # Confirmation is minted by the directive ledger after the visible
+        # app card is approved. A model-produced slot, including a truthful
+        # boolean, is not authority and must not cross the action boundary.
+        clean_slots.pop("confirmed", None)
     if entry is None:
-        logger.info("one_adk_action_decision action=%s status=unknown_action", clean_id[:128])
+        session_id = getattr(getattr(tool_context, "session", None), "id", None)
+        record_unknown_action_attempt(session_id, clean_id)
+        attempt = read_unknown_action_attempts(session_id, clean_id)
+        if attempt >= 2:
+            logger.info(
+                "one_adk_action_decision action=%s status=no_app_action attempts=%s",
+                clean_id[:128],
+                attempt,
+            )
+            return {
+                "status": "no_app_action",
+                "message": (
+                    f"'{clean_id}' is not a generated Agent One action and was already "
+                    "refused once. Call report_no_app_action now; do not "
+                    "guess a replacement or retry it again."
+                ),
+                "next_tool": "report_no_app_action",
+            }
+
+        # Give the model one bounded repair chance against the generated
+        # catalog. The second unknown attempt above fails closed, so semantic
+        # recovery can never become an unbounded retry loop or a second action
+        # authority.
+        candidates: list[dict[str, str]] = []
+        try:
+            from hushh_mcp.one_adk.action_retrieval import search_actions
+
+            probe = clean_id.replace(".", " ").replace("_", " ").strip()
+            if probe:
+                for item in search_actions(
+                    probe,
+                    {"actions": list_action_gateway_actions()},
+                    limit=5,
+                ):
+                    hit = get_action_gateway_action(item.action_id) or {}
+                    candidates.append(
+                        {
+                            "action_id": item.action_id,
+                            "label": str(hit.get("label") or item.action_id),
+                        }
+                    )
+        except Exception:  # noqa: BLE001 - repair must not break the tool
+            logger.exception("unknown_action_repair_failed")
+
+        logger.info(
+            "one_adk_action_decision action=%s status=unknown_action attempts=%s candidates=%s",
+            clean_id[:128],
+            attempt,
+            len(candidates),
+        )
+        if candidates:
+            return {
+                "status": "unknown_action",
+                "candidates": candidates,
+                "message": (
+                    f"'{clean_id}' is not a known generated app action. Call "
+                    "run_app_action exactly once more using one of the action_id "
+                    "values in candidates, or call report_no_app_action if none "
+                    "matches the person's request. Do not guess a third id."
+                ),
+            }
         return {
             "status": "unknown_action",
-            "message": f"'{clean_id}' is not a known app action.",
+            "message": (
+                f"'{clean_id}' is not a known generated app action. Call "
+                "report_no_app_action rather than guessing another id."
+            ),
+            "next_tool": "report_no_app_action",
         }
 
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if isinstance(context, dict) and context.get("context_pending") is True:
         # The live relay seeded this marker at session start; the browser's
         # first app_context frame has not landed yet. Refusing outright here
@@ -319,6 +4109,29 @@ async def run_app_action(
             ),
         }
 
+    if clean_id == "consent.cancel_request" and not any(
+        clean_slots.get(key) for key in ("request_id", "requestId")
+    ):
+        # The generated action intentionally has no required input for the
+        # common phrase "cancel that request I just sent". Refresh the
+        # requester-owned projection here so the model does not need a
+        # separate listing turn before the app can stage its confirmation.
+        # The service still returns only safe handles to the model and the
+        # directive expands the newest handle server-side.
+        user_id, blocked = await _read_tool_user_id(tool_context)
+        if blocked is not None:
+            return blocked
+        if user_id is None:
+            raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        outgoing = await _list_outgoing_information_requests_only(tool_context, user_id=user_id)
+        if outgoing.get("status") != "ok":
+            return outgoing
+        if not outgoing.get("requests"):
+            return {
+                "status": "no_request_to_cancel",
+                "message": "There is no open information request from you to cancel.",
+            }
+
     onboarding = context.get("onboarding") if isinstance(context, dict) else {}
     onboarding = onboarding if isinstance(onboarding, dict) else {}
     if clean_id == "onboarding.claim_one" and (
@@ -384,14 +4197,45 @@ async def run_app_action(
             "message": reason,
         }
 
+    voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(voice_settings):
+        logger.info("one_adk_action_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
+    voice_domain = resolve_voice_domain(clean_id)
+    if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
+        logger.info(
+            "one_adk_action_decision action=%s status=domain_disabled domain=%s",
+            clean_id,
+            voice_domain,
+        )
+        return {
+            "status": "domain_disabled",
+            "message": (
+                f"Voice control is turned off for {voice_domain_label(voice_domain)} "
+                "in your settings. Turn it back on in Profile, Preferences, Voice, "
+                "or do this by tap instead."
+            ),
+        }
+
     available_action_ids = _available_action_ids(tool_context)
-    # Navigation actions (route.*, allow_direct) are invocable from any
-    # screen by design; the browser's per-screen inventory does not bound
-    # them. All other actions must be declared by the current surface.
+    executable_action_ids = _executable_action_ids(tool_context)
+    # Navigation actions and server-resolved session lifecycle actions are
+    # invocable from any screen by design. Other actions must be declared by
+    # the current executable surface. Consent deny/cancel/revoke remain out of
+    # the browser's direct tool inventory so this server gate can revalidate
+    # their opaque handles before staging the browser directive.
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
+        and (executable_action_ids is None or clean_id not in executable_action_ids)
         and not is_navigation_action(entry)
+        and clean_id not in GLOBAL_SESSION_ACTION_IDS
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -451,6 +4295,7 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
+        and clean_id not in GLOBAL_SESSION_ACTION_IDS
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
@@ -487,27 +4332,33 @@ async def run_app_action(
         # bodies, exports, and scopes are resolved by the mounted KYC handler.
         clean_slots = {"instruction": instruction}
 
-    # Whether an action must be confirmed is the CONTRACT's call.
-    #
-    # This was hardcoded True, and so was its counterpart in the browser
-    # (`agent-bar.tsx`). The two are ONE invariant expressed on both sides of
-    # the trust boundary and must always be changed together: the browser
-    # decides whether to raise a card, this decides whether the ledger will
-    # accept a settlement without a confirm. Changing only the browser half
-    # made every allow_direct action run and then fail settlement, because the
-    # directive it was settling had been parked here as needing a confirm.
-    #
-    # allow_direct issues ready to run. Everything else still waits, and two
-    # cases deliberately keep waiting whatever the policy says: an action the
-    # gateway does not know (unknown is not a licence) and
-    # trusted_activation_required, whose provider window the browser will only
-    # open on a fresh human gesture.
-    flags = _directive_flags(entry)
+    # Whether an action must be confirmed starts with the generated contract.
+    # Governed destructive/backend-direct ids add a safety override for
+    # legacy `allow_direct` entries. This value is stamped into the directive
+    # and read by the browser, so the relay and the visible executor share one
+    # ledger decision rather than independently interpreting the action.
+    flags = _directive_flags(
+        entry,
+        require_tap_confirmation=voice_settings.get("require_tap_confirmation") is True,
+    )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
+    # Current backend-direct ids are governed by the ledger, so they take the
+    # same directive-parking path as every other confirmation-required action.
+    # The compatibility branch below is intentionally unreachable for the
+    # current generated set and remains defense-in-depth for future ids.
+    if (
+        _is_backend_direct(clean_id, clean_slots)
+        and not needs_confirmation
+        and not trusted_activation
+    ):
+        label = str(entry.get("label") or clean_id)
+        return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
+
+    # Resolve a parked proposal SERVER-SIDE before the directive leaves.
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
-        "slots": clean_slots,
+        "slots": _resolved_directive_slots(clean_id, clean_slots, tool_context),
         "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
     }
@@ -522,6 +4373,10 @@ async def run_app_action(
     )
     return {
         "status": "confirm_pending" if needs_confirmation else "ready_to_run",
+        # The AG-UI text chat has no session-state directive relay (that is the
+        # Live voice path), so the browser learns about the parked action from
+        # this tool result and stages or runs it itself.
+        "directive": directive_payload,
         # The model reads this and says it out loud, so it has to match what
         # will actually happen. Promising a confirmation that never comes --
         # "I'll ask you to confirm", followed by the thing simply happening --
@@ -548,11 +4403,11 @@ async def run_app_action(
         #
         # Only the trusted-activation pair still has anything to wait for.
         "next_step": (
-            (
-                "The app is showing the person a control they must tap for "
-                f"{label}. Say so once and then wait; do not propose it again."
-            )
-            if trusted_activation
+            "The app is showing the person a control they must tap for "
+            f"{label}. Say so once and then stop; do not ask for spoken approval, "
+            "propose it again, or claim that it completed before the app reports "
+            "the result."
+            if trusted_activation or needs_confirmation
             else (
                 f"{label} is already running. Wait for its settlement before "
                 "saying it completed, say nothing further until that arrives, "
@@ -565,7 +4420,7 @@ async def run_app_action(
 
 
 def _context_revision(tool_context: ToolContext) -> str:
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict):
         return ""
     return str(context.get("context_revision") or "").strip()[:128]
@@ -699,6 +4554,31 @@ def _navigation_action_for_route(route: str) -> str | None:
     # `route.*` ones are in the browser's global-navigation set, so they are the
     # ones guaranteed to be offered from any screen. Deterministic either way:
     # alphabetical still breaks ties inside each group.
+    if not candidates:
+        # Seven navigation contracts have no route path at all: route.profile,
+        # route.consents and route.analysis_history run through kai_command,
+        # route.back through voice_tool (see is_navigation_action, which counts
+        # them as navigation on the `route.` prefix alone). For those the
+        # destination is declared in reachability.routes rather than in
+        # execution_target.target, so the exact-target match above finds
+        # nothing and the whole destination looks unreachable.
+        #
+        # /one/profile is exactly that case, and it is why every wired Profile
+        # action was a dead end from any other screen: nothing could name a
+        # screen to open first, so "delete my account" said no on Location
+        # while Profile sat one navigation away.
+        #
+        # Restricted to the `route.` prefix on purpose. reachability.routes
+        # says where an action is reachable FROM, which for an ordinary action
+        # is not its destination -- profile.sign_out lists /one/profile too and
+        # would be a nonsense escort.
+        candidates = [
+            action_id
+            for candidate in list_action_gateway_actions()
+            if (action_id := str(candidate.get("action_id") or "").strip()).startswith("route.")
+            and (candidate.get("execution_target") or {}).get("status") == "wired"
+            and clean_route in ((candidate.get("reachability") or {}).get("routes") or [])
+        ]
     return (
         sorted(candidates, key=lambda action: (not action.startswith("route."), action))[0]
         if candidates
@@ -899,6 +4779,36 @@ async def start_app_goal(
     """
     clean_id = str(action_id or "").strip()
     entry = get_action_gateway_action(clean_id)
+    # Checked here, before either journey branch below, because both bypass
+    # run_app_action entirely -- a settled journey never reaches it, and a
+    # navigation journey only reaches it (via the non-journey fallthrough)
+    # after parking its own navigation directive first. One check here covers
+    # both; the plain run_app_action call further down repeats it harmlessly.
+    goal_voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(goal_voice_settings):
+        logger.info("one_adk_goal_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
+    voice_domain = resolve_voice_domain(clean_id)
+    if is_voice_domain_disabled(voice_domain, goal_voice_settings.get("disabled_domains")):
+        logger.info(
+            "one_adk_goal_decision action=%s status=domain_disabled domain=%s",
+            clean_id,
+            voice_domain,
+        )
+        return {
+            "status": "domain_disabled",
+            "message": (
+                f"Voice control is turned off for {voice_domain_label(voice_domain)} "
+                "in your settings. Turn it back on in Profile, Preferences, Voice, "
+                "or do this by tap instead."
+            ),
+        }
     if entry is not None:
         journey = _settled_journey_definition(entry, clean_id)
         if journey is not None:
@@ -929,7 +4839,7 @@ async def start_app_goal(
             "message": missing["prompt"],
         }
     journey_slots = _journey_slots(entry or {}, slots or {})
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info(
             "one_adk_goal_decision goal=%s action=%s status=context_not_ready", goal_id, clean_id
@@ -975,7 +4885,11 @@ async def start_app_goal(
         return await continue_app_goal(tool_context)
 
     navigation_action_id = navigation_journey["navigation_action_id"]
-    navigation_flags = _directive_flags(get_action_gateway_action(navigation_action_id))
+    navigation_flags = _directive_flags(
+        get_action_gateway_action(navigation_action_id),
+        require_tap_confirmation=_voice_settings(tool_context).get("require_tap_confirmation")
+        is True,
+    )
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}"] = {
         "kind": "action",
         "payload": {
@@ -1008,7 +4922,7 @@ async def _continue_settled_journey(
     run: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Make an authored choice eligible only on its accepted destination."""
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {"status": "settling", "message": "Waiting for the destination screen."}
     expected = run.get("settlement_target")
@@ -1073,7 +4987,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     goal_id = str(run["goal_id"])
     journey_action_id = str(run.get("action_id") or "").strip()
     destination_screen = str(run.get("expected_screen") or "").strip()
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info("one_adk_goal_decision status=settling reason=context_pending")
         return {"status": "settling", "message": "Waiting for fresh destination context."}
@@ -1126,7 +5040,11 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
-    action_flags = _directive_flags(get_action_gateway_action(journey_action_id))
+    action_flags = _directive_flags(
+        get_action_gateway_action(journey_action_id),
+        require_tap_confirmation=_voice_settings(tool_context).get("require_tap_confirmation")
+        is True,
+    )
     next_run = {
         **run,
         "step_cursor": 1,
@@ -1159,9 +5077,18 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def _query_tokens(query: str) -> list[str]:
-    """Lowercase word tokens from a model query, bounded and deduplicated."""
+    """Unicode-normalized word tokens from a model query, bounded and deduplicated.
+
+    Delegates to the shared semantic-retrieval normalizer so Hindi and Hinglish
+    words are preserved.  Falls back to a whitespace split on transient retrieval
+    errors so the caller still gets a token list.
+    """
+    try:
+        normalized = action_retrieval._normalize_query(query)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - graceful degradation
+        normalized = str(query or "")
     tokens: list[str] = []
-    for raw in re.split(r"[^a-z0-9]+", str(query or "").lower()):
+    for raw in re.split(r"\s+", normalized):
         token = raw.strip()
         if len(token) < 2 or token in _QUERY_STOPWORDS or token in tokens:
             continue
@@ -1171,6 +5098,10 @@ def _query_tokens(query: str) -> list[str]:
     return tokens
 
 
+# Restored: the specialist journey redirect below depends on this score.
+# It is a RANKING signal for that one guarded decision and for the degraded
+# discovery path -- never a general execution gate. Semantic retrieval in
+# action_retrieval is the primary ranking path once its model is packaged.
 def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
     """Rank one action against the query's tokens.
 
@@ -1211,6 +5142,36 @@ def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
 # A specialist is for open-ended questions. When someone names a concrete thing
 # that has an authored journey, the journey is the answer and the specialist is
 # a detour that ends in a consent boundary.
+def _reachability(
+    entry: dict[str, Any],
+    action_id: str,
+    available_action_ids: set[str] | None,
+) -> tuple[str, str | None]:
+    """How One could actually reach ``action_id`` from where it is standing.
+
+    Discovery is not authority: ``run_app_action`` still refuses anything the
+    browser has not declared. What this adds is an honest next step, so an
+    off-screen answer becomes "open X first" instead of a dead end.
+    """
+    if available_action_ids is None or action_id in available_action_ids:
+        return "on_screen", None
+    if action_id in GLOBAL_SESSION_ACTION_IDS:
+        # Available on every screen by construction, so an empty mounted
+        # inventory means "nothing published yet", not "not offered here".
+        # Without this, signing out reads as a dead end from every screen
+        # except Profile -- the exact refusal this function exists to prevent.
+        return "on_screen", None
+    if is_navigation_action(entry):
+        return "on_screen", None
+    if _is_journey_startable(entry):
+        return "journey", None
+    for route in (entry.get("reachability") or {}).get("routes") or []:
+        navigation_action_id = _navigation_action_for_route(str(route))
+        if navigation_action_id:
+            return "navigate_first", navigation_action_id
+    return "unreachable_from_here", None
+
+
 _SPECIALIST_ACTION_SURFACES: dict[str, tuple[str, ...]] = {
     "agent_connections": ("one_connect",),
 }
@@ -1275,115 +5236,612 @@ def journey_for_specialist_request(agent_id: str, request: str) -> dict[str, Any
     }
 
 
-def _reachability(
-    entry: dict[str, Any],
-    action_id: str,
-    available_action_ids: set[str] | None,
-) -> tuple[str, str | None]:
-    """How One could actually reach ``action_id`` from where it is standing.
-
-    Discovery is not authority: ``run_app_action`` still refuses anything the
-    browser has not declared. What this adds is an honest next step, so an
-    off-screen answer becomes "open X first" instead of a dead end.
-    """
-    if available_action_ids is None or action_id in available_action_ids:
-        return "on_screen", None
-    if is_navigation_action(entry):
-        return "on_screen", None
-    if _is_journey_startable(entry):
-        return "journey", None
-    for route in (entry.get("reachability") or {}).get("routes") or []:
-        navigation_action_id = _navigation_action_for_route(str(route))
-        if navigation_action_id:
-            return "navigate_first", navigation_action_id
-    return "unreachable_from_here", None
-
-
 async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
     """List generated actions One can reach from the active app context.
 
-    Semantic selection still belongs to One, but the result list is bounded:
-    without ranking, One saw an alphabetical prefix of the catalog and simply
-    could not know that most of the app existed. ``query`` now decides which
-    actions occupy those slots, and a queried call may surface actions that
-    live on other screens -- each carrying how to reach it.
+    Uses semantic retrieval (embedding + RRF fusion) for natural-language
+    queries so that meaning-based matches surface even when the query shares
+    no words with an action's label or aliases.  An empty query still returns
+    the screen-available actions as a bounded context window.
 
     Execution authority is unchanged. Everything here is still filtered by the
     generated manifest, and ``run_app_action`` still refuses any action the
     browser has not declared on the current screen.
     """
-    tokens = _query_tokens(query)
     available_action_ids = _available_action_ids(tool_context)
-    candidates: list[tuple[int, int, str, dict[str, Any], str, str | None]] = []
-    for entry in list_action_gateway_actions():
-        if (entry.get("execution_target") or {}).get("status") != "wired":
-            continue
-        action_id = str(entry.get("action_id") or "")
-        if not action_id:
-            continue
-        availability, open_first = _reachability(entry, action_id, available_action_ids)
-        score = _relevance_score(entry, tokens)
-        if availability == "unreachable_from_here":
-            continue
-        # An unqueried call is "what can I do here" -- answer with this screen
-        # rather than the whole app. Only an actual query opens the catalog,
-        # and then only to actions the query matched.
-        if availability not in {"on_screen", "journey"} and (not tokens or score <= 0):
-            continue
-        candidates.append(
-            (
-                -score,
-                _AVAILABILITY_ORDER.get(availability, 9),
-                str(entry.get("label") or ""),
-                entry,
-                availability,
-                open_first,
+
+    semantic_results: list[RetrievedAction] = []
+    if query and str(query).strip():
+        # Semantic retrieval path: natural-language query.  ``search_actions``
+        # ranks against the generated catalog, so it takes the gateway - not
+        # the ToolContext, which carries live screen state instead.
+        try:
+            # Must be the SAME filtered catalog that resolves results below.
+            # load_action_gateway() is unfiltered; list_action_gateway_actions()
+            # drops CRM actions when the CRM product is off. Passing the
+            # unfiltered one lets CRM hits consume result slots and then vanish
+            # at resolution, returning fewer actions than One asked for.
+            # Over-fetch: reachability is applied below, AFTER retrieval has
+            # already truncated. Asking for exactly _MAX_LIST_RESULTS means a
+            # screen where most hits are unreachable hands One two or three
+            # capabilities instead of a full window.
+            semantic_results = search_actions(
+                query,
+                {"actions": list_action_gateway_actions()},
+                limit=_MAX_LIST_RESULTS * _RETRIEVAL_OVERFETCH,
+            )
+        except Exception:  # noqa: BLE001 - graceful degradation to local
+            logger.exception("semantic_retrieval_failed")
+            semantic_results = []
+
+    selected: list[RetrievedAction] = []
+
+    if semantic_results:
+        # Retrieval ranks against the catalog and cannot see the live screen,
+        # so recompute reachability here where the browser-declared ids exist.
+        for item in semantic_results:
+            entry = get_action_gateway_action(item.action_id) or {}
+            availability, open_first = _reachability(entry, item.action_id, available_action_ids)
+            # Same filter the lexical branch applies. A dead-end action has no
+            # next step for One to take: offering it produces a list -> run ->
+            # refused -> list loop rather than an answer.
+            if availability == "unreachable_from_here":
+                continue
+            selected.append(
+                dataclasses.replace(
+                    item,
+                    availability=availability,
+                    navigation=({"open_first_action_id": open_first} if open_first else None),
+                )
+            )
+
+        # Same on-screen preference the lexical branch applies: when two actions
+        # share an alias, the one the person is looking at wins. Retrieval ranks
+        # against the catalog and cannot see the screen, so it happens here.
+        on_screen_ids = available_action_ids or set()
+        selected.sort(
+            key=lambda ra: (
+                -(ra.score + (_ON_SCREEN_SEMANTIC_BONUS if ra.action_id in on_screen_ids else 0.0))
             )
         )
+        selected = selected[:_MAX_LIST_RESULTS]
+    else:
+        # Fallback: list wired actions filtered by reachability (lexical path).
+        candidates: list[tuple[int, str, dict[str, Any], str, str | None]] = []
+        for entry in list_action_gateway_actions():
+            if (entry.get("execution_target") or {}).get("status") != "wired":
+                continue
+            action_id = str(entry.get("action_id") or "")
+            if not action_id:
+                continue
+            availability, open_first = _reachability(entry, action_id, available_action_ids)
+            if availability == "unreachable_from_here":
+                continue
+            candidates.append(
+                (
+                    _AVAILABILITY_ORDER.get(availability, 9),
+                    str(entry.get("label") or ""),
+                    entry,
+                    availability,
+                    open_first,
+                )
+            )
 
-    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-    if tokens:
-        # A queried call padded to the cap with whatever happened to be on
-        # screen buries the two or three actions that actually answered the
-        # question. Keep some on-screen context, but never at the cost of a
-        # match: a short relevant list beats a full mostly-irrelevant one.
-        matched = [item for item in candidates if item[0] < 0]
-        filler = [item for item in candidates if item[0] == 0][:_MAX_QUERY_FILLER]
-        candidates = matched + filler
-    selected = candidates[:_MAX_LIST_RESULTS]
+        # Degraded path: the embedding model is unavailable, so rank by the
+        # query lexically rather than returning a query-blind list.  Sorting
+        # only by (availability, label) drops the action a person actually
+        # asked for outside the truncation window -- One then cannot see it at
+        # all.  This is a ranking signal, never an execution decision.
+        if query and str(query).strip():
+            # On-screen bonus rather than sorting by availability first. Two
+            # actions can share an alias ("people tab" reaches both
+            # connect.open_people and location.open_people); the one the person
+            # is actually looking at should win that tie. Making availability
+            # the primary key instead would let a weak on-screen match outrank
+            # a much stronger off-screen one, which is the opposite failure.
+            on_screen_ids = available_action_ids or set()
+
+            def _rank(item: tuple) -> tuple:
+                entry = item[2]
+                action_id = str(entry.get("action_id") or "")
+                score = lexical_score(entry, str(query))
+                if action_id in on_screen_ids:
+                    score += _ON_SCREEN_RANK_BONUS
+                return (-score, item[0], item[1])
+
+            candidates.sort(key=_rank)
+        else:
+            candidates.sort(key=lambda item: (item[0], item[1]))
+        selected = [
+            RetrievedAction(
+                action_id=str(entry.get("action_id") or ""),
+                score=0.0,
+                source="lexical",
+                meaning=str(entry.get("meaning") or ""),
+                semantic_boundaries=None,
+                required_inputs={
+                    spec.get("slot", ""): spec
+                    for spec in (entry.get("goal") or {}).get("required_inputs", [])
+                    if isinstance(spec, dict)
+                },
+                policy=str(entry.get("execution_policy") or "allow_direct"),
+                availability=availability,
+                navigation=({"open_first_action_id": open_first} if open_first else None),
+                goal=entry.get("goal"),
+            )
+            for _, _, entry, availability, open_first in candidates[:_MAX_LIST_RESULTS]
+        ]
+
+    # Build a lookup from action_id to entry for tool/availability resolution.
+    all_entries: dict[str, dict[str, Any]] = {
+        str(e.get("action_id") or ""): e for e in list_action_gateway_actions()
+    }
+
     results = []
-    for _, _, _, entry, availability, open_first in selected:
-        delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
-        # Always name the tool; never leave it to be inferred. A delegate wins
-        # (it owns the turn), then a journey (start_app_goal opens the right
-        # screen first), and everything else runs through run_app_action.
-        #
-        # Leaving it unset for ordinary actions left One to guess, and it
-        # guessed the action id WAS the tool. ADK then raised "Tool
-        # 'analysis.open_summary_tab' not found", which escaped the live flow
-        # and killed the relay pump -- one bad guess dropped the whole call.
-        # An action id and a tool name are different kinds of thing, so every
-        # result now says which one it is holding.
+    for ra in selected:
+        action_entry = all_entries.get(ra.action_id)
+        if action_entry is None:
+            continue
+
+        delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(
+            str(action_entry.get("delegate_agent_id") or "")
+        )
         use_tool = delegate_tool or (
-            "start_app_goal" if _is_journey_startable(entry) else "run_app_action"
+            "start_app_goal" if _is_journey_startable(action_entry) else "run_app_action"
         )
-        results.append(
-            {
-                "action_id": entry["action_id"],
-                "label": str(entry.get("label") or ""),
-                "meaning": str(entry.get("meaning") or ""),
-                # Read from the action's own field. This used to read a `risk`
-                # object that is null on every generated action, so all 117
-                # reported as allow_direct -- One was told that 23 manual_only
-                # and 8 confirm_required actions needed no confirmation.
-                "policy": str(entry.get("execution_policy") or "allow_direct"),
-                "availability": availability,
-                **({"use_tool": use_tool} if use_tool else {}),
-                **({"open_first_action_id": open_first} if open_first else {}),
-            }
-        )
-    return {
+        availability = ra.availability if isinstance(ra.availability, str) else "on_screen"
+
+        result_dict: dict[str, Any] = {
+            "action_id": ra.action_id,
+            "label": str(action_entry.get("label") or ""),
+            "meaning": ra.meaning,
+            "policy": ra.policy,
+            "availability": availability,
+            **({"use_tool": use_tool} if use_tool else {}),
+        }
+        if ra.semantic_boundaries:
+            result_dict["semantic_boundaries"] = ra.semantic_boundaries
+        nav = ra.navigation
+        if isinstance(nav, dict) and nav.get("open_first_action_id"):
+            result_dict["open_first_action_id"] = nav["open_first_action_id"]
+        results.append(result_dict)
+
+    payload: dict[str, Any] = {
         "status": "ok",
         "total_actions": len(list_action_gateway_actions()),
         "results": results,
     }
+    # Say so when ranking is lexical-only. Without this the degraded path is
+    # indistinguishable from a working one -- the same invisibility that let
+    # the original retrieval bug ride into production looking healthy.
+    if query and str(query).strip() and not is_retrieval_available():
+        payload["ranking"] = "lexical_only"
+        payload["ranking_degraded_reason"] = retrieval_error() or "unavailable"
+    return payload
+
+
+async def propose_app_action(
+    action_id: str,
+    slots: dict[str, Any] | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Return a typed proposal for one action without executing it.
+
+    This is the proposal-mode counterpart of ``run_app_action``: One returns a
+    structured assessment (action, inputs, gaps, confirmation need) and the
+    app's proposal controller decides whether to admit, confirm, or reject
+    the draft.  No domain mutation occurs here.
+
+    ``tool_mode`` enforcement (in ``agent_tree.py``) restricts this tool to
+    the proposal roster.  The server-side controller still validates the
+    action, slots, and current context before admitting the draft.
+    """
+    clean_id = str(action_id or "").strip()
+    if not clean_id:
+        return {"status": "blocked", "message": "An action id is required."}
+
+    entry = get_action_gateway_action(clean_id)
+    if entry is None:
+        return {
+            "status": "unsupported",
+            "action_id": clean_id,
+            "message": f"'{clean_id}' is not a recognized action.",
+        }
+
+    # Enforce execution boundary at the tool layer.
+    policy = str(entry.get("execution_policy") or "allow_direct")
+    if policy == "manual_only":
+        return {
+            "status": "blocked",
+            "action_id": clean_id,
+            "message": f"'{clean_id}' requires the app UI and cannot be proposed.",
+        }
+
+    # Resolve required inputs from the goal contract.
+    goal = entry.get("goal") or {}
+    required_specs: list[dict[str, Any]] = [
+        spec
+        for spec in goal.get("required_inputs", [])
+        if isinstance(spec, dict) and spec.get("required")
+    ]
+    provided_slots = {str(k): v for k, v in (slots or {}).items() if str(k).strip()}
+
+    missing: list[dict[str, str]] = []
+    for spec in required_specs:
+        slot_name = str(spec.get("slot") or spec.get("name") or "").strip()
+        if not slot_name:
+            continue
+        if provided_slots.get(slot_name) not in (None, ""):
+            continue
+        default_value = spec.get("default_value")
+        if default_value not in (None, ""):
+            continue
+        missing.append(
+            {
+                "slot": slot_name,
+                "prompt": str(spec.get("prompt") or f"What should {slot_name} be?"),
+            }
+        )
+
+    delegate_id = str(entry.get("delegate_agent_id") or "").strip()
+    use_tool: str | None = None
+    if delegate_id in _DELEGATE_TOOL_BY_AGENT_ID:
+        use_tool = _DELEGATE_TOOL_BY_AGENT_ID[delegate_id]
+    elif _is_journey_startable(entry):
+        use_tool = "start_app_goal"
+    else:
+        use_tool = "run_app_action"
+
+    nav_target: dict[str, Any] | None = None
+    exec_target = entry.get("execution_target") or {}
+    if exec_target.get("path") == "route":
+        nav_target = {"route": str(exec_target.get("target") or ""), "path": "route"}
+
+    proposal_status = "needs_resolution" if missing else "needs_review"
+    if policy == "confirm_required" and not missing:
+        proposal_status = "ready_for_confirmation"
+
+    return {
+        "status": "ok",
+        "proposal": {
+            "schemaVersion": "one.action_proposal.v1",
+            "status": proposal_status,
+            "actionId": clean_id,
+            "label": str(entry.get("label") or ""),
+            "meaning": str(entry.get("meaning") or ""),
+            "semanticBoundaries": _normalize_boundaries_str(entry.get("semantic_boundaries")),
+            "slots": provided_slots,
+            "requiredInputs": [
+                {
+                    "name": str(spec.get("slot") or spec.get("name") or ""),
+                    "slot": str(spec.get("slot") or spec.get("name") or ""),
+                    "resolver": str(spec.get("resolver") or ""),
+                    "prompt": str(spec.get("prompt") or ""),
+                    "required": bool(spec.get("required", True)),
+                }
+                for spec in required_specs
+            ],
+            "missingSlots": missing,
+            "entityMentions": [],
+            "catalogRevision": "server-computed",
+            "contextRevision": "validated-at-admit",
+            "confirmationRequired": policy == "confirm_required",
+            "executionPolicy": policy,
+            "useTool": use_tool,
+            "delegateAgentId": delegate_id or None,
+            "navigation": nav_target,
+            "guardIds": [str(g) for g in (entry.get("guard_ids") or []) if str(g)],
+        },
+    }
+
+
+def _normalize_boundaries_str(value: Any) -> str | None:
+    """Return semantic_boundaries as a single string or None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        joined = " ".join(str(x) for x in value).strip()
+        return joined or None
+    s = str(value).strip()
+    return s or None
+
+
+async def list_available_models(tool_context: ToolContext) -> dict[str, Any]:
+    """List the models this agent can run on, which one the owner picked, and which is running.
+
+    The catalog is server-side, so the choices are whatever the deployment can actually
+    serve rather than anything the model believes exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to see which models are available."}
+    try:
+        from hushh_mcp.services.model_preference_service import get_preference
+
+        preference = await get_preference(user_id=user_id)
+    except Exception:
+        logger.exception("list_available_models failed")
+        return {"status": "error", "message": "Could not read the available models."}
+    return {
+        "status": "ok",
+        "models": [
+            {
+                "model": choice["label"],
+                "model_id": choice["model_id"],
+                "running_now": choice["is_active"],
+                "default": choice["is_default"],
+            }
+            for choice in preference["choices"]
+        ],
+        "chosen_by_owner": preference["selected_model"] is not None,
+        "running_now": preference["effective_model"],
+    }
+
+
+async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Set the model this owner's agent runs on. Pass an empty string to follow the default again.
+
+    Takes effect on the owner's next message; nothing is redeployed and no other person
+    is affected. A model outside the served catalog is refused with the list that is.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to choose a model."}
+    try:
+        from hushh_mcp.services.model_preference_service import (
+            ModelPreferenceError,
+            set_preference,
+        )
+
+        preference = await set_preference(user_id=user_id, model_id=model_id)
+    except ModelPreferenceError as exc:
+        return {"status": "rejected", "message": str(exc)}
+    except Exception:
+        logger.exception("set_preferred_model failed")
+        return {"status": "error", "message": "Could not change the model."}
+    return {
+        "status": "ok",
+        "running_now": preference["effective_model"],
+        "following_default": preference["selected_model"] is None,
+        "takes_effect": "next_message",
+    }
+
+
+async def add_to_pkm(
+    memory_text: str,
+    reason: str,
+    tool_context: ToolContext,
+    whole_message: bool = False,
+) -> dict[str, Any]:
+    """Hand information the person asked you to save to their device, which saves it to their private memory.
+
+    Use only when the person explicitly asks to save, remember, store, or add information to
+    their memory. Set whole_message=true when they pasted a document or a long passage and
+    asked to save it: their device reads their own message, so pass a one-line summary as
+    memory_text instead of copying the text. For one detail stated in conversation, pass that
+    detail as memory_text.
+
+    This call saves nothing by itself. The device silently prepares, reconciles and
+    encrypts eligible details. Continue the conversation without narrating that work.
+    """
+    clean_text = str(memory_text or "").strip()
+    if not clean_text and not whole_message:
+        return {
+            "status": "missing_text",
+            "message": "Specify the exact information to save to memory.",
+        }
+
+    slots: dict[str, Any] = {"source_text": clean_text[:50_000]}
+    if whole_message:
+        # The browser substitutes the owner's own message for this turn. The
+        # model never has to reproduce a long document as a tool argument.
+        slots["source_scope"] = "turn"
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
+        "kind": "action",
+        "payload": {"actionId": "pkm.add", "slots": slots},
+    }
+    # The truth at this point is only that the device has the request. Keep the
+    # handoff silent so One cannot promise a progress UI or persistence outcome
+    # before the encrypted device-side write completes.
+    return {
+        "status": "handed_to_device",
+        "saved": False,
+        "message": (
+            "The person's device will handle this request silently. Continue answering "
+            "naturally. Do not mention Memory, saving, progress, a card, confirmation, or a "
+            "receipt, and do not list the details."
+        ),
+    }
+
+
+def _resolve_timezone(tool_context: ToolContext) -> str:
+    """Read the person's declared IANA timezone, defaulting to UTC.
+
+    Mirrors ``hushh_mcp.agents.calendar.tools._timezone`` (module-private
+    there, so duplicated rather than imported across module boundaries).
+    """
+    value = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(value)
+    except (ValueError, ZoneInfoNotFoundError):
+        return "UTC"
+    return value
+
+
+async def get_current_time(tool_context: ToolContext, time_zone: str = "") -> dict[str, Any]:
+    """Get the current date and time in the owner's declared timezone.
+
+    Use this whenever the person asks what day, date, or time it is -- the
+    model has no other grounding for "now" and must not guess from training data.
+    time_zone_source identifies owner, explicit request, or UTC fallback. For a
+    timezone clarification reply, pass the exact user-written IANA time_zone,
+    such as Asia/Kolkata. It affects this read only, never saved preferences.
+    Relative document periods need owner/request timezone, never UTC fallback.
+    """
+    zone_name = _resolve_timezone(tool_context)
+    declared_zone = str(tool_context.state.get(_STATE_TIMEZONE) or "").strip()
+    texts = _document_request_user_texts(tool_context)
+    requested_zone = str(time_zone or "").strip()
+    if requested_zone:
+        try:
+            ZoneInfo(requested_zone)
+            if not any(requested_zone in text for text in texts):
+                raise ValueError("timezone was not supplied by the current user")
+        except (ValueError, ZoneInfoNotFoundError):
+            return {
+                "status": "needs_clarification",
+                "message": "Which timezone should I use? Please use a name like Asia/Kolkata.",
+            }
+        zone_name = requested_zone
+    now = datetime.now(ZoneInfo(zone_name))
+    # %-I / %-d (no leading zero) are glibc/BSD-only strftime extensions that
+    # raise ValueError on Windows -- computed by hand instead so this tool
+    # behaves the same on every platform this repo is developed or run on.
+    hour_12 = now.hour % 12 or 12
+    clock_time = f"{hour_12}:{now.strftime('%M %p')}"
+    zone_label = now.strftime("%Z") or zone_name
+    zone_source: Literal["owner", "request", "utc_fallback"] = (
+        "request"
+        if requested_zone
+        else "owner"
+        if declared_zone and declared_zone == zone_name
+        else "utc_fallback"
+    )
+    result = {
+        "status": "ok",
+        "date": now.strftime("%Y-%m-%d"),
+        "time": clock_time,
+        "weekday": now.strftime("%A"),
+        "time_zone": zone_name,
+        "time_zone_source": zone_source,
+        "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
+    }
+    # Host-only invocation state; model tool arguments cannot supply this receipt.
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    if isinstance(invocation_id, str) and invocation_id and texts:
+        from hushh_mcp.one_adk.document_period_assessment import (
+            HostClockReceipt,
+            user_texts_sha256,
+        )
+
+        tool_context.state[_STATE_DOCUMENT_CLOCK_RECEIPT] = HostClockReceipt(
+            invocation_id=invocation_id,
+            user_texts_sha256=user_texts_sha256(texts),
+            status="ok",
+            date=result["date"],
+            time_zone=zone_name,
+            time_zone_source=zone_source,
+            user_time_zone_quote=requested_zone or None,
+        ).model_dump()
+    return result
+
+
+async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]:
+    """Declare that no app action matches what the person asked for.
+
+    Call this instead of guessing an action_id, and instead of silently
+    answering in prose, whenever the request has no matching capability on
+    this screen or anywhere in the app -- including after run_app_action
+    returned unknown_action and none of its candidates fit.
+
+    Answering conversationally is still correct for questions that are not
+    about operating the app (the time, the weather, small talk); this tool is
+    for requests that sounded like an app action but have no action behind
+    them. Declaring it makes "correctly declined" distinguishable from
+    "narrated because it did not know", which is the difference between a
+    measurable miss and an invisible one.
+
+    Args:
+        reason: Short machine-readable note, e.g. "no_matching_action" or
+            "action_exists_but_not_on_this_surface".
+        spoken_reply: What to say to the person, in One's voice.
+    """
+    clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
+    clean_reply = str(spoken_reply or "").strip()[:600]
+    logger.info("one_adk_action_decision status=no_app_action")
+    return {
+        "status": "no_app_action",
+        "reason": clean_reason,
+        "message": clean_reply,
+    }
+
+
+async def read_my_profile_status(tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own Profile status: verification, consents, marketplace.
+
+    Answers the questions Profile can be asked but could not answer -- "is my
+    phone verified", "how many consents are waiting on me", "is my marketplace
+    profile visible". Location has had read tools for this since #6434; Profile
+    had none, so One could open the Security panel and still not say what was
+    in it.
+
+    Each field is read independently and a failure reports ``None`` for that
+    field alone rather than failing the whole answer. That is deliberate:
+    ``None`` here means "could not determine", never "no". Collapsing an
+    unavailable read into ``False`` would have One state that a phone is
+    unverified because a table was briefly unreachable, which is worse than
+    saying it does not know.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around a
+    # *synchronous* service method, and all three services here are async. Same
+    # failure-boundary reasoning -- an exception must never escape a live-session
+    # tool call -- awaited instead of called, following
+    # read_my_pkm_domain_summary.
+    async def read_identity() -> tuple[bool | None, bool | None]:
+        try:
+            identities = await ActorIdentityService().get_many([user_id])
+            identity = identities.get(user_id) or {}
+            return bool(identity.get("phone_verified")), bool(identity.get("email_verified"))
+        except Exception:  # noqa: BLE001 - report the gap, never the internals
+            logger.exception("one_adk_read_tool_failed label=profile_identity reason=unexpected")
+            return None, None
+
+    async def read_consents() -> int | None:
+        try:
+            summary = await ConsentCenterService().get_center_summary(user_id, actor="investor")
+            counts = summary.get("counts") if isinstance(summary, dict) else None
+            return int(counts.get("pending") or 0) if isinstance(counts, dict) else None
+        except Exception:  # noqa: BLE001
+            logger.exception("one_adk_read_tool_failed label=profile_consents reason=unexpected")
+            return None
+
+    async def read_persona() -> bool | None:
+        try:
+            persona_state = await RIAIAMService().get_persona_state(user_id)
+            if isinstance(persona_state, dict):
+                return bool(persona_state.get("investor_marketplace_opt_in"))
+            return None
+        except Exception:  # noqa: BLE001
+            logger.exception("one_adk_read_tool_failed label=profile_persona reason=unexpected")
+            return None
+
+    # Independent owner-authorized reads have no ordering dependency. Keep
+    # their failure boundaries separate while paying only the slowest I/O wait.
+    (phone_verified, email_verified), pending_consents, marketplace_visible = await asyncio.gather(
+        read_identity(), read_consents(), read_persona()
+    )
+
+    result = {
+        "phone_verified": phone_verified,
+        "email_verified": email_verified,
+        "pending_consents": pending_consents,
+        "marketplace_visible": marketplace_visible,
+    }
+    if all(value is None for value in result.values()):
+        # Every read failed. Saying "I don't know" once is honest; reporting
+        # four separate nulls invites the model to narrate around them.
+        return {
+            "status": "failed",
+            "message": "Could not check your profile status right now. Try again in a moment.",
+        }
+    return {"status": "ok", "result": result}

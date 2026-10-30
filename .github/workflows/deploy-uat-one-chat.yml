@@ -1,0 +1,222 @@
+name: "Deploy UAT One Chat Backend"
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact green main SHA for the One chat backend cutover"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: uat-release-requests-backend
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: uat
+      scope: ${{ 'backend' }}
+
+  wait-capacity:
+    needs: deployment-security
+    name: Wait for UAT One chat capacity outside the mutation lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Checkout current admission tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Wait for inherited backend capacity
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/wait-uat-capacity.py --mode one-chat --target-sha "$TARGET_SHA"
+
+  deploy:
+    name: Deploy only consent-protocol
+    needs: [wait-capacity, deployment-security]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment: uat
+    timeout-minutes: 65
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Assert main dispatch and governed actor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+
+      - name: Checkout main
+        id: checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
+
+      - name: Preserve current release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/capacity-tools"
+          cp scripts/ci/runtime-capacity-budget.py "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"
+          cp scripts/ci/runtime_capacity_inventory.py "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"
+          cp scripts/ci/runtime_capacity_cli.py scripts/ci/runtime_capacity_target_scope.py scripts/ci/runtime_capacity_volume.py "${RUNNER_TEMP}/capacity-tools/"
+          cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
+
+      - name: Validate exact main SHA and actor
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          bash scripts/ci/require-deploy-sha-on-main.sh "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py" scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py" scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_cli.py" "${RUNNER_TEMP}/capacity-tools/runtime_capacity_target_scope.py" "${RUNNER_TEMP}/capacity-tools/runtime_capacity_volume.py" scripts/ci/
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json" config/runtime-capacity.json
+
+      - name: Require exact-SHA dev acceptance for the backend
+        id: predecessor-acceptance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment dev --sha "$TARGET_SHA" --scope backend \
+            --output "${RUNNER_TEMP}/uat-one-chat-dev-acceptance.json"
+
+      - name: Validate UAT identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER"
+          test -n "$DEPLOY_SERVICE_ACCOUNT"
+
+      - name: Authenticate to UAT
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set UAT project context
+        run: gcloud config set project hushh-pda-uat
+
+      - name: Enforce UAT database connection budget
+        shell: bash
+        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
+
+      - name: Deploy and verify only the backend service
+        id: deploy-backend
+        shell: bash
+        timeout-minutes: 45
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gcloud config get-value project 2>/dev/null)" = hushh-pda-uat
+          python3 scripts/ci/uat_one_chat_backend_release.py
+
+      - name: Recover interrupted backend promotion
+        if: always() && steps.checkout.outcome == 'success' && steps.predecessor-acceptance.outcome == 'success' && steps.deploy-backend.outcome != 'success'
+        shell: bash
+        timeout-minutes: 10
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/uat_one_chat_backend_release.py --recover-interrupted
+
+      - name: Publish service-only release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-one-chat-backend-release
+          path: ${{ runner.temp }}/uat-one-chat-*.json
+          if-no-files-found: error

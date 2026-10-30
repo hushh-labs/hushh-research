@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.telephony.TelephonyManager
+import androidx.appcompat.app.AlertDialog
+import com.hussh.app.R
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -43,9 +45,22 @@ import java.util.Locale
 )
 class HushhContactsPlugin : Plugin() {
 
-    private companion object {
-        const val DEFAULT_LIMIT = 5000
+    internal companion object {
+        const val DEFAULT_LIMIT = 10000
         const val MAX_LIMIT = 10000
+        private val E164_NUMBER = Regex("^\\+[1-9]\\d{6,14}$")
+
+        /**
+         * Android's canonical number and display number are alternatives for
+         * one provider row, not two separate identities. Emitting both can
+         * reinterpret the raw national digits in the SIM's country and hash a
+         * second, valid person in another numbering plan.
+         */
+        fun preferredProviderPhone(normalized: String?, raw: String?): String? {
+            val canonical = normalized?.trim().orEmpty()
+            if (E164_NUMBER.matches(canonical)) return canonical
+            return raw?.trim()?.takeIf { it.isNotEmpty() }
+        }
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -66,7 +81,9 @@ class HushhContactsPlugin : Plugin() {
             call.resolve(permissionPayload())
             return
         }
-        requestPermissionForAlias("contacts", call, "contactsPermissionStateCallback")
+        requestContactsWithDisclosure(call, "contactsPermissionStateCallback") {
+            call.resolve(permissionPayload())
+        }
     }
 
     @PluginMethod
@@ -86,10 +103,48 @@ class HushhContactsPlugin : Plugin() {
     @PluginMethod
     fun readContacts(call: PluginCall) {
         if (getPermissionState("contacts") != PermissionState.GRANTED) {
-            requestPermissionForAlias("contacts", call, "contactsPermissionCallback")
+            requestContactsWithDisclosure(call, "contactsPermissionCallback") {
+                call.reject("Contacts permission was not granted.")
+            }
             return
         }
         resolveContacts(call)
+    }
+
+    /**
+     * Google Play prominent disclosure: every path that can raise the
+     * READ_CONTACTS prompt (onboarding, People, Connect, voice) funnels through
+     * here, so the explanation always precedes the OS dialog. It is shown even
+     * when Capacitor reports DENIED: that state is cached from the last request
+     * and goes stale if the person later grants and revokes in Settings, after
+     * which the OS prompts again.
+     */
+    private fun requestContactsWithDisclosure(
+        call: PluginCall,
+        callbackName: String,
+        onDeclined: () -> Unit,
+    ) {
+        val host = activity
+        if (host == null || host.isFinishing) {
+            onDeclined()
+            return
+        }
+        host.runOnUiThread {
+            var answered = false
+            AlertDialog.Builder(host)
+                .setTitle(R.string.contacts_disclosure_title)
+                .setMessage(R.string.contacts_disclosure_message)
+                .setPositiveButton(R.string.contacts_disclosure_continue) { _, _ ->
+                    answered = true
+                    requestPermissionForAlias("contacts", call, callbackName)
+                }
+                .setNegativeButton(R.string.contacts_disclosure_decline) { _, _ ->
+                    answered = true
+                    onDeclined()
+                }
+                .setOnDismissListener { if (!answered) onDeclined() }
+                .show()
+        }
     }
 
     @PermissionCallback
@@ -121,20 +176,19 @@ class HushhContactsPlugin : Plugin() {
             .put("sourcePlatform", "android")
     }
 
-    /**
-     * Best guess at the region bare national numbers belong to. The SIM's home
-     * country beats the serving network, because a traveller's contact book
-     * still holds home-region numbers.
-     */
+    /** Home number-plan region for bare national numbers. */
     private fun deviceRegion(): String? {
         val telephony = runCatching {
             context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         }.getOrNull()
-        val candidates = listOf(
-            runCatching { telephony?.simCountryIso }.getOrNull(),
-            runCatching { telephony?.networkCountryIso }.getOrNull(),
-            runCatching { Locale.getDefault().country }.getOrNull()
-        )
+        // Return only home number-plan evidence here. The shared web layer ranks an
+        // Android `defaultRegion` above the signed-in account's verified phone,
+        // so falling back to the UI locale here would silently reinterpret an
+        // Indian national number as US (or vice versa) on Wi-Fi-only devices.
+        // A serving-network country is also unsafe while roaming. When the SIM
+        // provides no region, return null and let
+        // the shared resolver use the verified account phone before locale.
+        val candidates = listOf(runCatching { telephony?.simCountryIso }.getOrNull())
         return candidates
             .firstOrNull { !it.isNullOrBlank() && it.length == 2 }
             ?.uppercase(Locale.US)
@@ -191,7 +245,7 @@ class HushhContactsPlugin : Plugin() {
                 } else {
                     ""
                 }
-                if (number.isEmpty() && normalized.isEmpty()) continue
+                val selectedNumber = preferredProviderPhone(normalized, number) ?: continue
 
                 seenContactIds.add(id)
                 if (!contactsById.containsKey(id) && contactsById.size >= limit) {
@@ -200,14 +254,11 @@ class HushhContactsPlugin : Plugin() {
 
                 val name = cursor.getString(nameIndex)?.trim().orEmpty()
                 val entry = contactsById.getOrPut(id) { ContactAccumulator(id, name) }
-                // Android keeps its own E.164 rendering of each number when it
-                // can derive one. It is strictly better than re-deriving from
-                // the display string, so it goes first.
-                if (normalized.isNotEmpty() && !entry.phoneNumbers.contains(normalized)) {
-                    entry.phoneNumbers.add(0, normalized)
-                }
-                if (number.isNotEmpty() && !entry.phoneNumbers.contains(number)) {
-                    entry.phoneNumbers.add(number)
+                // Prefer Android's valid E.164 rendering. The raw display
+                // string is used only when the provider has no valid canonical
+                // value, matching Google People's canonical-or-raw contract.
+                if (!entry.phoneNumbers.contains(selectedNumber)) {
+                    entry.phoneNumbers.add(selectedNumber)
                 }
             }
         }

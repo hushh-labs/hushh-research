@@ -1,0 +1,14 @@
+[
+  {
+    "httpRequest": {},
+    "insertId": "unfinished-or-unknown-attempt",
+    "jsonPayload": {
+      "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
+      "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat",
+      "targetType": "HTTP",
+      "url": "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10"
+    },
+    "severity": "INFO",
+    "timestamp": "2026-09-04T15:31:43.772949298Z"
+  }
+]

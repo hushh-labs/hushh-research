@@ -52,6 +52,8 @@ for (const exportName of [
   "HelperText",
   "StatusText",
   "ButtonLabel",
+  "CompactButtonLabel",
+  "EyebrowText",
   "TabLabel",
   "AgentTabLabel",
   "CaptionText",
@@ -66,33 +68,64 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
-  ["--type-large-page-title-size", "34px"],
-  ["--type-large-page-title-line", "41px"],
-  ["--type-large-page-title-weight", "700"],
+  ["--app-input-radius", "var(--app-radius-pill)"],
+  ["--app-form-field-gap", "6px"],
+  ["--app-form-related-gap", "4px"],
+  ["--app-form-section-gap", "16px"],
+]) {
+  if (!globals.includes(`${token}: ${value};`)) {
+    failures.push(`app/globals.css: ${token} must stay ${value}`);
+  }
+}
+
+for (const repoPath of [
+  "components/ui/input.tsx",
+  "components/ui/input-group.tsx",
+  "components/ui/textarea.tsx",
+  "components/ui/select.tsx",
+  "components/ui/combobox.tsx",
+  "components/ui/command.tsx",
+]) {
+  expectIncludes(
+    repoPath,
+    "rounded-[var(--app-input-radius)]",
+    "core field surfaces must use the shared capsule input radius",
+  );
+}
+
+for (const [token, value] of [
+  ["--type-large-page-title-size", "28px"],
+  ["--type-large-page-title-line", "34px"],
+  ["--type-large-page-title-weight", "600"],
   ["--type-large-page-title-tracking", "normal"],
   ["--type-page-title-size", "28px"],
   ["--type-page-title-line", "34px"],
-  ["--type-page-title-weight", "700"],
+  ["--type-page-title-weight", "600"],
   ["--type-page-title-tracking", "normal"],
-  ["--type-major-section-title-size", "22px"],
-  ["--type-major-section-title-line", "28px"],
+  ["--type-agent-title-size", "28px"],
+  ["--type-agent-title-line", "34px"],
+  ["--type-agent-title-weight", "600"],
+  ["--type-agent-title-tracking", "normal"],
+  ["--type-major-section-title-size", "20px"],
+  ["--type-major-section-title-line", "25px"],
   ["--type-major-section-title-weight", "600"],
   ["--type-major-section-title-tracking", "normal"],
+  ["--type-section-title-weight", "600"],
   ["--type-card-title-size", "20px"],
   ["--type-card-title-line", "25px"],
-  ["--type-card-title-weight", "600"],
+  ["--type-card-title-weight", "400"],
   ["--type-card-title-tracking", "normal"],
   ["--type-page-subtitle-size", "15px"],
   ["--type-page-subtitle-line", "20px"],
   ["--type-section-label-size", "15px"],
   ["--type-section-label-line", "20px"],
-  ["--type-section-label-weight", "500"],
+  ["--type-section-label-weight", "600"],
   ["--type-section-label-tracking", "normal"],
   ["--type-row-label-size", "17px"],
   ["--type-row-label-line", "22px"],
   ["--type-row-label-tracking", "normal"],
-  ["--type-row-description-size", "15px"],
-  ["--type-row-description-line", "20px"],
+  ["--type-row-description-size", "13px"],
+  ["--type-row-description-line", "18px"],
   ["--type-row-description-tracking", "0"],
   ["--type-input-value-size", "17px"],
   ["--type-input-value-line", "22px"],
@@ -103,14 +136,14 @@ for (const [token, value] of [
   ["--type-legal-text-line", "15px"],
   ["--type-tab-label-size", "11px"],
   ["--type-tab-label-line", "13px"],
-  ["--type-tab-label-weight", "500"],
+  ["--type-tab-label-weight", "550"],
   ["--type-agent-tab-label-size", "15px"],
   ["--type-agent-tab-label-line", "20px"],
-  ["--type-agent-tab-label-weight", "500"],
+  ["--type-agent-tab-label-weight", "550"],
   ["--type-agent-tab-label-tracking", "normal"],
-  ["--app-card-radius-compact", "24px"],
-  ["--app-card-radius-standard", "24px"],
-  ["--app-card-radius-feature", "24px"],
+  ["--app-card-radius-compact", "16px"],
+  ["--app-card-radius-standard", "18px"],
+  ["--app-card-radius-feature", "20px"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);
@@ -118,12 +151,45 @@ for (const [token, value] of [
 }
 
 if (!/\.type-caption\s*\{[^}]*text-transform:\s*none;/s.test(globals)) {
-  failures.push("app/globals.css: legacy type-caption must preserve natural casing");
+  failures.push(
+    "app/globals.css: legacy type-caption must preserve natural casing",
+  );
 }
 
 if (!globals.includes(".app-page-shell")) {
-  failures.push("app/globals.css: app shell must keep scoped readable-text guardrails");
+  failures.push(
+    "app/globals.css: app shell must keep scoped readable-text guardrails",
+  );
 }
+
+expectIncludes(
+  "app/globals.css",
+  '--font-family-product: "Plus Jakarta Sans", system-ui, sans-serif;',
+  "product UI must use Plus Jakarta Sans",
+);
+expectIncludes(
+  "app/globals.css",
+  "--font-app-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;",
+  "uppercase metadata and code must use the system monospace stack",
+);
+expectIncludes(
+  "tailwind.config.ts",
+  'mono: ["var(--font-app-mono)"]',
+  "Tailwind monospace must resolve to the product mono token",
+);
+for (const weight of [400, 600, 700]) {
+  for (const style of ["normal", "italic"]) {
+    const fontPath = `public/fonts/PlusJakartaSans/plus-jakarta-sans-latin-${weight}-${style}.woff2`;
+    if (!fs.existsSync(path.join(repoRoot, fontPath))) {
+      failures.push(`${fontPath}: shipped product font face is missing`);
+    }
+  }
+}
+expectNotIncludes(
+  "app/globals.css",
+  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans"',
+  "product UI must not prefer the Apple/system font stack",
+);
 
 for (const repoPath of [
   "components/app-ui/settings-ui.tsx",
@@ -162,11 +228,7 @@ for (const repoPath of [
   "components/one-location/activity-dashboard.tsx",
 ]) {
   const source = read(repoPath);
-  for (const tinyClass of [
-    "text-[9px]",
-    "text-[9.5px]",
-    "text-[10px]",
-  ]) {
+  for (const tinyClass of ["text-[9px]", "text-[9.5px]", "text-[10px]"]) {
     if (source.includes(tinyClass)) {
       failures.push(`${repoPath}: shared/system UI must not use ${tinyClass}`);
     }
@@ -176,11 +238,21 @@ for (const repoPath of [
   }
 }
 
-expectIncludes(
-  "components/dashboard/one-agent-roster.tsx",
-  "Agents ({modes.length})",
-  "agents heading is the page title and must use title casing",
+const rosterPath = "components/dashboard/one-agent-roster.tsx";
+const rosterSource = read(rosterPath);
+const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(
+  rosterSource,
 );
+const hasHeadingLabel =
+  /<section\b[^>]*aria-labelledby="one-agents-heading"/.test(rosterSource) &&
+  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(
+    rosterSource,
+  );
+if (!hasDirectLabel && !hasHeadingLabel) {
+  failures.push(
+    `${rosterPath}: root launcher must have an accessible agents label or linked heading`,
+  );
+}
 
 expectNotIncludes(
   "components/dashboard/one-agent-roster.tsx",
@@ -209,7 +281,9 @@ for (const repoPath of [
     "fontSize:",
   ]) {
     if (source.includes(forbidden)) {
-      failures.push(`${repoPath}: strict app typography must not use ${forbidden}`);
+      failures.push(
+        `${repoPath}: strict app typography must not use ${forbidden}`,
+      );
     }
   }
 }
@@ -234,15 +308,47 @@ for (const [key, uiRole] of [
   ["inputValue", "input-text"],
   ["helperText", "helper-text"],
   ["buttonLabel", "button-label"],
+  ["compactButtonLabel", "compact-button-label"],
+  ["eyebrow", "eyebrow"],
   ["tabLabel", "tab-label"],
   ["agentTabLabel", "agent-tab-label"],
   ["legal", "legal-text"],
 ]) {
-  if (!typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)) {
+  if (
+    !typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)
+  ) {
     failures.push(
       `components/app-ui/typography.tsx: ${key} must emit data-ui-role="${uiRole}"`,
     );
   }
+}
+
+for (const [size, contract] of [
+  ["compact", "ui-text-compact-button-label min-h-11 h-11"],
+  ["standard", "ui-text-button-label min-h-11 h-11"],
+  ["prominent", "ui-text-button-label min-h-[50px] h-[50px]"],
+  ["icon-touch", "size-11"],
+]) {
+  expectIncludes(
+    "lib/ui/button-variants.ts",
+    `"${contract}`,
+    `button size ${size} must keep its canonical CTA geometry`,
+  );
+}
+
+for (const marker of [
+  'data-ui-role="flow-actions"',
+  'data-action-priority="secondary"',
+  'data-action-priority="primary"',
+  'data-ui-role="selection-summary"',
+  '"grid w-full gap-2.5"',
+  '"sm:flex sm:items-center sm:justify-end"',
+]) {
+  expectIncludes(
+    "components/app-ui/flow-actions.tsx",
+    marker,
+    "responsive CTA decisions must stay on the shared action-group contract",
+  );
 }
 
 if (failures.length > 0) {

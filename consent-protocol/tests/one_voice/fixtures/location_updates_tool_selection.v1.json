@@ -1,0 +1,1693 @@
+{
+  "schema_version": "one.voice.location_updates_tool_selection.v1",
+  "cases": [
+    {
+      "id": "enable-001",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Can you enable my location?",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-002",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I'd like my location turned on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-003",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "start updating my location again",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-004",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "could you switch location on for me",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-005",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make my location active",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-006",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "location chalu karo",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-007",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "meri location on kar do",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-008",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "resume my location please",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-009",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "let's turn location back on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-010",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "put location on for this phone",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-011",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Would you mind enabling location on this device?",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-012",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I need my location running again",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-013",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "get my location going",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-014",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "please switch my location updates on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-015",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "it'd be great if location were on right now",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-016",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "enable location updates on this phone",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-017",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "kindly turn my location on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-018",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "location on kar dena yaar",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-019",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "bring my location back",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-020",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I want this device to update my location again",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-021",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can we have my location on?",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-022",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "go ahead and enable location for me",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-023",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "flip my location on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-024",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "turn location updates on for this device",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-025",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "un-pause my location",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-026",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "yes, activate my location",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-027",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "start sending my location from this phone again",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-028",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "please make sure my location is on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "polite or indirect request to switch this device's updates on"
+    },
+    {
+      "id": "enable-029",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "turn my location off"
+      ],
+      "utterance": "no wait, turn it on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "correction after an opposite request; the newer intent wins"
+    },
+    {
+      "id": "enable-030",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "can you switch my location off"
+      ],
+      "utterance": "actually, I meant on, not off",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "correction; final intent is on"
+    },
+    {
+      "id": "enable-031",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "pause my location updates"
+      ],
+      "utterance": "scratch that, enable it",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "correction; final intent is on"
+    },
+    {
+      "id": "enable-032",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "what does the location switch do?"
+      ],
+      "utterance": "ok turn it back on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "pronoun resolved to the Location switch from the prior turn"
+    },
+    {
+      "id": "enable-033",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "is there a switch for my location on this phone?"
+      ],
+      "utterance": "go ahead and turn that on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "pronoun refers to the device switch"
+    },
+    {
+      "id": "enable-034",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "I paused my location earlier today"
+      ],
+      "utterance": "switch it on please",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "pronoun refers to the paused device updates"
+    },
+    {
+      "id": "enable-035",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "my location updates are off right now, aren't they?"
+      ],
+      "utterance": "yeah, put it back on",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "referent is the device updates from the prior question"
+    },
+    {
+      "id": "enable-036",
+      "family": "enable",
+      "screen": "one_home",
+      "history": [
+        "what happens if my location updates are off?",
+        "hmm ok"
+      ],
+      "utterance": "turn it on then",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "referent carried across two prior turns"
+    },
+    {
+      "id": "enable-037",
+      "family": "enable",
+      "screen": "one_location",
+      "history": [
+        "explain the location toggle at the top of this screen"
+      ],
+      "utterance": "alright, enable it",
+      "expected_tools": [
+        "resume_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "pause_device_location_updates"
+      ],
+      "note": "referent is the switch on the current screen"
+    },
+    {
+      "id": "disable-001",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "pause my location",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-002",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "stop location updates",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-003",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "location band karo",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-004",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "switch my location off for now",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-005",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I don't want my location updating",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-006",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "could you turn my location off?",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-007",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "please disable location on this device",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-008",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "meri location off kar do",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-009",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I'd like to pause location updates on this phone",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-010",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "hold off on my location updates",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-011",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "stop updating my location",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-012",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "turn location off for a bit",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-013",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "make my location inactive",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-014",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "location ko band kar dena",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-015",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "kindly pause my location",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-016",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I want my location paused",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-017",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "put my location on hold",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-018",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "let's switch location off",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-019",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "disable my location updates please",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-020",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you stop my phone from updating my location?",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-021",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "flip my location off",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-022",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "shut off location updates on this device",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-023",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "no more location updates for now",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-024",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I don't need my location on right now, pause it",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-025",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "location updates off, please",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "request to switch this device's updates off"
+    },
+    {
+      "id": "disable-026",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [
+        "turn my location on"
+      ],
+      "utterance": "no wait, turn it off",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "correction after an opposite request; the newer intent wins"
+    },
+    {
+      "id": "disable-027",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [
+        "enable my location"
+      ],
+      "utterance": "actually pause it instead",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "correction; final intent is off"
+    },
+    {
+      "id": "disable-028",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [
+        "what does the location switch do?"
+      ],
+      "utterance": "turn it off",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "pronoun resolved to the Location switch"
+    },
+    {
+      "id": "disable-029",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [
+        "is my phone still updating my location?"
+      ],
+      "utterance": "ok switch it off for now",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "referent is the device updates from the prior question"
+    },
+    {
+      "id": "disable-030",
+      "family": "disable",
+      "screen": "one_location",
+      "history": [
+        "tell me about the location updates toggle"
+      ],
+      "utterance": "pause that please",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "referent is the switch described in the prior turn"
+    },
+    {
+      "id": "disable-031",
+      "family": "disable",
+      "screen": "one_home",
+      "history": [
+        "my battery is low, is location updates draining it?"
+      ],
+      "utterance": "yeah, turn it off then",
+      "expected_tools": [
+        "pause_device_location_updates"
+      ],
+      "forbidden_tools": [
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "resume_device_location_updates"
+      ],
+      "note": "referent carried from the prior question about updates"
+    },
+    {
+      "id": "no_mutation-001",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "is my location on?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-002",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "am I sharing my location?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-003",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "is my location currently being shared with anyone?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-004",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what's my location status right now?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-005",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "is location sharing on or off for me?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-006",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "do I have my location turned on?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-007",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how many people can see my location at the moment?",
+      "expected_tools": [
+        "get_location_status"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "status question: read only"
+    },
+    {
+      "id": "no_mutation-008",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what happens when I enable location?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "explanation request, not an instruction"
+    },
+    {
+      "id": "no_mutation-009",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "what does turning my location off actually do?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "explanation request"
+    },
+    {
+      "id": "no_mutation-010",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "explain the difference between location updates and sharing",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "explanation request"
+    },
+    {
+      "id": "no_mutation-011",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "if I turned my location off, would Priya still see me?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "hypothetical about a person; nothing to change"
+    },
+    {
+      "id": "no_mutation-012",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "suppose I enabled location, would my battery drain faster?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "hypothetical"
+    },
+    {
+      "id": "no_mutation-013",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "what would change if I paused my location?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "hypothetical"
+    },
+    {
+      "id": "no_mutation-014",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "don't enable my location",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "prohibition: no change"
+    },
+    {
+      "id": "no_mutation-015",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "please never turn my location on",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "prohibition"
+    },
+    {
+      "id": "no_mutation-016",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "do not turn my location off tonight",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "prohibition"
+    },
+    {
+      "id": "no_mutation-017",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "whatever you do, don't pause my location",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "prohibition"
+    },
+    {
+      "id": "no_mutation-018",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "my friend said 'turn on your location'",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "quoted command, not addressed to One"
+    },
+    {
+      "id": "no_mutation-019",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "someone texted me 'turn your location off'; what does that mean?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "quoted command inside a question"
+    },
+    {
+      "id": "no_mutation-020",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Priya told me to enable my location, is that safe?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "reported command; a question about safety"
+    },
+    {
+      "id": "no_mutation-021",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "turn on Priya's location",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "another person's location: not this device's switch"
+    },
+    {
+      "id": "no_mutation-022",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you switch Rahul's location off?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "another person's device: not this device's switch"
+    },
+    {
+      "id": "no_mutation-023",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "enable location for my mom's phone",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "another person's device"
+    },
+    {
+      "id": "no_mutation-024",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I already turned my location on this morning",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "statement of fact; nothing requested"
+    },
+    {
+      "id": "no_mutation-025",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I'm thinking about turning location off later",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "musing; no request yet"
+    },
+    {
+      "id": "no_mutation-026",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "why is my location on this phone sometimes wrong?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "question about accuracy, not a change"
+    },
+    {
+      "id": "clarify-001",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you enable it?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "no referent: ask what 'it' is"
+    },
+    {
+      "id": "clarify-002",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "turn that on",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "no referent: ask what to turn on"
+    },
+    {
+      "id": "clarify-003",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "switch it off please",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "no referent"
+    },
+    {
+      "id": "clarify-004",
+      "family": "clarify",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "pause it",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "no referent"
+    },
+    {
+      "id": "clarify-005",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make it active again",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "turn_sharing_on",
+        "turn_sharing_off"
+      ],
+      "note": "no referent; 'it' could be many things"
+    },
+    {
+      "id": "account_sharing-001",
+      "family": "account_sharing",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "stop sharing my location with everyone",
+      "expected_tools": [
+        "turn_sharing_off"
+      ],
+      "forbidden_tools": [
+        "pause_device_location_updates",
+        "resume_device_location_updates"
+      ],
+      "note": "account-level sharing off: ends every share and link, not the device switch"
+    },
+    {
+      "id": "account_sharing-002",
+      "family": "account_sharing",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "allow location sharing again",
+      "expected_tools": [
+        "turn_sharing_on"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates"
+      ],
+      "note": "account-level sharing on"
+    },
+    {
+      "id": "account_sharing-003",
+      "family": "account_sharing",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "end all my location shares and links",
+      "expected_tools": [
+        "turn_sharing_off"
+      ],
+      "forbidden_tools": [
+        "pause_device_location_updates",
+        "resume_device_location_updates"
+      ],
+      "note": "account-level off"
+    },
+    {
+      "id": "account_sharing-004",
+      "family": "account_sharing",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "let people see my location again, turn sharing back on",
+      "expected_tools": [
+        "turn_sharing_on"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates"
+      ],
+      "note": "account-level on"
+    },
+    {
+      "id": "account_sharing-005",
+      "family": "account_sharing",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I want nobody to see my location anymore",
+      "expected_tools": [
+        "turn_sharing_off"
+      ],
+      "forbidden_tools": [
+        "pause_device_location_updates",
+        "resume_device_location_updates"
+      ],
+      "note": "account-level off, phrased as an outcome"
+    },
+    {
+      "id": "account_sharing-006",
+      "family": "account_sharing",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "re-enable sharing with people",
+      "expected_tools": [
+        "turn_sharing_on"
+      ],
+      "forbidden_tools": [
+        "resume_device_location_updates",
+        "pause_device_location_updates"
+      ],
+      "note": "account-level on"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +12,13 @@ import pytest
 import hushh_mcp.services.one_location_agent_service as one_location_agent_module
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
+from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.one_location_agent_service import (
+    _DIRECTORY_SEPARATOR_FOLD,
+    _DIRECTORY_SEPARATOR_SQL,
+    _DIRECTORY_SEPARATORS,
+    LOCATION_REQUEST_EXPIRY_HOURS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -19,6 +26,13 @@ from hushh_mcp.services.one_location_agent_service import (
     _json_param,
     _notification_safe_data,
     _redact_location_metadata,
+    _share_lane_match_sql,
+)
+from hushh_mcp.services.people_search_sql import directory_name_rank
+from hushh_mcp.services.requester_identity import (
+    OPAQUE_LABEL_MIN_LENGTH,
+    UUID_LIKE_LABEL_PATTERN,
+    label_from_identity_row,
 )
 
 PUBLIC_LOCATION_SNAPSHOT = {
@@ -145,6 +159,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.atomic_sql: list[str] = []
         self.recipient_key_lock_keys: list[str] = []
         self.pair_lock_keys: list[str] = []
+        self.atomic_params: list[dict] = []
         self.notifications: list[dict] = []
         self.expiry_normalizations: list[str | None] = []
 
@@ -184,6 +199,11 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.recipient_key_lock_keys.append(recipient_key_lock_key)
         self.pair_lock_keys.append(pair_lock_key)
         self.atomic_sql.append(mutation_sql)
+        # The atomic path builds its params dict independently of
+        # `create_grant`'s, so a lane predicate in the SQL with no matching
+        # bind would fail OPEN to the old pair-wide revoke. This probe never
+        # executes SQL, so capturing the binds is the only way to catch that.
+        self.atomic_params.append(dict(params))
         if self.fail_write:
             raise RuntimeError("transaction failed")
         if not self.replay and not values["freshness_valid"]:
@@ -208,6 +228,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
                     if self.expired_replay
                     else values["expires_at"]
                 ),
+                "duration_mode": values.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -329,6 +350,89 @@ def test_recipient_key_registration_locks_before_mutation(
     assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
 
 
+@pytest.mark.parametrize(
+    "changed,rollback,read_failure,notify_failure",
+    [
+        (True, False, False, False),
+        (False, False, False, False),
+        (True, True, False, False),
+        (True, False, True, False),
+        (True, False, False, True),
+    ],
+)
+def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
+    monkeypatch: pytest.MonkeyPatch,
+    changed: bool,
+    rollback: bool,
+    read_failure: bool,
+    notify_failure: bool,
+) -> None:
+    from unittest.mock import MagicMock
+
+    connection = MagicMock()
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "user_id": "recipient",
+        "key_id": "recipient-key",
+        "public_key_jwk": {"kty": "EC"},
+        "recipient_metadata_changed": changed,
+    }
+    committed = False
+    notifications = []
+    captures = []
+
+    @contextmanager
+    def transaction():
+        nonlocal committed
+        yield connection
+        if rollback:
+            raise RuntimeError("commit failed")
+        committed = True
+
+    def capture_viewers(conn, *, user_id):
+        # A new edge may commit after the key writer's old snapshot. Only a
+        # fresh post-key-commit read is allowed to choose the final audience.
+        assert conn is connection and committed
+        assert user_id == "recipient"
+        captures.append(user_id)
+        if read_failure:
+            raise RuntimeError("graph read unavailable")
+        return {"connected-peer", "circle-peer"}
+
+    def notify(**kwargs):
+        assert committed
+        notifications.append(kwargs["user_ids"])
+        if notify_failure:
+            raise RuntimeError("push unavailable")
+
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connection_graph_service.list_connection_graph_viewer_ids",
+        capture_viewers,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed", notify
+    )
+
+    def register():
+        return OneLocationAgentService().register_recipient_key(
+            user_id="recipient", key_id="recipient-key", public_key_jwk={"kty": "EC"}
+        )
+
+    if rollback:
+        with pytest.raises(RuntimeError, match="commit failed"):
+            register()
+    else:
+        result = register()
+        assert result["canReceiveLocation"] is True
+        assert "graph_viewer_ids" not in result
+    assert captures == (["recipient"] if changed and not rollback else [])
+    assert notifications == (
+        [{"recipient", "connected-peer", "circle-peer"}]
+        if changed and not rollback and not read_failure
+        else []
+    )
+
+
 def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -380,6 +484,728 @@ def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     assert not hasattr(service, "_key_writer_connection")
 
 
+def test_bound_writer_connection_never_leaks_across_threads_sharing_one_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production 2026-09-27: the consent center gathers three ``list_state``
+    calls on ONE service instance in worker threads. The writer connection was
+    an instance attribute, so a sibling thread ran on another thread's
+    transaction (leaving a pooled connection mid-transaction:
+    ``set_session cannot be used inside a transaction``) and the second
+    ``del`` raised ``no attribute '_key_writer_connection'``."""
+    import threading
+
+    opened: list[object] = []
+
+    class Engine:
+        @contextmanager
+        def begin(self):
+            connection = object()
+            opened.append(connection)
+            yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module, "get_db", lambda: SimpleNamespace(engine=Engine())
+    )
+    service = OneLocationAgentService()
+    a_inside, b_done = threading.Event(), threading.Event()
+    seen: dict[str, object] = {}
+    errors: list[BaseException] = []
+
+    def writer_a() -> None:
+        try:
+            with service._event_bound_writer():
+                seen["a"] = service._key_writer_connection
+                a_inside.set()
+                assert b_done.wait(5)
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    def writer_b() -> None:
+        try:
+            assert a_inside.wait(5)
+            seen["b_before"] = getattr(service, "_key_writer_connection", None)
+            with service._event_bound_writer():
+                seen["b"] = service._key_writer_connection
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+        finally:
+            b_done.set()
+
+    threads = [threading.Thread(target=writer_a), threading.Thread(target=writer_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert errors == []
+    assert seen["b_before"] is None
+    assert seen["a"] is not seen["b"]
+    assert len(opened) == 2
+    assert not hasattr(service, "_key_writer_connection")
+
+
+def test_auto_approve_preference_uses_server_time_version_and_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, row: dict | None = None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self) -> dict | None:
+            return self.row
+
+    class Connection:
+        def execute(self, statement, params: dict):
+            sql = str(statement)
+            values = dict(params)
+            calls.append((sql, values))
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    {
+                        "enabled": True,
+                        "scope_kind": "all_contacts",
+                        "circle_id": None,
+                        "circle_ids": None,
+                        "enabled_at": enabled_at,
+                        "rule_version": 4,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="all_contacts",
+        circle_id=None,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_auto_approve_preferences" in sql
+    )
+    assert "CASE WHEN :enabled THEN NOW() ELSE NULL END" in upsert_sql
+    assert "rule_version = one_location_auto_approve_preferences.rule_version + 1" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "enabled": True,
+        "scope_kind": "all_contacts",
+        "circle_id": None,
+        "circle_ids": None,
+    }
+    _event_sql, event_params = next(
+        (sql, params) for sql, params in calls if "location_auto_approve_rule_changed" in sql
+    )
+    assert json.loads(event_params["metadata_json"]) == {
+        "enabled": True,
+        "scope_kind": "all_contacts",
+        "circle_id": None,
+        "circle_ids": None,
+        "enabled_at": enabled_at.isoformat(),
+        "rule_version": 4,
+    }
+    assert preference["enabled"] is True
+    assert preference["ruleVersion"] == 4
+
+
+def test_nearby_check_in_preferences_default_visible_true_requests_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_nearby_check_in_defaults(user_id="user_a")
+
+    assert preference == {
+        "visible": True,
+        "allowConnectionRequests": False,
+        "updatedAt": None,
+    }
+
+
+@pytest.mark.parametrize("accepts_submission", [True, False])
+def test_location_push_reports_queue_acceptance_not_device_delivery(
+    monkeypatch: pytest.MonkeyPatch, accepts_submission: bool
+) -> None:
+    def submit(deliver):
+        if not accepts_submission:
+            raise RuntimeError("executor unavailable")
+        # Deliberately do not execute: queue acceptance is not device receipt.
+        return object()
+
+    monkeypatch.setattr(
+        one_location_agent_module, "_NOTIFICATION_EXECUTOR", SimpleNamespace(submit=submit)
+    )
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *args: SimpleNamespace(
+                data=[{"token": "test-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    monkeypatch.setattr(one_location_agent_module, "ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        one_location_agent_module, "build_push_message", lambda *args, **kwargs: object()
+    )
+
+    assert (
+        OneLocationAgentService()._send_metadata_notification(
+            user_id="test-recipient",
+            notification_type="location_share_created",
+            title="SMS",
+            body="Emergency alert",
+            notification_tag="sms:test",
+            request_url="/one/location",
+            data={"share_kind": "sos"},
+        )
+        is accepts_submission
+    )
+
+
+def test_settings_sync_notification_is_silent_and_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pushes: list[dict] = []
+    streams: list[tuple[str, dict]] = []
+    service = OneLocationAgentService()
+
+    monkeypatch.setattr(
+        service,
+        "_send_metadata_notification",
+        lambda **kwargs: pushes.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    service._send_settings_sync_notification(
+        user_id="user_a",
+        setting="map_preferences",
+    )
+
+    assert len(pushes) == 1
+    assert pushes[0]["notification_type"] == "location_settings_changed"
+    assert pushes[0]["show_alert"] is False
+    assert pushes[0]["data"]["setting"] == "map_preferences"
+    assert pushes[0]["data"]["sync_only"] == "true"
+    assert set(pushes[0]["data"]) == {"setting", "sync_only", "message_id"}
+    assert streams == [
+        (
+            "user_a",
+            {
+                "type": "location_settings_changed",
+                "user_id": "user_a",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": pushes[0]["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **pushes[0]["data"],
+            },
+        )
+    ]
+
+
+def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_nearby_check_in_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "visible": False,
+                            "allow_connection_requests": True,
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_nearby_check_in_defaults(
+        user_id="user_a",
+        visible=False,
+        allow_connection_requests=True,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_nearby_check_in_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "visible": False,
+        "allow_connection_requests": True,
+    }
+    assert preference == {
+        "visible": False,
+        "allowConnectionRequests": True,
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
+def test_sos_voice_preference_defaults_to_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Db:
+        def execute_raw(self, _sql: str, _params: dict):
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().get_sos_voice_preference(user_id="user_a")
+
+    assert preference == {
+        "defaultAction": "open",
+        "updatedAt": None,
+    }
+
+
+def test_sos_voice_preference_update_upserts_and_returns_stored_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    updated_at = datetime.now(timezone.utc)
+
+    class Db:
+        def execute_raw(self, sql: str, params: dict):
+            calls.append((sql, dict(params)))
+            if "INSERT INTO one_location_sos_voice_preferences" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "default_action": "trigger",
+                            "updated_at": updated_at,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(one_location_service_module, "get_db", lambda: Db())
+
+    preference = OneLocationAgentService().update_sos_voice_preference(
+        user_id="user_a",
+        default_action="trigger",
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_sos_voice_preferences" in sql
+    )
+    assert "ON CONFLICT (user_id) DO UPDATE SET" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "default_action": "trigger",
+    }
+    assert preference == {
+        "defaultAction": "trigger",
+        "updatedAt": updated_at.isoformat(),
+    }
+
+
+def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Result:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return None
+
+    class Connection:
+        def execute(self, statement, _params: dict):
+            calls.append(str(statement))
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        OneLocationAgentService().update_auto_approve_preference(
+            user_id="user_a",
+            enabled=True,
+            scope_kind="circle",
+            circle_id="550e8400-e29b-41d4-a716-446655440000",
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_SCOPE_INVALID"
+    assert any("owner_user_id = :user_id" in sql for sql in calls)
+    assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
+
+
+def test_auto_approve_preference_accepts_multiple_owned_circles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#6468: "circles" (plural) scope, validated and stored as an array."""
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, statement, params):
+            sql = str(statement)
+            values = dict(params)
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(rows=[{"id": circle_ids[0]}, {"id": circle_ids[1]}])
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    first={
+                        "enabled": True,
+                        "scope_kind": "circles",
+                        "circle_id": None,
+                        "circle_ids": circle_ids,
+                        "enabled_at": enabled_at,
+                        "rule_version": 2,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    connection = Connection()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="circles",
+        circle_id=None,
+        circle_ids=circle_ids,
+    )
+
+    ownership_sql, ownership_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "id = ANY(CAST(:circle_ids AS UUID[]))" in ownership_sql
+    assert ownership_params["circle_ids"] == circle_ids
+    assert ownership_params["user_id"] == "user_a"
+
+    _upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "INSERT INTO one_location_auto_approve_preferences" in sql
+    )
+    assert upsert_params["circle_ids"] == circle_ids
+    assert upsert_params["circle_id"] is None
+    assert preference["scope"] == {"kind": "circles", "circleIds": circle_ids}
+
+
+def test_auto_approve_preference_rejects_circles_not_all_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+    calls: list[str] = []
+
+    class Result:
+        def mappings(self):
+            return self
+
+        def all(self):
+            # Only one of the two circles came back owned.
+            return [{"id": circle_ids[0]}]
+
+    class Connection:
+        def execute(self, statement, _params: dict):
+            calls.append(str(statement))
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        OneLocationAgentService().update_auto_approve_preference(
+            user_id="user_a",
+            enabled=True,
+            scope_kind="circles",
+            circle_id=None,
+            circle_ids=circle_ids,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_SCOPE_INVALID"
+    assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
+
+
+def test_auto_approve_preference_accepts_owned_sms_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SMS Circle (system_kind='sms') can be selected as auto-approve scope."""
+    sms_circle_id = "550e8400-e29b-41d4-a716-446655440099"
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, statement, params):
+            sql = str(statement)
+            values = dict(params)
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(first={"id": sms_circle_id}, rows=[{"id": sms_circle_id}])
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    first={
+                        "enabled": True,
+                        "scope_kind": "circle",
+                        "circle_id": sms_circle_id,
+                        "circle_ids": None,
+                        "enabled_at": enabled_at,
+                        "rule_version": 1,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    connection = Connection()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="circle",
+        circle_id=sms_circle_id,
+    )
+
+    ownership_sql, ownership_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "system_kind = 'sms'" in ownership_sql
+    assert ownership_params["circle_id"] == sms_circle_id
+    assert ownership_params["user_id"] == "user_a"
+    assert preference["scope"] == {"kind": "circle", "circleId": sms_circle_id}
+
+
+def test_first_owned_circle_membership_picks_earliest_match_among_the_set() -> None:
+    circle_a, circle_b, circle_c = (
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+        "770e8400-e29b-41d4-a716-446655440002",
+    )
+
+    class Probe(OneLocationAgentService):
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(dict(params or {}))
+            assert "membership.circle_id = ANY(CAST(:circle_ids AS UUID[]))" in sql
+            # Only circle_b holds an active membership for this requester;
+            # the resolver must not be fooled by circle_a/circle_c also
+            # being in the candidate set.
+            return {"circle_id": circle_b}
+
+    probe = Probe()
+    resolved = probe._first_owned_circle_membership(
+        other_user_id="requester",
+        circle_ids=[circle_a, circle_b, circle_c],
+    )
+
+    assert resolved == circle_b
+    assert probe.calls == [
+        {"other_user_id": "requester", "circle_ids": [circle_a, circle_b, circle_c]}
+    ]
+
+
+def test_first_owned_circle_membership_returns_none_for_empty_set() -> None:
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            raise AssertionError("must not query the DB for an empty circle set")
+
+    assert Probe()._first_owned_circle_membership(other_user_id="requester", circle_ids=[]) is None
+
+
+def test_lock_current_auto_approve_preference_accepts_circles_scope() -> None:
+    circle_ids = ["550e8400-e29b-41d4-a716-446655440000"]
+    enabled_at = datetime.now(timezone.utc)
+
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            return {
+                "enabled": True,
+                "scope_kind": "circles",
+                "circle_id": None,
+                "circle_ids": circle_ids,
+                "enabled_at": enabled_at,
+                "rule_version": 5,
+                "updated_at": enabled_at,
+            }
+
+    locked = Probe()._lock_current_auto_approve_preference(
+        user_id="user_a",
+        expected_rule_version=5,
+    )
+    assert locked["circle_ids"] == circle_ids
+
+
+def test_lock_current_auto_approve_preference_rejects_circles_scope_with_no_ids() -> None:
+    enabled_at = datetime.now(timezone.utc)
+
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            return {
+                "enabled": True,
+                "scope_kind": "circles",
+                "circle_id": None,
+                "circle_ids": [],
+                "enabled_at": enabled_at,
+                "rule_version": 5,
+                "updated_at": enabled_at,
+            }
+
+    with pytest.raises(OneLocationAgentError) as error:
+        Probe()._lock_current_auto_approve_preference(
+            user_id="user_a",
+            expected_rule_version=5,
+        )
+    assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("command_owned", "replay", "expected"), [(False, False, 1), (True, False, 0), (False, True, 0)]
+)
+def test_private_share_measurement_excludes_implicit_commands_and_replays(
+    monkeypatch, command_owned, replay, expected
+):
+    from hushh_mcp.services import product_value_receipts as values
+
+    service = AtomicPrivateShareProbe(replay=replay)
+    execute = service._execute_atomic_private_share
+
+    def save(**kwargs):
+        return {**execute(**kwargs), "_command_owned": command_owned}
+
+    monkeypatch.setattr(service, "_execute_atomic_private_share", save)
+    monkeypatch.setattr(values, "capture_value_epoch_sync", lambda _: "pinned-generation")
+    captured = []
+    monkeypatch.setattr(
+        values, "record_location_effect_sync", lambda **kwargs: captured.append(kwargs)
+    )
+    now = datetime.now(timezone.utc)
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174000",
+        confirmed_at=now,
+        envelope={**encrypted_envelope("recipient-key"), "capturedAt": now.isoformat()},
+        share_kind="check_in",
+    )
+    assert len(captured) == expected
+    assert "_command_owned" not in result
+    if captured:
+        assert captured[0]["generation"] == "pinned-generation"
+        assert captured[0]["source_id"] == result["grant"]["id"]
+
+
 def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:
     service = AtomicPrivateShareProbe()
     confirmed_at = datetime.now(timezone.utc)
@@ -412,6 +1238,15 @@ def test_atomic_private_share_commits_grant_envelope_and_events_together() -> No
     assert "k.key_id = :recipient_key_id" in sql
     assert "NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)" in sql
     assert "UPDATE one_location_share_grants" in sql
+    # The `revoked_grants` CTE must carry the two-lane predicate, or this path
+    # goes on doing what #5506 was: a `check_in` share tearing down the SOS
+    # grant to the same person (and vice versa). This probe never executes the
+    # mutation, so the SQL substring and the bind are the only guards there are
+    # -- and both are needed, since the predicate without its `:is_sos_lane`
+    # bind fails open rather than loudly.
+    assert _share_lane_match_sql("g") in sql
+    assert "CAST(:is_sos_lane AS BOOLEAN)" in sql
+    assert service.atomic_params[0]["is_sos_lane"] is False
     assert "INSERT INTO one_location_share_grants" in sql
     assert "INSERT INTO one_location_envelopes" in sql
     assert sql.count("INSERT INTO one_location_events") == 2
@@ -599,6 +1434,12 @@ class RecipientDirectoryProbe(OneLocationAgentService):
         self.params = params or {}
         return []
 
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return set(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {}
+
 
 def test_verified_recipient_directory_sources_from_connections_and_circles() -> None:
     service = RecipientDirectoryProbe()
@@ -613,6 +1454,16 @@ def test_verified_recipient_directory_sources_from_connections_and_circles() -> 
     assert "one_location_recipient_keys" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
+    assert service.params["owner_user_id"] == "owner"
+
+
+def test_paged_verified_recipient_directory_uses_the_shared_verified_ria_gate() -> None:
+    service = RecipientDirectoryProbe()
+
+    assert service.list_verified_recipients_page(owner_user_id="owner")["items"] == []
+    assert "ria_annotation.verification_status = ANY(:finance_verified_statuses)" in service.sql
+    assert service.params["finance_verified_statuses"] == ["active", "finra_verified", "verified"]
+    assert "page_rows.is_ria" in service.sql
     assert service.params["owner_user_id"] == "owner"
 
 
@@ -635,6 +1486,7 @@ def test_list_verified_recipients_sources_from_connections(
                 "public_key_jwk": "{}",
                 "algorithm": "ECDH-P256-AES256-GCM",
                 "key_created_at": None,
+                "is_ria": True,
             }
         ]
 
@@ -642,11 +1494,113 @@ def test_list_verified_recipients_sources_from_connections(
     monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
     out = svc.list_verified_recipients(owner_user_id="owner")
     assert "FROM connections c" in captured["sql"]
+    assert "ria_profiles ria_annotation" in captured["sql"]
+    assert "'finra_verified'" in captured["sql"]
     assert "a.phone_verified = TRUE" not in captured["sql"]
     assert out and out[0]["userId"] == "friend"
+    assert out[0]["isRia"] is True
+
+
+def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Voice's backend-direct stop_share tool calls this instead of list_state
+    # specifically to avoid list_state's ten parallel sections -- assert the
+    # query stays narrow (one owner, one status) and the row still comes back
+    # shaped through _grant_payload, not raw.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "owner",
+                "recipient_user_id": "friend",
+                "recipient_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_owner_grants(owner_user_id="owner")
+    assert "g.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["recipientDisplayName"] == "Friend"
+
+
+def test_list_active_recipient_grants_is_scoped_to_this_recipient_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The received-side twin of list_active_owner_grants, for "who is sharing
+    # their location with me" -- scoped by recipient, joined to the owner's
+    # identity rather than the recipient's.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "friend",
+                "recipient_user_id": "me",
+                "owner_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_recipient_grants(recipient_user_id="me")
+    assert "g.recipient_user_id = :recipient_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"recipient_user_id": "me"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["ownerDisplayName"] == "Friend"
+
+
+def test_list_pending_owner_requests_is_scoped_to_this_owner_and_pending_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "request-1",
+                "owner_user_id": "owner",
+                "requester_user_id": "asker",
+                "requester_display_name": "Asker",
+                "status": "pending",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_pending_owner_requests(owner_user_id="owner")
+    assert "req.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "req.status = 'pending'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert out[0]["requesterDisplayName"] == "Asker"
+    assert out[0]["id"] == "request-1"
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
+    #: When False the grant is live but no envelope row exists yet — the state a
+    #: recipient sits in between being granted access and the owner's first fix.
+    has_envelope = True
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -656,6 +1610,8 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         self.calls.append(sql)
+        if "FROM one_location_envelopes" in sql and not self.has_envelope:
+            return None
         if "FROM one_location_share_grants g" in sql:
             return {
                 "id": "00000000-0000-0000-0000-000000000001",
@@ -698,8 +1654,137 @@ def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
     assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
+    assert response["status"] == "published"
     assert "latitude" not in json.dumps(response)
     assert "longitude" not in json.dumps(response)
+
+
+class _AwaitingFirstPublishProbe(EnvelopeReadProbe):
+    has_envelope = False
+
+
+def test_view_latest_envelope_without_allow_empty_keeps_legacy_404() -> None:
+    """Clients already in the field branch on this error code; it must not move."""
+
+    service = _AwaitingFirstPublishProbe()
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+        )
+
+    assert excinfo.value.code == "LOCATION_ENVELOPE_MISSING"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_returns_awaiting_first_publish() -> None:
+    """A live grant with no point yet is a success, not a failed request.
+
+    The recipient almost always opens One before the owner's first GPS fix
+    lands. Reporting that as 404 made the browser log a failed request on every
+    poll for a state nothing had gone wrong in.
+    """
+
+    service = _AwaitingFirstPublishProbe()
+    response = service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert response["envelope"] is None
+    assert response["status"] == "awaiting_first_publish"
+    # The grant itself still comes back so the recipient keeps the owner label
+    # and expiry on screen while waiting.
+    assert response["grant"]["recipientUserId"] == "user_b"
+    # Waiting must never leak coordinates, same as the published path.
+    assert "latitude" not in json.dumps(response)
+    assert "longitude" not in json.dumps(response)
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_missing_grant() -> None:
+    """allow_empty relaxes 'no point yet' only — never 'no such share'."""
+
+    class _NoGrantProbe(EnvelopeReadProbe):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(sql)
+            if "FROM one_location_share_grants g" in sql:
+                return None
+            return None
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _NoGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_revoked_grant() -> None:
+    """A revoked/expired share must still be rejected, not reported as waiting."""
+
+    class _RevokedGrantProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "status": "revoked"}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RevokedGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_rotated_recipient_key() -> None:
+    """A key rotation still needs the 'ask them to share again' signal."""
+
+    class _RotatedKeyProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "recipient_key_active": False}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RotatedKeyProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> None:
+    """No ciphertext was released, so the audit trail must not claim a view."""
+
+    service = _AwaitingFirstPublishProbe()
+    inserted: list[str] = []
+    service._insert_event = lambda **kwargs: inserted.append(  # type: ignore[method-assign]
+        str(kwargs.get("event_type"))
+    )
+
+    service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert "location_share_viewed" not in inserted
 
 
 class FourUserMemoryService(OneLocationAgentService):
@@ -744,13 +1829,84 @@ class FourUserMemoryService(OneLocationAgentService):
         self.connection_origins: dict[str, dict] = {}
         self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
+        # (owner, member) pairs standing in for an active membership of the
+        # owner's own `is_system` Circle. Since #5426 that roster is where the
+        # emergency list actually lives, and the SOS gate reads it as well as
+        # the legacy table -- so the double has to model both or a test can only
+        # ever exercise the half that was already there.
+        self.sms_circle_members: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
         self.organization_memberships: list[dict] = []
         self.consent_audit_rows: list[dict] = []
         self.marketplace_profiles: dict[str, dict] = {}
+        self.profile_user_ids: set[str] = set(self.identities)
+        # vault_keys.vault_status by user. Every seeded person finished sign-up;
+        # a test removes an entry (no row) or sets "placeholder" to model one
+        # who did not. The Connect directory lists only "active".
+        self.vault_statuses: dict[str, str] = {uid: "active" for uid in self.identities}
+        self.contact_preferences: dict[str, dict] = {}
         self.persona_states: dict[str, dict] = {}
+        self.auto_approve_preferences: dict[str, dict] = {}
+
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return set(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {}
+
+    def _seed_auto_approve_preference(
+        self,
+        *,
+        user_id: str = "user_a",
+        enabled: bool = True,
+        scope_kind: str = "all_contacts",
+        circle_id: str | None = None,
+        enabled_at: datetime | None = None,
+        rule_version: int = 1,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        self.auto_approve_preferences[user_id] = {
+            "user_id": user_id,
+            "enabled": enabled,
+            "scope_kind": scope_kind if enabled else None,
+            "circle_id": circle_id if enabled else None,
+            "enabled_at": enabled_at or (now - timedelta(minutes=1)),
+            "rule_version": rule_version,
+            "updated_at": now,
+        }
+
+    def _lock_current_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        expected_rule_version: int,
+    ) -> dict:
+        row = self.auto_approve_preferences.get(user_id)
+        if (
+            not row
+            or not bool(row.get("enabled"))
+            or int(row.get("rule_version") or 0) != int(expected_rule_version)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_STALE",
+                "Auto-approve changed. Review this request.",
+                status_code=409,
+            )
+        scope_kind = str(row.get("scope_kind") or "")
+        circle_id = str(row.get("circle_id") or "") or None
+        if (
+            scope_kind not in {"all_contacts", "circle"}
+            or row.get("enabled_at") is None
+            or (scope_kind == "circle") != bool(circle_id)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=409,
+            )
+        return dict(row)
 
     def _seed_connection(self, owner: str, other: str, *, status: str = "active") -> None:
         a, b = sorted((owner, other))
@@ -858,13 +2014,21 @@ class FourUserMemoryService(OneLocationAgentService):
                 requested_circle_id if requested_circle_id is not None else relationship_circle_id
             ),
         }
+        # Replacement is LANE-SCOPED in production (`_create_enforced_grant_row`),
+        # and this stub stands in for that transaction. The predicate is
+        # imported from the service rather than retyped, so the fake cannot
+        # quietly go on reproducing the kind-blind revoke that #5506 was: a
+        # copy here that drifted from production would make every lane test in
+        # this file pass while the real UPDATE stayed broken.
         self._execute_many(
             """
             UPDATE one_location_share_grants
             SET status = 'revoked'
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
+              AND status = 'active'"""
+            + _share_lane_match_sql()
+            + """
             """,
             params,
         )
@@ -890,10 +2054,31 @@ class FourUserMemoryService(OneLocationAgentService):
                     "request_id": None,
                     "referral_id": None,
                     "event_type": "location_share_created",
-                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                    "metadata_json": json.dumps(
+                        {
+                            "duration_hours": grant_params["duration_hours"],
+                            "duration_mode": grant_params.get("duration_mode", "timed"),
+                        }
+                    ),
                 },
             )
         return row
+
+    @staticmethod
+    def _grant_is_sos_lane(grant: dict) -> bool:
+        """Which replacement lane a stored row is in, as `_SHARE_LANE_MATCH_SQL` reads it.
+
+        `share_kind` is not a column -- it lives in the `metadata` JSONB, which
+        is the whole reason the original revoke could not see it. Present and
+        not 'sos' means the ordinary lane; the legacy `reason == 'sos_panic'`
+        arm applies only when `share_kind` is absent entirely, matching the
+        COALESCE/IS NULL structure of the production predicate.
+        """
+        metadata = grant.get("metadata") or {}
+        share_kind = metadata.get("share_kind")
+        if share_kind is not None:
+            return str(share_kind) == "sos"
+        return str(metadata.get("reason") or "") == "sos_panic"
 
     def _add_sms_contact_with_locked_eligibility(
         self,
@@ -912,6 +2097,29 @@ class FourUserMemoryService(OneLocationAgentService):
             )
         self.sms_contacts.add((owner_user_id, contact_user_id))
 
+    def _sms_circle_service(self):
+        return SimpleNamespace(set_sms_contact=self._set_sms_contact)
+
+    def _set_sms_contact(self, *, owner_user_id, contact_user_id, added, operation_id=None):
+        # Transaction adapter only; the real Circle writer has PostgreSQL coverage.
+        assert operation_id is None
+        pair = (owner_user_id, contact_user_id)
+        changed = added != (pair in self.sms_contacts or pair in self.sms_circle_members)
+        if added:
+            self._add_sms_contact_with_locked_eligibility(
+                owner_user_id=owner_user_id, contact_user_id=contact_user_id
+            )
+            self.sms_circle_members.add(pair)
+        else:
+            self.sms_contacts.discard(pair)
+            self.sms_circle_members.discard(pair)
+        return {"changed": changed}
+
+    def _seed_sms_circle_member(self, owner_user_id: str, member_user_id: str) -> None:
+        """Put someone in the owner's emergency Circle without touching the
+        legacy table -- exactly what the Circle detail screen does."""
+        self.sms_circle_members.add((owner_user_id, member_user_id))
+
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
         kwargs["data"] = _notification_safe_data(kwargs.get("data") or {})
@@ -924,6 +2132,12 @@ class FourUserMemoryService(OneLocationAgentService):
         owner_user_id: str,
         recipient_user_id: str,
     ):
+        yield
+
+    @contextmanager
+    def _event_bound_writer(self):
+        """The in-memory double applies each transition synchronously."""
+
         yield
 
     def _active_key(self, user_id: str, key_id: str | None = None) -> dict | None:
@@ -1044,6 +2258,53 @@ class FourUserMemoryService(OneLocationAgentService):
             ]
         if "UPDATE one_location_share_grants" in sql and "expires_at <= NOW()" in sql:
             return []
+        if "UPDATE one_location_access_requests AS legacy_request" in sql:
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            repaired: list[dict] = []
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is not None:
+                    continue
+                if request.get("referred_by_user_id") is not None:
+                    continue
+                if str(request.get("id") or "") in linked_request_ids:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                deadline = request["requested_at"] + timedelta(hours=float(params["hours"]))
+                request["expires_at"] = deadline
+                if deadline <= now:
+                    request["status"] = "expired"
+                    request["resolved_at"] = request.get("resolved_at") or deadline
+                repaired.append({"id": request["id"]})
+            return repaired
+        if (
+            "UPDATE one_location_access_requests AS target_request" in sql
+            and "SET status = 'expired'" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            user_id = params.get("user_id")
+            expired: list[dict] = []
+            for request in self.requests.values():
+                if request.get("status") != "pending" or request.get("expires_at") is None:
+                    continue
+                if request["expires_at"] > now:
+                    continue
+                if user_id and user_id not in {
+                    request.get("owner_user_id"),
+                    request.get("requester_user_id"),
+                }:
+                    continue
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                expired.append({"id": request["id"]})
+            return expired[:500]
         if "FROM one_location_recipient_keys" in sql and "encrypted_private_key_jwk" in sql:
             # list_state's own-key lookup (myRecipientKey).
             user_id = params.get("user_id")
@@ -1054,7 +2315,8 @@ class FourUserMemoryService(OneLocationAgentService):
             ]
             rows.sort(key=lambda k: k.get("created_at"), reverse=True)
             return rows[:1]
-        if "FROM actor_identity_cache a" in sql:
+        if "FROM actor_identity_cache a" in sql or "LEFT JOIN actor_identity_cache identity" in sql:
+            is_connect_directory = "LEFT JOIN actor_identity_cache identity" in sql
             owner = params["owner_user_id"]
             if "FROM connections c" in sql and "one_location_circle_memberships mine" in sql:
                 eligible_ids = {
@@ -1110,31 +2372,87 @@ class FourUserMemoryService(OneLocationAgentService):
                 for tc in self.trusted_connections.values()
                 if tc.get("status") == "active" and tc.get("owner_user_id") == owner
             }
-            marketplace_connected_ids = set()
-            for relationship in self.professional_relationships:
-                if str(relationship.get("status") or "") != "approved":
-                    continue
-                investor_id = str(relationship.get("investor_user_id") or "")
-                ria_id = str(relationship.get("ria_user_id") or "")
-                if owner == investor_id and ria_id:
-                    marketplace_connected_ids.add(ria_id)
-                elif owner == ria_id and investor_id:
-                    marketplace_connected_ids.add(investor_id)
-            for user_id, identity in self.identities.items():
+            directory_user_ids = self.profile_user_ids if is_connect_directory else self.identities
+            for user_id in directory_user_ids:
                 if user_id == owner:
                     continue
-                network_connected = user_id in connected_ids
-                if not network_connected:
-                    eligible = identity["phone_verified"] or user_id in marketplace_connected_ids
-                    if not eligible:
+                identity = self.identities.get(user_id) or {}
+                marketplace = self.marketplace_profiles.get(user_id) or {}
+                if is_connect_directory:
+                    named = bool(
+                        label_from_identity_row(
+                            {
+                                **identity,
+                                "user_id": user_id,
+                                "display_name": identity.get("display_name")
+                                or marketplace.get("display_name"),
+                            },
+                            allow_email_handle=False,
+                        )
+                    )
+                    if named == bool(params.get("missing_names_only")):
                         continue
-                    profile = self.marketplace_profiles.get(user_id)
-                    if profile is not None and profile.get("is_discoverable") is False:
+                    # Mirrors the statement's vault rule: a stranger needs an
+                    # active vault; an existing relationship (either direction)
+                    # keeps a person reachable without one.
+                    related = (
+                        user_id in connected_ids
+                        or any(
+                            conn.get("status") == "active"
+                            and {conn.get("user_a_id"), conn.get("user_b_id")} == {owner, user_id}
+                            for conn in self.connections.values()
+                        )
+                        or any(
+                            tc.get("status") == "active"
+                            and tc.get("owner_user_id") == user_id
+                            and tc.get("trusted_user_id") == owner
+                            for tc in self.trusted_connections.values()
+                        )
+                    )
+                    if self.vault_statuses.get(user_id) != "active" and not related:
+                        continue
+                network_connected = user_id in connected_ids
+                # The Connect statement lets an opt-out stop only an email or
+                # phone fragment from finding someone; a person whose NAME
+                # matches is listed whatever their marketplace or contact-sync
+                # settings say. (The Ready-people statement keeps the old rule.)
+                name_matches = is_connect_directory and (
+                    directory_name_rank(
+                        str(identity.get("display_name") or marketplace.get("display_name") or ""),
+                        str(params.get("query") or ""),
+                    )
+                    is not None
+                )
+                if not network_connected and not name_matches:
+                    if marketplace.get("is_discoverable") is False:
+                        continue
+                    preference = self.contact_preferences.get(user_id) or {}
+                    rule_version = int(preference.get("rule_version") or 0)
+                    default = (
+                        rule_version == 0
+                        and preference.get("enabled_at") is None
+                        and preference.get("contract_version") is None
+                    )
+                    enabled = (
+                        preference.get("contact_discoverable") is True
+                        and preference.get("enabled_at") is not None
+                        and rule_version > 0
+                        and preference.get("contract_version")
+                        == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                    )
+                    if not (default or enabled):
                         continue
                 key = self._active_key(user_id)
                 rows.append(
                     {
                         **identity,
+                        "user_id": user_id,
+                        "display_name": identity.get("display_name")
+                        or marketplace.get("display_name"),
+                        "phone_number": (
+                            identity.get("phone_number") if identity.get("phone_verified") else None
+                        ),
+                        "phone_verified": bool(identity.get("phone_verified")),
                         "key_id": key["key_id"] if key else None,
                         "public_key_jwk": key["public_key_jwk"] if key else None,
                         "algorithm": key["algorithm"] if key else None,
@@ -1182,12 +2500,79 @@ class FourUserMemoryService(OneLocationAgentService):
                 if grant["owner_user_id"] == owner or grant["recipient_user_id"] == owner
             ][:100]
         if (
+            "FROM one_location_access_requests req" in sql
+            and "LEFT JOIN actor_identity_cache" in sql
+        ):
+            now = datetime.now(timezone.utc)
+            if "req.owner_user_id = :owner_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["owner_user_id"] == params["owner_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            elif "req.requester_user_id = :requester_user_id" in sql:
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if request["requester_user_id"] == params["requester_user_id"]
+                    and request["status"] == "pending"
+                    and (request.get("expires_at") is None or request["expires_at"] > now)
+                ]
+            else:
+                user_id = params["user_id"]
+                rows = [
+                    request
+                    for request in self.requests.values()
+                    if user_id in {request["owner_user_id"], request["requester_user_id"]}
+                ]
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
+            return [
+                {
+                    **request,
+                    "legacy_direct_request": (
+                        request.get("expires_at") is None
+                        and request.get("referred_by_user_id") is None
+                        and str(request.get("id") or "") not in linked_request_ids
+                    ),
+                }
+                for request in sorted(
+                    rows,
+                    key=lambda item: item["requested_at"],
+                    reverse=True,
+                )[:50]
+            ]
+        if (
             "FROM one_location_access_requests" in sql
             and "owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id" in sql
         ):
             owner = params["owner_user_id"]
+            now = datetime.now(timezone.utc)
+            linked_request_ids = {
+                str(item.get("request_id") or "") for item in self.referrals.values()
+            } | {str(item.get("request_id") or "") for item in self.public_submissions.values()}
             return [
-                request
+                {
+                    **request,
+                    "status": (
+                        "expired"
+                        if request["status"] == "pending"
+                        and (
+                            request.get("expires_at") is not None
+                            and request["expires_at"] <= now
+                            or request.get("expires_at") is None
+                            and request.get("referred_by_user_id") is None
+                            and str(request.get("id") or "") not in linked_request_ids
+                            and request["requested_at"]
+                            + timedelta(hours=LOCATION_REQUEST_EXPIRY_HOURS)
+                            <= now
+                        )
+                        else request["status"]
+                    ),
+                }
                 for request in sorted(
                     self.requests.values(),
                     key=lambda item: item["requested_at"],
@@ -1356,7 +2741,47 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows[: params.get("limit", 40)]
+        # `list_state` reads the two grant directions as separate parallel
+        # queries. Neither was modelled here, so `ownerGrants`/`receivedGrants`
+        # came back empty from every route test that read state -- the section
+        # simply logged `parallel_query_failed` and fell back to nothing. That
+        # is the only seam through which `_grant_payload` (and so the
+        # `shareKind` the whole client-side lane split depends on) is
+        # observable over HTTP, so the coexistence test needs it to be real.
+        if "FROM one_location_share_grants g" in sql and (
+            "WHERE g.owner_user_id = :user_id" in sql
+            or "WHERE g.recipient_user_id = :user_id" in sql
+        ):
+            as_owner = "WHERE g.owner_user_id = :user_id" in sql
+            column = "owner_user_id" if as_owner else "recipient_user_id"
+            counterpart_column = "recipient_user_id" if as_owner else "owner_user_id"
+            label = "recipient" if as_owner else "owner"
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant[column] != params["user_id"]:
+                    continue
+                identity = self.identities.get(grant[counterpart_column] or "", {})
+                rows.append(
+                    {
+                        **grant,
+                        f"{label}_display_name": identity.get("display_name"),
+                        f"{label}_phone_number": identity.get("phone_number"),
+                    }
+                )
+            return rows[:50]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
+            # Lane-scoped exactly when the SQL says so, reading the lane out of
+            # the BOUND PARAMS rather than out of anything the test hands us.
+            # That is what keeps this fake a mirror: a production write path
+            # that appends the predicate but forgets to bind `:is_sos_lane`
+            # raises KeyError right here instead of silently falling back to
+            # the pair-wide revoke that #5506 was.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             revoked = []
             for grant in self.grants.values():
                 if (
@@ -1364,13 +2789,50 @@ class FourUserMemoryService(OneLocationAgentService):
                     and grant["recipient_user_id"] == params["recipient_user_id"]
                     and grant["status"] == "active"
                 ):
+                    if lane_scoped and self._grant_is_sos_lane(grant) != is_sos_lane:
+                        continue
                     grant["status"] = "revoked"
                     revoked.append({"id": grant["id"]})
             return revoked
+        if "SELECT origin.origin_kind" in sql and "FOR UPDATE OF connection, origin" in sql:
+            owner = str(params.get("owner_user_id") or "")
+            requester = str(params.get("requester_user_id") or "")
+            connection = next(
+                (
+                    row
+                    for row in self.connections.values()
+                    if row.get("status") == "active"
+                    and {owner, requester} == {row.get("user_a_id"), row.get("user_b_id")}
+                ),
+                None,
+            )
+            if not connection:
+                return []
+            return [
+                {"origin_kind": origin.get("origin_kind")}
+                for origin in self.connection_origins.values()
+                if origin.get("connection_id") == connection.get("id")
+                and origin.get("status") == "active"
+            ]
         raise AssertionError(f"unexpected execute_many SQL: {sql}")
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "pg_advisory_xact_lock" in sql:
+            return {"locked": None}
+        if "FROM one_location_account_settings" in sql:
+            # Owner-level sharing posture (migration 221). Tests that model an
+            # explicit posture set ``self.account_settings[user_id]``; every
+            # other user is ``unset`` (no row), which changes nothing.
+            row = getattr(self, "account_settings", {}).get(str(params.get("user_id") or ""))
+            return dict(row) if row else None
+        if "FROM one_location_auto_approve_preferences" in sql:
+            row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
+            return dict(row) if row else None
+        if "FROM one_location_nearby_check_in_preferences" in sql:
+            return None
+        if "FROM one_location_sos_voice_preferences" in sql:
+            return None
         if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
             owner = str(params.get("owner_user_id") or "")
             other = str(params.get("other_user_id") or "")
@@ -1403,7 +2865,8 @@ class FourUserMemoryService(OneLocationAgentService):
             }
         if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
-            return {"exists": 1} if pair in self.sms_contacts else None
+            selected = pair in self.sms_contacts or pair in self.sms_circle_members
+            return {"exists": 1} if selected else None
         if "INSERT INTO one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
             self.sms_contacts.add(pair)
@@ -1430,8 +2893,12 @@ class FourUserMemoryService(OneLocationAgentService):
             return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
             hours = float(params.get("hours") or 12)
+            expired_request_hours = float(params.get("expired_request_hours") or 168)
             user_id = params.get("user_id")
             cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            expired_request_cutoff = datetime.now(timezone.utc) - timedelta(
+                hours=expired_request_hours
+            )
 
             def in_user_scope(row: dict, fields: tuple[str, ...]) -> bool:
                 if not user_id:
@@ -1471,6 +2938,15 @@ class FourUserMemoryService(OneLocationAgentService):
                     (
                         request["status"] in {"approved", "denied", "cancelled"}
                         and (request.get("resolved_at") or request.get("requested_at")) <= cutoff
+                    )
+                    or (
+                        request["status"] == "expired"
+                        and (
+                            request.get("resolved_at")
+                            or request.get("expires_at")
+                            or request.get("requested_at")
+                        )
+                        <= expired_request_cutoff
                     )
                     or request.get("approved_grant_id") in stale_grant_ids
                 )
@@ -1602,6 +3078,17 @@ class FourUserMemoryService(OneLocationAgentService):
                 "deleted_public_submissions": deleted_public_submissions,
                 "deleted_events": deleted_events,
             }
+        if "FROM one_location_events" in sql and "client_operation_id" in sql:
+            for event in self.events.values():
+                if (
+                    event.get("grant_id") == params.get("grant_id")
+                    and event.get("actor_user_id") == params.get("actor_user_id")
+                    and str(event.get("event_type") or "") in sql
+                    and (event.get("metadata") or {}).get("client_operation_id")
+                    == params.get("client_operation_id")
+                ):
+                    return {"id": event["id"]}
+            return None
         if "INSERT INTO one_location_events" in sql:
             event_id = str(uuid.uuid4())
             self.events[event_id] = {
@@ -1684,6 +3171,12 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                # Migration 156 applies this default at the table boundary for
+                # every timed insert. Model it here so duration tests exercise
+                # the same ceiling constraint as PostgreSQL instead of allowing
+                # an update the runtime database would reject.
+                "ceiling_expires_at": params.get("ceiling_expires_at", params["expires_at"]),
+                "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1695,6 +3188,36 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.grants[grant_id] = row
             return row
+        # "Is this owner already sharing live with this person?" -- the read
+        # that turns an ask into an ask for MORE time. Keyed on the pair, not on
+        # a grant id, so it must be matched before the by-id grant reads below.
+        if (
+            "FROM one_location_share_grants" in sql
+            and "recipient_user_id = :recipient_user_id" in sql
+            and "status = 'active'" in sql
+            and "grant_id" not in params
+        ):
+            now = datetime.now(timezone.utc)
+            # Honour the lane predicate, exactly as the revoke fake above does.
+            # Without this the read returns the newest live grant of EITHER
+            # lane, so a test where an SOS share and an ordinary share are both
+            # running cannot tell the two apart -- and the production statement
+            # this stands in for is lane-scoped precisely because that
+            # distinction is the difference between extending a friend's share
+            # and reading an emergency one's hours.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
+            live = [
+                grant
+                for grant in self.grants.values()
+                if grant["owner_user_id"] == params["owner_user_id"]
+                and grant["recipient_user_id"] == params["recipient_user_id"]
+                and grant["status"] == "active"
+                and (grant.get("expires_at") is None or grant["expires_at"] > now)
+                and (not lane_scoped or self._grant_is_sos_lane(grant) == is_sos_lane)
+            ]
+            live.sort(key=lambda item: item["created_at"], reverse=True)
+            return live[0] if live else None
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
@@ -1704,6 +3227,23 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 return grant
             if grant and grant["owner_user_id"] == params["owner_user_id"]:
+                # Honor set_grant_duration's historical narrow projection so
+                # its replay test cannot receive fields Postgres did not select.
+                # The production query now uses SELECT *; this branch makes a
+                # future regression back to that projection observable.
+                if "SELECT id, owner_user_id, recipient_user_id, expires_at" in sql:
+                    projected_fields = {
+                        "id",
+                        "owner_user_id",
+                        "recipient_user_id",
+                        "expires_at",
+                        "ceiling_expires_at",
+                        "status",
+                        "duration_mode",
+                        "duration_hours",
+                        "metadata",
+                    }
+                    return {key: value for key, value in grant.items() if key in projected_fields}
                 return grant
             return None
         if "INSERT INTO one_location_envelopes" in sql:
@@ -1741,9 +3281,23 @@ class FourUserMemoryService(OneLocationAgentService):
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
             return matches[-1] if matches else None
+        if "metadata->'command_operations'->>:operation AS command_fingerprint" in sql:
+            for request in self.requests.values():
+                operations = (request.get("metadata") or {}).get("command_operations") or {}
+                if (
+                    request["owner_user_id"] == params["owner"]
+                    and request["requester_user_id"] == params["requester"]
+                    and params["operation"] in operations
+                ):
+                    return {
+                        **request,
+                        "command_fingerprint": operations[params["operation"]],
+                    }
+            return None
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
+            and "owner_user_id = :owner_user_id" in sql
         ):
             for request in sorted(
                 self.requests.values(),
@@ -1755,11 +3309,34 @@ class FourUserMemoryService(OneLocationAgentService):
                     and request["requester_user_id"] == params["requester_user_id"]
                     and request["status"] == "pending"
                     and request.get("referred_by_user_id") == params.get("referred_by_user_id")
+                    and (
+                        bool(params.get("has_request_expiry"))
+                        == (request.get("expires_at") is not None)
+                    )
                 ):
-                    return request
+                    return {
+                        **request,
+                        "request_expired": bool(
+                            request.get("expires_at")
+                            and request["expires_at"] <= datetime.now(timezone.utc)
+                        ),
+                    }
+            return None
+        if "UPDATE one_location_access_requests" in sql and "SET status = 'expired'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["status"] == "pending"
+                and request.get("expires_at") is not None
+                and request["expires_at"] <= datetime.now(timezone.utc)
+            ):
+                request["status"] = "expired"
+                request["resolved_at"] = request.get("resolved_at") or request["expires_at"]
+                return request
             return None
         if "INSERT INTO one_location_access_requests" in sql:
             request_id = str(uuid.uuid4())
+            expires_after_hours = params.get("expires_after_hours")
             row = {
                 "id": request_id,
                 "owner_user_id": params["owner_user_id"],
@@ -1768,30 +3345,77 @@ class FourUserMemoryService(OneLocationAgentService):
                 "status": "pending",
                 "message": params.get("message"),
                 "requested_at": datetime.now(timezone.utc),
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=float(expires_after_hours))
+                    if expires_after_hours is not None
+                    else None
+                ),
                 "resolved_at": None,
                 "approved_grant_id": None,
-                "metadata": json.loads(params.get("metadata_json") or "{}"),
+                "requested_duration_hours": params.get("requested_duration_hours"),
+                "requested_duration_mode": params.get("requested_duration_mode"),
+                "extends_grant_id": params.get("extends_grant_id"),
+                "request_revision": 1,
+                "metadata": {"notify_owner": params.get("notify_owner", True)},
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = " in sql:
+        if "SET metadata=" in sql and "command_operations" in sql:
+            request = self.requests.get(params["id"])
+            if not request:
+                return None
+            metadata = dict(request.get("metadata") or {})
+            operations = dict(metadata.get("command_operations") or {})
+            operations[params["operation"]] = params["fingerprint"]
+            metadata["command_operations"] = operations
+            request["metadata"] = metadata
+            return request
+        if (
+            "UPDATE one_location_access_requests" in sql
+            and "SET message = CASE WHEN :exact_message" in sql
+        ):
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
+                # COALESCE(:message, message): a re-ask that carries no note
+                # must not blank the note already on the row.
                 if params.get("message") is not None:
                     request["message"] = params["message"]
-                if "metadata_json" in params:
-                    request["metadata"] = json.loads(params["metadata_json"])
-                request["requested_at"] = datetime.now(timezone.utc)
+                request["requested_duration_hours"] = params.get("requested_duration_hours")
+                request["requested_duration_mode"] = params.get("requested_duration_mode")
+                request["extends_grant_id"] = params.get("extends_grant_id")
+                if params.get("ask_changed"):
+                    request["request_revision"] = int(request.get("request_revision") or 1) + 1
+                    request["metadata"]["notify_owner"] = params.get("notify_owner", True)
+                    request["requested_at"] = datetime.now(timezone.utc)
+                    if params.get("expires_after_hours") is not None:
+                        request["expires_at"] = datetime.now(timezone.utc) + timedelta(
+                            hours=float(params["expires_after_hours"])
+                        )
                 return request
             return None
         if "FROM one_location_access_requests" in sql:
             request = self.requests.get(params["request_id"])
-            if (
+            actor_matches = bool(
                 request
-                and request["owner_user_id"] == params["owner_user_id"]
-                and request["status"] == "pending"
-            ):
-                return request
+                and (
+                    (
+                        "owner_user_id" in params
+                        and request["owner_user_id"] == params["owner_user_id"]
+                    )
+                    or (
+                        "requester_user_id" in params
+                        and request["requester_user_id"] == params["requester_user_id"]
+                    )
+                )
+            )
+            if actor_matches and request:
+                return {
+                    **request,
+                    "request_expired": bool(
+                        request.get("expires_at")
+                        and request["expires_at"] <= datetime.now(timezone.utc)
+                    ),
+                }
             return None
         if "SET status = 'approved'" in sql:
             request = self.requests[params["request_id"]]
@@ -1799,6 +3423,40 @@ class FourUserMemoryService(OneLocationAgentService):
             request["approved_grant_id"] = params["grant_id"]
             request["resolved_at"] = datetime.now(timezone.utc)
             return request
+        if "SET status = 'cancelled'" in sql:
+            # The asker taking their own ask back. Keyed on requester, not
+            # owner -- reproducing the real WHERE clause is the point, because
+            # the safety property being tested is that it cannot reach anybody
+            # else's request.
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["requester_user_id"] == params["requester_user_id"]
+                and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
+            ):
+                request["status"] = "cancelled"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
+        if "SET status = 'denied'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["owner_user_id"] == params["owner_user_id"]
+                and request["status"] == "pending"
+                and (
+                    request.get("expires_at") is None
+                    or request["expires_at"] > datetime.now(timezone.utc)
+                )
+            ):
+                request["status"] = "denied"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
         if (
             "WHERE id = CAST(:grant_id AS UUID)" in sql
             and "recipient_user_id = :referring_user_id" in sql
@@ -1808,9 +3466,28 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant
                 and grant["recipient_user_id"] == params["referring_user_id"]
                 and grant["status"] == "active"
-                and grant["expires_at"] > datetime.now(timezone.utc)
+                and (
+                    grant.get("expires_at") is None
+                    or grant["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 return grant
+            return None
+        if "FROM one_location_referrals" in sql:
+            for referral in sorted(
+                self.referrals.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if (
+                    referral["grant_id"] == params["grant_id"]
+                    and referral["owner_user_id"] == params["owner_user_id"]
+                    and referral["referring_user_id"] == params["referring_user_id"]
+                    and referral["referred_user_id"] == params["referred_user_id"]
+                    and referral["request_id"] == params["request_id"]
+                    and referral["status"] == "pending_owner_approval"
+                ):
+                    return referral
             return None
         if "INSERT INTO one_location_referrals" in sql:
             referral_id = str(uuid.uuid4())
@@ -1828,14 +3505,21 @@ class FourUserMemoryService(OneLocationAgentService):
             self.referrals[referral_id] = row
             return row
         if "INSERT INTO one_location_public_invites" in sql:
-            invite_id = str(uuid.uuid4())
+            # The caller chooses the id now: the public token is derived from
+            # it, so a double that invents its own would store a digest that
+            # can never be re-derived, and every link would read as legacy.
+            invite_id = str(params.get("invite_id") or uuid.uuid4())
             row = {
                 "id": invite_id,
                 "owner_user_id": params["owner_user_id"],
                 "public_code_hash": params["public_code_hash"],
                 "status": "active",
                 "duration_hours": params["duration_hours"],
-                "expires_at": params["expires_at"],
+                # `NOW() + (duration * INTERVAL '1 hour')` in the statement:
+                # the window is measured by the same clock every read of this
+                # row is compared against.
+                "expires_at": datetime.now(timezone.utc)
+                + timedelta(hours=float(params["duration_hours"])),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1843,6 +3527,55 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.public_invites[invite_id] = row
             return row
+        if (
+            "FROM one_location_public_invites" in sql
+            and ("expires_at > NOW()" in sql or "expires_at > clock_timestamp()" in sql)
+            and "invite_id" in params
+        ):
+            # A still-live link, optionally owner-scoped for the heartbeat.
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and (
+                    "owner_user_id" not in params
+                    or invite["owner_user_id"] == params["owner_user_id"]
+                )
+                and invite["status"] == "active"
+                and invite["expires_at"] > datetime.now(timezone.utc)
+            ):
+                return invite
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "SET metadata = CAST(:metadata_json AS JSONB)" in sql
+        ):
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > datetime.now(timezone.utc)
+            ):
+                invite["metadata"] = json.loads(params.get("metadata_json") or "{}")
+                invite["updated_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "SET duration_hours = :duration_hours" in sql
+        ):
+            # Reuse restarts the window for the duration that was just asked
+            # for, refreshes the snapshot, and rewrites the owner label.
+            invite = self.public_invites.get(params["invite_id"])
+            if not invite or invite["status"] != "active":
+                return None
+            invite["duration_hours"] = params["duration_hours"]
+            invite["expires_at"] = datetime.now(timezone.utc) + timedelta(
+                hours=float(params["duration_hours"])
+            )
+            invite["metadata"] = json.loads(params.get("metadata_json") or "{}")
+            invite["updated_at"] = datetime.now(timezone.utc)
+            return invite
         if "FROM one_location_public_invites i" in sql:
             for invite in self.public_invites.values():
                 if invite["public_code_hash"] == params["public_code_hash"]:
@@ -1853,9 +3586,75 @@ class FourUserMemoryService(OneLocationAgentService):
                         "owner_phone_number": owner.get("phone_number"),
                     }
             return None
-        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+        if (
+            "FROM one_location_public_invites" in sql
+            and "invite_id" in params
+            and "owner_user_id" not in params
+        ):
+            invite = self.public_invites.get(params["invite_id"])
+            if invite and "remaining_seconds" in sql:
+                return {
+                    **invite,
+                    "expired_by_db_clock": invite["expires_at"] <= datetime.now(timezone.utc),
+                    "remaining_seconds": (
+                        invite["expires_at"] - datetime.now(timezone.utc)
+                    ).total_seconds(),
+                }
+            return invite
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'expired'" in sql
+            and "owner_user_id" in params
+        ):
+            # Settling lazily-expired rows before the reuse lookup. Expiry is
+            # written only when something reads a row, so a link past its time
+            # can still be sitting at 'active'.
+            now = datetime.now(timezone.utc)
+            for invite in self.public_invites.values():
+                if (
+                    invite["owner_user_id"] == params["owner_user_id"]
+                    and invite["status"] == "active"
+                    and invite["expires_at"] <= now
+                ):
+                    invite["status"] = "expired"
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'revoked'" in sql
+            and "invite_id" in params
+        ):
             invite = self.public_invites.get(params["invite_id"])
             if invite and invite["status"] == "active":
+                invite["status"] = "revoked"
+                invite["revoked_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "FROM one_location_public_invites" in sql
+            and ("expires_at > NOW()" in sql or "expires_at > clock_timestamp()" in sql)
+            and "owner_user_id" in params
+        ):
+            # The reuse lookup: one live public link per person.
+            now = datetime.now(timezone.utc)
+            live = [
+                invite
+                for invite in self.public_invites.values()
+                if invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > now
+            ]
+            live.sort(key=lambda invite: invite["created_at"], reverse=True)
+            return live[0] if live else None
+        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+            # `AND expires_at <= NOW()` is part of the statement now, so the
+            # double has to answer the same question the database would:
+            # nothing comes back for a link that is still inside its window.
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["status"] == "active"
+                and invite["expires_at"] <= datetime.now(timezone.utc)
+            ):
                 invite["status"] = "expired"
                 return invite
             return None
@@ -1983,6 +3782,38 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 grant["status"] = "revoked"
                 grant["revoked_at"] = datetime.now(timezone.utc)
+                return grant
+            return None
+        if "UPDATE one_location_share_grants" in sql and "expires_at = :new_expires_at" in sql:
+            grant = self.grants.get(params["grant_id"])
+            if (
+                grant
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and grant["status"] == "active"
+            ):
+                next_expires_at = params["new_expires_at"]
+                next_ceiling = grant.get("ceiling_expires_at")
+                if "ceiling_expires_at = CASE" in sql:
+                    if next_expires_at is None:
+                        next_ceiling = None
+                    elif next_ceiling is None or next_expires_at > next_ceiling:
+                        next_ceiling = next_expires_at
+                if (
+                    next_expires_at is not None
+                    and next_ceiling is not None
+                    and next_expires_at > next_ceiling
+                ):
+                    raise RuntimeError("one_location_share_grants_ceiling_bounds")
+                grant["expires_at"] = next_expires_at
+                grant["ceiling_expires_at"] = next_ceiling
+                grant["duration_hours"] = params.get("duration_hours")
+                # `shorten` hard-codes 'timed' in its own SQL and sends no
+                # param; `set_grant_duration` sends the mode because it can
+                # also put a share on "until I stop".
+                grant["duration_mode"] = params.get("duration_mode") or "timed"
+                if "metadata = CAST(:metadata_json AS JSONB)" in sql:
+                    grant["metadata"] = json.loads(params["metadata_json"])
+                grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
         if "INSERT INTO trusted_connections" in sql:
@@ -2281,25 +4112,408 @@ def test_directory_candidates_includes_phone_verified_without_connection() -> No
     assert "user_c" in candidate_ids
 
 
-def test_directory_candidates_excludes_marketplace_hidden() -> None:
+def test_directory_candidates_include_existing_profiles_without_verified_phone_or_cache() -> None:
     service = FourUserMemoryService()
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
+    service.identities["user_c"]["phone_verified"] = False
+    service.profile_user_ids.add("user_without_cache")
+    # A missing identity cache is not a missing sign-up: this person holds an
+    # active vault, so the cache gap alone must not hide them.
+    service.vault_statuses["user_without_cache"] = "active"
+    service.marketplace_profiles["user_without_cache"] = {
+        "user_id": "user_without_cache",
+        "display_name": "Cache Missing Member",
+        "is_discoverable": True,
+    }
+
+    candidates = {
+        candidate["userId"]: candidate
+        for candidate in service.list_directory_candidates(owner_user_id="user_a")
+    }
+
+    assert "user_c" in candidates
+    assert candidates["user_c"]["phoneVerified"] is False
+    assert candidates["user_without_cache"]["displayName"] == "Cache Missing Member"
+
+
+def _opt_out_of_marketplace_and_contact_sync(service: FourUserMemoryService, user_id: str) -> None:
+    service.marketplace_profiles[user_id] = {
+        "user_id": user_id,
         "profile_type": "investor",
         "is_discoverable": False,
         "updated_at": datetime.now(timezone.utc),
     }
+    # The shape `reset_account` and every consent change leave behind.
+    service.contact_preferences[user_id] = {"contact_discoverable": False, "rule_version": 1}
+
+
+def test_directory_finds_a_stranger_by_name_whatever_their_marketplace_or_contact_settings() -> (
+    None
+):
+    """A reset account or a marketplace toggle must not make a person unsearchable.
+
+    Two accounts searching the same name used to get different answers, because
+    only people already connected to the person bypassed the flags.
+    """
+    service = FourUserMemoryService()
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
+
     candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
-    assert "user_b" not in candidate_ids
-    assert "user_c" in candidate_ids
+    by_name = service.search_directory_candidates(owner_user_id="user_a", query="user b")
+
+    assert {"user_b", "user_c"} <= candidate_ids
+    assert [item["userId"] for item in by_name["items"]] == ["user_b"]
+
+
+def test_directory_still_hides_an_opted_out_stranger_from_email_and_phone_lookups() -> None:
+    """Negative control: the opt-out guards what a name does not disclose."""
+    service = FourUserMemoryService()
+    service.identities["user_b"]["email"] = "bee@example.test"
+    service.identities["user_c"]["email"] = "cee@example.test"
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
+
+    by_email = service.search_directory_candidates(owner_user_id="user_a", query="@example.test")
+    by_phone = service.search_directory_candidates(owner_user_id="user_a", query="5550100002")
+
+    assert [item["userId"] for item in by_email["items"]] == ["user_c"]
+    assert by_phone["items"] == []
+
+
+def test_directory_lists_strangers_only_with_an_active_vault() -> None:
+    """Founder ruling 2026-09-28: strangers must have finished sign-up.
+
+    Production was restored from UAT and the directory is otherwise opt-out, so
+    accounts that never created a vault became searchable. A placeholder vault
+    row or no row at all hides a stranger. Someone the viewer already has a
+    relationship with stays reachable, vault or not, so nothing that resolves
+    an existing person today stops working.
+    """
+    service = FourUserMemoryService()
+    service.vault_statuses["user_c"] = "placeholder"
+    del service.vault_statuses["user_d"]
+
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert candidate_ids == {"user_b"}
+
+    # Only the reverse edge exists: user_d trusts the viewer.
+    service.trusted_connections["edge"] = {
+        "owner_user_id": "user_d",
+        "trusted_user_id": "user_a",
+        "status": "active",
+    }
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert candidate_ids == {"user_b", "user_d"}
 
 
 def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     service = RecipientDirectoryProbe()
     assert service.list_directory_candidates(owner_user_id="owner") == []
-    assert "FROM actor_identity_cache a" in service.sql
-    assert "a.phone_verified = TRUE" in service.sql
-    assert "a.user_id <> :owner_user_id" in service.sql
+    assert "FROM actor_profiles profile" in service.sql
+    assert "LEFT JOIN actor_identity_cache identity" in service.sql
+    assert "a.phone_verified = TRUE" in service.sql  # only the exact phone branch
+    assert "profile.user_id <> :owner_user_id" in service.sql
+    assert "marketplace.is_discoverable IS DISTINCT FROM FALSE" in service.sql
+    # The vault-or-relationship rule sits in the eligibility subquery, ahead of
+    # LIMIT, so it can never subtract from a page that was already cut.
+    sql = " ".join(service.sql.split())
+    vault_rule = "vault.user_id = profile.user_id AND vault.vault_status = 'active'"
+    assert sql.count(vault_rule) == 1
+    vault_at = sql.index(vault_rule)
+    assert vault_at < sql.index("LIMIT :fetch_limit OFFSET :offset")
+    for relationship in (
+        "FROM connections related WHERE related.status = 'active'",
+        "FROM connection_requests pending WHERE pending.status = 'pending'",
+        "FROM trusted_connections edge WHERE edge.status = 'active'",
+    ):
+        assert vault_at < sql.index(relationship) < sql.index("LIMIT :fetch_limit OFFSET :offset")
+    # The marketplace and contact-sync opt-out is a column that only the email
+    # and phone branch reads. The name branch must not depend on it.
+    assert sql.count("a.contact_listed") == 1
+    contact_branch = sql[sql.index("a.contact_listed") :]
+    assert contact_branch.index("email_contains") < contact_branch.index(":name_search = TRUE")
+    assert "profile.contact_sync_consent_rule_version" in service.sql
+    assert service.params["contact_sync_contract_version"] == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+
+
+class DirectoryScanProbe(RecipientDirectoryProbe):
+    """SQL returns ordered rows; exercise the production lifecycle/page merge."""
+
+    def __init__(
+        self,
+        *,
+        named: list[dict],
+        active: set[str],
+        unnamed: list[dict] | None = None,
+        profiles: dict[str, dict[str, str]] | None = None,
+    ) -> None:
+        super().__init__()
+        self.named = named
+        self.active = active
+        self.unnamed = unnamed or []
+        self.profiles = profiles or {}
+        self.scanned_offsets: list[int] = []
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        params = params or {}
+        rows = self.unnamed if params["missing_names_only"] else self.named
+        offset = params["offset"]
+        if not params["missing_names_only"]:
+            self.scanned_offsets.append(offset)
+        return rows[offset : offset + params["fetch_limit"]]
+
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return self.active.intersection(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {uid: self.profiles[uid] for uid in user_ids if uid in self.profiles}
+
+    def _apply_kai_circle_recommendations(self, **kwargs: object) -> list[dict]:
+        return list(kwargs["recipients"])  # type: ignore[arg-type]
+
+
+def test_directory_pages_current_accounts_after_stale_auth_rows() -> None:
+    stale = [{"user_id": f"deleted-{i}", "display_name": f"A Legacy {i:03}"} for i in range(100)]
+    service = DirectoryScanProbe(
+        named=[
+            *stale,
+            {"user_id": "current-b", "display_name": "Beta", "phone_verified": False},
+            {"user_id": "current-g", "display_name": "Gamma", "phone_verified": False},
+        ],
+        active={"current-b", "current-g"},
+    )
+
+    first = service.search_directory_candidates(owner_user_id="owner", limit=1)
+    last = service.search_directory_candidates(owner_user_id="owner", page=2, limit=1)
+
+    assert [item["userId"] for item in first["items"]] == ["current-b"]
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in last["items"]] == ["current-g"]
+    assert last["hasMore"] is False
+    assert service.scanned_offsets == [0, 100, 0, 100]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "+91 98765-43210",
+        "919876543210",
+        "9876543210",
+        "98765",
+        "09876543210",
+        "00919876543210",
+        "+91 (0) 98765 43210",
+        "+91 (0) 98765",
+        "+९१ ९८७६५ ४३२१०",
+        "＋９１ ９８７６５ ４３２１０",
+        "+91\u200e 98765\u201143210",
+    ],
+)
+def test_directory_phone_search_returns_only_first_and_last_two_digits(query: str) -> None:
+    service = DirectoryScanProbe(
+        named=[
+            {
+                "user_id": "verified",
+                "display_name": "Synthetic Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": True,
+            },
+            {
+                "user_id": "unverified",
+                "display_name": "Another Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": False,
+            },
+        ],
+        active={"verified", "unverified"},
+    )
+
+    result = service.search_directory_candidates(owner_user_id="owner", query=query)
+
+    assert [person["userId"] for person in result["items"]] == ["verified"]
+    assert result["items"][0]["maskedPhone"] == "98******10"
+    assert "9876543210" not in json.dumps(result)
+    assert all(
+        "phone_number" not in person and "phoneNumber" not in person for person in result["items"]
+    )
+
+
+def test_directory_merges_provider_named_profiles_before_search_rank_and_paging() -> None:
+    service = DirectoryScanProbe(
+        named=[
+            {"user_id": "regular", "display_name": "Divya Rajendran", "photo_url": "regular-photo"},
+            {"user_id": "surname", "display_name": "Member Divya", "photo_url": "surname-photo"},
+        ],
+        active={"regular", "surname"},
+        unnamed=[
+            {"user_id": "adviser", "display_name": "", "photo_url": "custom-adviser-photo"},
+            {"user_id": "unresolved", "display_name": ""},
+        ],
+        profiles={
+            "adviser": {"display_name": "Divya Rajendran", "photo_url": "provider-adviser-photo"},
+        },
+    )
+
+    first = service.search_directory_candidates(owner_user_id="owner", query="divya", limit=1)
+    second = service.search_directory_candidates(
+        owner_user_id="owner", query="divya", page=2, limit=1
+    )
+    last = service.search_directory_candidates(
+        owner_user_id="owner", query="divya", page=3, limit=1
+    )
+
+    assert [item["userId"] for item in first["items"]] == ["adviser"]
+    assert first["items"][0]["photoUrl"] == "custom-adviser-photo"
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in second["items"]] == ["regular"]
+    assert second["items"][0]["photoUrl"] == "regular-photo"
+    assert second["hasMore"] is True
+    assert [item["userId"] for item in last["items"]] == ["surname"]
+    assert last["hasMore"] is False
+
+
+def test_directory_scan_timeout_is_retryable_not_an_empty_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ticks = iter([0.0, 0.0, 31.0])
+    monkeypatch.setattr(one_location_service_module.time, "monotonic", lambda: next(ticks))
+    service = DirectoryScanProbe(named=[], active=set(), unnamed=[{"user_id": "legacy"}])
+
+    with pytest.raises(DirectoryIdentityUnavailableError):
+        service.search_directory_candidates(owner_user_id="owner")
+
+
+def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections import OrderedDict
+
+    from hushh_mcp.services import directory_identity_service as directory
+
+    clock = [0.0]
+    app = SimpleNamespace(project_id="uat", name="auth")
+    monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+    monkeypatch.setattr(directory, "_STATUS_CACHE_MAX_ENTRIES", 2)
+    monkeypatch.setattr(directory.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: app)
+    calls: list[list[str]] = []
+
+    def get_users(identifiers, **kwargs):
+        calls.append([entry.uid for entry in identifiers])
+        return SimpleNamespace(
+            users=[
+                SimpleNamespace(uid="disabled", disabled=True),
+                SimpleNamespace(uid="enabled", disabled=False),
+            ]
+        )
+
+    monkeypatch.setattr(directory.auth, "get_users", get_users)
+
+    assert directory.active_directory_user_ids(["missing", "enabled", "disabled", "x" * 129]) == {
+        "enabled"
+    }
+    assert calls == [["missing", "enabled", "disabled"]]
+    assert len(directory._STATUS_CACHE) == 2
+    assert all(isinstance(entry[1], bool) for entry in directory._STATUS_CACHE.values())
+    assert directory.active_directory_user_ids(["enabled", "disabled"]) == {"enabled"}
+    assert len(calls) == 1
+    app.project_id = "production"
+    assert directory.active_directory_user_ids(["enabled"]) == {"enabled"}
+    assert len(calls) == 2
+    clock[0] = 61.0
+    monkeypatch.setattr(
+        directory.auth,
+        "get_users",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("private provider failure")),
+    )
+
+    with pytest.raises(DirectoryIdentityUnavailableError):
+        directory.active_directory_user_ids(["enabled"])
+
+
+def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
+    monkeypatch,
+):
+    from hushh_mcp.services import directory_identity_service as directory
+
+    owner = "acct_" + "a" * 32
+    retired = "retired-owner"
+    mapping = {owner: "external-uid"}
+    monkeypatch.setattr(
+        directory,
+        "firebase_uids_for_owner_reads",
+        lambda owners: {key: value for key, value in mapping.items() if key in owners},
+    )
+    monkeypatch.setattr(
+        directory,
+        "get_firebase_auth_app",
+        lambda: SimpleNamespace(project_id="synthetic", name="replacement"),
+    )
+    record = SimpleNamespace(
+        uid="external-uid",
+        disabled=False,
+        display_name="Person",
+        photo_url="photo",
+        provider_data=[],
+    )
+    calls = []
+
+    def lookup(identifiers, **kwargs):
+        calls.append([entry.uid for entry in identifiers])
+        return SimpleNamespace(users=[record])
+
+    monkeypatch.setattr(directory.auth, "get_users", lookup)
+    assert directory.active_directory_user_ids([owner, retired]) == {owner}
+    assert directory.directory_auth_profiles([owner, retired]) == {
+        owner: {"display_name": "Person", "photo_url": "photo"}
+    }
+    assert calls == [["external-uid"], ["external-uid"]]
+    mapping.clear()
+    assert (
+        directory.active_directory_user_ids([owner]) == set()
+    )  # retirement overrides a warm provider cache
+
+
+def test_directory_auth_public_fallback_keeps_name_and_photo_on_same_uid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services import directory_identity_service as directory
+
+    monkeypatch.setattr(
+        directory, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="uat", name="auth")
+    )
+    records = [
+        SimpleNamespace(
+            uid="second",
+            disabled=False,
+            display_name="Same Name",
+            photo_url="second-photo",
+            provider_data=[],
+        ),
+        SimpleNamespace(
+            uid="first",
+            disabled=False,
+            display_name=None,
+            photo_url=None,
+            provider_data=[SimpleNamespace(display_name="Same Name", photo_url="first-photo")],
+        ),
+        SimpleNamespace(
+            uid="nameless", disabled=False, display_name=None, photo_url=None, provider_data=[]
+        ),
+        SimpleNamespace(
+            uid="disabled",
+            disabled=True,
+            display_name="Same Name",
+            photo_url="disabled-photo",
+            provider_data=[],
+        ),
+    ]
+    monkeypatch.setattr(
+        directory.auth, "get_users", lambda *args, **kwargs: SimpleNamespace(users=records)
+    )
+
+    assert directory.directory_auth_profiles(["first", "second", "nameless", "disabled"]) == {
+        "first": {"display_name": "Same Name", "photo_url": "first-photo"},
+        "second": {"display_name": "Same Name", "photo_url": "second-photo"},
+    }
 
 
 def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
@@ -2316,6 +4530,29 @@ def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
     assert payload is not None
     assert payload["maskedEmail"] == "a***y@example.com"
     assert "abdul.secondary@example.com" not in json.dumps(payload)
+
+
+def test_recipient_payload_marks_verified_ria_status() -> None:
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "advisor-user",
+            "display_name": "Ada Advisor",
+            "phone_verified": True,
+            "is_ria": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is True
+
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "person-user",
+            "display_name": "Pat Person",
+            "phone_verified": True,
+        }
+    )
+    assert payload is not None
+    assert payload["isRia"] is False
 
 
 def test_directory_candidate_search_filters_before_pagination(
@@ -2336,16 +4573,317 @@ def test_directory_candidate_search_filters_before_pagination(
     )
 
     assert result == {"items": [], "page": 3, "hasMore": False}
-    assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
     assert "a.user_id, a.display_name, a.email" in service.sql
     assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
     assert service.params == {
         "owner_user_id": "owner",
         "candidate_user_id": None,
+        "candidate_user_ids": None,
+        "mutual_target_user_id": None,
         "query": "cara",
-        "fetch_limit": 21,
-        "offset": 40,
+        "name_search": True,
+        "email_contains": "%cara%",
+        "phone_contains": None,
+        "phone_alternates": [],
+        "exact_name": "cara",
+        "name_prefix": "cara%",
+        "word_prefix": "% cara%",
+        "token_prefixes": ["% cara%"],
+        "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+        "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
+        "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
+        "missing_names_only": False,
+        # Pre-advisor callers still ask for both halves of the directory.
+        "audience": "all",
+        "fetch_limit": 100,
+        "offset": 0,
     }
+    # The substring predicate is what made a single letter return an empty
+    # screen: it selected the page under one rule while the caller narrowed it
+    # under another. It must not come back.
+    assert "LIKE '%' || :query || '%'" not in service.sql
+
+
+def test_directory_candidate_search_splits_advisors_inside_the_statement() -> None:
+    """The advisor/people split has to be in the query, beside the matching.
+
+    Applied after LIMIT it could only subtract from a page that was already
+    chosen wrongly -- uneven pages, and every advisor past the first one
+    unreachable. That is the same bug the prefix ranking above exists to
+    prevent, in a second guise.
+    """
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="ria")
+
+    assert service.params["audience"] == "ria"
+    assert "FROM ria_profiles rp_audience" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    # The gate must accept every status the RIA verification path can write, or
+    # a genuinely verified adviser is missing from the tab built for them.
+    for status in ("active", "verified", "finra_verified"):
+        assert f"'{status}'" in service.sql
+
+
+def test_directory_candidate_search_widens_on_an_unknown_audience() -> None:
+    """A typo in a caller must not silently empty the directory."""
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="advisors")
+
+    assert service.params["audience"] == "all"
+
+
+def test_directory_search_matches_prefixes_not_substrings() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    # Two tiers, both prefix-anchored: the name starts with the query, or one
+    # of its later words does. Typing "n" is an index request, and an index
+    # that also returns "Anand" because it contains an n is not an index.
+    assert service.params["name_prefix"] == "n%"
+    assert service.params["word_prefix"] == "% n%"
+    assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
+    assert "LIKE :word_prefix ESCAPE '!'" in service.sql
+    assert "LIKE :email_prefix" not in service.sql
+
+
+@pytest.mark.parametrize(
+    ("query", "email", "phone"),
+    [
+        ("Friend@Example.test", "%friend@example.test%", None),
+        ("friend@", "%friend@%", None),
+        ("friend", "%friend%", None),
+        ("+1 (555) 010-0002", None, "%15550100002%"),
+        ("5550100002", "%5550100002%", "%5550100002%"),
+        ("5", "%5%", "%5%"),
+        ("_!%", "%!_!!!%%", None),
+    ],
+)
+def test_directory_identifier_search_is_partial_and_phone_is_verified(
+    query: str, email: str | None, phone: str | None
+) -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=query)
+
+    assert service.params["email_contains"] == email
+    assert service.params["phone_contains"] == phone
+    assert "LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'" in service.sql
+    assert "a.phone_verified = TRUE" in service.sql
+    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains" in service.sql
+    assert ":name_search = TRUE AND" in service.sql
+    assert "LIKE :email_prefix" not in service.sql
+
+
+def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabetically() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # rsplit, not split: the recipient-key LEFT JOIN LATERAL carries its own
+    # ORDER BY, and asserting against that one would pass while saying nothing
+    # about how the directory is ranked.
+    ordering = service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0]
+    # Tier first, then A-Z. Ranking has to be inside the ORDER BY, because
+    # LIMIT/OFFSET is applied to whatever this clause decides -- a ranking
+    # applied to the page afterwards can only reshuffle rows that were already
+    # chosen wrongly.
+    assert "CASE" in ordering
+    assert "LIKE :name_prefix ESCAPE '!' THEN 1" in ordering
+    assert "LIKE :word_prefix ESCAPE '!' THEN 2" in ordering
+    assert "ELSE 4" in ordering
+    assert "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')" in ordering
+    # Deterministic tie-break, or OFFSET paging duplicates and skips rows.
+    assert ordering.strip().endswith("a.user_id")
+
+
+def test_directory_search_ranks_the_tier_before_the_alphabet() -> None:
+    """The tier CASE must be the FIRST key, not merely present in the clause.
+
+    The test above checks which fragments the ORDER BY contains. Move the
+    alphabetical key above the CASE and every one of those assertions stays
+    true -- the CASE is still there, ``ELSE 1`` is still there, the LOWER(...)
+    key is still there, ``a.user_id`` is still last -- while the two tiers stop
+    existing. "n" then comes back as one flat A-Z list with surname matches
+    shuffled in among the first names: Abdul Nasser, Nilesh, Nirmal, Nolan.
+
+    That is exactly the shape people report as "the search went alphabetical",
+    and a clause checked only for which fragments it contains cannot see it.
+    Assert the ORDER of the keys, not their presence.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # Whitespace-folded so this is an assertion about key order, not indentation.
+    ordering = " ".join(service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split())
+    assert ordering.startswith("CASE ")
+    assert ordering.index("END,") < ordering.index(
+        "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')"
+    )
+    assert ordering.endswith("a.user_id")
+
+
+def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # " Nilesh" must not be demoted out of the first tier by a leading space,
+    # and "Abdul-Rashid" / "Abdul R." must still reach the second one.
+    #
+    # Eight sites: the filter and the tiering each compare the stored name
+    # against the exact, name-prefix, word-prefix and per-token patterns. A new
+    # tier moves this number on both halves at once; one half moving alone is
+    # the drift this test exists to catch.
+    assert (
+        service.sql.count(
+            "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
+        )
+        == 8
+    )
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_name_prefix"),
+    [
+        ("%", "!%%"),
+        ("!", "!!%"),
+        # "_" is a separator before it is ever a wildcard: the stored name has
+        # already had it folded to a space, so matching it literally could only
+        # return nothing. Folded and trimmed, a lone "_" carries no letters at
+        # all and reads as an unfilled box -- never as the match-anything
+        # wildcard it would be unescaped.
+        ("_", "%"),
+        ("50%_off", "50!% off%"),
+    ],
+)
+def test_directory_search_escapes_like_metacharacters(
+    typed: str, expected_name_prefix: str
+) -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    # Unescaped, a typed "%" is a wildcard that matches the entire directory.
+    # It is a character someone typed into a name box, not query syntax.
+    assert service.params["name_prefix"] == expected_name_prefix
+    assert service.params["word_prefix"] == f"% {expected_name_prefix}"
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_needle"),
+    [
+        ("O'Brien", "o brien"),
+        ("Jean-Luc", "jean luc"),
+        ("K.R.", "k r"),
+        ("Smith-Jones", "smith jones"),
+        ("de/la", "de la"),
+        ("Singh, Ankit", "singh ankit"),
+    ],
+)
+def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
+    typed: str, expected_needle: str
+) -> None:
+    """Typing a name the way it is spelled has to find it.
+
+    The statement folds a stored name's separators to spaces before matching,
+    so "O'Brien" is compared as "o brien". The query used to keep its
+    punctuation, so the pattern "o'brien%" was tested against "o brien" and
+    could never match -- and deleting the punctuation ("obrien") could not
+    match either. Every name with an apostrophe, a hyphen or an initial was
+    unreachable through the search box.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    assert service.params["query"] == expected_needle
+    assert service.params["name_prefix"] == f"{expected_needle}%"
+    assert service.params["word_prefix"] == f"% {expected_needle}%"
+
+
+def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
+    """The Python fold and the SQL fold cannot drift apart.
+
+    They are two halves of one comparison. If either list of separators is
+    edited alone, names carrying the character that was added or removed stop
+    matching, and nothing else in the suite would notice.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n")
+
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 8
+    # The Python side folds exactly the characters the SQL side names.
+    for separator in _DIRECTORY_SEPARATORS:
+        assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
+
+
+def test_directory_search_treats_a_query_of_only_separators_as_empty() -> None:
+    """A box holding "-" is a box the reader has not filled in yet.
+
+    Folded, it carries no letters at all. Matching it literally would search
+    for a name beginning with a space and return nothing, which reads as "you
+    have no connections" rather than "keep typing".
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="-.")
+
+    assert service.params["query"] == ""
+
+
+def test_directory_search_preserves_sql_order_against_recommendation_ranking() -> None:
+    """The directory page keeps the order SQL gave it.
+
+    ``_apply_kai_circle_recommendations`` re-sorts by recommendation score for
+    the Location screen, where "who should I share with" is the question. Here
+    the question is "show me the N people, A-Z", and the rows have already been
+    ranked and cut by the statement above. Re-sorting the slice would reorder
+    rows *within* a page while the page boundaries stayed alphabetical.
+    """
+    captured: dict[str, object] = {}
+
+    class OrderProbe(RecipientDirectoryProbe):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            super()._execute_many(sql, params)
+            return [
+                {"user_id": "u-nilesh", "display_name": "Nilesh", "phone_verified": True},
+                {"user_id": "u-nirmal", "display_name": "Nirmal", "phone_verified": True},
+            ]
+
+        def _apply_kai_circle_recommendations(self, **kwargs: object) -> list[dict]:
+            captured.update(kwargs)
+            return list(kwargs["recipients"])  # type: ignore[arg-type]
+
+    service = OrderProbe()
+    result = service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    assert captured["preserve_order"] is True
+    assert [item["displayName"] for item in result["items"]] == ["Nilesh", "Nirmal"]
+
+
+def test_recommendations_preserve_order_only_when_asked() -> None:
+    service = OneLocationAgentService()
+    # Deliberately ordered so the two modes cannot agree: A-Z puts Abel first,
+    # score puts Zoe first (she is location-ready, he is not). A fixture where
+    # both orderings coincide would pass whether or not preserve_order is
+    # honoured, and prove nothing.
+    recipients = [
+        {"userId": "u-abel", "displayName": "Abel", "canReceiveLocation": False},
+        {"userId": "u-zoe", "displayName": "Zoe", "canReceiveLocation": True},
+    ]
+
+    preserved = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+        preserve_order=True,
+    )
+    assert [r["displayName"] for r in preserved] == ["Abel", "Zoe"]
+    # Rank is still assigned, because the Location screen reads it.
+    assert [r["recommendationRank"] for r in preserved] == [1, 2]
+
+    # Default stays the score-ranked behaviour the Location screen depends on:
+    # a location-ready recipient outranks one that is not.
+    reranked = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+    )
+    assert [r["displayName"] for r in reranked] == ["Zoe", "Abel"]
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
@@ -2537,7 +5075,10 @@ def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() ->
     assert "WHERE invite.id = candidate.id" in service.sql
 
 
-def test_four_user_location_workflow_contract() -> None:
+def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Stable time prevents fractional timestamp digits resembling a phone suffix.
+    now = datetime.now(timezone.utc).replace(microsecond=222222)
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: now)
     service = FourUserMemoryService()
     user_a = "user_a"
     user_b = "user_b"
@@ -2580,15 +5121,22 @@ def test_four_user_location_workflow_contract() -> None:
         service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_b["id"])
     assert denied_c.value.code == "LOCATION_GRANT_NOT_FOUND"
 
-    with pytest.raises(OneLocationAgentError) as unverified_share:
-        service.create_grant(
-            owner_user_id=user_a,
-            recipient_user_id=user_c,
-            recipient_key_id=f"key-{user_c}",
-            duration_hours=1,
-        )
-    assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
+    # A missing phone claim is unrelated to private, account-keyed receiving.
+    grant_c = service.create_grant(
+        owner_user_id=user_a,
+        recipient_user_id=user_c,
+        recipient_key_id=f"key-{user_c}",
+        duration_hours=1,
+    )
+    assert grant_c["recipientUserId"] == user_c
+    assert service.identities[user_c]["phone_verified"] is False
 
+    request_event_count = sum(
+        event["event_type"] == "location_access_request" for event in service.events.values()
+    )
+    request_notification_count = sum(
+        item["notification_type"] == "location_access_request" for item in service.notifications
+    )
     direct_request_c = service.request_access(
         requester_user_id=user_c,
         owner_user_id=user_a,
@@ -2605,10 +5153,29 @@ def test_four_user_location_workflow_contract() -> None:
     assert duplicate_request_c["id"] == direct_request_c["id"]
     assert duplicate_request_c["message"] == "Can you share where you are now?"
     assert duplicate_request_c["requestedDurationHours"] == 24
+    exact_retry_c = service.request_access(
+        requester_user_id=user_c,
+        owner_user_id=user_a,
+        message="Can you share where you are now?",
+        requested_duration_hours=24,
+    )
+    assert exact_retry_c["id"] == direct_request_c["id"]
+    assert exact_retry_c["requestedDurationHours"] == 24
+    assert (
+        sum(event["event_type"] == "location_access_request" for event in service.events.values())
+        == request_event_count + 2
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_access_request" for item in service.notifications
+        )
+        == request_notification_count + 2
+    )
 
     approved_c = service.approve_request(
         owner_user_id=user_a,
         request_id=direct_request_c["id"],
+        approval_mode="manual",
         duration_hours=1,
     )
     grant_c = approved_c["grant"]
@@ -2636,6 +5203,30 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert referral_response["referral"]["status"] == "pending_owner_approval"
     assert referral_response["request"]["status"] == "pending"
+    referral_event_count = sum(
+        event["event_type"] == "location_referral_invite" for event in service.events.values()
+    )
+    referral_notification_count = sum(
+        item["notification_type"] == "location_referral_invite" for item in service.notifications
+    )
+    retried_referral = service.refer_recipient(
+        referring_user_id=user_b,
+        grant_id=grant_b["id"],
+        referred_user_id=user_d,
+    )
+    assert retried_referral["referral"]["id"] == referral_response["referral"]["id"]
+    assert retried_referral["request"]["id"] == referral_response["request"]["id"]
+    assert (
+        sum(event["event_type"] == "location_referral_invite" for event in service.events.values())
+        == referral_event_count
+    )
+    assert (
+        sum(
+            item["notification_type"] == "location_referral_invite"
+            for item in service.notifications
+        )
+        == referral_notification_count
+    )
 
     with pytest.raises(OneLocationAgentError):
         service.view_latest_envelope(recipient_user_id=user_d, grant_id=grant_b["id"])
@@ -2643,6 +5234,7 @@ def test_four_user_location_workflow_contract() -> None:
     approved_d = service.approve_request(
         owner_user_id=user_a,
         request_id=referral_response["request"]["id"],
+        approval_mode="manual",
         duration_hours=1,
     )
     grant_d = approved_d["grant"]
@@ -2718,6 +5310,545 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
     assert already_revoked["status"] == "revoked"
 
 
+def test_event_failure_rolls_back_location_transition_and_suppresses_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "owner_user_id": "user_a",
+        "requester_user_id": "user_b",
+        "status": "pending",
+        "requested_duration_hours": 1,
+        "requested_duration_mode": "timed",
+        "extends_grant_id": None,
+    }
+
+    class _Result:
+        returns_rows = True
+
+        def __init__(self, row: dict | None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+        def all(self):
+            return [] if self.row is None else [self.row]
+
+    class _Connection:
+        def execute(self, statement, params):
+            sql = str(statement)
+            if "UPDATE one_location_access_requests AS legacy_request" in sql:
+                return _Result(None)
+            if "SET status = 'denied'" in sql:
+                request["status"] = "denied"
+                return _Result(dict(request))
+            if "INSERT INTO one_location_events" in sql:
+                raise RuntimeError("feed projection failed")
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    class _Engine:
+        @contextmanager
+        def begin(self):
+            previous_status = request["status"]
+            try:
+                yield _Connection()
+            except Exception:
+                request["status"] = previous_status
+                raise
+
+    service = OneLocationAgentService()
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=_Engine()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_identity_row",
+        lambda user_id: {"user_id": user_id, "display_name": user_id},
+    )
+    monkeypatch.setattr(
+        service, "_send_metadata_notification", lambda **kwargs: sent.append(kwargs)
+    )
+
+    with pytest.raises(RuntimeError, match="feed projection failed"):
+        service.deny_request(owner_user_id="user_a", request_id=request["id"])
+
+    assert request["status"] == "pending"
+    assert sent == []
+
+
+def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=20,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.shorten_grant(caller_user_id="user_c", grant_id=grant["id"], duration_hours=1)
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    # The recipient gives back time early -- self-limiting, needs no
+    # approval from the owner.
+    shortened = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=1
+    )
+    assert shortened["status"] == "active"
+    new_expires_at = service.grants[grant["id"]]["expires_at"]
+    assert new_expires_at < original_expires_at
+    shorten_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_shortened"
+    ]
+    assert shorten_events[-1]["actor_user_id"] == "user_b"
+    assert shorten_events[-1]["metadata"]["reason"] == "recipient_shorten"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    # The owner may also shorten their own exposure further.
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.25)
+    assert service.grants[grant["id"]]["expires_at"] < new_expires_at
+
+
+def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
+    """The one thing shorten_grant must never do: move expiry later.
+
+    That would let a recipient keep watching an owner longer than the
+    owner ever agreed to -- exactly the class of unconsented-access bug
+    this endpoint exists to avoid. Extending only ever happens through a
+    fresh request_access the owner approves.
+    """
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as extend_attempt:
+        service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
+    assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+
+def test_shorten_grant_reuses_a_client_operation_without_duplicate_event_or_push() -> None:
+    service, grant = _duration_service_with_grant(20)
+    operation_id = "shorten-operation-0001"
+
+    first = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.shorten_grant(
+        caller_user_id="user_b",
+        grant_id=grant["id"],
+        duration_hours=1,
+        client_operation_id=operation_id,
+    )
+
+    assert replay["id"] == first["id"]
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
+def _duration_service_with_grant(duration_hours: float = 0.5):
+    """A live user_a -> user_b share, and the service holding it."""
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=duration_hours,
+    )
+    return service, grant
+
+
+def test_owner_may_lengthen_their_own_running_share() -> None:
+    """The reported bug: 30 minutes could be stopped, never extended.
+
+    Nobody's consent is missing when the owner adds time to their own share --
+    the owner is the person being seen. `shorten_grant` refusing it was a rule
+    written for the recipient that ended up applying to everyone, and it left
+    Stop as the only thing the live card could offer.
+    """
+    service, grant = _duration_service_with_grant(0.5)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    extended = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=2
+    )
+
+    assert extended["status"] == "active"
+    assert service.grants[grant["id"]]["expires_at"] > original_expires_at
+    assert service.grants[grant["id"]]["duration_hours"] == 2
+
+
+def test_owner_extension_advances_ceiling_and_refreshes_capability_token() -> None:
+    from hushh_mcp.consent.token import validate_token
+
+    service, grant = _duration_service_with_grant(0.5)
+    row = service.grants[grant["id"]]
+    original_ceiling = row["ceiling_expires_at"]
+    original_token = row["metadata"]["capability_token"]
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+    )
+
+    row = service.grants[grant["id"]]
+    assert updated["id"] == grant["id"]
+    assert row["expires_at"] > original_ceiling
+    assert row["ceiling_expires_at"] == row["expires_at"]
+    refreshed_token = row["metadata"]["capability_token"]
+    assert refreshed_token != original_token
+    valid, reason, token = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert valid is True, reason
+    assert token is not None
+    assert token.agent_id == "device:user_b"
+
+
+def test_refreshed_timed_capability_outlives_the_original_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hushh_mcp.consent.token as consent_token_module
+    from hushh_mcp.consent.token import validate_token
+
+    clock = {"now": datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)}
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: clock["now"])
+    monkeypatch.setattr(consent_token_module.time, "time", lambda: clock["now"].timestamp())
+    service, grant = _duration_service_with_grant(0.5)
+    original_token = service.grants[grant["id"]]["metadata"]["capability_token"]
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+    )
+    refreshed_token = service.grants[grant["id"]]["metadata"]["capability_token"]
+
+    clock["now"] += timedelta(minutes=45)
+    original_valid, _, _ = validate_token(
+        original_token,
+        expected_scope="cap.location.live.view",
+    )
+    refreshed_valid, refreshed_reason, refreshed = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert original_valid is False
+    assert refreshed_valid is True, refreshed_reason
+    assert refreshed is not None
+    assert refreshed.agent_id == "device:user_b"
+
+
+def test_owner_shorten_keeps_later_ceiling_and_shortens_capability_token() -> None:
+    from hushh_mcp.consent.token import validate_token
+
+    service, grant = _duration_service_with_grant(4)
+    row = service.grants[grant["id"]]
+    original_ceiling = row["ceiling_expires_at"]
+    original_token = row["metadata"]["capability_token"]
+    old_valid, old_reason, old_token = validate_token(
+        original_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert old_valid is True, old_reason
+    assert old_token is not None
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=0.5,
+    )
+
+    row = service.grants[grant["id"]]
+    assert row["expires_at"] < original_ceiling
+    assert row["ceiling_expires_at"] == original_ceiling
+    refreshed_token = row["metadata"]["capability_token"]
+    assert refreshed_token != original_token
+    valid, reason, token = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert valid is True, reason
+    assert token is not None
+    assert token.expires_at < old_token.expires_at
+
+
+def test_duration_change_mutates_only_selected_grant_in_multi_circle_share() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    direct_grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    source_circle_id = str(uuid.uuid4())
+    circle_grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_c",
+        recipient_key_id="key-user_c",
+        duration_hours=1,
+        source_circle_id=source_circle_id,
+    )
+    direct_before = service.grants[direct_grant["id"]]
+    direct_state = {
+        "expires_at": direct_before["expires_at"],
+        "ceiling_expires_at": direct_before["ceiling_expires_at"],
+        "capability_token": direct_before["metadata"]["capability_token"],
+    }
+    selected_before = service.grants[circle_grant["id"]]
+    selected_token = selected_before["metadata"]["capability_token"]
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=circle_grant["id"],
+        duration_hours=2,
+    )
+
+    assert updated["id"] == circle_grant["id"]
+    selected_after = service.grants[circle_grant["id"]]
+    assert selected_after["source_circle_id"] == source_circle_id
+    assert selected_after["ceiling_expires_at"] == selected_after["expires_at"]
+    assert selected_after["metadata"]["capability_token"] != selected_token
+    direct_after = service.grants[direct_grant["id"]]
+    assert direct_after["expires_at"] == direct_state["expires_at"]
+    assert direct_after["ceiling_expires_at"] == direct_state["ceiling_expires_at"]
+    assert direct_after["metadata"]["capability_token"] == direct_state["capability_token"]
+
+
+def test_set_duration_reuses_a_client_operation_without_resetting_the_clock() -> None:
+    service, grant = _duration_service_with_grant(0.5)
+    operation_id = "duration-operation-0001"
+    source_circle_id = str(uuid.uuid4())
+    service.grants[grant["id"]]["source_circle_id"] = source_circle_id
+
+    first = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+    first_expiry = service.grants[grant["id"]]["expires_at"]
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+
+    replay = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+        client_operation_id=operation_id,
+    )
+
+    assert replay == first
+    assert replay["recipientKeyId"] == grant["recipientKeyId"]
+    assert replay["sourceCircleId"] == source_circle_id
+    assert replay["createdAt"] is not None
+    assert replay["updatedAt"] is not None
+    assert service.grants[grant["id"]]["expires_at"] == first_expiry
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
+def test_changing_the_duration_keeps_the_same_grant() -> None:
+    """The row is mutated, never replaced.
+
+    Re-creating the grant to add fifteen minutes hands the recipient a new id:
+    their subscription is keyed on the old one, the stored envelope goes with
+    it, and they get a share-ended alert for a share that never ended.
+    """
+    service, grant = _duration_service_with_grant(1)
+    service.grants[grant["id"]]["latest_envelope_id"] = "envelope-1"
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert updated["id"] == grant["id"]
+    assert len(service.grants) == 1
+    row = service.grants[grant["id"]]
+    assert row["latest_envelope_id"] == "envelope-1"
+    assert row["recipient_key_id"] == grant["recipientKeyId"]
+    assert row["status"] == "active"
+
+
+def test_owner_may_also_shorten_through_the_same_call() -> None:
+    # One control on the card, so one call has to answer both directions.
+    service, grant = _duration_service_with_grant(4)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.5)
+
+    assert service.grants[grant["id"]]["expires_at"] < original_expires_at
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_recipient_cannot_reach_the_owner_duration_call() -> None:
+    """The invariant the shorten-only rule existed to protect, kept exactly.
+
+    A recipient lengthening a grant is someone deciding how long they get to
+    watch another person. That is still refused -- here by never matching the
+    row at all, so there is no path to the write.
+    """
+    service, grant = _duration_service_with_grant(1)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as refused:
+        service.set_grant_duration(owner_user_id="user_b", grant_id=grant["id"], duration_hours=24)
+    assert refused.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+    # And a stranger fares no better.
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.set_grant_duration(owner_user_id="user_c", grant_id=grant["id"], duration_hours=1)
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+
+def test_the_duration_change_event_names_which_way_it_went() -> None:
+    # One event type carries both directions, so the direction has to be
+    # recorded rather than read off the name.
+    service, grant = _duration_service_with_grant(0.5)
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=3)
+
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events, "no duration-changed event was written"
+    assert events[-1]["actor_user_id"] == "user_a"
+    assert events[-1]["metadata"]["direction"] == "extended"
+    assert events[-1]["metadata"]["duration_hours"] == 3
+    # The person being watched changed the terms, so the watcher is told.
+    assert service.notifications[-1]["user_id"] == "user_b"
+
+
+def test_a_share_can_be_moved_to_until_stopped_and_back() -> None:
+    service, grant = _duration_service_with_grant(1)
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+    row = service.grants[grant["id"]]
+    # The duration contract in migration 150 allows exactly two shapes; this is
+    # the open-ended one, and both columns have to be null for it.
+    assert row["duration_mode"] == "until_stopped"
+    assert row["duration_hours"] is None
+    assert row["expires_at"] is None
+    assert row["ceiling_expires_at"] is None
+    assert "capability_token" not in row["metadata"]
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=1)
+    row = service.grants[grant["id"]]
+    assert row["duration_mode"] == "timed"
+    assert row["expires_at"] is not None
+    assert row["ceiling_expires_at"] == row["expires_at"]
+    assert row["metadata"]["capability_token"].startswith("HCT:")
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    # Giving an open-ended share an end is less exposure, not more.
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_duration_change_obeys_the_same_bounds_as_creating_a_share() -> None:
+    """A share must not become, by editing, a shape it could not be created in."""
+    service, grant = _duration_service_with_grant(1)
+
+    with pytest.raises(OneLocationAgentError) as too_short:
+        service.set_grant_duration(
+            owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.05
+        )
+    assert too_short.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as too_long:
+        service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=30)
+    assert too_long.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as bad_mode:
+        service.set_grant_duration(
+            owner_user_id="user_a",
+            grant_id=grant["id"],
+            duration_hours=1,
+            duration_mode="forever",
+        )
+    assert bad_mode.value.code == "LOCATION_DURATION_MODE_INVALID"
+
+
+def test_changing_the_duration_of_a_stopped_share_does_nothing() -> None:
+    # Racing Stop must not resurrect a share, and must not raise either -- the
+    # editor may still be open when the countdown reaches zero.
+    service, grant = _duration_service_with_grant(1)
+    service.revoke_grant(owner_user_id="user_a", grant_id=grant["id"])
+
+    result = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert result["status"] == "revoked"
+    assert service.grants[grant["id"]]["status"] == "revoked"
+
+
 def test_location_request_creation_does_not_require_requester_key_material() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -2745,6 +5876,106 @@ def test_location_request_creation_does_not_require_requester_key_material() -> 
             require_recipient_phone_verified=False,
         )
     assert missing_key.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
+
+
+def test_direct_location_request_rechecks_peer_eligibility_before_writing() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as disconnected:
+        service.request_access(
+            requester_user_id="user_b",
+            owner_user_id="user_a",
+            message="Can I see your location?",
+            enforce_peer_eligibility=True,
+        )
+
+    assert disconnected.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.requests
+    assert not service.events
+    assert not service.notifications
+
+    service._seed_connection("user_a", "user_b")
+    direct = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+    assert direct["status"] == "pending"
+
+
+def test_direct_location_request_allows_current_circle_only_peer() -> None:
+    service = FourUserMemoryService()
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    request = service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["status"] == "pending"
+    assert request["requesterUserId"] == "user_c"
+
+
+def test_direct_location_request_replays_after_relationship_removal() -> None:
+    service = FourUserMemoryService()
+    operation_id = "123e4567-e89b-12d3-a456-426614174099"
+    service._seed_connection("user_a", "user_b")
+
+    first = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    replay = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+
+    assert replay == first
+    assert len(service.requests) == 1
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
+def test_direct_location_extension_allows_current_grant_without_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "b", "y": "b"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b",
+        duration_hours=1,
+    )
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=2,
+        extends_grant_id=grant["id"],
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["isExtension"] is True
+    assert request["extendsGrantId"] == grant["id"]
 
 
 def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
@@ -2821,6 +6052,63 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "0002" not in user_visible_text
 
 
+def test_until_stopped_private_grant_is_revocable_not_timeboxed() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    grant = service.create_grant(
+        owner_user_id=owner,
+        recipient_user_id=recipient,
+        recipient_key_id=f"key-{recipient}",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+
+    assert grant["durationMode"] == "until_stopped"
+    assert grant["durationHours"] is None
+    assert grant["expiresAt"] is None
+    assert service.grants[grant["id"]]["expires_at"] is None
+
+    service.store_encrypted_envelope(
+        owner_user_id=owner,
+        grant_id=grant["id"],
+        envelope=encrypted_envelope(f"key-{recipient}", "ciphertext-for-b"),
+    )
+    viewed = service.view_latest_envelope(recipient_user_id=recipient, grant_id=grant["id"])
+    assert viewed["grant"]["durationMode"] == "until_stopped"
+    assert viewed["envelope"]["ciphertext"] == "ciphertext-for-b"
+
+
+def test_until_stopped_is_rejected_for_check_in_grants() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant(
+            owner_user_id=owner,
+            recipient_user_id=recipient,
+            recipient_key_id=f"key-{recipient}",
+            duration_hours=None,
+            duration_mode="until_stopped",
+            share_kind="check_in",
+            reason="check_in",
+        )
+
+    assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
+
+
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -2833,11 +6121,17 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     token = created["publicToken"]
 
     assert created["publicUrl"].endswith(token)
-    assert created["publicUrl"].startswith("/one/location/request/")
+    # `/view/`, not `/request/`. The recipient reads this path before deciding
+    # whether to tap, and the page shows a location rather than asking for one.
+    assert created["publicUrl"].startswith("/one/location/view/")
     assert token not in json.dumps(service.public_invites, default=str)
 
     resolved = service.resolve_public_invite(public_token=token)
-    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's own display name. This read "A trusted person" for every
+    # link ever minted, because `create_public_invite` never wrote
+    # `metadata.owner_safe_label` -- the only field the recipient payload
+    # consults for a name.
+    assert resolved["invite"]["ownerLabel"] == "User A"
     serialized_resolve = json.dumps(resolved)
     assert "ownerUserId" not in serialized_resolve
     assert "ownerDisplayName" not in serialized_resolve
@@ -2859,12 +6153,370 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert len(service.requests) == 1
     assert next(iter(service.requests.values()))["status"] == "pending"
     assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
+    assert next(iter(service.requests.values()))["metadata"]["notify_owner"] is False
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
     }
+    assert "location_access_request" not in {
+        item["notification_type"] for item in service.notifications
+    }
+
+
+def test_public_invite_label_is_a_name_and_never_an_email_handle() -> None:
+    """The label on a page anyone holding the URL can open.
+
+    `allow_email_handle=False` is the whole point: an email local part is a
+    name to someone who already knows you and an identifier to everyone else,
+    and this page is read by people the sender may never have met. An account
+    with no usable display name keeps the generic fallback rather than
+    publishing the mailbox.
+    """
+
+    service = FourUserMemoryService()
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "",
+        "email": "ankit.singh@example.com",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    serialized = json.dumps(resolved)
+    assert "ankit.singh" not in serialized
+    assert "@example.com" not in serialized
+
+
+def test_public_invite_label_rejects_a_uid_sitting_in_the_name_column() -> None:
+    # `actor_identity_cache.display_name` back-seeds to the raw Firebase uid for
+    # any account that has never synced. Rendering it would put a 28-character
+    # token where a person's name belongs, on a page a stranger opens.
+    service = FourUserMemoryService()
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "RPNmQAmVdlNz84GVfXxta50wnYx1",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+
+
+def test_public_invite_reuse_honours_the_duration_that_was_just_asked_for() -> None:
+    """A link created for an hour is live for an hour, not for what is left.
+
+    One live public link per owner, and the second call reused the first row
+    verbatim -- so picking "1 hour" 56 minutes into an existing link handed
+    back four minutes, and the countdown afterwards agreed with it because it
+    reads the same row. The window restarts from now, for exactly what was
+    asked.
+    """
+
+    service = FourUserMemoryService()
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    first_row = next(iter(service.public_invites.values()))
+    # Wind the existing link down to its last four minutes.
+    first_row["expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=4)
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second.get("reused") is True
+    # Same link -- the one-at-a-time invariant still holds.
+    assert second["publicToken"] == first["publicToken"]
+    assert len(service.public_invites) == 1
+
+    remaining = datetime.fromisoformat(second["invite"]["expiresAt"]) - datetime.now(timezone.utc)
+    assert remaining > timedelta(minutes=55)
+    assert remaining <= timedelta(hours=1)
+    assert second["invite"]["durationHours"] == 1
+
+
+def test_public_invite_reuse_shows_where_the_owner_is_now() -> None:
+    # Reuse used to keep the snapshot the first call attached, so a link handed
+    # back 50 minutes later opened on where the owner had been, presented as
+    # where they are.
+    service = FourUserMemoryService()
+    first_point = {
+        "latitude": 28.6139,
+        "longitude": 77.209,
+        "accuracyM": 12,
+        "capturedAt": "2026-08-23T02:06:00.000Z",
+        "sourcePlatform": "web",
+    }
+    second_point = {
+        "latitude": 25.1441,
+        "longitude": 75.8446,
+        "accuracyM": 9,
+        "capturedAt": "2026-08-23T02:56:00.000Z",
+        "sourcePlatform": "web",
+    }
+    service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=first_point
+    )
+    second = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=second_point
+    )
+
+    resolved = service.resolve_public_invite(public_token=second["publicToken"])
+    assert resolved["publicLocation"]["latitude"] == 25.1441
+    assert resolved["publicLocation"]["longitude"] == 75.8446
+
+
+def test_public_invite_reuse_mints_a_new_link_when_the_old_one_was_just_revoked() -> None:
+    """The reuse UPDATE is guarded on `status = 'active'`, so it can write nothing.
+
+    A second device -- or the `revoke_public_link` agent tool -- can revoke the
+    invite between the SELECT that finds it and the UPDATE that refreshes it.
+    Falling back to the row the SELECT read would hand the owner a link whose
+    stored status still says 'active', which means `_public_invite_payload`
+    attaches a `publicUrl`: a link they can copy and share that 410s the first
+    time anyone opens it. Minting instead gives them one that works.
+    """
+
+    service = FourUserMemoryService()
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    first_row = next(iter(service.public_invites.values()))
+
+    original_execute_one = service._execute_one
+
+    def revoke_between_select_and_update(sql, params=None):
+        if "UPDATE one_location_public_invites" in sql and "SET duration_hours" in sql:
+            first_row["status"] = "revoked"
+        return original_execute_one(sql, params)
+
+    service._execute_one = revoke_between_select_and_update
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service._execute_one = original_execute_one
+
+    assert second.get("reused") is not True
+    assert second["publicToken"] != first["publicToken"]
+    assert second["invite"]["status"] == "active"
+    # And the link handed back really does resolve.
+    resolved = service.resolve_public_invite(public_token=second["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_public_invite_resolve_names_the_sharer_on_a_link_minted_before_the_write() -> None:
+    """Links already in the wild carry no stored label, and must still name someone.
+
+    Stamping the label at create time only helps links created afterwards --
+    and the whole point of keeping the old path alive is that links minted
+    before this change are already inside messages that were sent. Without a
+    read-time resolve those would read "A trusted person" forever, which is
+    the bug, still visible, on the only links anyone currently holds.
+    """
+
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    row = next(iter(service.public_invites.values()))
+    # Exactly the shape of a row written before `owner_safe_label` existed.
+    row["metadata"] = {"codeVersion": row["metadata"]["codeVersion"]}
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == "User A"
+
+
+def test_public_invite_resolve_keeps_the_generic_line_for_an_unresolvable_owner() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    row = next(iter(service.public_invites.values()))
+    row["metadata"] = {"codeVersion": row["metadata"]["codeVersion"]}
+    # The account resolves to nothing a reader could use.
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "user_a",
+        "email": "user_a@example.com",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    assert "user_a@example.com" not in json.dumps(resolved)
+
+
+def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
+    """One clock owns the window, and it is the one the row lives on.
+
+    The window used to be stamped from the app host's clock while the create
+    path's pre-settle and reuse lookup gated on the database's, and the read
+    path compared against the app host's again. A host running a minute fast
+    killed every link a minute early -- and the countdown, which reads the
+    row, agreed with it, so nothing on screen could contradict the shortfall.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    expire_source = inspect.getsource(module.OneLocationAgentService._expire_public_invite)
+    # The comparison lives in the statement, beside the write it guards.
+    assert "expires_at <= NOW()" in expire_source
+    assert "_utcnow()" not in expire_source
+
+    create_source = inspect.getsource(module.OneLocationAgentService._create_public_invite)
+    # ...and so does the stamp, on both the mint and the reuse path.
+    assert create_source.count("INTERVAL '1 hour'") == 2
+    assert "_utcnow() + timedelta" not in create_source
+
+    # Behaviourally: a link inside its window survives a read.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert 0 < resolved["expiresInSeconds"] <= 3600
+    assert (
+        service.resolve_public_invite(public_token=created["publicToken"])["invite"]["status"]
+        == "active"
+    )
+
+    # ...and one past it does not.
+    next(iter(service.public_invites.values()))["expires_at"] = datetime.now(
+        timezone.utc
+    ) - timedelta(seconds=1)
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert exc.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def test_owner_public_invite_state_uses_the_database_expiry_verdict() -> None:
+    row = {"status": "active", "expired_by_db_clock": False}
+    assert OneLocationAgentService._project_public_invite_expired(row)["status"] == "active"
+    row["expired_by_db_clock"] = True
+    assert OneLocationAgentService._project_public_invite_expired(row)["status"] == "expired"
+
+
+def test_public_invite_resolve_rechecks_a_concurrent_revoke() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    original_execute_one = service._execute_one
+
+    def revoke_after_lookup(sql, params=None):
+        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+            service.public_invites[created["invite"]["id"]]["status"] = "revoked"
+        return original_execute_one(sql, params)
+
+    service._execute_one = revoke_after_lookup
+    with pytest.raises(OneLocationAgentError) as error:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert error.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def test_public_invite_resolve_reads_a_concurrent_extension() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    original_execute_one = service._execute_one
+    extended_expiry = datetime.now(timezone.utc) + timedelta(hours=2)
+
+    def extend_after_lookup(sql, params=None):
+        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+            service.public_invites[created["invite"]["id"]]["expires_at"] = extended_expiry
+        return original_execute_one(sql, params)
+
+    service._execute_one = extend_after_lookup
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert datetime.fromisoformat(resolved["invite"]["expiresAt"]) == extended_expiry
+
+
+def _point(latitude: float, longitude: float, captured_at: str) -> dict:
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "accuracyM": 12,
+        "capturedAt": captured_at,
+        "sourcePlatform": "web",
+    }
+
+
+def test_public_invite_location_heartbeat_moves_the_pin() -> None:
+    """The chip says "Live"; this is the statement that makes it true.
+
+    The snapshot used to be written once, at create time, and never again --
+    so a link shared as a live location showed one frozen point for its whole
+    window.
+    """
+
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+
+    service.refresh_public_invite_location(
+        owner_user_id="user_a",
+        invite_id=created["invite"]["id"],
+        location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+    )
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["publicLocation"]["latitude"] == 25.1441
+    assert resolved["publicLocation"]["longitude"] == 75.8446
+    # Normalised to UTC by the snapshot payload, so compare the instant.
+    assert datetime.fromisoformat(resolved["publicLocation"]["capturedAt"]) == datetime(
+        2026, 8, 23, 2, 26, tzinfo=timezone.utc
+    )
+
+
+def test_public_invite_location_heartbeat_never_extends_the_window() -> None:
+    # An owner heartbeating their position must not be able to outlive what
+    # they agreed to share. `expires_at` is the only thing between "I shared
+    # for an hour" and "I shared until I remembered to stop".
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+    before = next(iter(service.public_invites.values()))["expires_at"]
+
+    result = service.refresh_public_invite_location(
+        owner_user_id="user_a",
+        invite_id=created["invite"]["id"],
+        location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+    )
+
+    assert next(iter(service.public_invites.values()))["expires_at"] == before
+    assert result["invite"]["expiresAt"] == created["invite"]["expiresAt"]
+    assert result["invite"]["durationHours"] == created["invite"]["durationHours"]
+
+
+def test_public_invite_location_heartbeat_is_owner_scoped_and_stops_at_revoke() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+    invite_id = created["invite"]["id"]
+
+    # Somebody else's link is not theirs to move.
+    with pytest.raises(OneLocationAgentError) as other_owner:
+        service.refresh_public_invite_location(
+            owner_user_id="user_b",
+            invite_id=invite_id,
+            location_snapshot=_point(0.0, 0.0, "2026-08-23T02:26:00.000Z"),
+        )
+    assert other_owner.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+    # And a stale tab publishing after a revoke must not resurrect the pin on
+    # a link the owner already stopped.
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=invite_id)
+    with pytest.raises(OneLocationAgentError) as revoked:
+        service.refresh_public_invite_location(
+            owner_user_id="user_a",
+            invite_id=invite_id,
+            location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+        )
+    assert revoked.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
 
 
 def test_public_invite_with_snapshot_returns_location_on_resolve_without_private_request() -> None:
@@ -2969,6 +6621,12 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
         return {}
 
     monkeypatch.setattr(svc, "_execute_one", fake_execute_one)
+
+    @contextmanager
+    def fake_event_bound_writer():
+        yield
+
+    monkeypatch.setattr(svc, "_event_bound_writer", fake_event_bound_writer)
 
     result = svc.claim_circle_invite(invite_token="tok", claimant_user_id="claimant-uid")  # noqa: S106
 
@@ -3463,6 +7121,390 @@ def test_create_grant_enforce_connection_allows_connection() -> None:
     assert grant["sourceCircleId"] is None
 
 
+def test_auto_approval_revalidates_relationship_after_client_snapshot() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+
+    # The browser still has the recipient in its last state response, but the
+    # relationship authority changes before the grant mutation.
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+@pytest.mark.parametrize(
+    ("approval_mode", "rule_version", "expected_code"),
+    [
+        ("legacy", None, "LOCATION_APPROVAL_MODE_INVALID"),
+        ("automatic", None, "LOCATION_AUTO_APPROVE_RULE_INVALID"),
+        ("manual", 1, "LOCATION_APPROVAL_MODE_INVALID"),
+    ],
+)
+def test_approval_service_rejects_ambiguous_or_mismatched_intent(
+    approval_mode: str,
+    rule_version: int | None,
+    expected_code: str,
+) -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id="123e4567-e89b-12d3-a456-426614174000",
+            approval_mode=approval_mode,
+            duration_hours=None,
+            auto_approve_rule_version=rule_version,
+        )
+
+    assert error.value.code == expected_code
+    assert not service.grants
+
+
+def test_approval_service_requires_the_intent_argument() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(TypeError):
+        service.approve_request(  # type: ignore[call-arg]
+            owner_user_id="user_a",
+            request_id="123e4567-e89b-12d3-a456-426614174000",
+            duration_hours=None,
+        )
+
+    assert not service.grants
+
+
+def test_auto_approval_mints_a_grant_for_a_current_contact() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    enabled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    service._seed_auto_approve_preference(
+        enabled_at=enabled_at,
+        rule_version=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert approved["request"]["status"] == "approved"
+    assert approved["grant"]["recipientUserId"] == "user_b"
+    assert approved["grant"]["durationHours"] == 1
+    assert approved["recipient"]["userId"] == "user_b"
+    assert approved["recipient"]["keyId"] == approved["grant"]["recipientKeyId"]
+    approval_event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert approval_event["metadata"]["approval_mode"] == "automatic"
+    assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
+    assert approval_event["metadata"]["auto_approve_rule_version"] == 1
+    assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
+
+
+def test_contact_sync_only_connection_uses_all_contacts_auto_approval() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    for origin in service.connection_origins.values():
+        origin["origin_kind"] = "contact_sync"
+        origin["origin_key"] = "contact_sync:user_a"
+    enabled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert approved["request"]["status"] == "approved"
+    assert approved["grant"]["recipientUserId"] == "user_b"
+    assert approved["grant"]["durationHours"] == 1
+    approval_event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert approval_event["metadata"]["approval_mode"] == "automatic"
+    assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
+    assert approval_event["metadata"]["auto_approve_rule_version"] == 1
+    assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
+
+
+def test_auto_approval_rejects_a_caller_duration_override() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=24,
+            duration_mode="timed",
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_DURATION_OVERRIDE_INVALID"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_auto_approval_rejects_a_request_from_before_the_standing_rule() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    service._seed_auto_approve_preference(
+        enabled_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+        rule_version=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_message_only_reask_does_not_cross_the_standing_rule_watermark() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    enabled_at = datetime.now(timezone.utc)
+    service.requests[request["id"]]["requested_at"] = enabled_at - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+
+    edited = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share for pickup?",
+    )
+
+    assert edited["requestRevision"] == 1
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+    assert error.value.code == "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_changed_duration_is_a_new_ask_after_the_standing_rule_watermark() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    enabled_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    service.requests[request["id"]]["requested_at"] = enabled_at - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+
+    changed = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+        requested_duration_hours=2,
+    )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert changed["requestRevision"] == 2
+    assert approved["grant"]["durationHours"] == 2
+    assert approved["request"]["status"] == "approved"
+
+
+def test_auto_approval_rejects_a_missing_or_stale_server_rule() -> None:
+    service = FourUserMemoryService()
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_STALE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_circle_auto_approval_rechecks_exact_membership_even_with_a_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+    service._seed_auto_approve_preference(
+        scope_kind="circle",
+        circle_id=circle_id,
+        rule_version=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    service.named_circle_memberships.remove((circle_id, "user_b"))
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_auto_approval_refuses_until_stopped_access() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_mode="until_stopped",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_DURATION_REQUIRES_APPROVAL"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
 def test_create_grant_circle_only_connection_derives_revocable_provenance() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -3804,6 +7846,91 @@ def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -
     assert circle_lock < membership_lock < sms_insert
 
 
+def test_auto_approved_circle_is_owner_scoped_and_feed_deduplicated(monkeypatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, query, params=None):
+            sql = str(query)
+            values = dict(params or {})
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(first={"id": circle_id})
+            if "FROM one_location_circle_memberships" in sql and "FOR SHARE" in sql:
+                return Result(rows=[{"user_id": "user_a"}, {"user_id": "user_b"}])
+            if "INSERT INTO one_location_share_grants" in sql:
+                return Result(first={"id": "grant-id", "source_circle_id": circle_id})
+            return Result()
+
+    connection = Connection()
+
+    class Engine:
+        @contextmanager
+        def begin(self):
+            yield connection
+
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=Engine()),
+    )
+
+    OneLocationAgentService()._create_enforced_grant_row(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        requested_circle_id=circle_id,
+        grant_params={
+            "owner_user_id": "user_a",
+            "recipient_user_id": "user_b",
+            "recipient_key_id": "key-user-b",
+            "capability_scopes": "[]",
+            "duration_hours": 1,
+            "duration_mode": "timed",
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "metadata_json": "{}",
+            "recipient_display_name": "User B",
+            "recipient_phone_number": None,
+            "require_owned_source_circle": True,
+            "event_reason": "request_approved",
+        },
+    )
+
+    circle_sql, circle_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "owner_user_id = :owner_user_id" in circle_sql
+    assert "system_kind IS NULL" in circle_sql
+    assert "NOT is_system" in circle_sql
+    assert circle_params["owner_user_id"] == "user_a"
+    assert circle_params["require_owned_person_circle"] is True
+
+    _event_sql, event_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "INSERT INTO one_location_events" in sql
+    )
+    assert json.loads(event_params["event_metadata_json"])["reason"] == "request_approved"
+
+
 def test_create_grant_without_enforce_allows_non_connection() -> None:
     # The request-approval / public-invite path must keep working.
     service = FourUserMemoryService()
@@ -3888,19 +8015,1489 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     )
     assert grant["shareKind"] == "sos"
     assert grant["shareMessage"] == "Come get me"
-    assert service.notifications == []
+
+    # Scoped to the ALERT. `add_sms_contact` above now tells the contact they
+    # were added -- a different notification, and the whole point of that
+    # change. What this test guards is that the alert itself waits for the
+    # envelope, so a recipient is never told a location is available before one
+    # is readable.
+    def share_alerts() -> list[dict]:
+        return [
+            n for n in service.notifications if n["notification_type"] == "location_share_created"
+        ]
+
+    assert share_alerts() == []
+    assert [n["notification_type"] for n in service.notifications] == ["location_sms_contact_added"]
 
     service.store_encrypted_envelope(
         owner_user_id="user_a",
         grant_id=grant["id"],
         envelope=encrypted_envelope("key-user_b", "ciphertext"),
     )
-    assert len(service.notifications) == 1
-    assert service.notifications[0]["title"] == "SMS · Save my soul"
-    assert service.notifications[0]["body"] == "User A: Come get me"
-    assert service.notifications[0]["data"]["notification_profile"] == (
-        "one_location_sms_emergency"
+    assert len(share_alerts()) == 1
+    assert share_alerts()[0]["title"] == "Save my Soul"
+    assert share_alerts()[0]["body"] == "User A: Come get me"
+    assert share_alerts()[0]["data"]["notification_profile"] == ("one_location_sms_emergency")
+    assert share_alerts()[0]["data"]["notification_category"] == ("ONE_LOCATION_SMS_EMERGENCY")
+
+
+# ---------------------------------------------------------------------------
+# Two-lane grant replacement (#5506)
+#
+# Replacement of a live share is scoped to a LANE, and there are exactly two:
+# the emergency lane (`share_kind == 'sos'`) and everything else. Before this,
+# every create path opened with a kind-blind revoke of every active grant for
+# the pair, so raising an SMS alert with somebody you were already sharing with
+# silently revoked that share -- at SEND time, not at "I'm safe".
+# ---------------------------------------------------------------------------
+
+
+class _ShareCreatedNotificationSpy(FourUserMemoryService):
+    """Records every `_send_location_share_created_notification` call.
+
+    "Two rows are active" is not on its own enough to prove the fix. An
+    implementation that RE-USED the pair's existing grant instead of inserting
+    a new one would satisfy several of the obvious assertions while quietly
+    reintroducing the bug at stop time -- "I'm safe" would then revoke the
+    normal share, because the normal share would BE the SOS grant. Watching the
+    notification the create path fires is what distinguishes "a new SOS grant
+    was created" from "an old grant was handed back".
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.share_created_calls: list[dict] = []
+
+    def _send_location_share_created_notification(self, **kwargs) -> bool:
+        self.share_created_calls.append(kwargs)
+        return super()._send_location_share_created_notification(**kwargs)
+
+
+def _lane_service() -> _ShareCreatedNotificationSpy:
+    """A connected owner/recipient pair with the recipient's key registered."""
+    service = _ShareCreatedNotificationSpy()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
     )
-    assert service.notifications[0]["data"]["notification_category"] == (
-        "ONE_LOCATION_SMS_EMERGENCY"
+    service._seed_connection("user_a", "user_b")
+    return service
+
+
+def test_sos_grant_does_not_revoke_an_existing_normal_share() -> None:
+    """The regression #5506 was reported as. Confirmed failing on `main`.
+
+    A shares location with B for four hours, then raises an SMS alert with that
+    same B. Before the lane split the four-hour grant was `status = 'revoked'`
+    the instant the SOS grant was created -- silently, with no
+    `location_share_revoked` event and no push, so B's card went on showing a
+    live share and the loss only surfaced at "I'm safe".
+    """
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
     )
+    normal_expires_at = service.grants[normal["id"]]["expires_at"]
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+
+    # 1. Both grants survive. Two live grants per pair is now legal, and this
+    #    is the pair that has to be able to hold them.
+    assert normal["id"] != sos["id"]
+    assert service.grants[normal["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[normal["id"]]["metadata"]["share_kind"] == "share"
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    # 2. The normal share keeps its ORIGINAL window. Revoke-and-reinsert under
+    #    a new expiry would leave one active row per lane too, while having
+    #    thrown away the four hours the owner actually consented to.
+    assert service.grants[normal["id"]]["expires_at"] == normal_expires_at
+
+    # 3. A genuinely new SOS grant was created, rather than the existing normal
+    #    grant being handed back relabelled. Save My Soul defers its
+    #    notification until the first envelope is durably stored, so this is
+    #    where the create path's intent becomes observable.
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=sos["id"],
+        envelope=encrypted_envelope("key-user_b", "sos-ciphertext"),
+    )
+    sos_notifications = [
+        call for call in service.share_created_calls if call["resolved_kind"] == "sos"
+    ]
+    assert len(sos_notifications) == 1
+    assert sos_notifications[0]["grant"]["id"] == sos["id"]
+    assert service.notifications[-1]["title"] == "Save my Soul"
+
+
+def test_approving_an_access_request_does_not_revoke_an_active_sos_grant() -> None:
+    """The NON-enforced create branch, which `approve_request` is the only way in to.
+
+    `approve_request` calls `create_grant` without `enforce_connection`, so it
+    lands in a completely different revoke statement from the one the SOS test
+    above exercises. Both had the same kind-blind WHERE clause, and approving
+    an ordinary access request while an alert was live would have torn the
+    alert's grant down.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    sos_expires_at = service.grants[sos["id"]]["expires_at"]
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share where you are?",
+    )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=1,
+    )
+    approved_grant = approved["grant"]
+
+    assert approved_grant["id"] != sos["id"]
+    assert service.grants[approved_grant["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["expires_at"] == sos_expires_at
+
+
+def test_same_lane_replacement_still_revokes_the_previous_grant() -> None:
+    """The other half of the invariant, and the reason this is TWO lanes.
+
+    Scoping replacement per exact share kind would let one pair accumulate
+    unbounded live grants -- `share`, `check_in`, `drive_to`, `pick_me_up` and
+    anything else a client sends, none of which any surface offers a single
+    Stop for. Within a lane the newest grant must still replace the older one
+    exactly as it always did, or the fix degrades into "never replace
+    anything".
+    """
+    service = _lane_service()
+
+    first_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    second_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    assert service.grants[first_share["id"]]["status"] == "revoked"
+    assert service.grants[second_share["id"]]["status"] == "active"
+
+    # A different NON-emergency kind shares the same lane and keeps replacing.
+    check_in = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+    assert service.grants[second_share["id"]]["status"] == "revoked"
+    assert service.grants[check_in["id"]]["status"] == "active"
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    first_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    second_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    assert service.grants[first_sos["id"]]["status"] == "revoked"
+    assert service.grants[second_sos["id"]]["status"] == "active"
+    # ...and the ordinary share sitting in the other lane never noticed any of
+    # it. A pair tops out at exactly two live grants, one per lane.
+    assert service.grants[check_in["id"]]["status"] == "active"
+    assert (
+        sum(
+            1
+            for grant in service.grants.values()
+            if grant["status"] == "active"
+            and grant["owner_user_id"] == "user_a"
+            and grant["recipient_user_id"] == "user_b"
+        )
+        == 2
+    )
+
+
+def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
+    """The recipient is told WHICH share ended, not just that one did.
+
+    Stopping an SMS alert revokes its grant through `revoke_grant`, the same
+    path an ordinary share takes, and the notification never named the lane.
+    Someone who had only ever received an emergency SMS was told "X removed
+    your location access" -- about access they do not know by that name, in a
+    sentence identical to the one an ordinary share produces.
+
+    Since #5552 a person can hold both lanes with the same counterpart at once,
+    so the unnamed wording is ambiguous exactly when someone is checking whether
+    the emergency share is still running.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService.revoke_grant)
+    transition_source = inspect.getsource(OneLocationAgentService._revoke_grant_transition)
+
+    # The lane is read from the grant rather than guessed -- and read from
+    # where it actually lives. `share_kind` is NOT a column on
+    # `one_location_share_grants`; it is `metadata->>'share_kind'` with the
+    # legacy `reason = 'sos_panic'` fallback. The behavioural tests
+    # `test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push` and
+    # its legacy twin prove the branch is taken, not merely present.
+    assert 'row.get("share_kind")' not in transition_source
+    assert '_loads_json(row.get("metadata"))' in transition_source
+    assert "_is_sos_lane(" in transition_source
+    assert "_classify_share_kind(" in transition_source
+    assert "revoked_via_sms" in source
+
+    # The recipient's word is SMS -- an SMS alert is how it reached them.
+    assert "SMS location sharing stopped" in source
+    assert "over SMS" in source
+
+    # Ordinary shares keep the wording they had.
+    assert "removed your location access." in source
+
+    # And the lane travels with the payload, because the grant is gone by the
+    # time the client renders this and cannot look the kind up itself.
+    assert '"share_kind": revoked_share_kind or "standard"' in source
+
+
+def test_location_notifications_name_the_person_not_a_placeholder() -> None:
+    """A notification says who, on both sides, or degrades honestly.
+
+    `_identity_notification_label` used to read `display_name` and say
+    "A trusted person" whenever it was blank -- so the same account that gets
+    named in a connection-request push went unnamed here. Worse, it took the
+    value verbatim, so a row holding a UUID or a raw user id rendered the
+    identifier AS the name on someone's lock screen.
+
+    #5442 already built the ladder for connections (display name -> reject
+    identifiers -> email handle). This pins that Location uses the same one, so
+    the two cannot drift apart again.
+    """
+
+    from hushh_mcp.services.one_location_agent_service import (
+        _identity_notification_label,
+    )
+
+    # A real name is used as-is, on both sides of any notification.
+    assert _identity_notification_label({"user_id": "u1", "display_name": "Neelesh"}) == ("Neelesh")
+
+    # A blank display name falls through to the email handle rather than
+    # going generic -- this is the case that produced unnamed notifications.
+    assert (
+        _identity_notification_label(
+            {"user_id": "u1", "display_name": "", "email": "neelesh@example.com"}
+        )
+        == "neelesh"
+    )
+
+    # An identifier is NOT a name. Showing it would be worse than being generic.
+    identifier_row = {
+        "user_id": "u1",
+        "display_name": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    }
+    assert _identity_notification_label(identifier_row) == "A trusted person"
+
+    raw_id_row = {"user_id": "u1", "display_name": "u1"}
+    assert _identity_notification_label(raw_id_row) == "A trusted person"
+
+    # Genuinely unresolvable stays generic, which is the honest answer.
+    assert _identity_notification_label(None) == "A trusted person"
+    assert _identity_notification_label({"user_id": "u1"}) == "A trusted person"
+
+
+def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
+    """The email fallback is only reachable if the query selected email."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService._identity_row)
+    assert "email" in source
+
+
+def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
+    """The privacy line through a projection two lists share.
+
+    `_recipient_payload` serves both `list_verified_recipients`, which admits a
+    person only on an active connection or a shared active Circle, and
+    `search_directory_candidates`, which admits any phone-verified account so
+    people can be found before they are connected.
+
+    An email's local part is a name to the first group and an identifier about
+    the second. Turning the rung on by default -- or reaching for it in the
+    directory -- would answer "who is this account" for anyone who can open
+    Connect at all, which is everyone.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    payload = inspect.getsource(OneLocationAgentService._recipient_payload)
+    # Off unless a caller asks. A default of True would make the directory leak
+    # by omission, which is the failure nobody would notice in review.
+    assert "allow_email_handle: bool = False" in payload
+
+    recipients = inspect.getsource(OneLocationAgentService.list_verified_recipients)
+    assert "allow_email_handle=True" in recipients
+
+    directory = inspect.getsource(OneLocationAgentService.search_directory_candidates)
+    assert "allow_email_handle=True" not in directory, (
+        "the discovery directory must not opt into the email handle: it lists "
+        "strangers, not only the viewer's connections"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public location link: the owner has to be able to read their own link back.
+#
+# The token used to be `secrets.token_urlsafe(32)`, hashed on the way in and
+# returned exactly once. Nothing could recover it afterwards, so an invite the
+# server reported as active had a link the product could no longer show -- Copy
+# and Share silently did nothing after any reload. It is now derived from the
+# row's UUID with the app signing key, the same way Circle codes are.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _public_invite_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="test-signing-key"),
+    )
+    return "test-signing-key"
+
+
+def _derivable_public_invite_row(invite_id: str, *, status: str = "active", **overrides) -> dict:
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    row = {
+        "id": invite_id,
+        "owner_user_id": "owner-1",
+        "public_code_hash": one_location_agent_module._hash_public_value(token),
+        "status": status,
+        "duration_hours": 1.0,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "revoked_at": None,
+        "metadata": json.dumps(
+            {"codeVersion": one_location_agent_module._PUBLIC_INVITE_CODE_VERSION}
+        ),
+    }
+    row.update(overrides)
+    return row
+
+
+def test_public_invite_token_is_stable_for_one_invite(_public_invite_key) -> None:
+    invite_id = str(uuid.uuid4())
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    second = one_location_agent_module._public_invite_token_for_id(invite_id)
+    # The whole point: the same row yields the same link every time it is read.
+    assert first == second
+    assert first
+
+
+def test_public_invite_tokens_differ_between_invites(_public_invite_key) -> None:
+    left = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    right = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    assert left != right
+
+
+def test_public_invite_token_survives_a_url(_public_invite_key) -> None:
+    token = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    # It is spent as a path segment, so base64's "+", "/" and "=" would either
+    # be re-encoded by the client or silently truncate the token.
+    assert "+" not in token
+    assert "/" not in token
+    assert "=" not in token
+    assert token == token.strip()
+
+
+def test_public_invite_token_is_not_the_bare_row_id(_public_invite_key) -> None:
+    # The id travels in the owner's own state payload. If the token were the id,
+    # anyone who saw one person's state could resolve their live location link.
+    invite_id = str(uuid.uuid4())
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert invite_id not in token
+    assert invite_id.replace("-", "") not in token
+
+
+def test_public_invite_token_changes_with_the_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-one"),
+    )
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-two"),
+    )
+    assert one_location_agent_module._public_invite_token_for_id(invite_id) != first
+
+
+def test_derivable_token_is_recovered_from_a_well_formed_row(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    assert one_location_agent_module._public_invite_token_if_derivable(
+        row
+    ) == one_location_agent_module._public_invite_token_for_id(invite_id)
+
+
+def test_legacy_rows_report_no_token_rather_than_a_wrong_one(
+    _public_invite_key,
+) -> None:
+    # Minted before tokens were derived from the id: the random token is gone
+    # for good. Returning a derived one would hand the owner a link that 404s.
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_whose_digest_does_not_match_reports_no_token(
+    _public_invite_key,
+) -> None:
+    # Signing key rotated, or the row was tampered with. Fail closed.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["public_code_hash"] = "0" * 64
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_with_no_id_reports_no_token(_public_invite_key) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["id"] = ""
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+    assert one_location_agent_module._public_invite_token_if_derivable(None) is None
+
+
+def test_owner_payload_carries_the_link_for_an_active_invite(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert payload["publicUrl"] == f"/one/location/view/{token}"
+
+
+@pytest.mark.parametrize("status", ["revoked", "expired"])
+def test_owner_payload_withholds_the_link_once_it_stops_working(
+    _public_invite_key, status: str
+) -> None:
+    # The token no longer resolves, so offering it would hand over a dead link
+    # on a screen that still says "copy".
+    row = _derivable_public_invite_row(str(uuid.uuid4()), status=status)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_owner_payload_withholds_the_link_for_a_legacy_invite(
+    _public_invite_key,
+) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_the_recipient_payload_never_carries_the_token(_public_invite_key) -> None:
+    # This is the branch a stranger holding the link receives. The token is the
+    # capability itself; echoing it back would put it in one more place for no
+    # reason, and would leak it to anyone the link was forwarded to.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    payload = OneLocationAgentService._public_invite_payload(row, public=True)
+    assert "publicUrl" not in payload
+    assert "id" not in payload
+    assert "ownerUserId" not in payload
+    serialized = json.dumps(payload)
+    assert one_location_agent_module._public_invite_token_for_id(row["id"]) not in serialized
+
+
+# ---------------------------------------------------------------------------
+# One live public location link per person.
+#
+# Nothing used to stop a second: no unique index, no lookup, just an INSERT. A
+# reload, a second device or a double tap left two links resolvable while the
+# screen showed one, and revoking the visible one left the other watching.
+# ---------------------------------------------------------------------------
+
+
+def _active_public_invites(service) -> list[dict]:
+    return [invite for invite in service.public_invites.values() if invite["status"] == "active"]
+
+
+def test_creating_a_second_public_link_hands_back_the_first() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    # Same link, not a second one: this call is what the person makes when they
+    # mean "give me my link", so it answers rather than refusing.
+    assert second["publicToken"] == first["publicToken"]
+    assert second["invite"]["id"] == first["invite"]["id"]
+    assert second["reused"] is True
+    assert first.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_reused_link_still_resolves() -> None:
+    # The point of reuse is that whoever already holds the link keeps seeing
+    # the owner. A token handed back that no longer resolved would be worse
+    # than a second link.
+    service = FourUserMemoryService()
+    service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    resolved = service.resolve_public_invite(public_token=reused["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_one_persons_link_does_not_block_another_persons() -> None:
+    service = FourUserMemoryService()
+
+    mine = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    theirs = service.create_public_invite(owner_user_id="user_b", duration_hours=1)
+
+    assert mine["publicToken"] != theirs["publicToken"]
+    assert len(_active_public_invites(service)) == 2
+
+
+def test_revoking_frees_the_person_to_create_another() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=first["invite"]["id"])
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_an_expired_link_does_not_block_a_new_one() -> None:
+    # Expiry is written lazily -- only when something reads the row -- so a
+    # link past its time can still be sitting at status 'active'. If create did
+    # not settle that first, the reuse lookup would hand back a dead link and
+    # the person could never make another.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    stale = service.public_invites[first["invite"]["id"]]
+    stale["expires_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    assert stale["status"] == "active"
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert stale["status"] == "expired"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_an_unrecoverable_link_stays_live_until_expiry() -> None:
+    # An older row has no derivable token, but people holding the original
+    # bearer must not lose access merely because the owner tries Create again.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    legacy = service.public_invites[first["invite"]["id"]]
+    legacy["metadata"] = {}
+    original_expiry = legacy["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert error.value.code == "LOCATION_PUBLIC_INVITE_UNRECOVERABLE"
+    assert error.value.status_code == 409
+    assert legacy["status"] == "active"
+    assert legacy["expires_at"] == original_expiry
+    assert len(_active_public_invites(service)) == 1
+    assert (
+        service.resolve_public_invite(public_token=first["publicToken"])["invite"]["status"]
+        == "active"
+    )
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=first["invite"]["id"])
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert second["publicToken"] != first["publicToken"]
+
+
+def test_signing_key_change_does_not_revoke_a_shared_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = FourUserMemoryService()
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="signing-key-a"),
+    )
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    original_expiry = service.public_invites[first["invite"]["id"]]["expires_at"]
+
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="signing-key-b"),
+    )
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert error.value.code == "LOCATION_PUBLIC_INVITE_UNRECOVERABLE"
+    assert service.public_invites[first["invite"]["id"]]["expires_at"] == original_expiry
+    assert (
+        service.resolve_public_invite(public_token=first["publicToken"])["invite"]["status"]
+        == "active"
+    )
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_owners_state_carries_the_link_back() -> None:
+    # The whole reason the token is derived: after a reload the owner still has
+    # to be able to copy and share the link they already made.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    state = service.list_state(user_id="user_a")
+    invites = [
+        invite for invite in state["publicInvites"] if invite["id"] == created["invite"]["id"]
+    ]
+    assert len(invites) == 1
+    assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_state_never_reports_an_absent_receiving_key_when_its_read_fails() -> None:
+    class UnavailableKeyService(FourUserMemoryService):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            if "encrypted_private_key_jwk" in sql:
+                raise RuntimeError("receiving key unavailable")
+            return super()._execute_many(sql, params)
+
+    with pytest.raises(RuntimeError, match="receiving key unavailable"):
+        UnavailableKeyService().list_state(user_id="user_a")
+
+    # A successful empty query is genuine absence, unlike a failed section.
+    healthy = FourUserMemoryService()
+    healthy.keys.clear()
+    assert healthy.list_state(user_id="user_a")["myRecipientKey"] is None
+
+
+def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_auto_approve_preference(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_state_never_reports_nearby_check_in_defaults_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_nearby_check_in_defaults(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"nearby check-in preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="nearby check-in preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_state_never_reports_sos_voice_default_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_sos_voice_preference(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"sos voice preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="sos voice preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
+
+
+def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
+    # Anyone holding this link can watch, which is a different promise from a
+    # private share to a named person who can be un-shared. 24 was the private
+    # ceiling, copied into every layer -- Pydantic, normalize_duration_hours,
+    # the DB CHECK -- so the one-hour cap the screen showed was enforced only by
+    # the screen, and a crafted request minted a public link for a full day.
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=24)
+
+    assert excinfo.value.code == "LOCATION_DURATION_INVALID"
+    assert excinfo.value.status_code == 422
+    assert not service.public_invites
+
+
+def test_the_durations_the_screen_offers_are_accepted() -> None:
+    service = FourUserMemoryService()
+
+    half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    assert half["invite"]["durationHours"] == 0.5
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
+    whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert whole["invite"]["durationHours"] == 1
+
+
+def test_sos_reaches_someone_added_through_the_emergency_circle() -> None:
+    """The emergency path, for anyone added the way the product now says to.
+
+    Since #5426 the SMS Circle IS the emergency list and the screen picks SOS
+    recipients from its roster. This gate never learned that: it asked
+    `one_location_sms_contacts`, which the Circle detail screen does not write.
+    So somebody added through Circle detail was offered by the UI and refused
+    here with LOCATION_SMS_CONTACT_REQUIRED -- at the moment an SOS was being
+    sent, which is the only moment it is discoverable.
+    """
+
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    # Note what is NOT called: add_sms_contact. This is the Circle-only path.
+    service._seed_sms_circle_member("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        reason="Come get me",
+        share_kind="sos",
+        enforce_connection=True,
+    )
+
+    assert grant["shareKind"] == "sos"
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_sos_still_refuses_someone_in_neither_the_table_nor_the_circle() -> None:
+    # The widening above is a widening of an emergency gate, so the refusal it
+    # is widening has to keep holding for everyone else.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=8,
+            reason="Come get me",
+            share_kind="sos",
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_SMS_CONTACT_REQUIRED"
+
+
+def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
+    """A property of the idiom, not of one call site.
+
+    The gate is written at four places -- the atomic grant CTE, the explainer
+    that produces the error message, the fallback list the client reads, and
+    the same list inside `list_state`. A narrow explainer beside a wide gate is
+    worse than either: the share succeeds and the message says it could not. So
+    assert every statement that reaches `one_location_sms_contacts` also reaches
+    the owner's own system Circle.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    source = inspect.getsource(module)
+    # Statement-ish blocks: split on the triple-quoted SQL literals.
+    sql_blocks = [block for block in source.split('"""') if "one_location_sms_contacts" in block]
+    assert sql_blocks, "no SQL reaches one_location_sms_contacts any more"
+
+    gates = 0
+    arms = 0
+    for block in sql_blocks:
+        # The two write paths are the owner curating the legacy table itself;
+        # they are not recipient gates and have no Circle arm to grow.
+        if "INSERT INTO one_location_sms_contacts" in block:
+            continue
+        if "DELETE FROM one_location_sms_contacts" in block:
+            continue
+        gates += 1
+        arms += block.count("circle.is_system")
+        assert "circle.is_system" in block, (
+            "an SOS gate reads the legacy contacts table without also reading "
+            "the owner's emergency Circle:\n" + block[:400]
+        )
+
+    # Counted, not merely detected.
+    #
+    # Some of these gates carry the arm twice -- a UNION with a roster arm
+    # on each side -- so the presence check above still passes after one of
+    # them is deleted. That is how the SOS roster fix could be removed with
+    # every backend test still green. Measured by deleting one: 7 becomes 6.
+    assert gates >= 4, f"expected at least 4 SOS recipient gates, found {gates}"
+    assert arms >= 7, (
+        f"expected at least 7 emergency-Circle arms across the SOS gates, "
+        f"found {arms} -- one has been removed"
+    )
+
+
+def test_a_product_managed_circle_introduces_nobody() -> None:
+    """The shared-circle eligibility arm is a property of the idiom, not of one
+    call site.
+
+    That arm joins membership to membership and never mentions
+    `circle.owner_user_id`, so two people became eligible for each other's live
+    location the moment they shared a Circle -- whoever owned it. On the SMS
+    Circle that is ten strangers, and it contradicts that Circle's own design
+    note. On a Trusted Circle holding every connection it would be every PAIR
+    of your connections.
+
+    The join is written seven times across two services. Asserting the fix at
+    one of them would leave the other six, and would not stop an eighth being
+    added wide -- which is exactly how it came to be written seven times.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+    from hushh_mcp.services import one_location_circle_service as circle_module
+
+    sites = 0
+    owner_clauses = 0
+    for module in (agent_module, circle_module):
+        source = inspect.getsource(module)
+        # Split on the SQL literals so an assertion lands inside one statement
+        # rather than anywhere in a 7,000-line file.
+        for block in source.split('"""'):
+            if "one_location_circle_memberships" not in block:
+                continue
+            if "JOIN one_location_circles circle" not in block:
+                continue
+            # The two membership rows have to belong to different people for
+            # this to be the eligibility idiom at all.
+            if block.count("one_location_circle_memberships") < 2:
+                continue
+            sites += 1
+            owner_clauses += block.count("circle.owner_user_id = ")
+            assert "circle.owner_user_id = " in block, (
+                "a shared-Circle eligibility join does not require one side to "
+                "be the Circle's owner, so a product-managed Circle would "
+                "introduce its members to each other:\n" + block[:500]
+            )
+
+    # Seven when this was written. The floor catches a site being deleted along
+    # with its guard; the assertion above catches a new one arriving wide.
+    assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
+
+    # And the clauses are counted, not merely detected.
+    #
+    # Most of these blocks name `circle.owner_user_id` more than once,
+    # because the narrowing accepts either side of the pair as the owner.
+    # The presence check therefore survives one of the two being deleted,
+    # which leaves the join wide open in whichever direction lost its
+    # clause. Measured by deleting one: 17 becomes 16.
+    assert owner_clauses >= 17, (
+        f"expected at least 17 owner-scoping clauses across the "
+        f"shared-Circle joins, found {owner_clauses} -- one has been removed"
+    )
+
+
+def test_location_and_connect_read_one_circle_list() -> None:
+    """Both surfaces must show the same Circles, structurally.
+
+    Connect's Circles tab reads `GET /api/one/location/circles`, which is
+    `OneLocationCircleService.list_circles`. The Location agent's People tab
+    reads `state.circles` from `list_state`. Issue #5458 asks for one shared
+    grouping rather than a copy per surface, and the owner's own requirement
+    was that a Circle made in Location onboarding shows up on Connect.
+
+    That holds today because `list_state` calls the same method rather than
+    running its own query -- so this asserts it still does. A second query here
+    would drift silently: the two surfaces would agree until the day one of
+    them grew a filter, and the symptom would be a Circle that exists in one
+    place and not the other.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+
+    source = inspect.getsource(agent_module.OneLocationAgentService._list_state)
+    assert "circle_service.list_circles(user_id=user_id)" in source
+    # And it is handed to the caller unchanged -- no per-surface filtering.
+    assert '"circles": named_circles,' in source
+    # Never its own SQL against the Circle tables.
+    assert "FROM one_location_circles" not in source
+
+
+class MapStateProbe(OneLocationAgentService):
+    """Capture the marker query `list_map_state` runs, and answer it with one row.
+
+    The row belongs to an owner whose `presence_mode` is the default 'ghost' --
+    which is to say, somebody who has shared privately and has never opened the
+    Ghost control at all. That is the reported case, and it is also the DEFAULT
+    case: the preferences row is created lazily and defaults to ghost, so every
+    first-time private share used to land here.
+    """
+
+    def __init__(self) -> None:
+        self.marker_sql = ""
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        self.marker_sql = sql
+        return [
+            {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "owner_user_id": "ankit",
+                "recipient_user_id": "viewer",
+                "recipient_key_id": "key_viewer",
+                "status": "active",
+                "capability_scopes": json.dumps(["cap.location.live.view"]),
+                "owner_display_name": "Ankit",
+                "map_envelope_id": "00000000-0000-0000-0000-000000000002",
+                "map_envelope_grant_id": "00000000-0000-0000-0000-000000000001",
+                "map_envelope_owner_user_id": "ankit",
+                "map_envelope_recipient_user_id": "viewer",
+                "map_envelope_recipient_key_id": "key_viewer",
+                "map_envelope_algorithm": "ECDH-P256-AES256-GCM",
+                "map_envelope_ciphertext": "ciphertext-only",
+                "map_envelope_iv": "iv",
+                "map_envelope_sender_key": {"kty": "EC"},
+                "map_envelope_captured_at": datetime.now(timezone.utc),
+                "map_envelope_source_platform": "web",
+                "map_envelope_publication_context": "foreground_map_visible",
+                "map_envelope_created_at": datetime.now(timezone.utc),
+                "map_envelope_metadata": {},
+            }
+        ]
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        if "FROM one_location_map_preferences" in sql:
+            return {
+                "presence_mode": "ghost",
+                "renderer_consent_version": "v1",
+                "updated_at": datetime.now(timezone.utc),
+            }
+        return None
+
+
+def test_ghost_mode_does_not_hide_a_private_share_from_the_person_it_was_written_for() -> None:
+    """Reported: "Ankit is sharing his location privately with me but I can not
+    see him on my map."
+
+    The marker query used to require the SHARER's `presence_mode` to be
+    'foreground_private'. That column defaults to 'ghost', so an owner who had
+    created a real grant, for one named person, for a duration they chose, and
+    whose envelope was written and readable, still produced no pin -- while the
+    recipient's Location screen said "sharing with you" a few pixels away.
+
+    The grant is the consent. Ghost Mode is a control over the GENERAL audience
+    -- people who were never handed a share -- and must not reach into an
+    explicit one.
+    """
+    service = MapStateProbe()
+
+    state = service.list_map_state(user_id="viewer")
+
+    # The pin arrives even though the owner is in Ghost Mode.
+    assert len(state["markers"]) == 1
+    assert state["markers"][0]["grant"]["ownerUserId"] == "ankit"
+    assert state["markers"][0]["envelope"]["ciphertext"] == "ciphertext-only"
+
+    # And it arrives because the gate is gone from the query, not because this
+    # probe happened to answer generously.
+    #
+    # Read from the EXECUTABLE statement, with `--` lines stripped: the clause
+    # that was removed is quoted verbatim in the comment that replaced it, so a
+    # naive substring check over the whole string would pass forever whether or
+    # not the JOIN came back.
+    executable = " ".join(
+        line for line in service.marker_sql.splitlines() if not line.strip().startswith("--")
+    )
+    assert "one_location_map_preferences" not in executable
+    assert "presence_mode" not in executable
+
+    # Everything that WAS protecting the recipient still is: the grant has to
+    # be theirs, live, unexpired, and carry a map-visible envelope.
+    assert "g.recipient_user_id = :user_id" in executable
+    assert "g.status = 'active'" in executable
+    assert "g.expires_at IS NULL OR g.expires_at > NOW()" in executable
+    assert "candidate.recipient_user_id = :user_id" in executable
+    assert "candidate.publication_context = 'foreground_map_visible'" in executable
+
+    # The preference is still reported to the client -- the Ghost control still
+    # exists and still means something. It just no longer decides this.
+    assert state["preferences"]["presenceMode"] == "ghost"
+
+
+def test_map_preferences_doc_states_ghost_is_general_visibility_only() -> None:
+    """The rule has one home, and it is next to the column it describes.
+
+    Both halves of this used to be enforced by the same SQL clause, so anybody
+    reading either one alone concluded that Ghost governs private sharing. It
+    does not, and the next person to touch `presence_mode` reads this docstring
+    before they read the marker query.
+    """
+    import inspect
+
+    doc = " ".join((inspect.getdoc(OneLocationAgentService.get_map_preferences) or "").split())
+    assert "GENERAL visibility only" in doc
+    assert "not a switch over private sharing" in doc
+    assert "list_map_state" in doc
+
+
+# ---------------------------------------------------------------------------
+# The share lane must survive the trip to the Feed.
+# ---------------------------------------------------------------------------
+#
+# `share_kind` is the only field separating the SMS (Save my Soul) emergency
+# lane from an ordinary share. It was allowlisted into the Feed payload and
+# read by the renderer, and still never arrived: every `location_share_created`
+# emitter and the expiry sweep built their event metadata by hand and left it
+# out, so an emergency was narrated as "started sharing location".
+#
+# The webapp test that covers the rendering half constructs its metadata by
+# hand, which is exactly why the gap survived review -- it can never observe
+# what the emitters actually write. These are source contracts rather than
+# runtime tests for the same reason: they hold the EMITTERS to carrying the
+# field, which is the half nothing else checks.
+
+_SERVICE_SOURCE = Path(one_location_agent_module.__file__).read_text(encoding="utf-8")
+
+
+def _metadata_block_after(marker: str, *, source: str) -> str:
+    """The literal that follows an event-type marker, up to its closing brace."""
+
+    start = source.index(marker)
+    window = source[start : start + 2000]
+    return window
+
+
+def test_every_share_created_emitter_carries_the_share_lane() -> None:
+    # Three write paths produce this event: the non-enforced branch, the
+    # enforced transaction's raw INSERT, and the with-envelope CTE that the
+    # SMS alert itself uses. All three must stamp the lane.
+    markers = [
+        'event_type="location_share_created"',
+        "CAST(:grant_id AS UUID), 'location_share_created',",
+        "'location_share_created',\n                jsonb_build_object(",
+    ]
+    for marker in markers:
+        assert marker in _SERVICE_SOURCE, f"emitter moved: {marker!r}"
+        block = _metadata_block_after(marker, source=_SERVICE_SOURCE)
+        assert "share_kind" in block, (
+            f"{marker!r} builds Feed metadata without share_kind, so the Feed "
+            "cannot tell an SMS alert from an ordinary share"
+        )
+
+
+def test_expiring_a_share_carries_the_share_lane() -> None:
+    # An 8-hour SMS alert nobody stops is ended by the lazy expiry sweep. That
+    # writer never read the grant's metadata, so the lane was absent from the
+    # domain event itself and no projection could put it back.
+    block = _metadata_block_after('event_type="location_share_expired"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+    assert "COALESCE(target_grant.metadata ->> 'share_kind', '')" in _SERVICE_SOURCE, (
+        "the expiry sweep must RETURN the grant's lane for the event to carry it"
+    )
+
+
+def test_revoking_a_share_still_carries_the_share_lane() -> None:
+    # This one was already correct. Pinned so a future edit cannot quietly
+    # bring it back in line with the two that were wrong.
+    block = _metadata_block_after('event_type="location_share_revoked"', source=_SERVICE_SOURCE)
+    assert "share_kind" in block
+
+
+def test_feed_projection_migration_carries_the_share_lane_to_both_audiences() -> None:
+    # Emitting it is only half the trip. Migration 179's two projection
+    # functions build Feed metadata key by key -- deliberately, so nothing is
+    # copied wholesale into a plaintext row -- and neither listed this key, so
+    # both the sender's and the recipient's rows lost it again.
+    migration = (
+        Path(one_location_agent_module.__file__).parents[2]
+        / "db"
+        / "migrations"
+        / "186_feed_share_kind_projection.sql"
+    )
+    sql = migration.read_text(encoding="utf-8")
+
+    assert sql.count("CREATE OR REPLACE FUNCTION") == 2, (
+        "both the owner and recipient projections must be replaced"
+    )
+    # Three share-lifecycle families, two audiences.
+    assert sql.count("'share_kind', share_kind_value") == 6
+    for event in (
+        "location_share_created",
+        "location_share_revoked",
+        "location_share_expired",
+    ):
+        assert event in sql
+
+
+# ---------------------------------------------------------------------------
+# SMS Circle membership must reach both people.
+# ---------------------------------------------------------------------------
+#
+# Being on someone's SMS Circle is the list that receives their Save my Soul
+# alert, so membership decides whether an emergency reaches you at all. It was
+# the one relationship the product changed in total silence: `add_sms_contact`
+# was a lock plus an INSERT and `remove_sms_contact` a bare DELETE -- no event,
+# no Feed row, no push, on either side.
+
+
+def test_adding_an_sms_contact_announces_it() -> None:
+    assert "_record_sms_contact_change" in _SERVICE_SOURCE
+    add_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def add_sms_contact(") : _SERVICE_SOURCE.index(
+            "def remove_sms_contact("
+        )
+    ]
+    assert "_record_sms_contact_change(" in add_block, (
+        "adding an SMS contact must announce itself, or the person taking on "
+        "the duty is never told they have it"
+    )
+    assert "added=True" in add_block
+
+
+def test_removing_an_sms_contact_announces_it_only_when_one_went() -> None:
+    remove_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index("def remove_sms_contact(") : _SERVICE_SOURCE.index(
+            "def _record_sms_contact_change("
+        )
+    ]
+    # Guarded on the DELETE actually removing a row: announcing a no-op would
+    # tell somebody they had lost a duty they never held.
+    assert 'if result["changed"]:' in remove_block
+    assert "added=False" in remove_block
+
+
+def test_the_sms_contact_announcement_reaches_the_contact_too() -> None:
+    block = _SERVICE_SOURCE[_SERVICE_SOURCE.index("def _record_sms_contact_change(") :][:4000]
+    # The domain event carries both labels, because the projection writes a row
+    # for each audience and each one names the OTHER person.
+    assert '"counterpart_label": contact_label' in block
+    assert '"owner_label": owner_label' in block
+    assert "recipient_user_id=contact_user_id" in block
+    # And a push, for the side that is not looking at the app.
+    assert "_send_metadata_notification(" in block
+    assert "user_id=contact_user_id" in block
+    # Never fails the membership change it is announcing.
+    assert "required=False" in block
+    assert "except Exception:" in block
+
+
+def test_sms_contact_events_are_allowed_and_projected_to_both_audiences() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "187_one_location_sms_contact_events.sql").read_text(encoding="utf-8")
+
+    # The audit table constrains its event types, so a new one that is not
+    # added to the CHECK is rejected at write time.
+    assert "one_location_events_event_type_check" in sql
+    for event in ("location_sms_contact_added", "location_sms_contact_removed"):
+        assert event in sql
+
+    # Two rows per transition: the owner's and the contact's.
+    assert sql.count("INSERT INTO feed_events") == 2
+    assert "'feed_audience', 'recipient'" in sql
+    assert "NEW.recipient_user_id <> NEW.owner_user_id" in sql
+    assert "one_location_sms_contact_events_feed_fanout" in sql
+
+    rollback = (
+        migrations / "rollback" / "187_one_location_sms_contact_events.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_sms_contact_events_feed_fanout" in rollback
+    assert "location_sms_contact_added" not in rollback.split("ADD CONSTRAINT")[1]
+
+
+# ---------------------------------------------------------------------------
+# "Did they actually look?"
+# ---------------------------------------------------------------------------
+#
+# `location_share_viewed` has been written on every envelope read since the
+# feature shipped and was never projected into Feed. The reason it could not
+# simply be projected is volume: a viewer watching a live share polls, so one
+# afternoon writes hundreds of these events.
+
+
+def test_the_viewed_projection_tells_only_the_owner() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    assert "location_share_viewed" in sql
+    # Exactly one row, and it belongs to the owner. "You viewed their location"
+    # is not news to the viewer, and would put their own polling in their Feed.
+    assert sql.count("INSERT INTO feed_events") == 1
+    assert "NEW.owner_user_id," in sql
+    assert "NEW.actor_user_id = NEW.owner_user_id" in sql
+    assert "feed_audience" not in sql
+
+
+def test_the_viewed_projection_collapses_polling_to_one_row_a_day() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+
+    # One row per grant, per viewer, per day, leaning on the unique index
+    # migration 179 added over (user_id, source_domain, event_type,
+    # source_row_id). Without this a single afternoon of watching a live share
+    # would bury every other kind of activity.
+    assert "':viewer:'" in sql
+    assert "'YYYY-MM-DD'" in sql
+    assert "ON CONFLICT DO NOTHING" in sql
+
+
+def test_the_viewer_name_is_resolved_in_the_trigger_not_the_read_path() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    sql = (migrations / "188_feed_location_viewed_projection.sql").read_text(encoding="utf-8")
+    # The emitting path is a hot read a recipient hits on a timer; it must not
+    # pay for an identity lookup it does not use.
+    assert "FROM actor_identity_cache" in sql
+    viewed_block = _SERVICE_SOURCE[
+        _SERVICE_SOURCE.index('event_type="location_share_viewed"') - 600 :
+    ][:900]
+    assert "counterpart_label" not in viewed_block
+
+    # And the label is sanitised the same way every other projection does it:
+    # never a raw id, a `ria:` handle, a bare UUID, or a 20+ character token.
+    assert "!~* '^ria:'" in sql
+    assert "LENGTH(BTRIM(display_name)) >= 20" in sql
+
+
+def test_the_viewed_projection_can_be_rolled_back() -> None:
+    migrations = Path(one_location_agent_module.__file__).parents[2] / "db" / "migrations"
+    rollback = (
+        migrations / "rollback" / "188_feed_location_viewed_projection.rollback.sql"
+    ).read_text(encoding="utf-8")
+    assert "DROP TRIGGER IF EXISTS one_location_viewed_events_feed_fanout" in rollback
+    # Rows already written stay: they are the only record an owner has of who
+    # looked.
+    assert "DELETE FROM feed_events" not in rollback
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("Neelesh Meena", "neelesh"),
+        ("Anne-Marie Smith", "anne-marie"),
+        ("O'Connor Jones", "oconnor"),
+        ("Élodie Martin", "élodie"),
+        ("नीलेश मीणा", "नीलेश"),
+    ],
+)
+def test_public_invite_named_url_keeps_bare_token_compatible(name: str, slug: str) -> None:
+    from urllib.parse import unquote
+
+    service = FourUserMemoryService()
+    service.identities["user_a"]["display_name"] = name
+    created = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=PUBLIC_LOCATION_SNAPSHOT
+    )
+    named_token = unquote(created["publicUrl"].rsplit("/", 1)[1])
+    assert named_token == f"{slug}.{created['publicToken']}"
+    assert created["invite"]["publicUrl"] == created["publicUrl"]
+    resolved = service.resolve_public_invite(public_token=named_token)
+
+    def stable_payload(token: str) -> dict:
+        payload = service.resolve_public_invite(public_token=token)
+        assert 0 < payload["expiresInSeconds"] <= 3600
+        return {key: value for key, value in payload.items() if key != "expiresInSeconds"}
+
+    assert stable_payload(named_token) == stable_payload(created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == name
+    # Changing the decorative name cannot change the resolved owner or grant access.
+    assert stable_payload(f"someone.{created['publicToken']}") == {
+        key: value for key, value in resolved.items() if key != "expiresInSeconds"
+    }
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert reused["reused"] is True
+    assert reused["publicUrl"] == created["publicUrl"]
+    assert (
+        service._public_invite_payload(next(iter(service.public_invites.values())))["publicUrl"]
+        == created["publicUrl"]
+    )
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=created["invite"]["id"])
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.resolve_public_invite(public_token=named_token)
+    assert exc.value.status_code == 410
+
+
+def test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push() -> None:
+    """Behavioural twin of the source-scan test above.
+
+    `share_kind` is not a column on `one_location_share_grants`; it lives in
+    `metadata->>'share_kind'` (migration 186 and `_SHARE_LANE_MATCH_SQL`). The
+    revoke transition read `row.get("share_kind")`, which is always empty, so
+    every Save My Soul stop was recorded as `share_kind: "standard"` and pushed
+    as "Location access revoked" -- the ordinary wording the scan test proves
+    is *present* but never proved was *taken*.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == sos["id"]
+    ]
+    assert revoke_events, "revoke must record an event"
+    assert revoke_events[-1]["metadata"]["share_kind"] == "sos"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_stopping_an_ordinary_share_keeps_the_standard_lane_wording() -> None:
+    """Fixing the SOS lane must not relabel ordinary shares."""
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
+    )
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=normal["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == normal["id"]
+    ]
+    assert revoke_events[-1]["metadata"]["share_kind"] == "standard"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "Location access revoked"
+    assert (push.get("data") or {}).get("share_kind") == "standard"
+
+
+def test_stopping_a_legacy_sos_share_without_stored_kind_still_names_the_sms_lane() -> None:
+    """Rows written before `share_kind` was persisted carry only the
+    `reason = 'sos_panic'` marker. The lane predicate in SQL honours that
+    fallback; the revoke transition must too."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    # Simulate a pre-186 row: no stored kind, only the legacy reason marker.
+    metadata = service.grants[sos["id"]]["metadata"]
+    metadata.pop("share_kind", None)
+    metadata["reason"] = "sos_panic"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    push = service.notifications[-1]
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
+    """Clearing an ended SOS card is the recipient's state. The sender's view
+    of the same grant never says whether, or when, it was cleared."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+    cleared_at = datetime(2026, 10, 15, 4, 0, tzinfo=timezone.utc)
+    service.grants[sos["id"]]["recipient_cleared_at"] = cleared_at
+
+    received = {
+        grant["id"]: grant for grant in service.list_state(user_id="user_b")["receivedGrants"]
+    }
+    owned = {grant["id"]: grant for grant in service.list_state(user_id="user_a")["ownerGrants"]}
+
+    assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
+    assert "recipientClearedAt" not in owned[sos["id"]]
+    assert all("recipientClearedAt" not in grant for grant in owned.values())

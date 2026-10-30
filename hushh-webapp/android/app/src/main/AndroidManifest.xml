@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Plaid's Link SDK declares a higher minSdk than the app. The app keeps
+         installing on API 24; HushhPlaidLinkPlugin reports unavailable below
+         API 26 (Plaid's documented minimum) and never touches the SDK there,
+         so the page falls back to web Link on those devices. -->
+    <uses-sdk tools:overrideLibrary="com.plaid.link" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -8,9 +20,16 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
+        <service android:name="io.capawesome.capacitorjs.plugins.firebase.messaging.MessagingService" tools:node="remove" />
+        <service android:name=".plugins.HushhNotifications.ChatMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
+        <service android:name=".plugins.HushhNotifications.EmergencySmsAlarmService"
+            android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="hushh_activity_alerts_v1" />
         <!-- Restricted Android Maps SDK key is generated from the build
              environment. Never point this at the web or backend Maps key. -->
         <meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key" />
@@ -30,7 +49,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Required for Firebase Auth OAuth redirect flows (e.g., Apple Sign-In via OAuthProvider) -->
+            <!-- Firebase Auth can also return through its app-owned scheme. -->
+            <!-- Intent only. The phone resolves its own signed-in owner and pod. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="one" android:pathPrefix="/connect/google/" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -38,8 +64,68 @@
                 <!-- Firebase Auth uses this custom scheme to return to the app -->
                 <data android:scheme="com.googleusercontent.apps.1006304528804-3dnrnqrga1nrv9p823bos2itrg5bra1c" />
             </intent-filter>
+
+            <!-- Drive OAuth uses the fixed backend HTTPS callback, which hands
+                 only an opaque result to this narrow app-owned scheme. This
+                 intent filter remains for Custom Tabs fallback; Auth Tab can
+                 deliver the same result directly to the registered callback. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="connectors" android:path="/return" />
+            </intent-filter>
+
+            <!-- Google selected-file Picker has a distinct opaque handoff.
+                 Do not broaden the connection route: a Picker return stages
+                 candidates only and cannot complete credential activation. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="connectors" android:path="/picker-return" />
+            </intent-filter>
+
+            <!--
+                Android App Links for OAuth returns and shared invitations. Without an autoVerify
+                https filter the system hands the redirect to the browser, and a
+                person who just connected a bank account is stranded outside the
+                app. The paths mirror UNIVERSAL_LINK_PATHS in
+                app/.well-known/apple-app-site-association/route.ts, and
+                verification needs the matching assetlinks.json served by
+                app/.well-known/assetlinks.json/route.ts with this build's
+                signing fingerprint.
+
+                dev.one.hushh.ai is claimed only by src/debug/AndroidManifest.xml.
+                On Android 11 and below verification is all-or-nothing across
+                every autoVerify host, so one host that does not vouch for this
+                release signature would unverify one.hushh.ai as well.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="one.hushh.ai" />
+                <data android:scheme="https" android:host="uat.one.hushh.ai" />
+                <data android:pathPrefix="/one/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/one/profile/google/oauth/return" />
+                <data android:pathPrefix="/one/profile/gmail/oauth/return" />
+                <data android:pathPrefix="/one/profile/connectors/oauth/return" />
+                <!-- Android path admission is exact; JS validates the opaque return query. -->
+                <data android:path="/one/profile/account" />
+                <data android:path="/one/profile/payouts" />
+                <data android:pathPrefix="/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/profile/google/oauth/return" />
+                <data android:pathPrefix="/profile/gmail/oauth/return" />
+                <data android:path="/circle/join" />
+                <data android:path="/" />
+                <data android:path="/circle/join/" />
+                <data android:pathPrefix="/one/location/invite/" />
+            </intent-filter>
         </activity>
 
+        <service android:name=".plugins.HushhLocation.BackgroundLocationService"
+            android:exported="false" android:foregroundServiceType="location" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -52,9 +138,16 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 </manifest>

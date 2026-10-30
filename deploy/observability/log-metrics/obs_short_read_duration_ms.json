@@ -1,0 +1,18 @@
+{
+  "name": "obs_short_read_duration_ms",
+  "description": "Request duration for bounded short-read backend routes, excluding streams",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"\\\"message\\\":\\\"request[.]summary\\\"\" AND textPayload=~\"\\\"method\\\":\\\"GET\\\"\" AND textPayload=~\"\\\"stream\\\":false\" AND (textPayload=~\"\\\"route_template\\\":\\\"/api/one/location/state\\\"\" OR textPayload=~\"\\\"route_template\\\":\\\"/api/consent/center/summary\\\"\") AND textPayload=~\"\\\"status_bucket\\\":\\\"2xx\\\"\"",
+  "valueExtractor": "REGEXP_EXTRACT(textPayload, \"duration_ms\\\":([0-9]+[.]?[0-9]*)\")",
+  "bucketOptions": {
+    "exponentialBuckets": {
+      "numFiniteBuckets": 30,
+      "growthFactor": 1.5,
+      "scale": 1
+    }
+  },
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms"
+  }
+}

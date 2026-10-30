@@ -23,7 +23,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -44,13 +45,14 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
       },
       {
-        "title": "Backend P95 Latency (s)",
+        "title": "Short-read P95 Duration (ms)",
         "xyChart": {
           "dataSets": [
             {
@@ -58,14 +60,120 @@
               "legendTemplate": "p95",
               "timeSeriesQuery": {
                 "timeSeriesFilter": {
-                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_short_read_duration_ms\"",
                   "aggregation": {
                     "alignmentPeriod": "300s",
                     "perSeriesAligner": "ALIGN_PERCENTILE_95"
                   }
                 },
-                "unitOverride": "s"
-              }
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice First Audio P50 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"first_audio\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_50"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice First Audio P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"first_audio\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Tool P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_latency_ms\" AND metric.label.\"phase\"=\"tool\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Client Endpointing P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_client_perf_ms\" AND metric.label.\"metric\"=\"endpointing_client\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "One Voice Client Audio Audible P95 (ms, per revision)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_one_voice_client_perf_ms\" AND metric.label.\"metric\"=\"audio_receive_to_audible\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -86,7 +194,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -108,7 +217,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -129,7 +239,608 @@
                     "crossSeriesReducer": "REDUCE_SUM"
                   }
                 }
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Cloud SQL Connections (all databases)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloudsql_database\" AND resource.label.\"database_id\"=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Pool Wait P95 (ms)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_wait_ms\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Pool Acquire Timeouts",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_acquire_timeout_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_DELTA",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend CPU P95 (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/cpu/utilizations\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "%"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Instances (active and idle)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/instance_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Memory P95 (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/memory/utilizations\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "%"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Backing and Liabilities (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "attributed backing micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/attributed_backing_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
               }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "liabilities micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/liabilities_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "fee reserve micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/fee_reserve_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "backing shortfall micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/backing_shortfall_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Recovery and Unallocated Costs (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "recovery liabilities micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/recovery_liabilities_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unallocated processing cost micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unallocated_processing_cost_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Unresolved Work",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unresolved obligations",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unresolved_obligations\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "uncertain operations",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/uncertain_operations\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "pending provider events",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/pending_provider_events\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "pending transfer recoveries",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/pending_transfer_recoveries\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Oldest Due Retry (seconds)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "oldest due work seconds",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/oldest_due_work_seconds\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Receipt and Journal Failures",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "receipt failures",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/receipt_failures\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unbalanced journals",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unbalanced_journals\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Provider Observation (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider available micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_available_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Verification and Worker Freshness (Unix seconds)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider observed timestamp",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_observed_timestamp\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "worker completed timestamp",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/worker_completed_timestamp\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Provider Observation Verified (1=yes)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider observation verified",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_observation_verified\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Cloud SQL CPU (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                },
+                "unitOverride": "10^2.%"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Chat First Visible P95 (ms)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_visible_ms\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Stream Failure Rate (turns/s)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_stream_failure_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Chat First Visible Sample Rate (samples/s)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_visible_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Chat: first answer p95 (ms; inspect sample coverage)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_answer_ms\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Chat: measured answers / 5m",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_answer_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_SUM",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                }
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Chat: terminal outcomes / 5m",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_terminal_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_SUM",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                }
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Chat: terminal outcomes without text / 5m (includes approvals)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_no_answer_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_SUM",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                }
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Azure: model transport failures / 5m",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_azure_model_error_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_SUM",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }

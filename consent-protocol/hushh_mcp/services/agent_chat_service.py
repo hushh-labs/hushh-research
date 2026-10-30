@@ -29,10 +29,17 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
     build_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.chat_key import (
+    CHAT_CIPHERTEXT_LIKE,
+    CHAT_KEY_ERRORS,
+    ChatCipher,
+    chat_aad,
+)
+from hushh_mcp.services.model_preference_service import resolve_text_model_name
 from hushh_mcp.types import EncryptedPayload
-from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
     ModelConfig,
     PKMCredentialResolver,
@@ -47,10 +54,12 @@ KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai"
 ONE_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
 AGENT_SYSTEM_PROMPT = """You are One, the top private agent inside Hussh.
 
-You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance to Kai, privacy to Nav, identity/KYC to KYC). Until a specialist surface is engaged, answer directly within the capability boundary below.
+You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance, privacy, identity/KYC) to the matching specialist. Until a specialist surface is engaged, answer directly within the capability boundary below.
+
+You are One -- Agent One -- on every surface, finance included. The internal finance runtime carries an internal codename that is not a name a person reads: never write it or say it, in chat or in anything you draft for the user. Speak as One for that work.
 
 Current capability boundary:
-- Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
+- Focus on markets, portfolio context, stock analysis, finance workflows, consent/privacy surfaces, and how the Hussh app works.
 - Use the provided PKM context when it is relevant, especially when the user asks what One knows about them or shares preferences.
 - The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
 - If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim One cannot access PKM.
@@ -68,7 +77,7 @@ Decide whether the latest user message needs a frontend app function.
 
 Call exactly one function only when the user clearly asks One to do one of these:
 - start stock analysis for a ticker or public company
-- open a Hussh/Kai app surface
+- open a Hussh app surface
 - save, remember, or add durable personal context to the user's PKM
 - read a CRM record or propose a CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
@@ -641,6 +650,25 @@ def _is_google_provider_runtime_error(error: Exception) -> bool:
     }
 
 
+# A model naming a tool that does not exist is ordinary LLM behaviour, not an
+# exceptional condition -- it happens whenever the model's tool memory drifts
+# from the roster the tree actually offers. ADK raises a plain ``ValueError`` for
+# it, whose module is ``builtins``, so the provider-error check above cannot see
+# it and the turn re-raised bare: an untyped 500, while every other failure on
+# this path carries an ``AGENT_RUNTIME_*`` code the client can act on.
+#
+# Found by the agent validation harness: a generated journey that scripts a
+# hallucinated tool name killed the whole turn rather than degrading.
+_TOOL_RESOLUTION_MARKERS = ("tool ", " not found")
+
+
+def _is_tool_resolution_error(error: Exception) -> bool:
+    if not isinstance(error, ValueError):
+        return False
+    text = str(error).lower()
+    return all(marker in text for marker in _TOOL_RESOLUTION_MARKERS)
+
+
 # Transient Gemini status codes worth a short, jittered retry: rate limit (429),
 # and the overloaded/unavailable family (500/503). Auth/quota-config errors
 # (401/403/404) are deliberately excluded - retrying those is pointless.
@@ -890,7 +918,7 @@ def _agent_action_tool() -> genai_types.Tool:
             genai_types.FunctionDeclaration(
                 name="start_stock_analysis",
                 description=(
-                    "Start Kai's frontend stock analysis workflow for a requested ticker "
+                    "Start One's frontend stock analysis workflow for a requested ticker "
                     "or public company."
                 ),
                 parameters=_schema_object(
@@ -906,7 +934,7 @@ def _agent_action_tool() -> genai_types.Tool:
             ),
             genai_types.FunctionDeclaration(
                 name="open_app_surface",
-                description="Open a safe Hussh or Kai frontend surface.",
+                description="Open a safe Hussh app surface.",
                 parameters=_schema_object(
                     {
                         "surface": _schema_string(
@@ -1010,33 +1038,53 @@ def _agent_action_tool() -> genai_types.Tool:
 
 
 class AgentChatService:
-    """Owns Agent chat LLM streaming and backend-decryptable encrypted history."""
+    """Owns Agent chat LLM streaming and person-key encrypted history.
+
+    Titles and messages are sealed with the owner's chat key (``ChatCipher``); a
+    request without that key cannot read or write them. Rows sealed with the
+    platform key before that cutover are filtered out in SQL and never opened.
+    """
 
     def __init__(
         self,
         *,
         db: Any | None = None,
         model: str | None = None,
-        vault_key_hex: str | None = None,
+        cipher: ChatCipher | None = None,
     ):
         self._db = db
         self._client = None
         self._settings = None
         self.runtime_manifest = load_one_agent_runtime_manifest()
-        self.model = (model or self.runtime_manifest.model.name).strip()
+        # The lane default. It is the floor for a turn whose owner is unknown, never the
+        # answer for one whose owner is: this service is a process-wide singleton, so a
+        # model pinned here would outlive every person's choice until the next restart.
+        self.model = (model or resolve_fleet_model_name(self.runtime_manifest.model.name)).strip()
         if not self.model:
             raise ValueError("Agent Chat manifest must declare a runtime model")
-        self._vault_key_hex = vault_key_hex
+        self._model_pinned = bool(model)
+        self._cipher = cipher or ChatCipher()
+
+    async def model_for_user(self, user_id: str | None) -> str:
+        """The model this person's turn runs on, resolved per turn.
+
+        An explicitly constructed service (tests, a pinned caller) keeps its model; every
+        other turn asks the preference chain, so a person's choice takes effect on their
+        next message rather than on the next deploy.
+        """
+        if self._model_pinned:
+            return self.model
+        try:
+            return await resolve_text_model_name(user_id)
+        except Exception:
+            logger.warning("agent_chat_model_resolution_failed user=%s", user_id, exc_info=True)
+            return self.model
 
     @property
     def settings(self):
         if self._settings is None:
             self._settings = get_core_security_settings()
         return self._settings
-
-    @property
-    def vault_key_hex(self) -> str:
-        return self._vault_key_hex or self.settings.vault_data_key
 
     @property
     def db(self):
@@ -1211,23 +1259,29 @@ class AgentChatService:
     async def _execute_raw(self, sql: str, params: dict[str, Any] | None = None):
         return await asyncio.to_thread(self.db.execute_raw, sql, params or {})
 
-    def _encrypt_text(self, text: str) -> EncryptedPayload:
-        return encrypt_data(str(text or ""), self.vault_key_hex)
-
-    def _decrypt_text(self, row: dict[str, Any], prefix: str) -> str:
-        ciphertext = str(row.get(f"{prefix}_ciphertext") or "")
-        iv = str(row.get(f"{prefix}_iv") or "")
-        tag = str(row.get(f"{prefix}_tag") or "")
-        if not ciphertext or not iv or not tag:
-            return ""
-        payload = EncryptedPayload(
-            ciphertext=ciphertext,
-            iv=iv,
-            tag=tag,
-            encoding="base64",
-            algorithm="aes-256-gcm",
+    def _seal_title(self, title: str, *, user_id: str, conversation_id: str) -> EncryptedPayload:
+        return self._cipher.seal(
+            str(title or ""),
+            owner_id=user_id,
+            aad=chat_aad("agent_chat_conversations", "title", conversation_id),
         )
-        return decrypt_data(payload, self.vault_key_hex)
+
+    def _seal_message(
+        self, text: str, *, user_id: str, message_id: str, column: str = "content"
+    ) -> EncryptedPayload:
+        return self._cipher.seal(
+            str(text or ""),
+            owner_id=user_id,
+            aad=chat_aad("agent_chat_messages", column, message_id),
+        )
+
+    def _open(self, row: dict[str, Any], prefix: str, *, table: str) -> str:
+        return self._cipher.open(
+            row,
+            prefix,
+            owner_id=str(row.get("user_id") or ""),
+            aad=chat_aad(table, prefix, str(row.get("id") or "")),
+        )
 
     async def get_conversation(
         self,
@@ -1242,15 +1296,17 @@ class AgentChatService:
             SELECT *
             FROM agent_chat_conversations
             WHERE id = :conversation_id AND user_id = :user_id
+              AND title_ciphertext LIKE :chat_marker
             LIMIT 1
             """
         else:
             sql = """
             SELECT *
             FROM agent_chat_conversations
-            WHERE id = :conversation_id
+            WHERE id = :conversation_id AND title_ciphertext LIKE :chat_marker
             LIMIT 1
             """
+        params["chat_marker"] = CHAT_CIPHERTEXT_LIKE
         result = await self._execute_raw(
             sql,
             params,
@@ -1262,7 +1318,9 @@ class AgentChatService:
 
     async def create_conversation(self, user_id: str, first_message: str) -> AgentChatConversation:
         conversation_id = str(uuid4())
-        encrypted_title = self._encrypt_text(_trim_title(first_message))
+        encrypted_title = self._seal_title(
+            _trim_title(first_message), user_id=user_id, conversation_id=conversation_id
+        )
         result = await self._execute_raw(
             """
             INSERT INTO agent_chat_conversations (
@@ -1292,7 +1350,7 @@ class AgentChatService:
                 "title_iv": encrypted_title.iv,
                 "title_tag": encrypted_title.tag,
                 "title_algorithm": encrypted_title.algorithm,
-                "model": self.model,
+                "model": await self.model_for_user(user_id),
             },
         )
         return self._conversation_from_row((result.data or [])[0])
@@ -1304,7 +1362,9 @@ class AgentChatService:
         user_id: str,
         title: str,
     ) -> AgentChatConversation | None:
-        encrypted_title = self._encrypt_text(_trim_title(title))
+        encrypted_title = self._seal_title(
+            _trim_title(title), user_id=user_id, conversation_id=conversation_id
+        )
         result = await self._execute_raw(
             """
             UPDATE agent_chat_conversations
@@ -1315,11 +1375,13 @@ class AgentChatService:
               title_algorithm = :title_algorithm,
               updated_at = now()
             WHERE id = :conversation_id AND user_id = :user_id
+              AND title_ciphertext LIKE :chat_marker
             RETURNING *
             """,
             {
                 "conversation_id": conversation_id,
                 "user_id": user_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
                 "title_ciphertext": encrypted_title.ciphertext,
                 "title_iv": encrypted_title.iv,
                 "title_tag": encrypted_title.tag,
@@ -1371,8 +1433,10 @@ class AgentChatService:
         # deliberately excludes the newly inserted current message.
         created_conversation_id = str(uuid4())
         user_message_id = str(uuid4())
-        encrypted_title = self._encrypt_text(_trim_title(message))
-        encrypted_message = self._encrypt_text(message)
+        encrypted_title = self._seal_title(
+            _trim_title(message), user_id=user_id, conversation_id=created_conversation_id
+        )
+        encrypted_message = self._seal_message(message, user_id=user_id, message_id=user_message_id)
         result = await self._execute_raw(
             """
             WITH requested AS MATERIALIZED (
@@ -1381,6 +1445,7 @@ class AgentChatService:
               WHERE :requested_conversation_id IS NOT NULL
                 AND id = CAST(:requested_conversation_id AS UUID)
                 AND user_id = :user_id
+                AND title_ciphertext LIKE :chat_marker
               LIMIT 1
               FOR UPDATE
             ),
@@ -1407,6 +1472,7 @@ class AgentChatService:
               FROM agent_chat_messages AS messages
               JOIN selected ON selected.id = messages.conversation_id
               WHERE messages.user_id = :user_id
+                AND messages.content_ciphertext LIKE :chat_marker
               ORDER BY messages.created_at DESC
               LIMIT 20
             ),
@@ -1451,6 +1517,7 @@ class AgentChatService:
             """,
             {
                 "requested_conversation_id": conversation_id,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
                 "created_conversation_id": created_conversation_id,
                 "user_message_id": user_message_id,
                 "user_id": user_id,
@@ -1489,7 +1556,7 @@ class AgentChatService:
             conversation_id=conversation.id,
             user_message_id=user_message.id,
             history=history,
-            model=self.model,
+            model=await self.model_for_user(user_id),
         )
 
     async def add_message(
@@ -1505,9 +1572,13 @@ class AgentChatService:
         metadata: dict | None = None,
     ) -> AgentChatMessage:
         message_id = str(uuid4())
-        encrypted = self._encrypt_text(content)
+        encrypted = self._seal_message(content, user_id=user_id, message_id=message_id)
         encrypted_metadata = (
-            self._encrypt_text(json.dumps(metadata)) if metadata is not None else None
+            self._seal_message(
+                json.dumps(metadata), user_id=user_id, message_id=message_id, column="metadata"
+            )
+            if metadata is not None
+            else None
         )
         result = await self._execute_raw(
             """
@@ -1529,9 +1600,9 @@ class AgentChatService:
               metadata_algorithm,
               completed_at
             )
-            VALUES (
+            SELECT
               :id,
-              :conversation_id,
+              conversations.id,
               :user_id,
               :role,
               :status,
@@ -1546,7 +1617,10 @@ class AgentChatService:
               :metadata_tag,
               :metadata_algorithm,
               now()
-            )
+            FROM agent_chat_conversations AS conversations
+            WHERE conversations.id = CAST(:conversation_id AS UUID)
+              AND conversations.user_id = :user_id
+              AND conversations.title_ciphertext LIKE :chat_marker
             RETURNING *
             """,
             {
@@ -1567,8 +1641,12 @@ class AgentChatService:
                 "metadata_iv": encrypted_metadata.iv if encrypted_metadata else None,
                 "metadata_tag": encrypted_metadata.tag if encrypted_metadata else None,
                 "metadata_algorithm": encrypted_metadata.algorithm if encrypted_metadata else None,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
             },
         )
+        if not result.data:
+            # The conversation is not this owner's current (person-key) thread.
+            raise LookupError("Agent chat conversation is unavailable.")
         await self._execute_raw(
             """
             UPDATE agent_chat_conversations
@@ -1585,6 +1663,16 @@ class AgentChatService:
                 "model": model,
             },
         )
+        if role == "assistant" and status == "complete" and not error_code:
+            try:
+                from hushh_mcp.services.one_referral_activity_service import (
+                    reconcile_product_activity,
+                )
+
+                await asyncio.to_thread(reconcile_product_activity, user_id, message_id)
+            except Exception:
+                # The transactional reply event remains available to the maintenance sweep.
+                logger.exception("referral.completed_reply_reconciliation_failed")
         return self._message_from_row((result.data or [])[0])
 
     async def get_recent_messages(
@@ -1602,6 +1690,7 @@ class AgentChatService:
               SELECT *
               FROM agent_chat_messages
               WHERE conversation_id = :conversation_id AND user_id = :user_id
+                AND content_ciphertext LIKE :chat_marker
               ORDER BY created_at DESC
               LIMIT :limit
             ) recent
@@ -1611,6 +1700,7 @@ class AgentChatService:
                 "conversation_id": conversation_id,
                 "user_id": user_id,
                 "limit": safe_limit,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
             },
         )
         return [self._message_from_row(row) for row in result.data or []]
@@ -1626,13 +1716,14 @@ class AgentChatService:
             """
             SELECT *
             FROM agent_chat_conversations
-            WHERE user_id = :user_id
+            WHERE user_id = :user_id AND title_ciphertext LIKE :chat_marker
             ORDER BY updated_at DESC
             LIMIT :limit
             """,
             {
                 "user_id": user_id,
                 "limit": safe_limit,
+                "chat_marker": CHAT_CIPHERTEXT_LIKE,
             },
         )
         return [self._conversation_from_row(row) for row in result.data or []]
@@ -1704,6 +1795,7 @@ class AgentChatService:
         timezone: str | None,
         screen_context: dict[str, Any] | None,
         pkm_context: str | None,
+        grounding_reason: str | None = None,
         runtime: PreparedAgentRuntime,
         runtime_credential: str | None,
         runtime_credential_transport: GeminiByokTransport,
@@ -1721,6 +1813,7 @@ class AgentChatService:
                 timezone=timezone,
                 screen_context=screen_context,
                 pkm_context=pkm_context,
+                grounding_reason=grounding_reason,
                 runtime_provider=runtime.provider,
                 runtime_model=runtime.model,
                 runtime_mode=runtime.mode,
@@ -1742,6 +1835,15 @@ class AgentChatService:
         except genai_errors.APIError as error:
             raise _runtime_provider_error_from_exception(error) from error
         except Exception as error:
+            if _is_tool_resolution_error(error):
+                raise AgentRuntimeProviderError(
+                    error_code="AGENT_RUNTIME_TOOL_UNAVAILABLE",
+                    message=(
+                        "One tried to use a capability that is not available here. "
+                        "Please try again."
+                    ),
+                    detail={"phase": "text_stream"},
+                ) from error
             if _is_google_provider_runtime_error(error):
                 raise _runtime_provider_error_from_exception(error) from error
             raise
@@ -1850,7 +1952,7 @@ class AgentChatService:
                     label="Add to PKM",
                     execution="frontend",
                     slots={},
-                    message="Checking PKM and saving what fits.",
+                    message="",
                 )
 
         for pattern in _ANALYSIS_PATTERNS:
@@ -1866,7 +1968,7 @@ class AgentChatService:
                 label=f"Start analysis for {ticker}",
                 execution="frontend",
                 slots={"symbol": ticker},
-                message=f"Starting Kai analysis for {ticker}.",
+                message=f"Starting analysis for {ticker}.",
             )
 
         for pattern, action_id, label in _NAVIGATION_ACTION_PATTERNS:
@@ -2037,7 +2139,7 @@ class AgentChatService:
                 f"- action_id: {action_plan.action_id}\n"
                 f"- label: {action_plan.label}\n"
                 f"- slots: {action_plan.slots}\n"
-                "Instruction: briefly acknowledge that this action is being started or opened in Kai. "
+                "Instruction: briefly acknowledge that this action is being started or opened. "
                 "Do not ask for confirmation."
             )
         elif action_plan and action_plan.execution == "blocked":
@@ -2087,7 +2189,7 @@ class AgentChatService:
                 label=f"Start analysis for {ticker}",
                 execution="frontend",
                 slots={"symbol": ticker},
-                message=f"Starting Kai analysis for {ticker}.",
+                message=f"Starting analysis for {ticker}.",
             )
 
         if name == "open_app_surface":
@@ -2188,8 +2290,10 @@ class AgentChatService:
                 action_id="pkm.add",
                 label="Add to PKM",
                 execution="frontend",
-                slots={},
-                message="Checking PKM and saving what fits.",
+                # The model scopes what gets structured; the browser falls
+                # back to the whole turn only when this is absent.
+                slots={"source_text": memory_text[:50_000]},
+                message="",
                 reason=reason[:160] if reason else None,
             )
 
@@ -2210,11 +2314,9 @@ class AgentChatService:
         return "".join(parts)
 
     def _conversation_from_row(self, row: dict[str, Any]) -> AgentChatConversation:
-        try:
-            title = self._decrypt_text(row, "title")
-        except Exception:
-            logger.warning("agent_chat.title_decrypt_failed conversation_id=%s", row.get("id"))
-            title = "Agent conversation"
+        # A missing or wrong chat key refuses the read. It is never replaced with
+        # a placeholder title that would look like real history.
+        title = self._open(row, "title", table="agent_chat_conversations")
         return AgentChatConversation(
             id=str(row.get("id") or ""),
             user_id=str(row.get("user_id") or ""),
@@ -2228,17 +2330,15 @@ class AgentChatService:
         )
 
     def _message_from_row(self, row: dict[str, Any]) -> AgentChatMessage:
-        try:
-            content = self._decrypt_text(row, "content")
-        except Exception:
-            logger.warning("agent_chat.message_decrypt_failed message_id=%s", row.get("id"))
-            content = ""
+        content = self._open(row, "content", table="agent_chat_messages")
         metadata: dict | None = None
         if row.get("metadata_ciphertext"):
             try:
-                raw = self._decrypt_text(row, "metadata")
+                raw = self._open(row, "metadata", table="agent_chat_messages")
                 parsed = json.loads(raw) if raw else None
                 metadata = parsed if isinstance(parsed, dict) else None
+            except CHAT_KEY_ERRORS:
+                raise
             except Exception:
                 logger.warning("agent_chat.metadata_decrypt_failed message_id=%s", row.get("id"))
                 metadata = None

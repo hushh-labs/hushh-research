@@ -1,0 +1,73 @@
+.frame {
+  container: referral-journey / inline-size;
+  font-family: var(--font-app-body);
+  min-width: 0;
+}
+
+.journey {
+  --journey-blue: var(--app-accent);
+  --journey-teal: color-mix(in srgb, var(--app-success) 55%, var(--app-accent));
+  --journey-reward: var(--app-indigo);
+  --journey-gutter: 0px;
+  overflow: hidden;
+  color: var(--foreground);
+}
+
+.map { --journey-gutter: 20px; position: relative; isolation: isolate; padding: 0 var(--journey-gutter); margin-bottom: 20px; border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: var(--app-card-radius-feature); background: var(--app-card-surface-default); }
+.road { position: absolute; top: 8px; left: var(--journey-gutter); width: calc(100% - 2 * var(--journey-gutter)); height: 90px; pointer-events: none; }
+.roadSurface { stroke: color-mix(in srgb, var(--app-accent) 18%, var(--border)); stroke-width: 2px; stroke-linecap: round; }
+.steps { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 0; padding: 20px 0; list-style: none; }
+.steps li { --marker-color: var(--journey-blue); min-width: 0; text-align: center; }
+.steps .setup { --marker-color: var(--app-success); }
+.steps .qualify { --marker-color: color-mix(in srgb, var(--accent-preview-gold) 65%, var(--app-warning-deep)); }
+:global(.dark) .steps .qualify { --marker-color: var(--accent-preview-gold); }
+.setup .markerNumber { color: var(--foreground); background: color-mix(in srgb, var(--app-success) 20%, var(--app-card-surface-default)); }
+.qualify .markerNumber { color: var(--foreground); background: color-mix(in srgb, var(--accent-preview-gold) 25%, var(--app-card-surface-default)); }
+.marker { position: relative; display: grid; width: 40px; height: 40px; margin: 0 auto 10px; place-items: center; border: 1px solid color-mix(in srgb, var(--marker-color) 12%, var(--border)); border-radius: 13px; background: var(--app-card-surface-default); color: var(--marker-color); }
+.marker > svg { width: 23px; height: 23px; }
+.markerNumber { position: absolute; right: -5px; bottom: -5px; display: grid; width: 19px; height: 19px; place-items: center; border: 2px solid var(--app-card-surface-data); border-radius: 50%; background: var(--marker-color); color: var(--app-accent-fg); font-size: 10px; font-weight: 600; }
+.stepCopy h3 { --foundation-headline-size: var(--referral-label-size, var(--foundation-footnote-size)); --foundation-headline-weight: var(--type-row-label-compact-weight); --foundation-headline-line: 1.3; --foundation-headline-tracking: normal; margin: 0; overflow-wrap: anywhere; }
+.reward { color: var(--app-accent-deep); }
+.earning { margin: 0 var(--journey-gutter); padding: 0 0 8px; }
+.earningHeader { margin-bottom: 6px; }
+.earningHeader h3 { --foundation-headline-size: var(--referral-caption-size, 0.625rem); --foundation-headline-line: 1.4; --foundation-headline-tracking: 0.02em; --foundation-headline-weight: var(--type-section-label-compact-weight); margin: 0; color: var(--muted-foreground); }
+.rewardList { min-width: 0; }
+.rewardRow { --earning-color: var(--app-accent-deep); position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(3.5rem,max-content); align-items: center; gap: 14px; min-width: 0; padding: 10px 0; }
+.rewardRow + .rewardRow::before { position: absolute; top: 0; right: 0; left: 50px; height: 1px; background: color-mix(in srgb, var(--border) 60%, transparent); content: ""; }
+.rewardRow[data-earning="streak"] { --earning-color: var(--app-warning-deep); }
+.rewardRow[data-earning="flash"] { --earning-color: var(--app-purple); }
+.rewardRow[data-earning="pkm"] { --earning-color: var(--app-indigo); }
+.rewardRow[data-earning="connections"] { --earning-color: var(--journey-teal); }
+.earningIcon { display: grid; width: 36px; height: 36px; place-items: center; color: var(--earning-color); }
+.earningIcon svg { width: 21px; height: 21px; }
+.earningCopy { min-width: 0; overflow-wrap: anywhere; }
+.earningCopy h4 { --foundation-headline-size: var(--referral-label-size, var(--foundation-footnote-size)); --foundation-headline-line: 1.3; --foundation-headline-weight: var(--type-row-label-compact-weight); margin: 0 0 3px; }
+.earningCopy p { margin: 0; color: var(--muted-foreground); font-size: var(--referral-support-size, var(--foundation-caption-size)); line-height: 1.4; }
+.pointAward { text-align: right; }
+.pointAmount { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin: 0; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.pointAmount strong { font-size: var(--referral-support-size, var(--foundation-caption-size)); font-weight: 400; line-height: 1.3; }
+.pointAmount > span { color: var(--muted-foreground); font-size: var(--referral-support-size, var(--foundation-caption-size)); line-height: 1.3; }
+:global(.dark) .rewardRow[data-earning="streak"] { --earning-color: var(--app-warning-bright); }
+
+@container referral-journey (max-width: 680px) {
+  .journey { --journey-gutter: 0px; }
+  .road { display: none; }
+  .steps { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 16px 0; }
+  .steps::before { position: absolute; top: 34px; bottom: 34px; left: 17px; width: 1px; background: var(--border); content: ""; }
+  .steps li { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 12px; text-align: left; }
+  .marker { width: 36px; height: 36px; margin: 0; border-radius: 12px; }
+  .rewardRow { grid-template-columns: 32px minmax(0, 1fr) minmax(3.5rem,max-content); gap: 10px; padding: 10px 0; }
+  .rewardRow + .rewardRow::before { left: 42px; right: 0; }
+  .earningIcon { width: 32px; height: 32px; }
+  .earningIcon svg { width: 19px; height: 19px; }
+}
+@container referral-journey (max-width: 350px) {
+  .journey { --journey-gutter: 0px; }
+  .rewardRow { gap: 8px; padding: 10px 0; }
+}
+@container referral-journey (max-width: 17rem) {
+  .rewardRow { grid-template-columns: 32px minmax(0,1fr); align-items: start; }
+  .earningIcon { grid-column: 1; grid-row: 1 / 3; margin-top: 4px; }
+  .pointAward { grid-column: 2; text-align: left; }
+  .pointAmount { flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 4px; }
+}

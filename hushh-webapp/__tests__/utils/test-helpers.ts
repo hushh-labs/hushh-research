@@ -8,6 +8,24 @@
 
 import { NextRequest } from "next/server";
 
+/** Simulate incremental, stalled or delayed SSE bodies with real abort handling. */
+export function createSseResponse(parts: string[], signal?: AbortSignal | null, delayMs = 0) {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      let timer: ReturnType<typeof setTimeout>;
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        controller.error(signal.reason);
+      }, { once: true });
+      const finish = () => {
+        for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+        controller.close();
+      };
+      if (parts.length) delayMs ? timer = setTimeout(finish, delayMs) : finish();
+    },
+  }), { headers: { "Content-Type": "text/event-stream" } });
+}
+
 /**
  * Create a mock NextRequest for testing
  */

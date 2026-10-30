@@ -1,18 +1,167 @@
+"""Offline Gemini adapter contracts for the supported release pair.
+
+Historical 3.7 probes established its generation and thinking behavior. On
+2026-10-15, 3.8 returned the expected short response under the UAT runtime
+identity, passed a bounded structured quality task, and accepted LOW thinking
+with the expected synthetic tool arguments. Only global is admitted for 3.8.
+MINIMAL-to-LOW is the shared adapter policy; these tests do not claim that raw
+MINIMAL, MEDIUM or HIGH were newly measured on 3.8.
+"""
+
 from __future__ import annotations
 
-import pytest
+from types import SimpleNamespace
 
+import pytest
+from google.genai import types as genai_types
+
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.runtime_providers import (
     ManagedGeminiRuntimeBinding,
+    gemini_config,
     generation_config_kwargs,
     resolve_model_entry,
 )
 
+SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
+# Measured 2026-09-25 (see registry._MEASURED_VERTEX_LOCATIONS); anything
+# unmeasured stays global-only.
+MEASURED = {
+    "gemini-3.7-flash": ("global", "us", "eu"),
+    "gemini-3.8-flash": ("global",),
+}
+ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
 
-def test_gemini_36_strips_legacy_sampling_controls():
-    assert generation_config_kwargs(
+
+def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeypatch):
+    from datetime import datetime, timezone
+
+    from google.auth.exceptions import RefreshError
+
+    from hushh_mcp.runtime_providers import local_credentials
+
+    monkeypatch.delenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", raising=False)
+    assert local_credentials.local_cli_credentials() is None
+    monkeypatch.setenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "reviewer@example.test")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: "resolved-gcloud")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="synthetic-token")
+
+    monkeypatch.setattr(local_credentials.subprocess, "run", run)
+    credentials = local_credentials.local_cli_credentials()
+
+    def request(**kwargs):
+        assert "synthetic-token" not in kwargs["url"]
+        assert kwargs["method"] == "POST"
+        assert kwargs["timeout"] == 10
+        return SimpleNamespace(
+            status=200, data=b'{"email":"reviewer@example.test","expires_in":900}'
+        )
+
+    credentials.refresh(request)
+    assert credentials.token == "synthetic-token"
+    assert credentials.expiry > datetime.now(timezone.utc).replace(tzinfo=None)
+    assert "--account=reviewer@example.test" in calls[0][0]
+    assert calls[0][1]["timeout"] == 15
+    assert "synthetic-token" not in str(calls)
+    for data in (
+        b'{"email":"wrong@example.test","expires_in":900}',
+        b'{"email":"reviewer@example.test","expires_in":100}',
+        b"not-json",
+    ):
+        with pytest.raises(RefreshError, match="reauthentication"):
+            credentials.refresh(lambda data=data, **kwargs: SimpleNamespace(status=200, data=data))
+    monkeypatch.setenv("K_SERVICE", "hosted")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.delenv("K_SERVICE")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: None)
+    with pytest.raises(RefreshError, match="unavailable"):
+        credentials.refresh(None)
+
+
+def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatch):
+    from hushh_mcp.runtime_providers import factory
+
+    marker = object()
+    monkeypatch.setattr(factory, "local_cli_credentials", lambda: marker)
+    calls = []
+    monkeypatch.setattr(
+        "google.genai.Client", lambda **kwargs: calls.append(kwargs) or SimpleNamespace()
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="synthetic-project", locations=("global", "us"), auth_mode="vertex_adc"
+    )
+    client = binding.build_direct_client()
+    client._client_for("us")
+    assert [call["credentials"] for call in calls] == [marker, marker]
+    monkeypatch.setattr("google.adk.models.Gemini", lambda **kwargs: SimpleNamespace(**kwargs))
+    assert binding.build_adk_model(GEMINI_MODEL).client_kwargs["credentials"] is marker
+    monkeypatch.setattr(
+        factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
+    regional = binding.build_regional_adk_model("gemini-3.7-flash")
+    regional.regional_client._client_for("global")
+    assert calls[-1]["credentials"] is marker
+
+
+def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
+    assert SUPPORTED == ("gemini-3.8-flash", "gemini-3.7-flash")
+    assert GEMINI_MODEL in SUPPORTED
+    for model in SUPPORTED:
+        assert gemini_config.is_supported_gemini_text_model(model)
+        assert gemini_config.is_supported_gemini_text_model(f"models/{model}")
+        assert gemini_config.is_supported_gemini_text_model(model.upper())
+    for other in (
         "gemini-3.6-flash",
-        temperature=0,
+        "gemini-3.1-pro-preview",
+        "gemini-3.8-flash-live-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-embedding-001",
+        "",
+        None,
+    ):
+        assert not gemini_config.is_supported_gemini_text_model(other)
+
+
+def test_retired_generation_helpers_are_gone() -> None:
+    for name in (
+        "GEMINI_38_FLASH",
+        "is_gemini_38_flash",
+        "GEMINI_36_FLASH",
+        "is_gemini_36_flash",
+        "GEMINI_31_PRO_PREVIEW",
+        "is_gemini_31_pro_preview",
+        "_GEMINI_31_PRO_UNSUPPORTED_FIELDS",
+        "_coerce_thinking_level_for_31_pro",
+    ):
+        assert not hasattr(gemini_config, name), name
+
+
+def test_deprecated_flash_v3_alias_names_the_supported_set() -> None:
+    # tests/test_fleet_text_model_switch.py still imports the old name.
+    assert gemini_config.is_gemini_flash_v3 is gemini_config.is_supported_gemini_text_model
+
+
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_supported_model_strips_legacy_sampling_controls(model: str) -> None:
+    # temperature 0.2 measured "accept 200, silent acceptance": the provider ignores it,
+    # so the adapter removes it rather than let a caller believe it took effect.
+    assert generation_config_kwargs(
+        model,
+        temperature=0.2,
         top_p=0.5,
         top_k=10,
         candidate_count=1,
@@ -24,39 +173,207 @@ def test_gemini_36_strips_legacy_sampling_controls():
     }
 
 
-def test_other_models_preserve_their_supported_sampling_controls():
-    assert generation_config_kwargs(
-        "gemini-3.1-flash-lite",
-        temperature=0,
-        max_output_tokens=32,
-    ) == {
-        "temperature": 0,
-        "max_output_tokens": 32,
-    }
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_supported_model_baseline_passes_without_thinking_config(model: str) -> None:
+    assert generation_config_kwargs(model, max_output_tokens=64) == {"max_output_tokens": 64}
 
 
-def test_gemini_36_is_text_only_and_global_vertex():
-    entry = resolve_model_entry("gemini", "gemini-3.6-flash")
-    assert entry.supports_streaming is True
-    assert entry.supports_function_calling is True
-    assert entry.supports_native_realtime is False
-    assert entry.supported_vertex_locations == ("global",)
+@pytest.mark.parametrize("model", SUPPORTED)
+@pytest.mark.parametrize("level", ACCEPTED_LEVELS)
+def test_supported_model_passes_accepted_thinking_levels_through(model: str, level: str) -> None:
+    enum_level = getattr(genai_types.ThinkingLevel, level)
+    sdk_cfg = genai_types.ThinkingConfig(thinking_level=enum_level, include_thoughts=False)
+    result = generation_config_kwargs(model, thinking_config=sdk_cfg)
+    assert result["thinking_config"] is sdk_cfg
+    assert result["thinking_config"].thinking_level == enum_level
+
+    result = generation_config_kwargs(model, thinking_config={"thinking_level": level})
+    assert result == {"thinking_config": {"thinking_level": level}}
 
 
-def test_managed_binding_filters_unsupported_failover_locations():
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_supported_model_maps_minimal_to_low(model: str) -> None:
+    # The adapter keeps one LOW thinking floor; the bounded 3.8 LOW tool probe
+    # passed on 2026-10-15. This test does not assert raw-provider MINIMAL support.
+    sdk_cfg = genai_types.ThinkingConfig(
+        thinking_level=genai_types.ThinkingLevel.MINIMAL,
+        include_thoughts=True,
+        thinking_budget=128,
+    )
+    result = generation_config_kwargs(model, thinking_config=sdk_cfg)
+    rebuilt = result["thinking_config"]
+    assert isinstance(rebuilt, genai_types.ThinkingConfig)
+    assert rebuilt.thinking_level == genai_types.ThinkingLevel.LOW
+    assert rebuilt.include_thoughts is True
+    assert rebuilt.thinking_budget == 128
+    # The caller's object is not mutated.
+    assert sdk_cfg.thinking_level == genai_types.ThinkingLevel.MINIMAL
+
+    for spelled in ("MINIMAL", "minimal", "THINKING_LEVEL_MINIMAL"):
+        result = generation_config_kwargs(model, thinking_config={"thinking_level": spelled})
+        assert result == {"thinking_config": {"thinking_level": "LOW"}}
+
+
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_supported_model_keeps_include_thoughts_and_budget(model: str) -> None:
+    result = generation_config_kwargs(
+        model,
+        thinking_config={"include_thoughts": True, "thinking_budget": 256, "thinking_level": None},
+    )
+    assert result == {"thinking_config": {"include_thoughts": True, "thinking_budget": 256}}
+    only_none = generation_config_kwargs(model, thinking_config={"thinking_level": None})
+    assert "thinking_config" not in only_none
+
+
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_supported_model_drops_a_minimal_config_it_cannot_rebuild(model: str) -> None:
+    class Unbuildable:
+        thinking_level = "MINIMAL"
+
+        def __init__(self, **_: object) -> None:
+            raise TypeError("cannot rebuild")
+
+    cfg = Unbuildable.__new__(Unbuildable)
+    result = generation_config_kwargs(model, thinking_config=cfg, max_output_tokens=8)
+    assert result == {"max_output_tokens": 8}
+
+
+def test_unsupported_ids_pass_through_unchanged() -> None:
+    minimal = genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.MINIMAL)
+    for model in ("gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.1-pro-preview", None):
+        result = generation_config_kwargs(
+            model,
+            temperature=0,
+            top_p=0.5,
+            top_k=10,
+            candidate_count=1,
+            max_output_tokens=32,
+            thinking_config=minimal,
+            response_schema=None,
+        )
+        assert result == {
+            "temperature": 0,
+            "top_p": 0.5,
+            "top_k": 10,
+            "candidate_count": 1,
+            "max_output_tokens": 32,
+            "thinking_config": minimal,
+        }
+        assert result["thinking_config"] is minimal
+
+
+def test_build_generate_content_config_uses_the_contract() -> None:
+    for model in SUPPORTED:
+        cfg = gemini_config.build_generate_content_config(
+            genai_types,
+            model,
+            temperature=0.2,
+            max_output_tokens=16,
+            thinking_config=genai_types.ThinkingConfig(
+                thinking_level=genai_types.ThinkingLevel.MINIMAL
+            ),
+        )
+        assert isinstance(cfg, genai_types.GenerateContentConfig)
+        assert cfg.temperature is None
+        assert cfg.max_output_tokens == 16
+        assert cfg.thinking_config.thinking_level == genai_types.ThinkingLevel.LOW
+
+
+@pytest.mark.parametrize("model", SUPPORTED)
+def test_thinking_config_for_follows_the_matrix(model: str) -> None:
+    assert gemini_config.thinking_config_for(model, None, genai_types) is None
+    assert gemini_config.thinking_config_for(model, "  ", genai_types) is None
+    for level in ACCEPTED_LEVELS:
+        for spelled in (level, level.lower(), level.capitalize()):
+            built = gemini_config.thinking_config_for(model, spelled, genai_types)
+            assert isinstance(built, genai_types.ThinkingConfig)
+            assert built.thinking_level == getattr(genai_types.ThinkingLevel, level)
+    coerced = gemini_config.thinking_config_for(model, "minimal", genai_types)
+    assert coerced.thinking_level == genai_types.ThinkingLevel.LOW
+    with pytest.raises(ValueError, match="unknown thinking_level"):
+        gemini_config.thinking_config_for(model, "turbo", genai_types)
+
+
+def test_thinking_config_for_leaves_other_ids_as_authored() -> None:
+    built = gemini_config.thinking_config_for("gemini-3.1-flash-lite", "minimal", genai_types)
+    assert built.thinking_level == genai_types.ThinkingLevel.MINIMAL
+    assert gemini_config.thinking_config_for("gemini-3.1-flash-lite", None, genai_types) is None
+
+
+def test_thinking_config_for_works_with_a_duck_typed_types_module() -> None:
+    # The ADK factories hand in whichever google.genai types module they hold; the helper
+    # must not depend on the enum being present.
+    module = SimpleNamespace(ThinkingConfig=lambda **kw: SimpleNamespace(**kw))
+    built = gemini_config.thinking_config_for(GEMINI_MODEL, "minimal", module)
+    assert built.thinking_level == "LOW"
+
+
+def test_supported_models_are_text_only_and_serve_only_measured_vertex_locations() -> None:
+    for model in SUPPORTED:
+        entry = resolve_model_entry("gemini", model)
+        assert entry.supports_streaming is True
+        assert entry.supports_function_calling is True
+        assert entry.supports_native_realtime is False
+        assert entry.supported_vertex_locations == MEASURED.get(model, ("global",))
+        assert entry.supported_vertex_locations[0] == "global"
+
+
+def test_gemini_default_resolves_to_a_supported_release() -> None:
+    entry = resolve_model_entry("gemini", "default")
+    assert entry.model == GEMINI_MODEL
+    assert entry.model in SUPPORTED
+    assert entry.supported_vertex_locations == MEASURED.get(GEMINI_MODEL, ("global",))
+
+
+def test_managed_binding_filters_unsupported_failover_locations() -> None:
     binding = ManagedGeminiRuntimeBinding(
         project="test-project",
-        locations=("global", "us", "eu"),
+        locations=("global", "us", "asia-south1", "eu"),
         auth_mode="vertex_adc",
     )
-    assert binding.locations_for_model("gemini-3.6-flash") == ("global",)
+    for model in SUPPORTED:
+        # Configured order is kept; an unmeasured endpoint is never used for failover.
+        assert binding.locations_for_model(model) == MEASURED[model]
 
 
-def test_managed_binding_fails_when_global_is_not_configured():
+def test_managed_binding_keeps_configured_order_for_a_measured_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stand-in entry proves the failover filter independently of which releases are
+    # current: configured order is kept and an unmeasured endpoint is dropped.
+    from hushh_mcp.runtime_providers import registry
+
+    measured = registry.ModelEntry(
+        provider="gemini",
+        model="measured-stand-in",
+        supported_vertex_locations=("global", "us", "eu"),
+    )
+    real = registry.resolve_model_entry
+    monkeypatch.setattr(
+        registry,
+        "resolve_model_entry",
+        lambda provider, model: measured if model == "measured-stand-in" else real(provider, model),
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="test-project",
+        locations=("global", "us", "asia-south1", "eu"),
+        auth_mode="vertex_adc",
+    )
+    assert binding.locations_for_model("measured-stand-in") == ("global", "us", "eu")
+    no_global = ManagedGeminiRuntimeBinding(
+        project="test-project", locations=("us", "eu"), auth_mode="vertex_adc"
+    )
+    assert no_global.locations_for_model("measured-stand-in") == ("us", "eu")
+
+
+def test_managed_binding_fails_when_global_is_not_configured() -> None:
     binding = ManagedGeminiRuntimeBinding(
         project="test-project",
         locations=("us", "eu"),
         auth_mode="vertex_adc",
     )
+    assert binding.locations_for_model("gemini-3.7-flash") == ("us", "eu")
     with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
-        binding.locations_for_model("gemini-3.6-flash")
+        binding.locations_for_model("gemini-3.8-flash")
+    with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
+        binding.locations_for_model("gemini-embedding-001")

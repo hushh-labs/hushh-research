@@ -1,13 +1,58 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  resolveTopShellBreadcrumb,
+  resolveTopShellTitleSlot,
+  visibleTopShellBreadcrumbItems,
+} from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
-  it("returns a query-selected saved analysis to its Analysis workspace", () => {
+  it.each(["market", "portfolio", "analysis"])("shows the compact Finance title on the %s tab", (tab) => {
+    const config = resolveTopShellBreadcrumb("/one/kai", new URLSearchParams({ tab }));
+    expect(config?.suppressFallbackTitle).toBe(true);
+    expect(visibleTopShellBreadcrumbItems(config?.items ?? [])).toEqual([{ label: "Finance" }]);
+  });
+
+  it.each(["/one/setup/finance", "/one/setup/kai"])("keeps re-entry chrome stable through %s", (path) => {
+    for (const setupDismissed of [false, true]) {
+      const config = resolveTopShellBreadcrumb(path, new URLSearchParams("from=/one"), { setupDismissed });
+      expect(config?.backHref).toBe("/one");
+      expect(config?.suppressFallbackTitle).toBe(true);
+      expect(config?.items).toEqual([]);
+    }
+  });
+
+  it("shows only the immediate parent and current page in deep trails", () => {
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "Profile", href: "/one/profile" },
+        { label: "Security", href: "/one/profile/security" },
+        { label: "Vault methods" },
+      ]),
+    ).toEqual([
+      { label: "Security", href: "/one/profile/security" },
+      { label: "Vault methods" },
+    ]);
+
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Settings" },
+      ]),
+    ).toEqual([
+      { label: "Location", href: "/one/location" },
+      { label: "Settings" },
+    ]);
+  });
+
+  it("returns a query-selected saved analysis to its Stocks workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
-        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+        new URLSearchParams(
+          "tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA",
+        ),
       ),
     ).toEqual({
       backHref: "/one/kai?tab=analysis",
@@ -15,38 +60,72 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "Finance", href: "/one/kai?tab=market" },
-        { label: "Analysis", href: "/one/kai?tab=analysis" },
+        { label: "Stocks", href: "/one/kai?tab=analysis" },
         { label: "NVDA analysis" },
       ],
     });
   });
 
-  it("returns every welcome workspace tab to One", () => {
+  it("returns every welcome workspace tab to the public root", () => {
     const research = new URLSearchParams("tab=research");
     const blog = new URLSearchParams("tab=blog");
     const developers = new URLSearchParams("tab=developers");
 
     expect(resolveTopShellBreadcrumb("/welcome", research)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", blog)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", developers)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
   });
 
-  it("keeps a shared back affordance on the Connect root", () => {
-    expect(resolveTopShellBreadcrumb("/one/connect")).toEqual({
+  it("titles the Connect root in the top bar, the same way Feed is", () => {
+    const expected = {
       backHref: "/one",
       width: "profile",
       align: "center",
       hideBack: false,
       items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+    };
+    expect(resolveTopShellBreadcrumb("/one/connect")).toEqual(expected);
+    expect(
+      visibleTopShellBreadcrumbItems(expected.items).map((item) => item.label),
+    ).toEqual(["Connect"]);
+  });
+
+  it("uses focused Connect Circle titles with a back label to Circles", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=create-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Create a Circle" }],
+    });
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connect",
+        new URLSearchParams("tab=circles&action=join-circle"),
+      ),
+    ).toEqual({
+      backHref: "/one/connect?tab=circles",
+      backLabel: "Back to Circles",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Join a Circle" }],
     });
   });
 
@@ -112,6 +191,16 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("gives Wallet a single current crumb beside the shared Back control", () => {
+    expect(resolveTopShellBreadcrumb("/one/wallet")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      suppressFallbackTitle: true,
+      items: [{ label: "One", href: "/one" }, { label: "Wallet" }],
+    });
+  });
+
   it("uses sanitized from params for Kai setup wizard back navigation", () => {
     const params = new URLSearchParams();
     params.set("from", "/one?mode=finance");
@@ -123,10 +212,8 @@ describe("top shell breadcrumbs", () => {
       // Back is now always available on the wizard so the user is never trapped
       // on the questionnaire; re-entry honors the `from` origin.
       hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-      ],
+      suppressFallbackTitle: true,
+      items: [],
     });
 
     // Bare entry (no `from`) still shows back, falling to the setup hub rather
@@ -160,7 +247,8 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/setup",
       width: "content",
       align: "center",
-      items: [{ label: "Set up", href: "/one/setup" }, { label: "Finance" }],
+      suppressFallbackTitle: true,
+      items: [{ label: "Finance" }],
     });
 
     // No origin → Kai home still falls back to One home (unchanged behavior).
@@ -168,7 +256,8 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "content",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
+      suppressFallbackTitle: true,
+      items: [{ label: "Finance" }],
     });
 
     // Unsafe origins are rejected → One home fallback.
@@ -229,7 +318,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: true,
-      items: [{ label: "One", href: "/" }, { label: "Setup" }],
+      items: [],
     });
 
     expect(resolveTopShellBreadcrumb("/one/setup/")).toEqual({
@@ -237,7 +326,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: true,
-      items: [{ label: "One", href: "/" }, { label: "Setup" }],
+      items: [],
     });
 
     const fromDashboard = new URLSearchParams();
@@ -247,18 +336,32 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one");
   });
 
-  it("gives per-capability setup steps a back affordance to the hub", () => {
-    expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
-      backHref: "/one/setup",
+  it("shows shared top-left back navigation for the RIA claim flow", () => {
+    expect(resolveTopShellBreadcrumb("/ria/claim")).toEqual({
+      backHref: "/ria/onboarding",
       width: "content",
       align: "center",
       hideBack: false,
       items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Finance" },
+        { label: "Advisor", href: "/ria/onboarding" },
+        { label: "Claim profile" },
       ],
     });
+
+    const returnToSetup = new URLSearchParams();
+    returnToSetup.set("return_to", "/one/setup");
+
+    expect(resolveTopShellBreadcrumb("/ria/claim", returnToSetup)).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "Advisor", href: "/one/setup" }, { label: "Claim profile" }],
+    });
+  });
+
+  it("keeps the first-run setup hub as the Finance parent", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/finance")?.backHref).toBe("/one/setup");
 
     expect(resolveTopShellBreadcrumb("/one/setup/connected-systems")).toEqual({
       backHref: "/one/setup",
@@ -268,19 +371,65 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
-        { label: "CRM" },
+        {
+          label:
+            process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED === "true"
+              ? "CRM"
+              : "Connected Systems",
+        },
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/one/setup/finance/")).toEqual({
-      backHref: "/one/setup",
+    expect(resolveTopShellBreadcrumb("/one/setup/finance/")?.backHref).toBe("/one/setup");
+  });
+
+  it("returns completed Finance re-entry to One, not the obsolete setup hub", () => {
+    const completed = { setupDismissed: true };
+    expect(resolveTopShellBreadcrumb("/one/setup/finance", undefined, completed)).toMatchObject({
+      backHref: "/one",
+      suppressFallbackTitle: true,
+      items: [],
+    });
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/one/setup"), completed,
+    )?.backHref).toBe("/one");
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/profile"), completed,
+    )?.backHref).toBe("/profile");
+    // One's tile carries an explicit origin, so no cached completion hint is required.
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/one"),
+    )?.backHref).toBe("/one");
+  });
+
+  it("retraces a capability setup step to the internal origin that opened it", () => {
+    const fromDashboard = new URLSearchParams();
+    fromDashboard.set("from", "/one");
+
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/gmail", fromDashboard),
+    ).toEqual({
+      backHref: "/one",
       width: "content",
       align: "center",
       hideBack: false,
       items: [
         { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Finance" },
+        { label: "Setup", href: "/one" },
+        { label: "Mail" },
+      ],
+    });
+  });
+
+  it("hides the back arrow on the mandatory AI-choice step, matching the hub it now bypasses", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/connections")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "Set up", href: "/one/setup" },
+        { label: "Choose your AI" },
       ],
     });
   });
@@ -335,14 +484,14 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one/setup");
   });
 
-  it("treats the PKM agent lab as a profile privacy surface", () => {
+  it("treats the PKM agent lab as a Memory surface", () => {
     expect(resolveTopShellBreadcrumb("/one/profile/pkm-agent-lab")).toEqual({
-      backHref: "/one/profile/access",
+      backHref: "/one/profile/my-data",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/one/profile/access" },
-        { label: "Privacy", href: "/one/profile/access" },
+        { label: "Profile", href: "/one/profile/my-data" },
+        { label: "Memory", href: "/one/profile/my-data" },
         { label: "PKM Agent" },
       ],
     });
@@ -359,10 +508,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/location",
       width: "profile",
       align: "center",
-      items: [
-        { label: "Location", href: "/one/location" },
-        { label: "Profile" },
-      ],
+      items: [{ label: "Location", href: "/one/location" }],
     });
 
     const fromGmail = new URLSearchParams();
@@ -371,7 +517,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
-      items: [{ label: "Gmail", href: "/one/gmail" }, { label: "Profile" }],
+      items: [{ label: "Mail", href: "/one/gmail" }],
     });
 
     // No origin → the historic default (back to the One dashboard) is preserved.
@@ -379,7 +525,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Profile" }],
+      items: [{ label: "One", href: "/one" }],
     });
 
     // Unsafe / protocol-relative origins are rejected → One dashboard fallback.
@@ -404,6 +550,64 @@ describe("top shell breadcrumbs", () => {
     expect(config?.items?.[0]).toEqual({
       label: "Profile",
       href: "/one/profile?from=%2Fone%2Flocation",
+    });
+  });
+
+  it("keeps Connect as the origin for a person profile opened from Connect", () => {
+    const fromConnect = new URLSearchParams();
+    fromConnect.set("from", "/one/connect");
+
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", fromConnect),
+    ).toEqual({
+      backHref: "/one/connect",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Connect", href: "/one/connect" },
+        { label: "Profile" },
+      ],
+    });
+
+    const unsafeOrigin = new URLSearchParams();
+    unsafeOrigin.set("from", "//evil.example/one/connect");
+    expect(
+      resolveTopShellBreadcrumb("/people/person-ref-scoped", unsafeOrigin),
+    ).toBeNull();
+  });
+
+  it("nests the connection detail under Memory → Sharing", () => {
+    const connectionParams = new URLSearchParams();
+    connectionParams.set("id", "c-scoped");
+
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/profile/access/connection",
+        connectionParams,
+      ),
+    ).toEqual({
+      backHref: "/one/profile/access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing", href: "/one/profile/access" },
+        { label: "Connection detail" },
+      ],
+    });
+  });
+
+  it("returns the Memory → Sharing sub-view to the Memory panel", () => {
+    expect(resolveTopShellBreadcrumb("/one/profile/access")).toEqual({
+      backHref: "/one/profile/my-data",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Memory", href: "/one/profile/my-data" },
+        { label: "Sharing" },
+      ],
     });
   });
 
@@ -482,7 +686,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "Gmail", href: "/one/gmail" },
+        { label: "Mail", href: "/one/gmail" },
         { label: "Legacy receipts" },
       ],
     });
@@ -493,30 +697,33 @@ describe("top shell breadcrumbs", () => {
     // and the /one dashboard tiles. Direct/cold One capability entry now falls
     // back to the Agents dashboard, while explicit safe origins still retrace.
     const surfaces: Array<{ path: string; label: string }> = [
-      { path: "/one/kyc", label: "KYC" },
       { path: "/one/location", label: "Location" },
       { path: "/one/marketplace", label: "Marketplace" },
     ];
 
     for (const { path, label } of surfaces) {
+      const expectedItems = path === "/one/location"
+        ? [{ label: "Location" }]
+        : [{ label: "One", href: "/one" }, { label }];
       // No origin → Agents dashboard.
       expect(resolveTopShellBreadcrumb(path)).toEqual({
         backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
+        items: expectedItems,
       });
 
-      // Opened from the dashboard (?from=/one) → back to the dashboard, and the
-      // leading crumb reflects the real origin ("One").
-      const fromOne = new URLSearchParams();
-      fromOne.set("from", "/one");
-      expect(resolveTopShellBreadcrumb(path, fromOne)).toEqual({
-        backHref: "/one",
-        width: "profile",
-        align: "center",
-        items: [{ label: "One", href: "/one" }, { label }],
-      });
+      // Location keeps its compact title while safe origins still retrace.
+      // Other capability surfaces retain their existing origin handling.
+      for (const origin of path === "/one/location" ? ["/one", "/one/profile"] : ["/one"]) {
+        const fromOne = new URLSearchParams({ from: origin });
+        expect(resolveTopShellBreadcrumb(path, fromOne)).toEqual({
+          backHref: origin,
+          width: "profile",
+          align: "center",
+          items: expectedItems,
+        });
+      }
 
       // Unsafe / protocol-relative origins are rejected → Agents fallback.
       const unsafe = new URLSearchParams();
@@ -542,26 +749,40 @@ describe("top shell breadcrumbs", () => {
     // were removed so this is the ONLY back affordance on those screens.
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
+      // Must equal the flow's own TaskFlowHeader title. A crumb that reads
+      // differently from the screen it names is how a trail stops describing
+      // where you are.
+      ["places-visited", "Places you've been"],
       ["private-check-in", "Private Check-In"],
-      ["sos", "Safety"],
+      // The implementation action id stays sos; the visible product name is shared.
+      ["sos", "Save My Soul"],
+      // NOTE: sms-contacts is deliberately absent from this table — it is the
+      // one flow whose back target is not the hub (it retraces to whoever
+      // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Ask someone"],
+      ["ask", "Ask for location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],
       // Legacy bookmarks are labelled correctly while the hub canonicalizes
       // `action=privacy` to `action=settings`.
       ["privacy", "Settings"],
+      // Voice-first Location area flows.
+      ["create-circle", "New circle"],
+      ["join-circle", "Join circle"],
+      ["circle-detail", "Circle"],
+      ["invite-circle", "Invite to circle"],
+      ["ratings", "Ratings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
-      ["needs-review", "Needs my review"],
+      ["needs-review", "Needs review"],
     ];
 
     for (const [action, label] of cases) {
       const params = new URLSearchParams();
       params.set("action", action);
       expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
-        backHref: "/one/location",
+        backHref: "/one/location?view=now",
         width: "profile",
         align: "center",
         items: [
@@ -572,13 +793,17 @@ describe("top shell breadcrumbs", () => {
       });
     }
 
+    // Back from a private check-in returns to check-in's own route. It must
+    // never name Your Map: that screen withholds the check-in sheet, so
+    // pointing back at it made the one control whose job is to retrace a step
+    // land on a screen the flow is not on, which then redirected away again.
     const fromNearbyCheckIn = new URLSearchParams();
     fromNearbyCheckIn.set("action", "private-check-in");
     fromNearbyCheckIn.set("source", "nearby");
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
     ).toEqual({
-      backHref: "/one/location/map?action=check-in",
+      backHref: "/one/location/check-in",
       width: "profile",
       align: "center",
       items: [
@@ -594,7 +819,7 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
     ).toBe(
-      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+      "/one/location/check-in?resume=123e4567-e89b-12d3-a456-426614174000",
     );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
@@ -603,7 +828,7 @@ describe("top shell breadcrumbs", () => {
     fromProfile.set("from", "/one/profile");
     fromProfile.set("action", "check-in");
     expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
-      backHref: "/one/location",
+      backHref: "/one/location?view=now",
       width: "profile",
       align: "center",
       items: [
@@ -643,12 +868,80 @@ describe("top shell breadcrumbs", () => {
     // Settings → SMS contacts → back to the Settings flow (not "Now").
     const fromSettings = new URLSearchParams();
     fromSettings.set("action", "sms-contacts");
+    const settingsTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromSettings,
+    );
+    expect(settingsTrail?.backHref).toBe("/one/location?action=settings");
+    expect(settingsTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
+
+    // SOS → SMS contacts → back to SOS. Contacts is reachable mid-emergency,
+    // and returning that person to Settings drops them out of the flow they
+    // were in the middle of, at the worst possible moment.
+    const fromSos = new URLSearchParams();
+    fromSos.set("action", "sms-contacts");
+    fromSos.set("source", "sos");
+    const sosTrail = resolveTopShellBreadcrumb("/one/location", fromSos);
+    expect(sosTrail?.backHref).toBe("/one/location?action=sos");
+    expect(sosTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Save My Soul",
+      "Emergency contacts",
+    ]);
+
+    // An unrecognised source is not an emergency; Settings stays the default.
+    const fromUnknown = new URLSearchParams();
+    fromUnknown.set("action", "sms-contacts");
+    fromUnknown.set("source", "nearby");
+    const unknownTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromUnknown,
+    );
+    expect(unknownTrail?.backHref).toBe("/one/location?action=settings");
+    expect(unknownTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
+
+    // SOS → SMS contacts → the hub immediately redirects `?action=sms-contacts`
+    // to `?action=circle-detail` (contacts now live in Circles), carrying
+    // `source=sos` along. This is the URL the person is actually looking at,
+    // so it -- not the transient `sms-contacts` one above -- is what the back
+    // button must resolve against, or it falls through to the generic
+    // circle-detail case and strands them on the People tab mid-emergency.
+    const fromSosRedirected = new URLSearchParams();
+    fromSosRedirected.set("action", "circle-detail");
+    fromSosRedirected.set("circleId", "sms-circle-1");
+    fromSosRedirected.set("view", "people");
+    fromSosRedirected.set("source", "sos");
+    const sosRedirectedTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromSosRedirected,
+    );
+    expect(sosRedirectedTrail?.backHref).toBe("/one/location?action=sos");
+    expect(sosRedirectedTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Save My Soul",
+      "Emergency contacts",
+    ]);
+
+    // A circle opened from People (no SOS source) keeps its ordinary back
+    // target -- this check must not swallow every circle-detail view.
+    const fromPeopleCircle = new URLSearchParams();
+    fromPeopleCircle.set("action", "circle-detail");
+    fromPeopleCircle.set("circleId", "some-other-circle");
+    fromPeopleCircle.set("view", "people");
     expect(
-      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
-    ).toBe("/one/location?action=settings");
+      resolveTopShellBreadcrumb("/one/location", fromPeopleCircle)?.backHref,
+    ).toBe("/one/location?view=people");
   });
-
-
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise
@@ -657,7 +950,6 @@ describe("top shell breadcrumbs", () => {
     fromHub.set("from", "/one/setup");
 
     const expected = new Map([
-      ["/one/kyc", "/one/setup"],
       ["/one/location", "/one/setup"],
       ["/one/gmail", "/one/setup"],
       ["/one/connected-systems", "/one/setup"],
@@ -679,7 +971,6 @@ describe("top shell breadcrumbs", () => {
       params.set("from", origin);
 
       for (const path of [
-        "/one/kyc",
         "/one/location",
         "/one/marketplace",
         "/one/pkm",
@@ -692,9 +983,6 @@ describe("top shell breadcrumbs", () => {
     // Unsafe origins are still rejected → the route's own default fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "https://evil.example/path");
-    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe(
-      "/one",
-    );
     expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe(
       "/one",
     );
@@ -728,7 +1016,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -741,7 +1029,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -755,7 +1043,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },
@@ -763,59 +1051,141 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("deepens Picks into Debate config for the ?view=debate sub-view", () => {
-    const debateView = new URLSearchParams("view=debate");
-
-    // Debate config lives one level below Picks, so Back returns to Picks and
-    // the trail carries a fourth "Debate" crumb.
-    expect(resolveTopShellBreadcrumb("/ria/picks", debateView)).toEqual({
-      backHref: "/ria/picks",
+  it("keeps primary RIA pages on back-arrow-only top chrome", () => {
+    expect(resolveTopShellBreadcrumb("/ria/profile")).toEqual({
+      backHref: "/one",
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks", href: "/ria/picks" },
-        { label: "Debate" },
-      ],
+      items: [],
     });
 
-    // Without the view param, bare Picks is untouched: three crumbs, Back to
-    // the canonical RIA Profile tab.
+    expect(resolveTopShellBreadcrumb("/ria/clients")).toEqual({
+      backHref: "/ria/profile",
+      width: "profile",
+      align: "center",
+      items: [],
+    });
+
     expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
       backHref: "/ria/profile",
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks" },
-      ],
+      items: [],
     });
   });
 
-  it("keeps bare Picks for unknown or wrong-case view values", () => {
+  it("keeps bare Picks regardless of any ?view= value", () => {
+    // Picks has no sub-view left to deepen into (the Debate config view was
+    // removed as a duplicate of Screening), so every ?view= value -- known,
+    // unknown, or absent -- resolves to the same plain three-crumb Picks.
     const barePicks = {
       backHref: "/ria/profile",
       width: "content" as const,
       align: "center" as const,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks" },
-      ],
+      items: [],
     };
 
-    // An unrecognized view value must not deepen into the Debate crumb; it stays
-    // a plain three-crumb Picks with Back to RIA.
+    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual(barePicks);
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=garbage")),
+      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=debate")),
     ).toEqual(barePicks);
+    expect(
+      resolveTopShellBreadcrumb(
+        "/ria/picks",
+        new URLSearchParams("view=garbage"),
+      ),
+    ).toEqual(barePicks);
+  });
 
-    // The Picks debate match is case-sensitive (view === "debate"), so a
-    // capitalized value is treated as unknown rather than the debate sub-view.
+  it("gives the wallet card a way back to the row that opened it", () => {
+    // It had no entry at all, so the resolver returned null and the top shell
+    // rendered no breadcrumb -- leaving the screen with no way out. The Back
+    // control inside the workspace is a stage control between steps of the
+    // pass flow, present in only one stage, so it never served as the exit.
+    expect(resolveTopShellBreadcrumb("/one/wallet-card")).toEqual({
+      backHref: "/one/profile/account",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile" },
+        { label: "Account", href: "/one/profile/account" },
+        { label: "Apple Wallet" },
+      ],
+    });
+  });
+
+  it("sends the wallet card back to Account, the panel it is reached from", () => {
+    // profile-workspace-page.tsx pushes this route from the Apple Wallet row
+    // inside the Account panel. Backing out to bare /one/profile would land
+    // somebody a level above the row they tapped.
+    const config = resolveTopShellBreadcrumb("/one/wallet-card");
+    expect(config?.backHref).toBe("/one/profile/account");
+    expect(config?.backHref).not.toBe("/one/profile");
+  });
+});
+
+describe("top shell title slot", () => {
+  // A scroll chip must not replace an authored breadcrumb trail.
+  const scrolledChip = { label: "Memory", icon: "folder", interactive: false };
+
+  function slotLabels(pathname: string, search: string) {
+    const slot = resolveTopShellTitleSlot(
+      resolveTopShellBreadcrumb(pathname, new URLSearchParams(search)),
+      scrolledChip,
+    );
+    return slot.kind === "trail"
+      ? slot.items.map((item) => item.label)
+      : slot.kind;
+  }
+
+  it.each([
+    // Memory now places its one visible title beside the shared Back.
+    ["/one/pkm", "", ["Memory"]],
+    ["/one/gmail", "", ["Mail"]],
+    ["/one/feed", "", ["Feed"]],
+    ["/one/connect", "", ["Connect"]],
+    ["/one/connect/settings", "", ["Connect", "AI connection"]],
+    ["/one/profile/preferences/gemini", "", ["Preferences", "AI connection"]],
+    // Profile > Memory swapped its trail for a "Profile" chip.
+    ["/one/profile/my-data", "", ["Profile", "Memory"]],
+    ["/one/pkm/recent", "", ["Memory", "Recently learned"]],
+    ["/one/pkm/location", "", ["Memory", "Location"]],
+    ["/one/pkm/location/detail", "memory=0123456789abcdef", ["Location", "Detail"]],
+    // Every other nested route that used to carry a scroll chip.
+    ["/one/connected-systems", "", ["Connected Systems"]],
+    ["/one/consent", "", ["Consent Center"]],
+    ["/consents", "", ["Consent Center"]],
+    ["/one/gmail", "from=/one/setup", ["Mail"]],
+  ])(
+    "keeps %s (%s) titled beside its back arrow, even scrolled",
+    (pathname, search, expected) => {
+      expect(slotLabels(pathname, search)).toEqual(expected);
+    },
+  );
+
+  it("still lets the chip title a bar that has no trail of its own", () => {
+    expect(resolveTopShellTitleSlot(null, scrolledChip)).toEqual({
+      kind: "title",
+      title: scrolledChip,
+    });
+    // A generic level-one surface with only the implicit root still keeps its
+    // chip unless the route explicitly delegates the visible title to its body.
     expect(
-      resolveTopShellBreadcrumb("/ria/picks", new URLSearchParams("view=Debate")),
-    ).toEqual(barePicks);
+      resolveTopShellTitleSlot({ items: [{ label: "One" }] }, scrolledChip),
+    ).toEqual({ kind: "title", title: scrolledChip });
+  });
+
+  it("leaves the slot empty when there is neither a trail nor a chip", () => {
+    expect(resolveTopShellTitleSlot({ items: [] }, null)).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("keeps Memory's authored title when a scroll chip is offered", () => {
+    const breadcrumb = resolveTopShellBreadcrumb("/one/pkm");
+    expect(resolveTopShellTitleSlot(breadcrumb, scrolledChip)).toEqual({
+      kind: "trail",
+      items: [{ label: "Memory" }],
+    });
   });
 });

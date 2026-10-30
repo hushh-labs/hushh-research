@@ -389,44 +389,46 @@ function validateAuthConfiguration(env) {
   }
 }
 
+// Return from the CommonJS entrypoint so piped stdout can finish flushing.
+// process.exit() would truncate large manifests at the pipe buffer boundary.
 if (args.includes("--help") || args.includes("-h")) {
   printUsage();
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-config")) {
   printConfig();
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-codex-toml")) {
   printCodexToml();
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-remote-config")) {
   printRemoteConfig();
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-client-credentials-config")) {
   printClientCredentialsConfig();
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-gateway-manifest")) {
   printGatewayManifest("hushh-mcp-gateway.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-agentforce-manifest")) {
   printGatewayManifest("hushh-agentforce-mcp-manifest.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-mulesoft-exchange-manifest")) {
   printGatewayManifest("hushh-mulesoft-exchange-mcp-schema.json");
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-mulesoft-agentforce-handoff")) {
@@ -443,7 +445,7 @@ if (args.includes("--print-mulesoft-agentforce-handoff")) {
     fatal("The packaged MuleSoft Agentforce handoff is unavailable.");
   }
   process.stdout.write(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
-  process.exit(0);
+  return;
 }
 
 if (args.includes("--print-salesforce-agentexchange-handoff")) {
@@ -460,7 +462,7 @@ if (args.includes("--print-salesforce-agentexchange-handoff")) {
     fatal("The packaged Salesforce AgentExchange handoff is unavailable.");
   }
   process.stdout.write(`${JSON.stringify(manifest.salesforceAgentExchangeHandoff, null, 2)}\n`);
-  process.exit(0);
+  return;
 }
 
 const runtimeDir = resolveRuntimeDir();

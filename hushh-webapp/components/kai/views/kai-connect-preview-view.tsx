@@ -16,7 +16,7 @@ import {
   UsersRound,
   X,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
@@ -185,7 +185,7 @@ const CONNECT_PICK =
 
 const connectRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
   "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
@@ -341,7 +341,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
+          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">One</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -391,14 +391,14 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Message Kai..."
+            placeholder="Message One..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
         </div>
         <button
           type="submit"
           className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Send to Kai"
+          aria-label="Send to One"
         >
           <Mic className="h-4 w-4" />
         </button>
@@ -436,7 +436,7 @@ function NotificationsSheet({
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {[
           { title: "Registration verified", body: "SEBI network check completed", time: "2m", tone: "up" },
-          { title: "Kai pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
+          { title: "Finance pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
           { title: "Consent receipt saved", body: "No advisor information shared yet", time: "3h", tone: "neutral" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
@@ -577,7 +577,7 @@ function AdvisorDetailSheet({
             ))}
           </div>
           <p className="mt-3 text-[12px] leading-snug text-[color:var(--one-fg3)]">
-            No commissions. Billed quarterly by the advisor - never through Kai.
+            No commissions. Billed quarterly by the advisor - never through Finance.
           </p>
         </div>
       </div>
@@ -586,7 +586,7 @@ function AdvisorDetailSheet({
           type="button"
           onClick={() => onConnect(profile)}
           className={cn(
-            "w-full rounded-full px-4 py-3.5 text-[15px] font-semibold transition-transform active:scale-[0.98]",
+            "w-full rounded-full px-4 py-3.5 text-[15px] font-semibold transition-transform",
             requested
               ? "bg-[color:var(--one-up-t)] text-[color:var(--one-up)]"
               : "bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]"
@@ -596,7 +596,7 @@ function AdvisorDetailSheet({
         </button>
         {requested ? (
           <p className="mt-2.5 text-center text-[12px] leading-snug text-[color:var(--one-fg2)]">
-            They will reach out within a day. Nothing is shared until you approve their request.
+            They will reach out within a day. Nothing is shared until you approve request.
           </p>
         ) : null}
       </div>
@@ -662,8 +662,8 @@ export function KaiConnectPreviewView() {
       </style>
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(32px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -679,7 +679,7 @@ export function KaiConnectPreviewView() {
             <button
               type="button"
               onClick={() => setNotificationsOpen(true)}
-              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform active:scale-90"
+              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform"
               aria-label="Notifications"
             >
               <span className="absolute right-2 top-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--one-down,#ff3b30)] shadow-[0_0_0_2px_var(--one-surface)]" />
@@ -704,20 +704,20 @@ export function KaiConnectPreviewView() {
           <button
             type="button"
             onClick={() => setKaiOpen(true)}
-            className={cn(connectGlassClassName, "mt-4 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-3 text-left transition-transform active:scale-[0.99]")}
+            className={cn(connectGlassClassName, "mt-4 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-3 text-left transition-transform")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white">
               <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              <b className="font-semibold">Kai:</b> I compared all five against your portfolio - ask me why Emily fits best.
+              <b className="font-semibold">One:</b> I compared all five against your portfolio - ask me why Emily fits best.
             </span>
             <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
           </button>
 
           <section className="mt-8">
             <SectionHeader
-              title="Kai's pick for you"
+              title="One's pick for you"
               icon={Star}
               tone="blue"
               action={
@@ -754,7 +754,7 @@ export function KaiConnectPreviewView() {
               <button
                 type="button"
                 onClick={() => setSelectedProfile(CONNECT_PICK)}
-                className="mt-3.5 w-full rounded-full bg-[color:var(--one-surface)] py-3 text-[14px] font-semibold text-[color:var(--one-link)] transition-transform active:scale-[0.98]"
+                className="mt-3.5 w-full rounded-full bg-[color:var(--one-surface)] py-3 text-[14px] font-semibold text-[color:var(--one-link)] transition-transform"
               >
                 View profile
               </button>

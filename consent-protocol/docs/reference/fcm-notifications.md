@@ -1,8 +1,133 @@
 # FCM Notifications
 
 > **Status**: Production (Pure Push)
-> **Last Updated**: July 2026
+> **Last Updated**: September 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
+
+### Delivery audit (2026-10-17)
+
+The existing APNs/FCM integration was present. The source audit found these
+specific reliability gaps:
+
+| Existing gap | Corrected owning path |
+| --- | --- |
+| Location/SMS and Circle delivery depended on process-local executors; connection sends could fail after the domain transaction committed. | Source-transaction intents and the leased `system_push_delivery.py` worker retain core alerts across restarts and transient provider failure. |
+| A granted native permission or registered token could coexist with disabled alerts/sounds. | `HushhNotifications.getNotificationSettings()` reports OS/app/channel settings; the existing explicit recovery control is available throughout Location. |
+| Native token refresh depended on the separate web Firebase auth observer. | Refresh uses the active native AuthProvider identity getter and retains session, deletion and installation-owner fences. |
+| Location alert types were missing from the authenticated live-event allowlist. | Core alert types preserve their popup payload through the existing PostgreSQL/SSE path, independently of FCM readiness. |
+| Routine Android alerts had no explicit normal notification channel. | A high-importance activity channel has the default notification sound; existing user channel choices are preserved. |
+| Distribution APNs was not verified on the exported app. | Both release lanes verify production APNs and the provisioning profile in a distribution-exported IPA before the existing Xcode upload. Automatic development signing remains target-owned during archive. |
+
+Provider acceptance, a successful distribution-export guard and physical receipt are
+separate evidence. Fresh signed TestFlight and Android builds still require
+the device matrix in the release checklist below. No physical-device receipt
+or sound result is inferred from mocked-provider tests.
+
+The local Windows check compiled the Android native sources and ran their unit
+tests. It did not produce an installable candidate: Next's selective native
+export matched slash-separated routes against Windows-separated paths and
+exported only the fallback page. That incomplete export was not packaged, and
+its runtime attestation was removed from the export directory. Full bundled-web
+and signed iOS archive proof remains with the canonical release lanes.
+
+Platform references: [Firebase iOS receipt](https://firebase.google.com/docs/cloud-messaging/ios/receive-messages),
+[Firebase Android receipt](https://firebase.google.com/docs/cloud-messaging/android/receive-messages),
+[Android message priority](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-priority),
+[Apple APNs entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/aps-environment).
+
+### Chat recovery hardening (2026-10-18)
+
+Direct and Circle chat retain the existing encrypted-preview, per-installation
+push pipeline. A completed chat intent now requires an acceptance receipt for
+that event and recipient. Missing registrations and all-stale tokens remain
+retryable; accepted devices are not replayed for another device's failure.
+The existing five-lease budget, source expiry, read/mute/revocation checks and
+account fences still apply. Recovered preview-key registration brings forward
+up to 100 pending retries per chat family and wakes both workers. It never
+resets attempts, revives terminal work, changes an active lease or removes the
+initial read grace. Otherwise failure retries remain 60/120/240/480 seconds.
+Registration authentication/database work runs off the serving event loop.
+
+The existing transactional direct-message doorbell now wakes its push worker.
+A single coalesced timer respects the two-second read grace; full batches drain
+without a polling pause. DM SSE subscribes before emitting an empty `resync`
+frame, closing the initial-load/subscription gap. Both chat consumers understand
+the listener's reconnect/overflow reset and reload current authorized state.
+Circle recovery no longer waits out the twenty-second long poll for that reset.
+
+iOS notification intent donation has a one-second presentation fallback through
+the same owner/read/exactly-once completion checks. Android initializes its
+existing Messages channel before checking readiness and uses ordinary sound
+defaults on API 24/25. Channel settings remain user-owned. Native registration
+preserves backend degradation flags and separately reports missing chat-preview
+custody for retry; token registration alone is not chat readiness.
+
+The distribution guard also verifies the exported notification extension and
+matching effective Keychain groups. These native changes require fresh signed
+TestFlight/Android binaries; a hosted UAT web deployment cannot update them.
+Physical receipt, grouping, audible sound and latency remain separate acceptance
+checks in the [device checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
+
+Design references: [Apple communication notifications](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications),
+[Android notification groups](https://developer.android.com/develop/ui/views/notifications/group),
+and [WhatsApp notification controls](https://faq.whatsapp.com/iphone/troubleshooting/how-to-manage-your-notifications).
+These sources describe public behavior and OS contracts, not WhatsApp's private implementation.
+
+### Durable SMS, Location and relationship delivery
+
+Migration `361_system_push_outbox.sql` commits delivery intent with initial
+location shares, location requests, Circle membership activation and connection
+requests. Emergency SMS is queued only when its first encrypted envelope has
+committed. Request approvals retain their separate notification, without an
+additional share-created alert. Historical sources are not backfilled.
+
+Release replay uses a checksum-pinned adapter in `db/migration_authority.py`;
+the published migration and ledger hashes stay immutable. Repeated deployment
+preserves pending/leased intents and accepted-device receipts. Existing source
+triggers retain their identities and are validated for drift; missing triggers
+are installed without backfilling historical alerts. Row-level security, grants
+and the explicit deleted-account guard installer remain enforced.
+
+`system_push_delivery.py` leases source references, rechecks current status,
+expiry, request revision, membership epoch and installation ownership, and
+records provider acceptance per installation. A failed phone retries without
+resending to successful phones. No-device and provider failures remain pending
+within twelve attempts and the source deadline, capped at one day. Deadlines
+and source revocation suppress stale alerts. Receipt rows cascade with intents;
+expired intents are pruned after three days. The queue stores no coordinates,
+envelopes, message content, rendered notification copy or provider tokens.
+
+PostgreSQL NOTIFY accelerates the worker; five-second polling repairs missed
+doorbells and process restarts. Authenticated SSE carries the same transition
+id independently of Firebase registration, so an open web app can receive the
+live emergency popup even when device push registration failed. SSE remains
+subject to the environment's existing enablement policy and never substitutes
+for closed-app OS push.
+
+Native distribution builds use production APNs for both TestFlight and App
+Store. Both workflows verify a distribution-exported IPA and its provisioning
+profile before the existing Xcode upload from the same archive and signing
+options. Xcode may repackage during upload, so this proves a production-signed
+export rather than byte identity with the uploaded package or physical receipt.
+The archive retains automatic development signing; a global distribution
+identity conflicts with that mode and wrongly reaches Swift dependency targets.
+Android routine alerts use `hushh_activity_alerts_v1`, high importance and the
+default notification sound. SMS retains its separate alarm channel. Existing
+user channel settings are never reset.
+
+Registration retries transient failures after 2, 10 and 30 seconds without
+requesting permission again, and repairs on resume/focus/network recovery.
+Location exposes explicit setup/retry/settings controls. A registered native
+token can still report disabled alerts or sounds; `push_active` means backend
+registration succeeded, not that sound is enabled or a phone received a push.
+New wrappers expose OS alert, sound and emergency-channel readiness; older
+wrappers retain their existing registration behavior until updated.
+
+OS permission, Focus, channel mute, offline state and Android force-stop remain
+platform boundaries. Inactive apps use visible APNs/FCM payloads, not a promise
+that JavaScript or a silent background task will run. Foreground routine Feed
+policy and the dedicated SMS alarm/popup policy remain unchanged. Verify new
+signed builds using the [physical acceptance checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
 
 
 ## Visual Context
@@ -13,20 +138,157 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 ## Overview
 
-Consent requests are delivered to users via **Firebase Cloud Messaging (FCM)** using a **pure push** architecture. The backend sends enriched FCM payloads containing all data needed to render consent toasts -- no frontend polling required.
+Notification wake-ups are delivered through **Firebase Cloud Messaging (FCM)** using a **pure push** architecture. The backend sends enriched payloads so the client can refresh the durable Feed for every push and refresh recognized owning-domain state without a notification-data poll.
 
 **Supported platforms**: Web (FCM JS SDK), iOS (Capacitor Firebase Messaging), Android (Capacitor Firebase Messaging).
 
-### Native iOS policy
+### Cross-platform presentation policy
 
-Consent and connection requests are treated as **alert-class notifications** on iOS:
+Routine notification families—including consent, connection, One Location,
+Kai, and forward-compatible types—follow one lifecycle policy:
 
-- the backend sends an explicit APNs alert payload for iOS tokens
-- the payload carries a visible alert, sound, badge, routing metadata, and native action category
-- the app still refreshes in-app state after receipt or tap
-- Approve and Deny notification actions only open the app into a confirmation flow; they do not commit a decision directly from the notification
+| App state | Presentation | State behavior |
+| --------- | ------------ | -------------- |
+| Active/visible | No routine Sonner toast and no browser/native foreground banner or sound; badge may update | Always refresh Feed; also refresh recognized consent, connection, and One Location state |
+| Background/terminated native app, or no visible web client | One operating-system notification | Durable Feed remains authoritative |
+| External notification body tap | Open `/one/feed` | The Feed row owns later detail navigation/action |
 
-This is stricter than the web lane. Web remains service-worker/browser-notification based, while native iOS is expected to surface a system-visible alert when the device allows it.
+Registered iOS consent action buttons still open their review/confirmation flow
+and never approve or deny directly; Android does not register equivalent native
+action buttons. The service worker elects one visible client to acknowledge
+foreground ownership; hidden tabs cannot suppress the system fallback or replay
+stale popup UI. Historical hydration and One Location state reconciliation are
+state-repair paths only and never presentation sources.
+
+Every shared push carries an explicit
+`notification_presentation=alert|silent` data field. A silent event (for
+example `consent_opened` or `consent_resolved`) may invalidate client state and
+close the matching stale system card, but it must never synthesize a fallback
+title/body or call the operating-system presentation API.
+
+### Durable Feed and identity contract
+
+An alert-class push is a wake-up/delivery mechanism, not notification history.
+Before a routine notification type is added, its authoritative transition must
+already produce either a durable `feed_events` row or a live Feed actionable.
+Current coverage includes consent, connection actionables, the full One
+Location notification lifecycle (including Circle joins and referrals), and
+terminal funding-transfer statuses. Calendar and Mail also project
+privacy-safe, durable in-app Feed outcomes: Calendar connection state and
+confirmed create/reschedule/cancel actions; Mail connection state, opted-in
+information requests, receipt sync outcomes, and owner-approved send outcomes.
+These Feed projections do not themselves send an OS push. A new emitter that
+only calls FCM is incomplete.
+
+`message_id` identifies one semantic transition and `notification_tag`
+identifies the system card it may replace. Connection requests are scoped by
+request id; funding messages use transfer id plus normalized status for
+`message_id` and transfer id for the replacement tag. Web tags, Android tags,
+and APNs thread ids use the same semantic tag. Client dedupe also includes the
+notification revision/sequence so a real state transition is not mistaken for
+a transport retry.
+
+Warm web notification clicks use an acknowledgement handshake: the service
+worker requests internal Feed navigation first (preserving the memory-only
+vault), then falls back to `WindowClient.navigate`/`openWindow` if an old or
+uncontrolled page does not acknowledge. Consent request identity is carried to
+Feed as bounded query metadata and acknowledged only after authentication and
+vault unlock, which prevents the final reminder from firing after the user has
+already attended the system notification. Transient acknowledgement failures
+retry with capped backoff while Feed remains open and retry immediately when
+connectivity returns; permanent authorization or validation failures do not
+spin in the background.
+
+### One replied (`one_reply`)
+
+A One chat turn keeps running on the server after the app stops reading it
+(the person left the chat, or the native app went to the background), and its
+answer is sealed into the conversation with the turn's own chat key. When such
+a turn settles with something to open, the server sends one bare wake-up:
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `One replied` (fixed; never answer or prompt text) |
+| `type` | `one_reply` |
+| Data | `conversation_id` (opaque) and `message_id` only; no `user_id` |
+| Platforms | iOS and Android tokens only; a web token is skipped |
+| Body tap | `/?conversation=<id>`; the chat selects it after unlock through its owner-checked history load. `deep_link` is ignored |
+
+It is sent only when the stream had already closed before the turn settled
+(a client still reading receives the answer live), and only for turns whose
+client asked for it with `forwardedProps.notifyOnDetach` — the native app. A
+web tab's closed stream never wakes the person's phone. Bridge bookkeeping
+events (`state_update_*`) are not read as a turn, so a review pause counts as
+settled and earns the push. Inside the open app the chat
+shows its own "One replied" notice (see `AgentChatTurnNotifier`), and nothing
+while the person is looking at that conversation.
+
+**Exception to the Feed-row rule, by design.** The durable record is the
+conversation itself, sealed with the person's chat key. A `feed_events` row is
+not chat-key sealed, so writing one per reply would move chat metadata out of
+the sealed store. The body tap therefore opens the conversation, not Feed.
+
+### Consent request (`consent_request`) is bare
+
+The owner's push names who is asking and nothing else: title `Consent request`,
+body `{Name} asked to see your information` (final reminder: `{Name}'s request
+is still waiting for you.`). Data carries identifiers, the requester's display
+name and photo URL, and timing fields only. Scope, scope description, purpose,
+existing grants and access summaries are never in the push, because the push
+provider and the lock screen see it before the vault is unlocked. The app loads
+those details after unlock from the owner-scoped pending list. Built by
+`build_consent_push_content` in `api/consent_listener.py`; guarded by
+`tests/test_consent_listener_notifications.py`.
+
+### Information request answered (`information_request_updated`)
+
+When the owner approves or declines a person-to-person request, it times out,
+or the owner later ends access, the requester gets one bare alert. This is the
+canonical outcome event documented in `docs/reference/architecture/api-contracts.md`
+(`information_request_updated`), sent exactly once per event (migration 259):
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `Your information request has an answer`; for `REVOKED`, `Access to information shared with you has ended` (fixed; never a scope, label or value) |
+| `type` | `information_request_updated` with `action`, `bundle_id`, `request_id`, `outcome` (the bundle's outcome word) and `at` |
+| Alert | `CONSENT_GRANTED`, `CONSENT_DENIED`, `TIMEOUT`, `REVOKED`, once the whole request is settled (`outcome` not `pending`); `CANCELLED` stays silent |
+| Tag | `information-request:{bundle_id}` (one card per request) |
+| Body tap | `/?informationRequest=<bundle_id>`; after unlock the app finds the asking conversation in the person's sealed history and continues it there |
+
+Inside the open app the requester's One chat continues on its own
+(`AgentConsentContinuationNotifier`): on the chat, the request card shows
+`Consent approved` and One answers from the shared information; elsewhere in
+the app a `Consent approved` notice appears and the existing `One replied`
+notice follows. The notifier polls only the requests this tab saw waiting, so
+it works when web push is blocked. The durable record is the sealed
+conversation, the same exception to the Feed-row rule as `one_reply`.
+
+### One has something for you (`one_feed_attention`)
+
+When a notable Feed row appears, the person gets one bare alert. One writes what
+it has to say only after they open the app with the vault unlocked, as an
+ordinary chat turn sealed with their chat key; the server never pre-writes or
+stores that message.
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `One has something for you` (fixed; never the event, a name or a value) |
+| `type` | `one_feed_attention` |
+| Data | `feed_item_id` (the opaque `feed_events` id) and `message_id` only; no `user_id` |
+| Platforms | iOS and Android tokens only, like `one_reply` |
+| Body tap | `/?feedAttention=<id>`; after unlock a fresh chat opens and One speaks about that row. `deep_link` is ignored |
+
+Only a closed list of event types is notable (`mail_information_request_detected`,
+`mail_reconnect_required`, `mail_message_failed`, `mail_delivery_unconfirmed`,
+`calendar_reconnect_required`, `kai_analysis_completed`, `kyc_status_changed`):
+rows that need the person or report a failure, from domains with no push of
+their own. At most two are sent per person in any 24 hours, counted in
+`one_attention_ledger` under a per-person advisory lock; a capped row is recorded
+`throttled` and never reconsidered. A person with notifications off has no device
+token, so nothing is sent and the row is recorded `no_device`, which does not
+spend a slot. There is no separate server-side notification preference today.
+The sweep runs every 60 s over the last hour of rows and is off unless
+`ONE_FEED_ATTENTION_PUSH_ENABLED=true`. The Feed row remains the durable record.
 
 ### Emergency SMS alert policy
 
@@ -46,13 +308,29 @@ The explicit profile is canonical. Receivers also recognize
 `type=location_share_created` plus `share_kind=sos` so an older queued payload
 still receives emergency presentation.
 
+`alerted: true` in the location API means at least one registered device's push
+was queued for dispatch. It does not confirm provider acceptance or device
+  receipt. Durable queue failure or no reachable registered device returns `false`. The sender reports
+saved shares and requested device notifications separately, and attempts every
+ready SMS contact even if another contact fails.
+
+Feed persistence and live emergency presentation use separate deduplication
+keys. Silent reconciliation may save the Feed row without consuming the one
+live emergency popup. A subsequent push can still present that popup once;
+duplicate pushes, already-opened shares and unwatched shares remain suppressed.
+
 | Surface | Emergency behavior |
 | ------- | ------------------ |
 | Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |
-| Background web / PWA | Persistent browser notification with emergency vibration metadata and live-location routing |
+| Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap opens Shared with me |
 | Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
-| iOS background | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
-| iOS foreground | Shared red in-app emergency card and alarm; the native delegate keeps only the badge to prevent a duplicate banner and duplicate sound |
+| iOS background/terminated | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
+| iOS in-app alarm sent to background | No background audio mode. One series of up to 11 local alerts for all ringing alarms (after 5 s, then every minute for ten minutes) with the 10 s `one_location_sms_alarm_handoff.wav` siren and no actions; tapping one opens the app, where the alarm resumes until acknowledged; the series ends once the in-app alarm rings again in the foreground, when no alarm this device can restore is pending (the last acknowledgement), or when the notification key is cleared at sign-out |
+| iOS foreground | Shared red in-app emergency card and alarm; Capacitor's Firebase Messaging router presents only the badge to prevent a duplicate banner and duplicate sound |
+
+Incoming location-share body taps, including emergency body taps, open
+**Shared with me**. The explicit iOS **Open live location** safety action opens
+the validated grant target directly. Other routine body taps enter Feed.
 
 This profile does **not** bypass Focus or Do Not Disturb. Android explicitly
 keeps channel DND bypass disabled. iOS Critical Alerts are not requested because
@@ -77,9 +355,9 @@ There is no midpoint reminder and no repeated reminder loop once a request has b
 2. Backend inserts consent_audit row
 3. PostgreSQL pg_notify trigger fires
 4. consent_listener.py receives event
-5. Enriches FCM payload: { request_id, scope, agent_id, scope_description }
+5. Builds a bare FCM payload: identifiers and the requester's name only (details load after unlock)
 6. Sends FCM message to user's registered tokens
-7. Client receives push → renders toast from payload data
+7. Client receives push → refreshes Feed/domain state; OS presents when the native app is backgrounded/terminated or no visible web client claims the push
 8. No polling and no production SSE requirement for notification data
 ```
 
@@ -131,7 +409,17 @@ gcloud is used for **GCP resources** that support the FCM-based flow:
 2. **Notification worker** (in consent-protocol) **LISTEN**s; on NOTIFY it:
    - Sends FCM to the user’s registered tokens (Firebase Admin SDK),
    - Pushes the event into a per-user in-app queue for SSE.
-3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** (foreground) and **notificationclick** (service worker) to open `/one/consent?tab=pending`.
+3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** as a Feed/domain refresh while visible and routes service-worker **notificationclick** to `/one/feed`.
+
+Circle lifecycle transitions use the same dual-transport client contract with a
+separate metadata-only PostgreSQL channel, `one_user_state_changed`. The
+mutation worker publishes one doorbell after commit; every backend
+worker/instance listens and only the worker that owns the recipient's open SSE
+stream enqueues it locally. FCM remains the offline/native lane, while the
+shared transition `message_id` lets the client deduplicate an event received on
+both transports. The channel is deliberately restricted to
+`location_circle_*` event types and carries no Circle roster or private
+location payload.
 
 See the plan in `.cursor/plans/` and [consent-protocol.md](./consent-protocol.md) for full flow.
 
@@ -147,7 +435,7 @@ Consent requests reach the user only when the following chain is in place:
 
 3. **Queue → SSE fallback** – The in-app SSE generator creates a queue per user when the first SSE connection for that user is opened. Local development and UAT are expected to keep `CONSENT_SSE_ENABLED=true` so web fallback delivery can be validated when FCM is blocked or misconfigured. Production stays FCM-first by default with `CONSENT_SSE_ENABLED=false`, and `/api/consent/events/{user_id}/poll/{request_id}` remains hard-disabled there.
 
-4. **UI** – The frontend (ConsentSSEProvider, ConsentNotificationProvider) subscribes to SSE and shows toasts / refreshes the pending list when it receives a consent event.
+4. **UI** – The frontend notification provider subscribes to FCM/SSE wake-ups and refreshes Feed plus the pending list. Routine events never create foreground popup cards.
 
 **Diagnostic:** In development, call `GET /debug/consent-listener` to see `listener_active`, `queue_count`, and `notify_received_count`. In production this endpoint is intentionally unavailable (`404`), so use backend logs/metrics instead. If `notify_received_count` never increases after creating a consent request, NOTIFY is not reaching the process (trigger not on runtime DB or listener not running). If it increases but users see no push, the issue is downstream (no tokens, Firebase not configured, or send failure; check backend logs for "FCM skipped" or "FCM send failed").
 
@@ -180,15 +468,15 @@ Consent requests reach the user only when the following chain is in place:
 Web consent delivery now uses two lanes:
 
 1. **Primary**: Browser FCM push
-2. **Fallback**: Authenticated SSE + inbox while the tab is open
+2. **Fallback**: Authenticated SSE + Feed/inbox refresh while the tab is open
 
 The client exposes these delivery states:
 
 | State | Meaning |
 |------|---------|
 | `push_active` | Browser FCM is healthy and token registration succeeded. |
-| `push_blocked` | Browser permission is blocked, so the app falls back to live SSE alerts while the tab is open. |
-| `push_failed_fallback_active` | Push registration failed or is misconfigured, but SSE fallback is active. |
+| `push_blocked` | Browser permission is blocked, so the app falls back to live SSE Feed/inbox refresh while the tab is open. |
+| `push_failed_fallback_active` | Push registration failed or is misconfigured, but SSE Feed/inbox refresh is active. |
 | `inbox_only` | Neither push nor live SSE is currently active. Requests still appear in the consent center on next load. |
 
 If web push fails, the app:
@@ -199,7 +487,7 @@ If web push fails, the app:
 - attempts a manual FCM registration path,
 - then activates authenticated SSE fallback if push still fails.
 
-Closed-tab behavior remains limited by browser push availability: if push is disabled or misconfigured and the tab is closed, the durable fallback is the consent inbox on next app open.
+Closed-tab behavior remains limited by browser push availability: if push is disabled or misconfigured and the tab is closed, the durable fallback is Feed and the owning inbox on next app open.
 
 ---
 

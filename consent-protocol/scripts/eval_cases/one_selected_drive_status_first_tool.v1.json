@@ -1,0 +1,30 @@
+{
+  "schema_version": "one.first_tool_evals.v1",
+  "description": "Selected Drive status intent with the typed-chat read admitted. Run with the enabled runtime instruction and synthetic file names.",
+  "cases": [
+    {
+      "id": "drive.share_selected_file_status",
+      "family": "drive",
+      "prompt": "Do you have Alex's CV? Please share it with Sam.",
+      "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.named_file_processing_status",
+      "family": "drive",
+      "prompt": "Is AlexCV.pdf selected and ready to use?",
+      "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.generic_account_access",
+      "family": "drive",
+      "prompt": "Do you have my Drive access?",
+      "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.new_chat_named_selection",
+      "family": "drive",
+      "prompt": "This is a new chat. I selected resume.pdf in Connectors earlier. Can you access that file here?",
+      "expected": ["inspect_selected_drive_files"]
+    }
+  ]
+}

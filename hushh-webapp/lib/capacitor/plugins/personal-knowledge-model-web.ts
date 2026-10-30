@@ -4,6 +4,8 @@
  * Web fallback for the supported PKM proxy surface.
  */
 
+import type { LocationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
+import type { KycReplyAuthorizationV1 } from "@/lib/personal-knowledge-model/mutation-plan";
 import { WebPlugin } from "@capacitor/core";
 import type { HushhPersonalKnowledgeModelPlugin } from "@/lib/capacitor/personal-knowledge-model";
 
@@ -459,15 +461,20 @@ export class HushhPersonalKnowledgeModelWeb
       complete: boolean;
     };
     mutationPlan?: Record<string, unknown>;
+    locationFinalizeAuthorization?: LocationFinalizeWire;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
     manifestRevision?: number;
     commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     archivedRevisionId?: string;
     preservationReceipt?: {
       schemaVersion: "pkm_preservation_receipt.v1";
@@ -499,6 +506,8 @@ export class HushhPersonalKnowledgeModelWeb
         summary: options.summary,
         structure_decision: options.structureDecision,
         mutation_plan: options.mutationPlan,
+        location_finalize_authorization: options.locationFinalizeAuthorization,
+        kyc_reply_authorization: options.kycReplyAuthorization,
         manifest: options.manifest,
         write_projections: (options.writeProjections || []).map((projection) => ({
           projection_type: projection.projectionType,
@@ -572,6 +581,7 @@ export class HushhPersonalKnowledgeModelWeb
     const data = (await response.json()) as Record<string, unknown>;
     return {
       success: data.success !== false,
+      idempotentReplay: data.idempotent_replay === true,
       conflict: data.conflict === true,
       message: typeof data.message === "string" ? data.message : undefined,
       dataVersion: typeof data.data_version === "number" ? data.data_version : undefined,
@@ -579,6 +589,8 @@ export class HushhPersonalKnowledgeModelWeb
       manifestRevision:
         typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
       commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      locationRunRevision: typeof data.location_run_revision === "number" ? data.location_run_revision : undefined,
+      locationPlaceReceiptId: typeof data.location_place_receipt_id === "string" ? data.location_place_receipt_id : undefined,
       archivedRevisionId:
         typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
       preservationReceipt:

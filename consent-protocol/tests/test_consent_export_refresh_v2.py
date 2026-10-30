@@ -4,6 +4,7 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -15,6 +16,7 @@ from hushh_mcp.consent.export_envelope import (
     ciphertext_digest_from_base64,
     digest_bytes,
 )
+from hushh_mcp.services.consent_db import ConsentDBService
 
 _CLAIM_ID = "123e4567-e89b-12d3-a456-426614174111"
 _EXPORT_ID = "123e4567-e89b-12d3-a456-426614174000"
@@ -133,6 +135,20 @@ def test_job_claim_response_never_returns_consent_token(monkeypatch):
     assert job["jobClaimId"] == _CLAIM_ID
     assert "consentToken" not in job
     assert "must_not_leave_backend" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_refresh_job_claim_uses_executed_rpc_result() -> None:
+    class _FakeDb:
+        def rpc(self, function_name: str, params: dict):
+            assert function_name == "claim_consent_export_refresh_jobs_v2"
+            assert params["p_user_id"] == "user_123"
+            return SimpleNamespace(data=[{"claim_id": _CLAIM_ID}])
+
+    service = ConsentDBService()
+    service._get_db = lambda: _FakeDb()  # type: ignore[method-assign]
+
+    assert await service.claim_consent_export_refresh_jobs("user_123") == [{"claim_id": _CLAIM_ID}]
 
 
 def test_refresh_upload_rejects_snapshot_before_commit(monkeypatch):

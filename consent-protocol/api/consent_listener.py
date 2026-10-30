@@ -20,29 +20,87 @@ from typing import Any, Dict
 
 from api.utils.consent_notifications import next_pending_notification
 from api.utils.fcm_messages import build_push_message
+from db import listener_connection as listener_transport
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.consent_delivery_claims import (
+    claim_delivery,
+    consent_event_delivery_key,
+    prune_delivery_claims,
+    request_notification_key,
+)
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.system_push_delivery import SYSTEM_PUSH_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
+
+# Metadata-only application state changes use the same long-lived Postgres
+# listener connection as consent events, but a separate channel keeps the
+# dispatch contracts independent. PostgreSQL broadcasts NOTIFY to every
+# listening backend worker/instance, so whichever process owns a user's SSE
+# connection can wake it without an instance-to-instance transport.
+USER_STATE_CHANNEL = "one_user_state_changed"
+# PostgreSQL caps NOTIFY payloads below 8 KiB. Leave headroom for encoding and
+# version differences rather than publishing at the protocol boundary.
+_USER_STATE_NOTIFY_MAX_BYTES = 7_500
+
+
+def _is_user_state_event_type(event_type: str) -> bool:
+    return (
+        event_type in SYSTEM_PUSH_NOTIFICATION_TYPES
+        or event_type.startswith("location_circle_")
+        or event_type
+        in {
+            # A committed Drive outbox event wakes authenticated readers. Its
+            # payload contains only opaque ids; the Feed and Consent Center remain
+            # the authorities for the current request state.
+            "document_share_feed_changed",
+            "feed_changed",
+            "answer_request_changed",
+            "bank_payout_changed",
+            "location_settings_changed",
+            "location_pkm_changed",
+            "connection_request",
+            "connection_request_cancelled",
+            "connection_request_resolved",
+            "connection_removed",
+            "connection_graph_changed",
+            # Direct-message payloads are metadata-only doorbells.  Message
+            # content remains in the participant-scoped encrypted read API.
+            "direct_message",
+        }
+    )
+
 
 # Interval for timeout job (seconds)
 TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
+LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
+# A LISTEN connection can look open while the server no longer delivers to it;
+# a round trip proves it. NOTIFYs sent while LISTEN is down are lost, so every
+# (re)activation tells this worker's open streams to reread their snapshot.
+LISTENER_PROBE_TIMEOUT_SECONDS = 5
+LOCAL_RESYNC_EVENT_TYPE = "__resync__"
+_SNAPSHOT_HINT_TYPES = {"feed_changed", "document_share_feed_changed", "bank_payout_changed"}
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
-# Per-user queues for SSE generators (no polling). Key = user_id.
-# Each queue is bounded so a stalled or slow SSE consumer cannot accumulate an
-# unbounded backlog of notifications and exhaust memory. When a queue is full,
-# the oldest pending event is dropped to make room for the newest.
+# Per-user subscriber queues for SSE generators (no polling). Key = user_id.
+# Every live stream owns a distinct bounded queue so two tabs/devices on the
+# same backend worker both receive every transition instead of competing on one
+# queue. Snapshot-aware consumers get a reset on overflow; legacy streams
+# retain their newest events without starving another stream for the account.
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
-_consent_notify_queues: Dict[str, asyncio.Queue] = {}
+_consent_notify_queues: Dict[str, set[asyncio.Queue]] = {}
 _consent_notify_queues_lock = asyncio.Lock()
+# The loop the SSE queues live on. Captured when a consumer connects, so a
+# producer running on a FastAPI threadpool worker can still reach them.
+_serving_loop: asyncio.AbstractEventLoop | None = None
 _DEVELOPER_CONSENT_QUEUE_MAXSIZE = 20
 _developer_consent_subscribers: Dict[tuple[str, str], set[asyncio.Queue]] = {}
 _developer_consent_subscribers_lock = asyncio.Lock()
@@ -116,26 +174,132 @@ def _is_database_unavailable_error(exc: Exception) -> bool:
     return False
 
 
+class _SnapshotConsentQueue(asyncio.Queue):
+    """A Feed subscriber whose consumer understands whole-snapshot resets."""
+
+
+def _offer_consent_event(user_id: str, data: Dict[str, Any]) -> None:
+    """Event-loop-only fanout with the overflow policy owned by each consumer."""
+    for queue in tuple(_consent_notify_queues.get(user_id, ())):
+        snapshot_aware = isinstance(queue, _SnapshotConsentQueue)
+        if not snapshot_aware and data.get("type") in _SNAPSHOT_HINT_TYPES | {
+            LOCAL_RESYNC_EVENT_TYPE
+        }:
+            # Legacy consent SSE cannot interpret these hints. Do not let a
+            # Feed burst displace actionable consent/message/location events.
+            continue
+        if queue.full():
+            if snapshot_aware:
+                # Hints are incomplete after overflow. A reset restores all
+                # snapshots, even when several resource types filled the queue.
+                while not queue.empty():
+                    queue.get_nowait()
+                queue.put_nowait({"type": LOCAL_RESYNC_EVENT_TYPE})
+            else:
+                # Preserve the legacy newest-events contract; it has no reset
+                # consumer and must not silently lose the entire pending queue.
+                queue.get_nowait()
+        if not queue.full():
+            queue.put_nowait(data)
+
+
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
-    async with _consent_notify_queues_lock:
-        q = _consent_notify_queues.get(user_id)
-        if q is None:
-            return
-        try:
-            q.put_nowait(data)
-        except asyncio.QueueFull:
-            # Queue is full because the SSE consumer is not draining fast
-            # enough. Drop the oldest pending event and enqueue the newest so
-            # the consumer always receives the most recent consent state.
-            try:
-                q.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                q.put_nowait(data)
-            except asyncio.QueueFull:
-                pass
-            logger.warning("consent notify queue full; dropped oldest event to bound memory")
+    # Registry mutations and this non-awaiting fanout run on the serving loop.
+    _offer_consent_event(user_id, data)
+
+
+async def broadcast_local_resync() -> int:
+    """Repair every local stream after a non-durable LISTEN gap (no NOTIFY involved).
+
+    Only snapshot-aware (Feed) queues receive the sentinel; legacy consent
+    streams keep their actionable events. Returns the number of accounts reached.
+    """
+    user_ids = tuple(_consent_notify_queues)
+    for user_id in user_ids:
+        _offer_consent_event(user_id, {"type": LOCAL_RESYNC_EVENT_TYPE})
+    return len(user_ids)
+
+
+def is_listener_active() -> bool:
+    """True while this worker's LISTEN connection is established and probed."""
+    return _listener_active
+
+
+async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
+    """Broadcast a metadata-only state doorbell to every backend process.
+
+    The caller already owns the FCM delivery. This channel exists only to make
+    the authenticated SSE fallback worker-independent; listeners enqueue the
+    exact same transition id so the client can deduplicate FCM + SSE safely.
+    If the database publish fails, deliver to a same-process stream as a
+    best-effort fallback instead of making notification delivery load-bearing.
+    """
+
+    normalized_user_id = str(user_id or "").strip()
+    payload = {**data, "user_id": normalized_user_id}
+    event_type = str(payload.get("type") or "").strip()
+    if not normalized_user_id or not _is_user_state_event_type(event_type):
+        return False
+
+    serialized = json.dumps(payload, separators=(",", ":"), default=str)
+    payload_size = len(serialized.encode("utf-8"))
+    if payload_size > _USER_STATE_NOTIFY_MAX_BYTES:
+        logger.warning(
+            "user_state.notify_payload_too_large type=%s bytes=%s limit=%s",
+            event_type,
+            payload_size,
+            _USER_STATE_NOTIFY_MAX_BYTES,
+        )
+        await _push_to_consent_queue(normalized_user_id, payload)
+        return False
+
+    conn = None
+    pool = None
+    try:
+        from db.connection import get_pool
+
+        pool = await get_pool()
+        conn = await pool.acquire()
+        await conn.execute(
+            "SELECT pg_notify($1, $2)",
+            USER_STATE_CHANNEL,
+            serialized,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - realtime delivery is best-effort
+        logger.warning("user_state.notify_publish_failed type=%s error=%s", event_type, exc)
+        await _push_to_consent_queue(normalized_user_id, payload)
+        return False
+    finally:
+        if conn is not None and pool is not None:
+            with contextlib.suppress(Exception):
+                await pool.release(conn)
+
+
+def publish_user_state_event_threadsafe(user_id: str, data: Dict[str, Any]) -> bool:
+    """Schedule a cross-process state doorbell from sync request/worker code."""
+
+    loop = _serving_loop
+    if loop is None or loop.is_closed():
+        return False
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            _publish_user_state_event(user_id, dict(data)),
+            loop,
+        )
+
+        def _log_failure(done) -> None:
+            with contextlib.suppress(asyncio.CancelledError):
+                try:
+                    done.result()
+                except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+                    logger.warning("user_state.notify_task_failed error=%s", exc)
+
+        future.add_done_callback(_log_failure)
+        return True
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort, never fatal
+        logger.warning("user_state.notify_schedule_failed error=%s", exc)
+        return False
 
 
 async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
@@ -162,11 +326,67 @@ async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
             logger.warning("developer consent SSE queue full; dropped oldest event")
 
 
-def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
-    if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
-    return _consent_notify_queues[user_id]
+async def subscribe_consent_queue(user_id: str, *, snapshot_resets: bool = False) -> asyncio.Queue:
+    """Register one bounded queue for one active authenticated SSE stream."""
+
+    _remember_serving_loop()
+    queue_type = _SnapshotConsentQueue if snapshot_resets else asyncio.Queue
+    queue: asyncio.Queue = queue_type(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
+    async with _consent_notify_queues_lock:
+        _consent_notify_queues.setdefault(user_id, set()).add(queue)
+    return queue
+
+
+async def unsubscribe_consent_queue(user_id: str, queue: asyncio.Queue) -> None:
+    """Remove one SSE stream queue and release its account registry entry."""
+
+    async with _consent_notify_queues_lock:
+        queues = _consent_notify_queues.get(user_id)
+        if queues is None:
+            return
+        queues.discard(queue)
+        if not queues:
+            _consent_notify_queues.pop(user_id, None)
+
+
+def _remember_serving_loop() -> None:
+    """Record the loop the SSE queues live on, so worker threads can reach them.
+
+    Called from ``subscribe_consent_queue``, which only ever runs inside the SSE
+    endpoint -- i.e. on the serving loop itself.
+    """
+    global _serving_loop
+    try:
+        _serving_loop = asyncio.get_running_loop()
+    except RuntimeError:  # pragma: no cover - never called off-loop today
+        pass
+
+
+def push_to_consent_queue_threadsafe(user_id: str, data: Dict[str, Any]) -> bool:
+    """Enqueue an SSE event from a thread that has no running event loop.
+
+    FastAPI runs a plain ``def`` handler in a threadpool worker, where
+    ``asyncio.get_running_loop()`` raises. Every producer of connection-request
+    events is such a handler (``def create_connection_request``,
+    ``def request_nearby_connection``), so the fire-and-forget
+    ``loop.create_task(...)`` they used to attempt raised RuntimeError and was
+    swallowed -- the SSE lane was dead for those events, and the web client had
+    no way to learn about a new connection request unless it had an active push
+    subscription.
+
+    Returns True when the coroutine was scheduled. False means there is no
+    serving loop yet (no SSE consumer has ever connected in this process), which
+    is not an error: there is nobody to deliver to.
+    """
+    loop = _serving_loop
+    if loop is None or loop.is_closed():
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(_push_to_consent_queue(user_id, data), loop)
+        return True
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort, never fatal
+        logger.warning("consent.sse_threadsafe_enqueue_failed error=%s", exc)
+        return False
 
 
 async def subscribe_developer_consent_queue(
@@ -202,7 +422,8 @@ def get_consent_listener_status() -> dict:
     """Return status for GET /debug/consent-listener (listener_active, queue_count, notify_received_count)."""
     return {
         "listener_active": _listener_active,
-        "queue_count": len(_consent_notify_queues),
+        "queue_count": sum(len(queues) for queues in _consent_notify_queues.values()),
+        "queue_user_count": len(_consent_notify_queues),
         "developer_queue_count": sum(
             len(queues) for queues in _developer_consent_subscribers.values()
         ),
@@ -228,8 +449,90 @@ def _notify_callback(connection, pid, channel, payload: str):
         logger.exception("Consent notify callback error: %s", e)
 
 
+def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
+    """Route a Postgres-broadcast Circle transition to this worker's SSE queue."""
+
+    _ = connection
+    _ = pid
+    _ = channel
+    try:
+        data = json.loads(payload or "{}")
+        user_id = str(data.get("user_id") or "").strip()
+        event_type = str(data.get("type") or "").strip()
+        if not user_id or not _is_user_state_event_type(event_type):
+            return
+
+        loop = _serving_loop
+        if loop is None or loop.is_closed():
+            return
+
+        def _schedule() -> None:
+            if event_type in _SNAPSHOT_HINT_TYPES:
+                if event_type == "bank_payout_changed":
+                    from hushh_mcp.services.payout_account_status_cache import (
+                        invalidate_payout_account_status,
+                    )
+
+                    # The verified bank webhook publishes only an owner hint.
+                    # Invalidate each worker's display cache before waking its
+                    # subscribers; no provider/account details cross NOTIFY.
+                    for mode in ("test", "live"):
+                        invalidate_payout_account_status(user_id=user_id, mode=mode)
+                # Pure invalidations need no DB/FCM work. Dispatch inline so a
+                # burst cannot accumulate an unbounded set of asyncio tasks.
+                _offer_consent_event(user_id, data)
+                return
+            if event_type == "location_circle_message":
+                from hushh_mcp.services.circle_chat_notifications import (
+                    wake_circle_chat_push_worker,
+                )
+
+                wake_circle_chat_push_worker()
+            elif event_type == "direct_message":
+                from hushh_mcp.services.direct_message_notifications import (
+                    wake_direct_message_push_worker,
+                )
+
+                wake_direct_message_push_worker()
+
+            async def dispatch_state():
+                await _push_to_consent_queue(user_id, data)
+                if event_type == "answer_request_changed" and data.get("event_id"):
+                    from hashlib import sha256
+
+                    key = (
+                        "answer_doorbell:"
+                        + sha256(f"{user_id}|{data['event_id']}".encode()).hexdigest()
+                    )
+                    if await claim_delivery(key):
+                        await _send_fcm_for_user(user_id, data)
+
+            task = asyncio.create_task(dispatch_state())
+            _background_notify_tasks.add(task)
+            task.add_done_callback(_background_notify_tasks.discard)
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            _schedule()
+        else:
+            loop.call_soon_threadsafe(_schedule)
+    except json.JSONDecodeError:
+        logger.warning("user_state.notify_invalid_json")
+    except Exception as exc:  # noqa: BLE001 - listener callbacks must never raise
+        logger.warning("user_state.notify_dispatch_failed error=%s", exc)
+
+
 async def _handle_notify(payload_str: str):
-    """Parse payload, send FCM to user's tokens, push to in-app queue."""
+    """Fan one consent event out: local streams always, global effects once.
+
+    Every worker on every instance receives this NOTIFY. Each pushes to the SSE
+    streams it holds (a stream lives in exactly one worker, so it sees the event
+    once). The push, the delivery record and the requester's doorbell push are
+    global, so only the worker that claims the consent_audit id sends them.
+    """
     global _notify_received_count, _last_notify_user_id, _last_notify_action
     try:
         data = json.loads(payload_str)
@@ -240,23 +543,52 @@ async def _handle_notify(payload_str: str):
         _notify_received_count += 1
         _last_notify_user_id = user_id
         _last_notify_action = action
+        if str(action).strip().upper() == "EXPORT_READ":
+            # An audit record of a grant being read, not a state change. The
+            # owner's history shows it; a push or stream frame would read as a
+            # resolution and the app would count a pending request down.
+            logger.info("Consent NOTIFY skipped user_id=%s action=%s", user_id, action)
+            return
         data = await _enrich_notify_payload(data)
         logger.info("Consent NOTIFY received user_id=%s action=%s", user_id, action)
         await _push_to_developer_consent_queues(data)
-        if str(action).strip().upper() == "REQUESTED":
-            notification_payload = {
-                **data,
-                "notification_sequence": 1,
-                "delivery_reason": "initial_request",
-            }
-            await _dispatch_notification_for_user(user_id, notification_payload)
-            await _record_notification_event(notification_payload, action_name="NOTIFICATION_SENT")
+        is_request = str(action).strip().upper() == "REQUESTED"
+        owner_payload = (
+            {**data, "notification_sequence": 1, "delivery_reason": "initial_request"}
+            if is_request
+            else data
+        )
+        await _push_to_consent_queue(user_id, owner_payload)
+        doorbell = await _information_requester_doorbell(data)
+        claimed = await claim_delivery(consent_event_delivery_key(data))
+        if doorbell is not None:
+            requester_user_id, doorbell_payload = doorbell
+            if claimed or await _has_local_consent_queue(requester_user_id):
+                doorbell_payload = await _with_bundle_outcome(requester_user_id, doorbell_payload)
+                await _push_to_consent_queue(requester_user_id, doorbell_payload)
+                if claimed:
+                    await _send_fcm_for_user(requester_user_id, doorbell_payload)
+        if not claimed:
+            return
+        if is_request:
+            # Shared with the backfill job, so the job never repeats sequence 1
+            # for a request this handler is still delivering.
+            request_id = str(data.get("request_id") or "").strip()
+            if request_id and not await claim_delivery(request_notification_key(request_id, 1)):
+                return
+            await _send_fcm_for_user(user_id, owner_payload)
+            await _record_notification_event(owner_payload, action_name="NOTIFICATION_SENT")
         else:
-            await _dispatch_notification_for_user(user_id, data)
+            await _send_fcm_for_user(user_id, data)
     except json.JSONDecodeError as e:
         logger.warning("Consent notify invalid JSON: %s", e)
     except Exception as e:
         logger.exception("Consent notify handle error: %s", e)
+
+
+async def _has_local_consent_queue(user_id: str) -> bool:
+    async with _consent_notify_queues_lock:
+        return bool(_consent_notify_queues.get(user_id))
 
 
 async def _record_notification_event(
@@ -291,9 +623,100 @@ async def _record_notification_event(
         )
 
 
-async def _dispatch_notification_for_user(user_id: str, data: Dict[str, Any]) -> None:
-    await _push_to_consent_queue(user_id, data)
-    await _send_fcm_for_user(user_id, data)
+_REQUESTER_DOORBELL_ACTIONS = frozenset(
+    {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}
+)
+
+
+def _event_time_iso(issued_at: Any) -> str:
+    """The consent_audit ``issued_at`` (epoch ms) as an ISO-8601 UTC string."""
+    from datetime import datetime, timezone
+
+    try:
+        millis = int(issued_at)
+    except (TypeError, ValueError, OverflowError):
+        return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).isoformat()
+
+
+async def _information_requester_doorbell(
+    data: Dict[str, Any],
+) -> tuple[str, Dict[str, Any]] | None:
+    """The requester bound to this resolved person-to-person item, and its doorbell.
+
+    The doorbell is the canonical outcome event (api-contracts.md,
+    ``information_request_updated``): metadata only. The client rereads the
+    bundle and encrypted export through its own requester-scoped authorities;
+    neither a payload-supplied requester nor a scope label is trusted here.
+    """
+    action = str(data.get("action") or "").strip().upper()
+    if action not in _REQUESTER_DOORBELL_ACTIONS:
+        return None
+    bundle_id = str(data.get("bundle_id") or "").strip()
+    request_id = str(data.get("request_id") or "").strip()
+    subject_user_id = str(data.get("user_id") or "").strip()
+    if not _UUID_LIKE_PATTERN.fullmatch(bundle_id) or not request_id or not subject_user_id:
+        return None
+    try:
+        from db.db_client import get_db
+
+        def lookup() -> list[Dict[str, Any]]:
+            result = get_db().execute_raw(
+                """SELECT bundle.requester_user_id
+                   FROM one_information_request_bundles bundle
+                   JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+                   WHERE bundle.bundle_id = CAST(:bundle_id AS UUID)
+                     AND bundle.subject_user_id = :subject_user_id
+                     AND item.request_id = :request_id
+                   LIMIT 1""",
+                {
+                    "bundle_id": bundle_id,
+                    "subject_user_id": subject_user_id,
+                    "request_id": request_id,
+                },
+            )
+            return list(result.data or [])
+
+        rows = await asyncio.to_thread(lookup)
+    except Exception as exc:  # noqa: BLE001 - never unwind the consent event
+        logger.warning("information_request.requester_lookup_failed error=%s", type(exc).__name__)
+        return None
+    row = rows[0] if rows else {}
+    requester_user_id = str(row.get("requester_user_id") or "").strip()
+    if not requester_user_id or requester_user_id == subject_user_id:
+        return None
+    issued_at = data.get("issued_at") or ""
+    return requester_user_id, {
+        "type": "information_request_updated",
+        "user_id": requester_user_id,
+        "action": action,
+        "bundle_id": bundle_id,
+        "request_id": request_id,
+        "at": _event_time_iso(issued_at),
+        "message_id": f"information-request:{bundle_id}:{request_id}:{action}:{issued_at}",
+        "request_url": "/",
+        "deep_link": "/",
+    }
+
+
+async def _with_bundle_outcome(requester_user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add the bundle's outcome after this event (C1 ``progress.outcome``).
+
+    Read through the requester-bound bundle view, so the outcome is exactly what
+    the requester's own ``GET /api/one/information-requests/{bundle}`` returns.
+    A failed read leaves ``outcome`` out; the client rereads the bundle anyway.
+    """
+    try:
+        from hushh_mcp.services.information_request_service import InformationRequestService
+
+        bundle = await InformationRequestService().get(
+            requester_user_id=requester_user_id, bundle_id=str(payload["bundle_id"])
+        )
+        outcome = str(((bundle.get("progress") or {}).get("outcome")) or "").strip()
+    except Exception as exc:  # noqa: BLE001 - the doorbell still rings without it
+        logger.warning("information_request.outcome_read_failed error=%s", type(exc).__name__)
+        return payload
+    return {**payload, "outcome": outcome} if outcome else payload
 
 
 async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -316,7 +739,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 
         db = get_db()
         if request_id:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -328,7 +752,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
                 {"user_id": user_id, "request_id": request_id},
             )
         else:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -446,7 +871,126 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         return data
 
 
+# The answers a requester's chat continues from, plus the end of access the
+# requester must hear about (the chat redacts what was shared). A withdrawal is
+# the requester's own act and stays silent. A partial answer on a multi-field
+# request alerts only once the whole request is settled (outcome not pending);
+# the per-request tag collapses repeats on the device.
+_REQUESTER_ALERT_ACTIONS = frozenset({"CONSENT_GRANTED", "CONSENT_DENIED", "TIMEOUT", "REVOKED"})
+REQUESTER_ANSWER_TITLE = "Hussh One"
+REQUESTER_ANSWER_BODY = "Your information request has an answer"
+REQUESTER_ACCESS_ENDED_BODY = "Access to information shared with you has ended"
+
+
+def build_consent_push_content(
+    user_id: str, data: Dict[str, Any]
+) -> tuple[str, str, Dict[str, str], bool]:
+    """Title, body, data and alert flag for one consent push.
+
+    A push is a bare wake-up. Its visible text names who is asking and nothing
+    else, and its data carries identifiers only: no scope, scope description,
+    purpose or grant list, because a lock screen and the push provider see all
+    of it before the vault is unlocked. The app loads the details after unlock
+    from the owner-scoped pending list (fcm-notifications.md, trust rule).
+    """
+    if data.get("type") == "answer_request_changed":
+        request_id = str(data.get("request_id") or "")
+        path = f"/one/consents?requestId=answer_request%3A{request_id}"
+        return (
+            "Request scope updated",
+            "Open the app to review its current status.",
+            {
+                "type": "answer_request_changed",
+                "user_id": user_id,
+                "request_id": request_id,
+                "event_id": str(data.get("event_id") or ""),
+                "request_url": path,
+                "deep_link": path,
+                "notification_tag": f"answer_request:{request_id}",
+            },
+            False,
+        )
+    request_id = data.get("request_id", "")
+    action = str(data.get("action", "REQUESTED"))
+    normalized_action = action.upper()
+    agent_id = data.get("agent_id", "")
+    agent_label = data.get("requester_label", "") or data.get("agent_label", "") or agent_id
+    bundle_id = data.get("bundle_id", "")
+    request_url = data.get("request_url", "") or build_consent_request_url(
+        request_id=str(request_id or "").strip() or None,
+        bundle_id=str(bundle_id or "").strip() or None,
+    )
+    deep_link = data.get("deep_link", "") or build_consent_request_path(
+        request_id=str(request_id or "").strip() or None,
+        bundle_id=str(bundle_id or "").strip() or None,
+    )
+    delivery_reason = str(data.get("delivery_reason", "")).strip()
+    who = str(agent_label or "Someone").strip() or "Someone"
+
+    if data.get("type") == "information_request_updated":
+        message_type = "information_request_updated"
+        # The requester's answer opens the conversation that asked, after unlock.
+        request_url = deep_link = f"/?informationRequest={bundle_id}"
+        outcome = str(data.get("outcome") or "").strip()
+        show_alert = normalized_action in _REQUESTER_ALERT_ACTIONS and outcome != "pending"
+        title = REQUESTER_ANSWER_TITLE
+        body = (
+            REQUESTER_ACCESS_ENDED_BODY if normalized_action == "REVOKED" else REQUESTER_ANSWER_BODY
+        )
+        tag = f"information-request:{bundle_id}"
+    else:
+        message_type = {
+            "REQUESTED": "consent_request",
+            "NOTIFICATION_OPENED": "consent_opened",
+        }.get(normalized_action, "consent_resolved")
+        show_alert = normalized_action == "REQUESTED"
+        if show_alert and delivery_reason == "final_reminder":
+            title, body = "Consent expires soon", f"{who}'s request is still waiting for you."
+        elif show_alert:
+            title, body = "Consent request", f"{who} asked to see your information"
+        else:
+            title, body = "Consent updated", "A request changed"
+        tag = f"consent-request:{bundle_id or request_id}"
+
+    message_data = _as_string_map(
+        {
+            "type": message_type,
+            "request_id": request_id,
+            "message_id": data.get("message_id"),
+            "action": action,
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "agent_label": agent_label,
+            "requester_label": data.get("requester_label"),
+            "requester_image_url": data.get("requester_image_url"),
+            "requester_website_url": data.get("requester_website_url"),
+            "bundle_id": bundle_id,
+            "bundle_scope_count": str(data.get("bundle_scope_count", "1")),
+            "request_url": request_url,
+            "deep_link": deep_link,
+            "expiry_hours": data.get("expiry_hours"),
+            "approval_timeout_at": data.get("approval_timeout_at"),
+            "approval_timeout_minutes": data.get("approval_timeout_minutes"),
+            "notification_sequence": data.get("notification_sequence", ""),
+            "delivery_reason": delivery_reason,
+            "notification_tag": tag,
+            "notification_category": "CONSENT_REQUEST" if message_type == "consent_request" else "",
+            # The canonical outcome event (api-contracts.md): identifiers, the
+            # outcome word and a time only, never a scope, label or value.
+            "outcome": data.get("outcome")
+            if message_type == "information_request_updated"
+            else None,
+            "at": data.get("at") if message_type == "information_request_updated" else None,
+        }
+    )
+    return title, body, message_data, show_alert
+
+
 async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
+    await asyncio.to_thread(_send_fcm_for_user_sync, user_id, data)
+
+
+def _send_fcm_for_user_sync(user_id: str, data: Dict[str, Any]):
     """Fetch tokens from user_push_tokens and send FCM data message."""
     try:
         from db.db_client import get_db
@@ -454,8 +998,8 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
         db = get_db()
         # Sync query via raw SQL (user_push_tokens may not exist yet if migration not run)
         result = db.execute_raw(
-            "SELECT token, platform FROM user_push_tokens WHERE user_id = :uid",
-            {"uid": user_id},
+            PUSH_TOKENS_FOR_USER_SQL,
+            {"user_id": user_id},
         )
         if result.error or not result.data:
             logger.info("FCM skipped: no push tokens for user_id=%s", user_id)
@@ -472,96 +1016,8 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
             return
         from firebase_admin import messaging
 
-        request_id = data.get("request_id", "")
-        action = str(data.get("action", "REQUESTED"))
-        scope = data.get("scope", "")
-        agent_id = data.get("agent_id", "")
-        agent_label = data.get("requester_label", "") or data.get("agent_label", "") or agent_id
-        scope_description = data.get("scope_description", "")
-        bundle_id = data.get("bundle_id", "")
-        bundle_label = data.get("bundle_label", "")
-        bundle_scope_count = str(data.get("bundle_scope_count", "1"))
-        request_url = data.get("request_url", "") or build_consent_request_url(
-            request_id=str(request_id or "").strip() or None,
-            bundle_id=str(bundle_id or "").strip() or None,
-        )
-        deep_link = data.get("deep_link", "") or build_consent_request_path(
-            request_id=str(request_id or "").strip() or None,
-            bundle_id=str(bundle_id or "").strip() or None,
-        )
-        notification_sequence = data.get("notification_sequence", "")
-        delivery_reason = str(data.get("delivery_reason", "")).strip()
-        reason = str(data.get("reason", "")).strip()
-        additional_access_summary = str(data.get("additional_access_summary", "")).strip()
-        title = "Consent request"
-        if delivery_reason == "final_reminder":
-            title = "Consent expires soon"
-
-        if action.upper() == "REQUESTED":
-            if delivery_reason == "final_reminder":
-                body = (
-                    f"{agent_label or 'An agent'} still needs approval for "
-                    f"{scope_description or scope or 'your data'}. Expires soon."
-                )
-            else:
-                body = (
-                    f"{agent_label or 'An agent'} is requesting access to your "
-                    f"{scope_description or scope or 'data'}."
-                )
-            if additional_access_summary:
-                body = f"{body} {additional_access_summary}"
-            if reason:
-                body = f"{body} Reason: {reason}"
-        else:
-            title = "Consent updated"
-            body = f"Request {request_id}: {action}"
-
-        message_type = "consent_resolved"
-        normalized_action = action.upper()
-        if normalized_action == "REQUESTED":
-            message_type = "consent_request"
-        elif normalized_action == "NOTIFICATION_OPENED":
-            message_type = "consent_opened"
-
-        message_data = _as_string_map(
-            {
-                "type": message_type,
-                "request_id": request_id,
-                "action": action,
-                "user_id": user_id,
-                "scope": scope,
-                "agent_id": agent_id,
-                "agent_label": agent_label,
-                "requester_label": data.get("requester_label"),
-                "requester_image_url": data.get("requester_image_url"),
-                "requester_website_url": data.get("requester_website_url"),
-                "scope_description": scope_description,
-                "bundle_id": bundle_id,
-                "bundle_label": bundle_label,
-                "bundle_scope_count": bundle_scope_count,
-                "request_url": request_url,
-                "deep_link": deep_link,
-                "reason": data.get("reason"),
-                "expiry_hours": data.get("expiry_hours"),
-                "approval_timeout_at": data.get("approval_timeout_at"),
-                "approval_timeout_minutes": data.get("approval_timeout_minutes"),
-                "is_scope_upgrade": data.get("is_scope_upgrade"),
-                "existing_granted_scopes": ",".join(
-                    [
-                        str(item).strip()
-                        for item in (data.get("existing_granted_scopes") or [])
-                        if str(item).strip()
-                    ]
-                ),
-                "additional_access_summary": data.get("additional_access_summary"),
-                "notification_sequence": notification_sequence,
-                "delivery_reason": delivery_reason,
-                "notification_tag": f"consent-request:{bundle_id or request_id}",
-                "notification_category": "CONSENT_REQUEST"
-                if message_type == "consent_request"
-                else "",
-            }
-        )
+        title, body, message_data, show_alert = build_consent_push_content(user_id, data)
+        request_url = message_data["request_url"]
         seen_tokens: set[str] = set()
         for row in result.data:
             token = row.get("token")
@@ -580,7 +1036,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
                 body=body,
                 request_url=request_url,
                 notification_tag=message_data["notification_tag"],
-                show_alert=action.upper() == "REQUESTED",
+                show_alert=show_alert,
             )
             try:
                 messaging.send(message)
@@ -588,10 +1044,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
                 # Token is stale/invalid -- remove it
                 logger.warning("FCM stale token for user %s, deleting", user_id)
                 try:
-                    db.execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(db, user_id, token)
                 except Exception as del_err:
                     logger.warning("Failed to delete stale token: %s", del_err)
             except Exception as e:
@@ -667,7 +1120,13 @@ async def _notification_job_loop():
                         "delivery_reason": delivery_reason,
                     }
                 )
-                await _dispatch_notification_for_user(str(pending.get("user_id") or ""), payload)
+                owner_id = str(pending.get("user_id") or "")
+                # Every worker runs this job. Each wakes the streams it holds;
+                # one worker per request and sequence sends the push and record.
+                await _push_to_consent_queue(owner_id, payload)
+                if not await claim_delivery(request_notification_key(request_id, sequence)):
+                    continue
+                await _send_fcm_for_user(owner_id, payload)
                 await _record_notification_event(
                     payload,
                     action_name="NOTIFICATION_SENT" if sequence == 1 else "REMINDER_SENT",
@@ -696,6 +1155,7 @@ async def _timeout_job_loop():
             count = await ConsentDBService().emit_timeout_events()
             if count:
                 logger.info("Timeout job: emitted %d TIMEOUT event(s)", count)
+            await prune_delivery_claims()
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -710,46 +1170,92 @@ async def _timeout_job_loop():
             logger.warning("Timeout job error: %s", e)
 
 
+async def _probe_listen_connection(conn) -> None:
+    """A bounded round trip also detects half-open listener connections.
+
+    Raises ConnectionError when the connection reports closed and TimeoutError
+    when it no longer answers; the listener loop re-LISTENs on either.
+    """
+    is_closed = getattr(conn, "is_closed", None)
+    if callable(is_closed) and is_closed():
+        raise ConnectionError("Consent LISTEN connection closed")
+    await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=LISTENER_PROBE_TIMEOUT_SECONDS)
+
+
+def _system_push_ready_callback(connection, pid, channel, payload: str) -> None:
+    from hushh_mcp.services.system_push_delivery import wake_system_push_worker
+
+    wake_system_push_worker()
+
+
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
-    Uses a dedicated asyncpg connection (db.connection.get_pool()).
+    Uses the worker's pooled listener transport, shared when isolation is enabled.
     Also starts the optional timeout job (TIMEOUT events for expired requests).
     """
+    global _listener_active, _serving_loop
+
+    # Sync mutation workers can broadcast before the first SSE subscription
+    # by retaining this process's serving loop through the startup window.
+    _serving_loop = asyncio.get_running_loop()
+
     # Start timeout + reminder jobs in background.
     timeout_task = asyncio.create_task(_timeout_job_loop())
     notification_task = asyncio.create_task(_notification_job_loop())
     try:
         from db.connection import get_pool
 
-        pool = await get_pool()
-    except Exception as e:
-        logger.error("Consent listener: DB pool not available (%s), skipping LISTEN", e)
-        timeout_task.cancel()
-        notification_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await timeout_task
-        with contextlib.suppress(asyncio.CancelledError):
-            await notification_task
-        return
-    conn = None
-    try:
-        conn = await pool.acquire()
-        await conn.execute("LISTEN consent_audit_new")
-        # asyncpg add_listener is a coroutine (must be awaited)
-        await conn.add_listener("consent_audit_new", _notify_callback)
-        global _listener_active
-        _listener_active = True
-        logger.info("Consent NOTIFY listener active (consent_audit_new)")
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            _listener_active = False
+        while True:
+            pool = None
+            conn = None
+            try:
+                pool = await get_pool()
+                conn = await listener_transport.acquire_listener_connection(pool, timeout=None)
+                await conn.execute("LISTEN consent_audit_new")
+                await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
+                await conn.add_listener("consent_audit_new", _notify_callback)
+                await conn.add_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                await conn.add_listener("system_push_ready", _system_push_ready_callback)
+                _listener_active = True
+                logger.info(
+                    "Consent NOTIFY listener active (consent_audit_new, %s)",
+                    USER_STATE_CHANNEL,
+                )
+                # Streams opened while LISTEN was down may have missed NOTIFYs.
+                await broadcast_local_resync()
+                while True:
+                    await listener_transport.wait_for_listener_connection(
+                        conn, LISTENER_HEALTHCHECK_INTERVAL_SECONDS
+                    )
+                    await _probe_listen_connection(conn)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - listener must self-heal
+                logger.warning(
+                    "Consent listener unavailable; retrying in %ss: %s",
+                    JOB_DB_RECOVERY_DELAY_SECONDS,
+                    exc,
+                )
+            finally:
+                _listener_active = False
+                if conn is not None and pool is not None:
+                    try:
+                        await conn.remove_listener("consent_audit_new", _notify_callback)
+                        await conn.remove_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                        await conn.remove_listener("system_push_ready", _system_push_ready_callback)
+                        await conn.execute("UNLISTEN consent_audit_new")
+                        await conn.execute(f"UNLISTEN {USER_STATE_CHANNEL}")
+                    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        logger.debug("Consent listener cleanup failed: %s", exc)
+                    try:
+                        await listener_transport.release_listener_connection(pool, conn)
+                    except Exception as exc:  # noqa: BLE001 - retry must survive cleanup
+                        logger.debug("Consent listener release failed: %s", exc)
+
+            await asyncio.sleep(JOB_DB_RECOVERY_DELAY_SECONDS)
     except asyncio.CancelledError:
         logger.info("Consent listener cancelled")
-    except Exception as e:
-        logger.exception("Consent listener error: %s", e)
     finally:
         _listener_active = False
         timeout_task.cancel()
@@ -762,11 +1268,3 @@ async def run_consent_listener():
             await notification_task
         except asyncio.CancelledError:
             pass
-        if conn is not None:
-            try:
-                # asyncpg remove_listener is a coroutine (must be awaited)
-                await conn.remove_listener("consent_audit_new", _notify_callback)
-                await conn.execute("UNLISTEN consent_audit_new")
-            except Exception:
-                pass
-            await pool.release(conn)

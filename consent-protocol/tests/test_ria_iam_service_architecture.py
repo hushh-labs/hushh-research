@@ -1,8 +1,10 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.renaissance_service import RenaissanceService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
@@ -1041,7 +1043,8 @@ def test_consent_center_history_keeps_different_subjects_separate():
 
 @pytest.mark.asyncio
 async def test_consent_center_summary_uses_surface_loaders_without_get_center(monkeypatch):
-    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "true")
+    # No env var set at all: this is the default now, not an opt-in.
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
     service = ConsentCenterService()
     contributor_calls = {"location": 0, "marketplace": 0, "connections": 0}
 
@@ -1063,11 +1066,7 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
     async def _location(_user_id: str):
         contributor_calls["location"] += 1
-        return {
-            "incoming_requests": [],
-            "active_grants": [],
-            "history": [],
-        }
+        return {"pending": 0, "active": 0, "previous": 0}
 
     async def _marketplace(_user_id: str):
         contributor_calls["marketplace"] += 1
@@ -1085,9 +1084,17 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
     monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
     monkeypatch.setattr(service, "_load_investor_active_entries", _active)
     monkeypatch.setattr(service, "_load_investor_previous_entries", _previous)
-    monkeypatch.setattr(service, "_location_buckets_async", _location)
+    monkeypatch.setattr(service, "_location_counts_async", _location)
     monkeypatch.setattr(service, "_marketplace_buckets_async", _marketplace)
     monkeypatch.setattr(service, "_incoming_connection_request_count", _connections)
+
+    monkeypatch.setattr(
+        service,
+        "_drive_counts",
+        lambda user_id: asyncio.sleep(
+            0, result={"incoming_requests": 0, "active_grants": 0, "history": 0}
+        ),
+    )
 
     payload = await service.get_center_summary("investor_1", actor="investor")
 
@@ -1096,9 +1103,43 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("actor", ["investor", "ria"])
-async def test_consent_center_summary_defaults_to_legacy_surface_counts(monkeypatch, actor):
-    """The optimization is opt-in; default UAT behavior must retain scalar counts."""
+async def test_consent_center_identifier_expansion_is_single_flight_per_owner(monkeypatch):
+    service = ConsentCenterService()
+    calls: list[str] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _identifiers(user_id: str):
+        calls.append(user_id)
+        started.set()
+        await release.wait()
+        return [user_id, f"alias:{user_id}"]
+
+    monkeypatch.setattr(service._identity, "list_account_identifiers", _identifiers)
+    first = asyncio.create_task(service._owned_user_identifiers("owner-a"))
+    await started.wait()
+    same_owner = asyncio.create_task(service._owned_user_identifiers("owner-a"))
+    other_owner = asyncio.create_task(service._owned_user_identifiers("owner-b"))
+    await asyncio.sleep(0)
+    release.set()
+
+    assert await asyncio.gather(first, same_owner, other_owner) == [
+        ["owner-a", "alias:owner-a"],
+        ["owner-a", "alias:owner-a"],
+        ["owner-b", "alias:owner-b"],
+    ]
+    assert calls.count("owner-a") == 1
+    assert calls.count("owner-b") == 1
+
+
+@pytest.mark.asyncio
+async def test_consent_center_summary_ria_actor_always_uses_legacy_surface_counts(monkeypatch):
+    """The single-fetch optimization only covers the investor actor -- the
+    branch in `get_center_summary` that calls `_location_buckets_async` /
+    `_marketplace_buckets_async` once is `elif normalized_actor == "investor"`,
+    so a ria actor keeps the three independent `_get_surface_count` calls
+    regardless of the feature flag. Unset here (the default) on purpose: this
+    must stay true whether or not V2 is enabled."""
     monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
     service = ConsentCenterService()
     calls: list[tuple[str, str, str]] = []
@@ -1107,22 +1148,79 @@ async def test_consent_center_summary_defaults_to_legacy_surface_counts(monkeypa
         calls.append((user_id, actor, surface))
         return {"pending": 3, "active": 2, "previous": 1}[surface]
 
+    monkeypatch.setattr(service, "_get_surface_count", _surface_count)
+
+    payload = await service.get_center_summary("user_1", actor="ria")
+
+    assert payload["counts"] == {"pending": 3, "active": 2, "previous": 1}
+    assert calls == [
+        ("user_1", "ria", "pending"),
+        ("user_1", "ria", "active"),
+        ("user_1", "ria", "previous"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_summary_explicit_opt_out_uses_legacy_surface_counts(monkeypatch):
+    """`CONSENT_CENTER_SUMMARY_V2_ENABLED=false` is the rollback lever for the
+    investor actor's single-fetch path -- explicitly disabling it must still
+    fall all the way back to the original three-`_get_surface_count`-calls
+    behavior."""
+    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "false")
+    service = ConsentCenterService()
+    calls: list[tuple[str, str, str]] = []
+
+    async def _surface_count(user_id: str, *, actor: str, surface: str, mode: str) -> int:
+        calls.append((user_id, actor, surface))
+        return {"pending": 3, "active": 2, "previous": 1}[surface]
+
     async def _unexpected(*_args, **_kwargs):  # noqa: ANN002, ANN003
-        raise AssertionError("V2 loaders must not run while the feature flag is disabled")
+        raise AssertionError("V2 loaders must not run while explicitly disabled")
 
     monkeypatch.setattr(service, "_get_surface_count", _surface_count)
     monkeypatch.setattr(service, "_location_buckets_async", _unexpected)
     monkeypatch.setattr(service, "_marketplace_buckets_async", _unexpected)
     monkeypatch.setattr(service, "_incoming_connection_request_count", _unexpected)
 
-    payload = await service.get_center_summary("user_1", actor=actor)
+    payload = await service.get_center_summary("user_1", actor="investor")
 
     assert payload["counts"] == {"pending": 3, "active": 2, "previous": 1}
     assert calls == [
-        ("user_1", actor, "pending"),
-        ("user_1", actor, "active"),
-        ("user_1", actor, "previous"),
+        ("user_1", "investor", "pending"),
+        ("user_1", "investor", "active"),
+        ("user_1", "investor", "previous"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_summary_connections_mode_fetches_entries_once(monkeypatch):
+    """`mode=connections` has its own v2 branch, reachable by real traffic --
+    the Consent Center page's Connections tab passes it through to this exact
+    endpoint. It must fetch `_load_connection_entries_for_actor` once and
+    derive all three counts from it via `_connection_surface_for_status`,
+    the same predicate the legacy per-surface path used, rather than the
+    legacy path's three independent fetches."""
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
+    service = ConsentCenterService()
+    fetch_calls = 0
+
+    async def _connection_entries(_user_id: str, *, actor: str):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return [
+            {"id": "c1", "status": "pending"},
+            {"id": "c2", "status": "pending"},
+            {"id": "c3", "status": "accepted"},
+            {"id": "c4", "status": "rejected"},
+            {"id": "c5", "status": "revoked"},
+        ]
+
+    monkeypatch.setattr(service, "_load_connection_entries_for_actor", _connection_entries)
+
+    payload = await service.get_center_summary("user_1", actor="ria", mode="connections")
+
+    assert payload["counts"] == {"pending": 2, "active": 1, "previous": 2}
+    assert fetch_calls == 1
 
 
 @pytest.mark.asyncio
@@ -1598,3 +1696,393 @@ def test_next_action_for_relationship_status():
     assert service._next_action_for_relationship_status("expired") == "re_request"
     assert service._next_action_for_relationship_status("blocked") == "resolve_block"
     assert service._next_action_for_relationship_status("unknown") == "request_access"
+
+
+def test_pick_package_projection_bounds_and_attributes_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+    oversized = "A" * 2100
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": oversized,
+                    "advisor_thesis": {
+                        "text": "forged browser text",
+                        "authored_by_user_id": "attacker",
+                        "source": "ria_picks_editor",
+                        "updated_at": "1999-01-01T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] == "A" * 2000
+    assert row["advisor_thesis"] == {
+        "text": "A" * 2000,
+        "authored_by_user_id": "ria_user_1",
+        "source": "ria_picks_editor",
+        "updated_at": "2026-08-28T00:00:00Z",
+    }
+
+
+def test_pick_package_projection_allows_absent_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": "",
+                    "advisor_thesis": {
+                        "text": "stale browser value",
+                        "authored_by_user_id": "attacker",
+                        "source": "ria_picks_editor",
+                        "updated_at": "1999-01-01T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] is None
+    assert row["advisor_thesis"] is None
+
+
+def test_pick_package_projection_does_not_resurrect_removed_advisor_thesis(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    package = service._build_pick_package_projection(
+        {
+            "top_picks": [
+                {
+                    "ticker": "NVDA",
+                    "tier": "ACE",
+                    "investment_thesis": "",
+                    "advisor_thesis": {
+                        "text": "OLD_REMOVED_THESIS_MUST_NOT_SURVIVE",
+                        "authored_by_user_id": "ria_user_1",
+                        "source": "ria_picks_editor",
+                        "updated_at": "2026-08-27T00:00:00Z",
+                    },
+                }
+            ],
+            "avoid_rows": [],
+            "screening_sections": [],
+        },
+        provider_user_id="ria_user_1",
+        updated_at="2026-08-28T00:00:00Z",
+    )
+
+    row = package["top_picks"][0]
+    assert row["investment_thesis"] is None
+    assert row["advisor_thesis"] is None
+    assert "OLD_REMOVED_THESIS_MUST_NOT_SURVIVE" not in json.dumps(package)
+
+
+def test_pick_package_projection_bounds_oversized_advisor_thesis_at_backend(monkeypatch):
+    import hushh_mcp.services.ria_iam_service as ria_module
+
+    class _SymbolMaster:
+        @staticmethod
+        def normalize(value):
+            return str(value or "").strip().upper()
+
+        @staticmethod
+        def get_ticker_metadata(_ticker):
+            return {"title": "NVIDIA Corporation", "sector_primary": "Technology"}
+
+    monkeypatch.setattr(ria_module, "get_symbol_master_service", lambda: _SymbolMaster())
+    service = RIAIAMService()
+
+    for oversized in ("B" * 2001, "C" * 2100):
+        package = service._build_pick_package_projection(
+            {
+                "top_picks": [
+                    {
+                        "ticker": "NVDA",
+                        "tier": "ACE",
+                        "investment_thesis": oversized,
+                    }
+                ],
+                "avoid_rows": [],
+                "screening_sections": [],
+            },
+            provider_user_id="ria_user_1",
+            updated_at="2026-08-28T00:00:00Z",
+        )
+        row = package["top_picks"][0]
+        assert len(row["investment_thesis"]) == 2000
+        assert len(row["advisor_thesis"]["text"]) == 2000
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_connection_only_without_share(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            assert args == ("investor_1", "ria_profile_1", "ria_active_picks_feed_v1")
+            assert "rel.status = 'approved'" in query
+            assert "share.status = 'active'" in query
+            assert "proposal.status = 'active'" in query
+            assert "proposal.expires_at > NOW()" in query
+            assert "artifact.status = 'active'" in query
+            return None
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    resolved = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert resolved is None
+    assert "CONNECTION_ONLY_THESIS_MUST_NOT_LEAK" not in json.dumps(resolved)
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_wrong_investor(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, _query: str, *args):
+            investor_user_id, ria_profile_id, grant_key = args
+            assert ria_profile_id == "ria_profile_1"
+            assert grant_key == "ria_active_picks_feed_v1"
+            if investor_user_id != "investor_a":
+                return None
+            return {
+                "relationship_id": "rel_a",
+                "share_grant_id": "grant_a",
+                "connection_scope_proposal_id": "proposal_a",
+                "ria_user_id": "ria_user_1",
+                "label": "Advisor Alpha",
+                "artifact_id": "artifact_a",
+                "source_data_version": 7,
+                "source_manifest_revision": 3,
+                "artifact_updated_at": "2026-08-28T00:00:00Z",
+                "artifact_projection": json.dumps(
+                    {
+                        "top_picks": [
+                            {
+                                "ticker": "NVDA",
+                                "tier": "ACE",
+                                "investment_thesis": "AUTHORIZED_ONLY_FOR_INVESTOR_A",
+                            }
+                        ],
+                        "avoid_rows": [],
+                        "screening_sections": [],
+                    }
+                ),
+            }
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
+
+    denied = await service.resolve_investor_pick_source("investor_b", "ria:ria_profile_1")
+    allowed = await service.resolve_investor_pick_source("investor_a", "ria:ria_profile_1")
+
+    assert denied is None
+    assert "AUTHORIZED_ONLY_FOR_INVESTOR_A" not in json.dumps(denied)
+    assert allowed is not None
+    assert (
+        allowed["package"]["top_picks"][0]["investment_thesis"] == "AUTHORIZED_ONLY_FOR_INVESTOR_A"
+    )
+    assert allowed["snapshot"]["share_grant_id"] == "grant_a"
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_revoked_share_on_new_resolution(monkeypatch):
+    class _FakeConn:
+        active = True
+
+        async def fetchrow(self, query: str, *_args):
+            assert "share.status = 'active'" in query
+            if not self.active:
+                return None
+            return {
+                "relationship_id": "rel_1",
+                "share_grant_id": "grant_1",
+                "connection_scope_proposal_id": "proposal_1",
+                "ria_user_id": "ria_user_1",
+                "label": "Advisor Alpha",
+                "artifact_id": "artifact_1",
+                "source_data_version": 7,
+                "source_manifest_revision": 3,
+                "artifact_updated_at": "2026-08-28T00:00:00Z",
+                "artifact_projection": json.dumps(
+                    {
+                        "top_picks": [
+                            {
+                                "ticker": "NVDA",
+                                "tier": "ACE",
+                                "investment_thesis": "REVOKED_THESIS_MUST_DISAPPEAR",
+                            }
+                        ],
+                        "avoid_rows": [],
+                        "screening_sections": [],
+                    }
+                ),
+            }
+
+        async def close(self):
+            return None
+
+    conn = _FakeConn()
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return conn
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_build_pick_package_projection", lambda package: package)
+
+    active = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+    conn.active = False
+    revoked = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert "REVOKED_THESIS_MUST_DISAPPEAR" in json.dumps(active)
+    assert revoked is None
+    assert "REVOKED_THESIS_MUST_DISAPPEAR" not in json.dumps(revoked)
+
+
+@pytest.mark.asyncio
+async def test_resolve_investor_pick_source_denies_expired_proposal(monkeypatch):
+    class _FakeConn:
+        async def fetchrow(self, query: str, *_args):
+            assert "proposal.status = 'active'" in query
+            assert "proposal.expires_at > NOW()" in query
+            return None
+
+        async def close(self):
+            return None
+
+    service = RIAIAMService()
+
+    async def _fake_conn():
+        return _FakeConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+
+    resolved = await service.resolve_investor_pick_source("investor_1", "ria:ria_profile_1")
+
+    assert resolved is None
+    assert "EXPIRED_THESIS_MUST_NOT_LEAK" not in json.dumps(resolved)
+
+
+def test_directory_search_never_emits_pick_thesis_fields(monkeypatch):
+    service = ConnectionsService(
+        directory_lookup=lambda _user_id: [
+            {
+                "userId": "ria_user_1",
+                "displayName": "Advisor Alpha",
+                "photoUrl": None,
+                "email": "advisor@example.com",
+                "advisor_thesis": "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK",
+                "investment_thesis": "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK",
+            }
+        ],
+        directory_visible=lambda _viewer, _candidate: True,
+    )
+    service._directory_search = None
+    monkeypatch.setattr(service, "_execute_many", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_verified_ria_user_ids", lambda _user_ids: {"ria_user_1"})
+    monkeypatch.setattr(
+        service, "_public_person_refs", lambda _user_ids: {"ria_user_1": "person_1"}
+    )
+
+    payload = service.search_directory("investor_1", audience="advisors")
+
+    assert payload["items"] == [
+        {
+            "userId": "ria_user_1",
+            "publicPersonRef": "person_1",
+            "displayName": "Advisor Alpha",
+            "photoUrl": None,
+            "email": "advisor@example.com",
+            "maskedEmail": None,
+            "maskedPhone": None,
+            "relationship": "none",
+            "mutualConnectionCount": 0,
+            "mutualConnectionPreview": None,
+            "isRia": True,
+        }
+    ]
+    assert "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK" not in json.dumps(payload)

@@ -1,0 +1,291 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const root = process.cwd();
+
+function source(relativePath: string): string {
+  return readFileSync(join(root, relativePath), "utf8");
+}
+
+function between(value: string, start: string, end: string): string {
+  const startIndex = value.indexOf(start);
+  const endIndex = value.indexOf(end, startIndex + start.length);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  expect(endIndex).toBeGreaterThan(startIndex);
+  return value.slice(startIndex, endIndex);
+}
+
+describe("native resumed-session privacy shield contract", () => {
+  it("forwards typed HTTP renewal failures on iOS without exposing error bodies", () => {
+    const plugin = source("ios/App/App/Plugins/HushhConsentPlugin.swift");
+    const request = plugin.slice(plugin.indexOf("private func performRequest("));
+    const httpFailure = between(
+      request,
+      "if let httpResponse = response as? HTTPURLResponse",
+      "guard let data = data else",
+    );
+    const renewal = between(
+      plugin,
+      "@objc func issueVaultOwnerToken",
+      "@objc func publishIMessageSession",
+    );
+    expect(httpFailure).toContain("JSONSerialization.jsonObject(with: $0)");
+    expect(httpFailure).toContain("completion(payload, errorMsg)");
+    expect(httpFailure).not.toContain("completion(nil, errorMsg)");
+    expect(httpFailure).not.toContain("bodyStr");
+    expect(httpFailure).not.toContain("backendUrl:");
+    expect(renewal).toContain('detail?["code"] as? String');
+    expect(renewal).toContain("call.reject(errorMsg, code)");
+  });
+
+  it("never attempts a reviewer Vault unlock for anonymous native recovery", () => {
+    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+    const recovery = between(
+      uiTests,
+      "func testAccountNotFoundRecoveryReturnsToLogin",
+      "func testPublicAndAuthRoutes",
+    );
+    const statusWait = between(
+      uiTests,
+      "private func waitForSatisfiedStatus",
+      "private func waitForNativeRoute",
+    );
+    expect(recovery).toContain("autoReviewerLogin: false");
+    expect(recovery).toContain('expectedAuth: "anonymous"');
+    expect(recovery).toContain("XCTAssertFalse(app.secureTextFields");
+    expect(recovery).toContain("let resumeDeadline = Date().addingTimeInterval(30)");
+    expect(recovery).toContain("loginButton.exists && loginButton.isHittable");
+    expect(statusWait).toMatch(
+      /if route\.autoReviewerLogin\s*\{\s*_ = attemptVaultPassphraseUnlock\(app: app\)/,
+    );
+  });
+
+  it("uses a non-secret Firebase fixture whose format permits native startup", () => {
+    const workflow = source("../.github/workflows/ci.yml");
+    const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
+    const fixtureKey = nativeJob.match(/NEXT_PUBLIC_FIREBASE_API_KEY: (\S+)/)?.[1];
+    expect(fixtureKey).toMatch(/^A0{38}$/);
+    expect(nativeJob).toContain('plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY"');
+  });
+
+  it("requires iOS success only after the native job can run", () => {
+    const workflow = source("../.github/workflows/ci.yml");
+    const preflight = between(workflow, "  preflight-gate:", "  web-core-check:");
+    const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
+    const finalGate = workflow.slice(workflow.indexOf("  ci-status:"));
+    expect(preflight).not.toContain("$IOS_NATIVE");
+    expect(nativeJob).toContain("needs: [preflight-gate]");
+    expect(nativeJob).toMatch(
+      /if: >-\s+!cancelled\(\) && needs\['preflight-gate'\]\.result == 'success' &&\s+\(needs\['preflight-gate'\]\.outputs\.ios == 'true'\)/,
+    );
+    expect(finalGate).toContain('IOS_NATIVE="${{ needs[\'ios-native-check\'].result }}"');
+    expect(finalGate).toContain('[ "$IOS_NATIVE" != "success" ]');
+  });
+
+  it("exposes a web-safe, generation-scoped Capacitor acknowledgement API", () => {
+    const bridge = source("lib/capacitor/session-privacy.ts");
+
+    expect(bridge).toContain('"HushhSessionPrivacy"');
+    expect(bridge).toContain("getNativeSessionPrivacyState");
+    expect(bridge).toContain("completeNativeSessionPrivacyValidation");
+    expect(bridge).toContain("generation, documentId: privacyDocumentId()");
+    expect(bridge).toContain("Number.isSafeInteger(generation)");
+    expect(bridge).toContain("if (!Capacitor.isNativePlatform())");
+  });
+
+  it("releases the cover only after the resumed document is ready", () => {
+    const authContext = source("lib/firebase/auth-context.tsx");
+    const nativePrivacySettlement = between(
+      authContext,
+      "const settleNativePrivacyProtectedSession",
+      "const connectNativePrivacyListener",
+    );
+
+    expect(authContext).toContain("getNativeSessionPrivacyState()");
+    expect(authContext).toContain(
+      "validateActiveSession({ force: true })",
+    );
+    expect(authContext).toContain("completeNativeSessionPrivacyValidation(");
+    expect(authContext).toContain("privacyState.generation");
+    expect(authContext).toContain("!terminalInvalidationLatchRef.current");
+    expect(authContext).toContain("!signOutPromiseRef.current");
+    expect(authContext).toContain("subscribeNativeSessionPrivacy");
+    expect(nativePrivacySettlement).not.toContain("validateActiveSession");
+    expect(nativePrivacySettlement).not.toContain("setLoading(true)");
+    expect(authContext).toContain("requestAnimationFrame");
+    expect(authContext).toContain("nativePrivacyReconcileRef.current()");
+  });
+
+  it("covers iOS before inactivity and releases only an active matching generation", () => {
+    // The shield is driven from the UIScene lifecycle, not from the
+    // AppDelegate: under the iOS 27 SDK the scene callback fires while
+    // `applicationState` is still `.inactive`, so the handlers observe
+    // UIApplication notifications instead. Same three moments, one owner.
+    const delegate = source("ios/App/App/SceneDelegate.swift");
+    const controller = source(
+      "ios/App/App/Plugins/HushhSessionPrivacyPlugin.swift",
+    );
+    const bridgeController = source("ios/App/App/MyViewController.swift");
+    const project = source("ios/App/App.xcodeproj/project.pbxproj");
+
+    // A handler nothing calls is the failure mode this replaces: assert the
+    // observers exist before asserting what they do.
+    for (const notification of [
+      "UIApplication.willResignActiveNotification",
+      "UIApplication.didEnterBackgroundNotification",
+      "UIApplication.didBecomeActiveNotification",
+    ]) {
+      expect(delegate).toContain(`center.addObserver(forName: ${notification}`);
+    }
+
+    const resignActive = between(
+      delegate,
+      "static func willResignActive",
+      "static func didEnterBackground",
+    );
+    const becameActive = between(
+      delegate,
+      "static func didBecomeActive",
+      "static func open(url:",
+    );
+
+    expect(resignActive).toContain(
+      "HushhSessionPrivacyShield.shared.protectForAppInactive()",
+    );
+    expect(becameActive).toContain(
+      "HushhSessionPrivacyShield.shared.markAppActive()",
+    );
+    expect(becameActive).not.toContain("completeSessionValidation");
+    expect(becameActive).not.toContain("removeFromSuperview");
+
+    expect(controller).toContain("struct HushhSessionPrivacyState");
+    expect(controller).toContain("private(set) var shielded = false");
+    expect(controller).toContain("private(set) var generation = 0");
+    expect(controller).toContain("private var state = HushhSessionPrivacyState()");
+    expect(controller).toContain("requestedGeneration == generation");
+    expect(controller).toContain("requestedGeneration > 0");
+    expect(controller).toContain("appIsActive");
+    // The input blocker stays full strength while its opaque visual child
+    // fades only after validated handback; renewed inactivity restores it.
+    expect(controller).toContain("visual.isOpaque = true");
+    expect(controller).toContain("visualCover?.alpha = 1");
+    for (const edge of ["leading", "trailing", "top", "bottom"]) {
+      expect(controller).toContain(`visual.${edge}Anchor.constraint(equalTo: overlay.${edge}Anchor)`);
+    }
+    expect(controller).toContain(
+      'accessibilityIdentifier = "session-privacy-shield"',
+    );
+    expect(controller).toContain("overlay.isUserInteractionEnabled = true");
+    expect(controller).toContain(
+      "UIApplication.shared.applicationState == .active",
+    );
+    expect(bridgeController).toContain(
+      "HushhSessionPrivacyShield.shared.attach(to: view)",
+    );
+    expect(bridgeController).toContain(
+      "registerPluginInstance(HushhSessionPrivacyPlugin())",
+    );
+    expect(project).toContain("HushhSessionPrivacyPlugin.swift in Sources");
+    expect(delegate).toContain("HushhSessionPrivacyShield.shared.markAppBackgrounded()");
+    expect(controller).toContain("retainUntilConsumed: true");
+    expect(controller).toContain('retry.setTitle("Try again"');
+    expect(controller).toContain('restart.setTitle("Restart session"');
+    expect(controller).toContain("static let recoveryDelay: TimeInterval = 8");
+    expect(controller).toContain(".now() + Self.recoveryDelay");
+    expect(controller).toContain('title.text = "Unable to restore the private view"');
+    expect(controller).toContain("stack.isHidden = true");
+    // The iOS cover is the launch screen; it never renders a loading state.
+    expect(controller).toContain('UIImage(named: "Splash")');
+    expect(controller).not.toContain("Protecting private information");
+    expect(controller).not.toContain("UIActivityIndicatorView");
+    expect(controller).toContain("retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)");
+    expect(controller).toContain("title.numberOfLines = 0");
+    expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
+    expect(controller.indexOf("documents.restart()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
+    expect(controller).toContain("guard pendingRelease == nil, documents.accepts(documentId),");
+    expect(controller).toContain("self.documents.accepts(documentId), UIApplication.shared.applicationState == .active");
+    expect(bridgeController).toContain("self?.webView?.reload()");
+  });
+
+  it("covers Android before Capacitor pause and never auto-releases on resume", () => {
+    const activity = source(
+      "android/app/src/main/java/com/hussh/app/MainActivity.kt",
+    );
+    const plugin = source(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhSessionPrivacy/HushhSessionPrivacyPlugin.kt",
+    );
+
+    const onCreate = between(
+      activity,
+      "override fun onCreate",
+      "override fun onResume",
+    );
+    const onResume = between(
+      activity,
+      "override fun onResume",
+      "override fun onPause",
+    );
+    const onPause = between(
+      activity,
+      "override fun onPause",
+      "override fun onStop",
+    );
+    const onDestroy = between(
+      activity,
+      "override fun onDestroy",
+      "internal fun readSessionPrivacyState",
+    );
+    const showOverlay = between(
+      activity,
+      "private fun showSessionPrivacyOverlay",
+      "private fun hideSessionPrivacyOverlay",
+    );
+    const hideOverlay = between(
+      activity,
+      "private fun hideSessionPrivacyOverlay",
+      "private fun hideSessionContentFromAccessibility",
+    );
+
+    expect(onCreate).not.toContain("activateSessionPrivacyShield()");
+    expect(onCreate).toContain("if (sessionPrivacyShielded)");
+    expect(onResume).toContain("sessionPrivacyActivityResumed = true");
+    expect(onResume).not.toContain("completeSessionValidation");
+    expect(onResume).not.toContain("hideSessionPrivacyOverlay");
+    expect(onPause.indexOf("activateSessionPrivacyShield()")).toBeLessThan(
+      onPause.indexOf("super.onPause()"),
+    );
+
+    expect(activity).toContain("generation == sessionPrivacyGeneration");
+    expect(activity).toContain("sessionPrivacyActivityResumed");
+    expect(activity).toContain("WindowManager.LayoutParams.FLAG_SECURE");
+    expect(activity).toContain("isClickable = true");
+    expect(activity).toContain("View.IMPORTANT_FOR_ACCESSIBILITY_YES");
+    expect(activity).toContain(
+      "View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS",
+    );
+    expect(activity).toContain("sessionPrivacyPreviousWebViewAccessibility");
+    expect(activity).toContain("webView.importantForAccessibility");
+    expect(activity).toContain(
+      "webView.importantForAccessibility = previousMode",
+    );
+    expect(showOverlay).toContain("hideSessionContentFromAccessibility()");
+    expect(hideOverlay).toContain("restoreSessionContentAccessibility()");
+    expect(onDestroy).toContain("restoreSessionContentAccessibility()");
+    expect(activity).toContain(
+      "registerPlugin(HushhSessionPrivacyPlugin::class.java)",
+    );
+    expect(plugin).toContain('@CapacitorPlugin(name = "HushhSessionPrivacy")');
+    expect(plugin).toContain("fun getState(call: PluginCall)");
+    expect(plugin).toContain("fun completeSessionValidation(call: PluginCall)");
+    expect(plugin).toContain("generation <= 0");
+    expect(plugin).toContain('notifyListeners("privacyStateChanged"');
+    expect(activity).toContain('sessionPrivacyCause = "background"');
+    expect(activity).toContain('sessionPrivacyCause = "restart"');
+    expect(activity).toContain("nativeTestHandler.postDelayed(work, 8_000)");
+    expect(activity).toContain("sessionPrivacyProgress?.visibility = View.GONE");
+    expect(activity).toContain('sessionPrivacyTitle?.text = "Unable to restore the private view"');
+    expect(activity).toContain("bridge?.webView?.reload()");
+  });
+});

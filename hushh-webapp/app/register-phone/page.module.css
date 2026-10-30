@@ -1,0 +1,193 @@
+.shell {
+  --phone-safe-top: max(env(safe-area-inset-top, 0px), var(--app-safe-area-top-effective, 0px));
+  --phone-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom-effective, 0px));
+  --phone-keyboard-inset: 0px;
+  --phone-text: #1d1d1f;
+  --phone-muted: #6e6e73;
+  --phone-bg: #fff;
+  --phone-field: #f8f9fb;
+  --phone-line: #d9dde6;
+  --phone-soft: #f5f5f7;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  block-size: calc(100dvh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset));
+  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: calc(var(--phone-safe-top) + 68px) calc(var(--phone-safe-bottom) + 24px);
+  background: var(--phone-bg);
+  color: var(--phone-text);
+  font-family: var(--font-app-body);
+  -webkit-overflow-scrolling: touch;
+}
+:global(html.dark) .shell {
+  color-scheme: dark;
+  --phone-text: #f5f5f7;
+  --phone-muted: #a5a7af;
+  --phone-bg: #101114;
+  --phone-field: #202127;
+  --phone-line: #393c47;
+  --phone-soft: #202127;
+}
+/* Capacitor keeps the WKWebView frame fixed. The shared keyboard manager
+   publishes its actual overlap; both phone and OTP need the same scroll area. */
+:global(html.native-keyboard-inset) .shell { --phone-keyboard-inset: var(--kb-height, 0px); }
+.backButton, .accountButton {
+  position: fixed;
+  z-index: 50;
+  top: calc(var(--phone-safe-top) + 14px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--phone-soft);
+  color: var(--phone-muted);
+  touch-action: manipulation;
+}
+.backButton { left: max(18px, env(safe-area-inset-left, 0px)); }
+.accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
+.accountButton { position: static; }
+.backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
+.surface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(15px, 3svh, 23px);
+  width: 100%;
+  max-width: 480px;
+  min-height: 100%;
+  margin-inline: auto;
+  padding: max(74px, calc(var(--phone-safe-top) + 68px)) 24px max(26px, var(--phone-safe-bottom));
+}
+.content { width: 100%; max-width: 374px; min-width: 0; flex: 0 0 auto; }
+.shell .content h1 {
+  --foundation-title1-size: 30px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -.042em;
+  margin: 0;
+  color: var(--phone-text);
+  font-family: var(--font-app-display);
+  font-size: 30px !important;
+  font-weight: 600 !important;
+  line-height: 36px !important;
+  letter-spacing: -.042em !important;
+  text-align: center;
+  text-wrap: balance;
+}
+.inputRegion { width: 100%; margin-top: 27px; }
+.phoneForm { width: 100%; }
+.phoneForm :global([data-slot="field-set"]) { gap: 0 !important; }
+.phoneForm :global([data-figma-phone-fields]) { display: grid; grid-template-columns: minmax(102px, 114px) minmax(0, 1fr); align-items: start; gap: 10px !important; }
+.phoneForm :global([data-figma-phone-field]) { min-width: 0; gap: 0 !important; }
+.phoneForm :global([data-figma-phone-field] [data-slot="field-label"]),
+.phoneForm :global([data-figma-otp-field] > label) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.phoneForm :global(#phone-flow-country),
+.phoneForm :global([data-slot="input-group"]) {
+  width: 100%; height: 52px !important; min-height: 52px !important;
+  border: 1px solid var(--phone-line) !important; border-radius: 15px !important;
+  background: var(--phone-field) !important; box-shadow: none !important;
+  color: var(--phone-text); font-family: var(--font-app-body); font-size: 15px;
+}
+.phoneForm :global(#phone-flow-country) { padding-inline: 12px; font-weight: 600; }
+.phoneForm :global([data-slot="input-group-control"]) {
+  width: 100%; height: 52px !important; min-height: 52px !important; padding: 0 15px !important;
+  border: 0 !important; background: transparent !important; color: var(--phone-text) !important;
+  font-family: var(--font-app-body) !important; font-size: 16px !important; font-weight: 400 !important;
+  line-height: 21px !important; box-shadow: none !important;
+}
+.phoneForm :global([data-slot="input-group-control"]::placeholder) { color: var(--phone-muted); opacity: 1; }
+.phoneForm :global([data-slot="input-group"]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border) !important;
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--phone-field)) !important;
+}
+.phoneForm :global([data-slot="input-group"]:focus-within) { box-shadow: 0 0 0 2px var(--app-focus-ring) !important; }
+.phoneForm :global([data-figma-phone-helper]) {
+  margin: 14px 0 17px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
+  font-size: 13px !important; font-weight: 400; line-height: 20px !important; letter-spacing: -.005em;
+}
+.learnMore { display: inline; padding: 0; border: 0; background: none; color: var(--app-accent); font: inherit; font-weight: 500; }
+.learnMore:hover { text-decoration: underline; text-underline-offset: 3px; }
+.primaryAction,
+.phoneForm :global([data-figma-phone-primary]),
+.phoneForm :global([data-figma-otp-primary]) {
+  width: 100% !important; max-width: none !important; height: 52px !important; min-height: 52px !important;
+  padding: 11px 18px !important; border: 0 !important; border-radius: 999px !important;
+  background: var(--app-accent) !important; color: #fff !important; font-family: var(--font-app-body) !important;
+  font-size: 17px !important; font-weight: 600 !important; line-height: 24px !important;
+  letter-spacing: -.01em !important; box-shadow: none !important;
+}
+.phoneForm :global([data-figma-phone-primary] *),
+.phoneForm :global([data-figma-otp-primary] *) { color: inherit !important; font-weight: 600 !important; }
+.phoneForm :global([data-figma-otp-primary]:disabled) { background: #d2e5f9 !important; color: #9bb1cd !important; opacity: 1 !important; }
+:global(html.dark) .phoneForm :global([data-figma-otp-primary]:disabled) { background: #17467c !important; color: #809ab7 !important; }
+.phoneForm :global([data-figma-phone-field="number"][data-invalid="true"] [data-slot="input-group"]) { border-color: var(--destructive) !important; }
+.phoneForm :global([data-slot="field-error"]),
+.phoneForm :global(#phone-flow-code-error) { margin-top: 8px; color: var(--destructive) !important; font-size: 13px; line-height: 20px; }
+.phoneForm :global([data-figma-otp-intro]) {
+  margin: -14px 0 19px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
+  font-size: 14px !important; line-height: 21px !important; text-align: center; text-wrap: pretty;
+}
+.phoneForm :global([data-figma-otp-intro] > span) { color: var(--phone-text) !important; font-weight: 600; white-space: nowrap; }
+.phoneForm :global([data-figma-otp-intro] button) { color: var(--app-accent) !important; font: inherit; font-weight: 500; }
+.phoneForm :global([data-figma-otp-field]) { margin-bottom: 18px; gap: 0 !important; }
+.phoneForm :global([data-figma-otp-field] > div) { height: 58px; }
+.phoneForm :global([data-otp-cells]) { height: 58px; gap: 7px !important; }
+.phoneForm :global([data-otp-cells] > div) {
+  min-width: 0; height: 58px; border: 1px solid var(--phone-line) !important;
+  border-radius: 14px !important; background: var(--phone-field) !important; box-shadow: none !important;
+  color: var(--phone-text) !important; font-family: var(--font-app-body); font-size: 22px; font-weight: 600;
+}
+.phoneForm :global([data-figma-otp-field]:focus-within [data-otp-cells] > [data-current="true"]) { border: 2px solid var(--app-accent) !important; box-shadow: 0 0 0 3px var(--app-accent)28 !important; }
+.phoneForm :global([data-figma-otp-field][data-invalid="true"] [data-otp-cells] > div) { border-color: var(--destructive) !important; }
+.phoneForm :global(#phone-flow-code) { font-size: 22px; scroll-margin-block: 80px; }
+.phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
+.phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: var(--app-accent) !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
+.recaptcha { display: none; }
+@media (max-width: 355px) {
+  .surface { padding-inline: 18px; }
+  .shell .content h1 { --foundation-title1-size: 28px; --foundation-title1-line: 34px; font-size: 28px !important; line-height: 34px !important; }
+  .inputRegion { margin-top: 19px; }
+  .phoneForm :global([data-figma-phone-fields]) { grid-template-columns: 100px minmax(0, 1fr); gap: 8px !important; }
+  .phoneForm :global(#phone-flow-country) { padding-inline: 9px; }
+  .phoneForm :global([data-slot="input-group-control"]) { padding-inline: 11px !important; }
+  .phoneForm :global([data-otp-cells]) { gap: 6px !important; }
+  .phoneForm :global([data-otp-cells] > div) { border-radius: 11px !important; }
+}
+@media (min-width: 800px) {
+  .surface { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: center; justify-content: center; gap: clamp(36px, 6vw, 90px); max-width: 1160px; padding: 70px 44px; }
+  .content { max-width: 410px; justify-self: start; }
+  .shell .content h1 { --foundation-title1-size: 42px; --foundation-title1-line: 48px; --foundation-title1-tracking: -.048em; font-size: 42px !important; line-height: 48px !important; letter-spacing: -.048em !important; text-align: left; }
+  .inputRegion { margin-top: 31px; }
+  .shell[data-phone-step="code"] .inputRegion { margin-top: 23px; }
+  .phoneForm :global([data-figma-phone-fields]) { grid-template-columns: minmax(110px, 122px) minmax(0, 1fr); gap: 12px !important; }
+  .phoneForm :global([data-figma-phone-helper]) { margin: 17px 0 19px; font-size: 14px !important; line-height: 22px !important; }
+  .phoneForm :global([data-figma-otp-intro]) { margin: 0 0 22px; text-align: left; font-size: 15px !important; line-height: 23px !important; }
+  .phoneForm :global([data-figma-otp-field]), .phoneForm :global([data-figma-otp-field] > div), .phoneForm :global([data-otp-cells]), .phoneForm :global([data-otp-cells] > div) { height: 60px; }
+  .accountActions { top: 26px; right: 32px; }
+  .backButton { top: 26px; left: 32px; }
+}
+@media (max-height: 690px) {
+  .surface { gap: 8px; padding-top: max(66px, calc(var(--phone-safe-top) + 58px)); padding-bottom: 16px; }
+  .inputRegion { margin-top: 13px; }
+  .phoneForm :global([data-figma-phone-helper]) { margin: 10px 0 13px; }
+  .phoneForm :global([data-figma-otp-intro]) { margin-bottom: 11px; }
+  .phoneForm :global([data-figma-otp-field]) { margin-bottom: 11px; }
+}
+@media (min-width: 800px) and (max-height: 690px) { .surface { gap: 28px; padding-block: 38px; } .inputRegion { margin-top: 17px; } }
+/* A visible keyboard gets the whole form area. On very short iPhones the
+   scrollable shell still lets the code and Confirm button reach the viewport. */
+@media (max-width: 799px) {
+  :global(html.kb-open) .surface { justify-content: flex-start; gap: 0; }
+  :global(html.kb-open) .surface > :first-child { display: none; }
+  :global(html.kb-open) .backButton, :global(html.kb-open) .accountActions { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .shell *, .shell *::before, .shell *::after { animation: none !important; transition: none !important; } }

@@ -14,6 +14,10 @@ type AccountCatchAllRoute = {
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
   ) => Promise<Response>;
+  PUT: (
+    request: NextRequest,
+    props: { params: Promise<{ path: string[] }> }
+  ) => Promise<Response>;
 };
 
 let route: AccountCatchAllRoute;
@@ -83,6 +87,60 @@ describe("/api/account/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 
+  it("forwards the owner-authorized Puppy grant method and body", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ enabled: true })
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/trusted-devices/device_1/puppy-access",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer owner-capability",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ enabled: true }),
+      },
+    );
+
+    const response = await route.PUT(request, {
+      params: Promise.resolve({ path: ["trusted-devices", "device_1", "puppy-access"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/trusted-devices/device_1/puppy-access",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ enabled: true }) }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer owner-capability");
+  });
+
+  it("forwards lost-vault deletion proof and preserves a verification error", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ detail: { code: "ACCOUNT_DELETE_REAUTH_REQUIRED" } }, { status: 401 }),
+    );
+    const body = { method: "phone", phone_id_token: "fresh-phone-token" };
+    const request = new NextRequest("http://localhost:3000/api/account/delete-lost-vault", {
+      method: "POST",
+      headers: { Authorization: "Bearer fresh-provider-token", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const response = await route.POST(request, {
+      params: Promise.resolve({ path: ["delete-lost-vault"] }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ detail: { code: "ACCOUNT_DELETE_REAUTH_REQUIRED" } });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/delete-lost-vault",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer fresh-provider-token");
+  });
+
   it("forwards alias list query parameters", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, aliases: [] })
@@ -101,6 +159,66 @@ describe("/api/account/[...path] proxy", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://backend.test/api/account/email-aliases?view=all"
     );
+  });
+
+  it("preserves terminal session status bodies and recovery headers", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
+        }),
+        {
+          status: 423,
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Type": "application/json",
+            "Retry-After": "2",
+            "WWW-Authenticate": 'Bearer realm="account-session"',
+            "Set-Cookie": "must-not-cross=backend",
+          },
+        },
+      ),
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/session-status",
+      { headers: { Authorization: "Bearer firebase-token" } },
+    );
+
+    const response = await route.GET(request, {
+      params: Promise.resolve({ path: ["session-status"] }),
+    });
+
+    expect(response.status).toBe(423);
+    expect(await response.json()).toEqual({
+      detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
+    });
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("Retry-After")).toBe("2");
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      'Bearer realm="account-session"',
+    );
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("does not turn an empty upstream response into a successful JSON object", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "private, no-store" },
+      }),
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/session-status",
+      { headers: { Authorization: "Bearer firebase-token" } },
+    );
+
+    const response = await route.GET(request, {
+      params: Promise.resolve({ path: ["session-status"] }),
+    });
+
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
     it("preserves forwarded account proxy query parameter ordering", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -131,4 +249,15 @@ describe("/api/account/[...path] proxy", () => {
       "http://backend.test/api/account/email-aliases?view=all&sort=desc&limit=10"
     );
   });
+  it("forwards read-only lost-vault phone comparison with auth, body and non-cacheable errors", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ detail: { code: "ACCOUNT_DELETE_PHONE_MISMATCH" } }, { status: 403, headers: { "Cache-Control": "private, no-store" } }));
+    const body = JSON.stringify({ phone_number: "+12125550100" });
+    const response = await route.POST(new NextRequest("http://localhost:3000/api/account/delete-lost-vault/phone", { method: "POST", headers: { Authorization: "Bearer fresh-provider-token", "Content-Type": "application/json" }, body }), { params: Promise.resolve({ path: ["delete-lost-vault", "phone"] }) });
+    expect(fetchMock).toHaveBeenCalledWith("http://backend.test/api/account/delete-lost-vault/phone", expect.objectContaining({ method: "POST", body }));
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get("Authorization")).toBe("Bearer fresh-provider-token");
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ detail: { code: "ACCOUNT_DELETE_PHONE_MISMATCH" } });
+  });
+
 });

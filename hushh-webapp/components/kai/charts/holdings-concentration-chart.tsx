@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3 } from "@/components/icons";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "recharts";
 
 import {
@@ -13,6 +13,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 interface ConcentrationDatum {
@@ -93,7 +95,7 @@ export function HoldingsConcentrationChart({
               tickLine={false}
               tick={{ fontSize: 10 }}
             />
-            <ChartTooltip
+            <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
               cursor={false}
               content={
                 <ChartTooltipContent
@@ -116,7 +118,7 @@ export function HoldingsConcentrationChart({
                 />
               }
             />
-            <Bar dataKey="weightPct" radius={[0, 6, 6, 0]} maxBarSize={16}>
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="weightPct" radius={[0, 6, 6, 0]} maxBarSize={16}>
               <LabelList
                 dataKey="weightPct"
                 position="right"

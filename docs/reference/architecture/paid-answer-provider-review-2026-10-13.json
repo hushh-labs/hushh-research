@@ -1,0 +1,620 @@
+{
+  "runtime": {
+    "observedAt": "2026-10-12T22:59:35.908816+00:00",
+    "project": "hushh-pda-uat",
+    "region": "us-central1",
+    "service": "consent-protocol",
+    "latestReadyRevision": "consent-protocol-02068-juz",
+    "traffic": [
+      {
+        "percent": 100,
+        "revisionName": "consent-protocol-02068-juz",
+        "tag": "account-deletion-38311696725",
+        "url": "https://account-deletion-38311696725---consent-protocol-f2gsa4kfsq-uc.a.run.app"
+      }
+    ],
+    "runtimeServiceAccount": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+    "deploymentLabels": {
+      "deploy-sha": "9f6232dea557243ad65b4c7b8599f98848a86477",
+      "deploy-source": "deploy-uat"
+    },
+    "nonsecretEnvironment": {
+      "ENVIRONMENT": "uat",
+      "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+      "GOOGLE_GENAI_USE_VERTEXAI": "true",
+      "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
+      "GENAI_GOOGLE_CLOUD_PROJECT": "hushh-vertex-personal54",
+      "GOOGLE_CLOUD_LOCATION": "global",
+      "HUSHH_VERTEX_LOCATIONS": "global,us,eu",
+      "DRIVE_REQUEST_PAYMENTS_ENABLED": "true",
+      "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "true",
+      "STRIPE_MODE": "live",
+      "HUSSH_GEMINI_TEXT_MODEL": "gemini-3.6-flash",
+      "PKM_ANSWER_PAYMENTS_ENABLED": "true",
+      "PKM_ANSWER_COMPOSER_ENABLED": "true",
+      "PKM_ANSWER_LIVE_PROVIDER_REVIEWED": "false",
+      "PKM_ANSWER_STRIPE_MODE": "test",
+      "ANSWER_WORK_DRAIN_ENABLED": "false",
+      "HUSHH_ONE_CHAT_VERTEX_PROJECT": "hussh-511311"
+    },
+    "answerRepositoryVariables": {
+      "PKM_ANSWER_COMPOSER_UAT_ENABLED": "true",
+      "PKM_ANSWER_PAYMENTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_STRIPE_UAT_MODE": "live"
+    },
+    "stripeSecretBindingNames": {
+      "PKM_ANSWER_STRIPE_SECRET_KEY": "STRIPE_SECRET_KEY",
+      "PKM_ANSWER_STRIPE_WEBHOOK_SECRET": "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_SECRET_KEY": "STRIPE_LIVE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET": "STRIPE_LIVE_WEBHOOK_SECRET"
+    }
+  },
+  "vertex": {
+    "observedAt": "2026-10-12T22:41:59.160496+00:00",
+    "project": "hushh-vertex-personal54",
+    "model": "gemini-3.6-flash",
+    "checks": [
+      {
+        "url": "https://us-central1-aiplatform.googleapis.com/v1/projects/hushh-vertex-personal54/cacheConfig",
+        "status": 200,
+        "body": {
+          "name": "projects/748922917160/cacheConfig",
+          "retentionConfig": {
+            "retentionType": "DURABLE"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/global/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/global/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.us.rep.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/us/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/us/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      },
+      {
+        "url": "https://aiplatform.eu.rep.googleapis.com/v1beta1/projects/hushh-vertex-personal54/locations/eu/publishers/google/models/gemini-3.6-flash:fetchPublisherModelConfig",
+        "status": 404,
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "PublisherModelConfig not found for 'projects/hushh-vertex-personal54/locations/eu/publishers/google/models/gemini-3.6-flash'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+            "status": "NOT_FOUND"
+          }
+        }
+      }
+    ]
+  },
+  "mutationsPerformed": [
+    {
+      "kind": "authorised_answer_repository_variable_update",
+      "readback": {
+        "PKM_ANSWER_COMPOSER_UAT_ENABLED": "true",
+        "PKM_ANSWER_LIVE_PROVIDER_UAT_REVIEWED": "false",
+        "PKM_ANSWER_PAYMENTS_UAT_ENABLED": "true",
+        "PKM_ANSWER_REQUESTS_UAT_ENABLED": "true",
+        "PKM_ANSWER_STRIPE_UAT_MODE": "test"
+      }
+    },
+    {
+      "kind": "authorised_controlled_uat_backend_deployment",
+      "workflowUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/38323861024",
+      "targetSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139"
+    }
+  ],
+  "stripe": {
+    "observedAt": "2026-10-12T23:35:36.645062+00:00",
+    "project": "hushh-pda-uat",
+    "keySecretName": "STRIPE_LIVE_SECRET_KEY",
+    "mutationsPerformed": [],
+    "secretAccess": {
+      "ok": true,
+      "liveKeyFormat": true
+    },
+    "balanceModeProbe": {
+      "status": 200,
+      "livemode": true
+    },
+    "platformReadinessProbe": {
+      "status": 200,
+      "charges_enabled": true,
+      "payouts_enabled": true,
+      "details_submitted": true
+    },
+    "sharedWebhookProbe": {
+      "status": 200,
+      "hasMore": false,
+      "matchingEndpoints": [
+        {
+          "url": "https://api.uat.hushh.ai/api/payments/stripe/webhook",
+          "livemode": true,
+          "status": "enabled",
+          "enabled_events": [
+            "checkout.session.completed",
+            "checkout.session.async_payment_succeeded",
+            "checkout.session.expired",
+            "invoice.paid",
+            "customer.subscription.updated",
+            "customer.subscription.deleted"
+          ]
+        }
+      ]
+    }
+  },
+  "officialCacheSchemaReview": {
+    "observedAt": "2026-10-12T23:51:54.008548+00:00",
+    "sources": [
+      "https://aiplatform.googleapis.com/$discovery/rest?version=v1",
+      "https://aiplatform.googleapis.com/$discovery/rest?version=v1beta1"
+    ],
+    "versions": [
+      "v1",
+      "v1beta1"
+    ],
+    "retentionTypes": [
+      "RETENTION_TYPE_UNSPECIFIED",
+      "EPHEMERAL",
+      "DURABLE"
+    ],
+    "verifiedSemantics": {
+      "DURABLE": "Permits long-lived implicit cache retention using durable storage. A project with no stated preference also reports this mode.",
+      "EPHEMERAL": "Restricts implicit cache retention to volatile memory.",
+      "RETENTION_TYPE_UNSPECIFIED": "Treated as DURABLE."
+    },
+    "unresolved": [
+      "Exact data held, TTL/deletion and residency guarantees for this project and model under DURABLE",
+      "Applicable contract and abuse-monitoring retention/exemption",
+      "Owner approval of verified provider processing and displayed consent, or separate approval to change project-wide caching posture"
+    ]
+  },
+  "uatRepositoryVariableRestoration": {
+    "workflowUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/38323861024",
+    "deploymentTargetSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+    "readback": {
+      "PKM_ANSWER_COMPOSER_UAT_ENABLED": "true",
+      "PKM_ANSWER_LIVE_PROVIDER_UAT_REVIEWED": "false",
+      "PKM_ANSWER_PAYMENTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_REQUESTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_STRIPE_UAT_MODE": "test"
+    },
+    "status": "Success; serving revision consent-protocol-02071-zap verified at 100% traffic in TEST mode with provider review false."
+  },
+  "explicitContextCacheReview": {
+    "observedAt": "2026-10-13T00:10:33.548945+00:00",
+    "project": "hushh-vertex-personal54",
+    "model": "gemini-3.6-flash",
+    "checks": [
+      {
+        "location": "global",
+        "url": "https://aiplatform.googleapis.com/v1/projects/hushh-vertex-personal54/locations/global/cachedContents",
+        "status": 200,
+        "pagesRead": 1,
+        "cacheCount": 0,
+        "cacheMetadata": [],
+        "contentAndDisplayNamesOmitted": true
+      },
+      {
+        "location": "us",
+        "url": "https://aiplatform.us.rep.googleapis.com/v1/projects/hushh-vertex-personal54/locations/us/cachedContents",
+        "status": 200,
+        "pagesRead": 1,
+        "cacheCount": 0,
+        "cacheMetadata": [],
+        "contentAndDisplayNamesOmitted": true
+      },
+      {
+        "location": "eu",
+        "url": "https://aiplatform.eu.rep.googleapis.com/v1/projects/hushh-vertex-personal54/locations/eu/cachedContents",
+        "status": 200,
+        "pagesRead": 1,
+        "cacheCount": 0,
+        "cacheMetadata": [],
+        "contentAndDisplayNamesOmitted": true
+      }
+    ],
+    "mutationsPerformed": [],
+    "limitations": [
+      "Explicit cache listing does not describe hidden implicit durable caching or establish deletion/residency guarantees."
+    ],
+    "officialDocumentation": {
+      "create": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-create?hl=en",
+      "overview": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-overview",
+      "update": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-update?hl=en",
+      "defaultExpiryMinutes": 60,
+      "maximumConfiguredLifetime": null,
+      "expiryDeletion": "Expired caches are unavailable and deleted by a garbage-collection process; no physical deletion deadline is specified.",
+      "interaction": "Explicit caches may also participate in implicit caching; listing no explicit caches does not establish implicit cache retention."
+    }
+  },
+  "uatRestorationVerification": {
+    "observedAt": "2026-10-13T00:09:58.068694+00:00",
+    "project": "hushh-pda-uat",
+    "region": "us-central1",
+    "expectedDeploymentSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+    "workflowUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/38323861024",
+    "checks": [
+      {
+        "name": "backend_health",
+        "method": "GET",
+        "path": "/health",
+        "status": 200,
+        "healthy": true
+      },
+      {
+        "name": "capability_availability",
+        "method": "GET",
+        "path": "/health/capabilities",
+        "status": 200,
+        "availability": {
+          "app": "healthy",
+          "capabilities": {
+            "vertex_ai": "available",
+            "voice": "available",
+            "maps": "available"
+          },
+          "degraded": []
+        }
+      },
+      {
+        "name": "stripe_readonly_balance",
+        "status": 200,
+        "livemode": false
+      },
+      {
+        "name": "stripe_readonly_webhook_endpoints",
+        "status": 200,
+        "matchingSharedEndpoints": [
+          {
+            "id": "we_1ULnWXLYaD0u4Aj1GVGeSurz",
+            "url": "https://api.uat.hushh.ai/api/payments/stripe/webhook",
+            "status": "enabled",
+            "livemode": false,
+            "enabled_events": [
+              "checkout.session.completed",
+              "checkout.session.async_payment_succeeded",
+              "checkout.session.expired",
+              "invoice.paid",
+              "customer.subscription.updated",
+              "customer.subscription.deleted"
+            ]
+          }
+        ],
+        "hasMore": false,
+        "listCannotExposeExistingSigningSecret": true
+      },
+      {
+        "name": "shared_answer_webhook_invalid_signature",
+        "method": "POST",
+        "path": "/api/payments/stripe/webhook",
+        "status": 400,
+        "noStore": true,
+        "orderOrEventMutation": false,
+        "unsupportedEventType": "pkm_answer.availability_probe"
+      },
+      {
+        "name": "shared_answer_webhook_verified_test_noop",
+        "method": "POST",
+        "path": "/api/payments/stripe/webhook",
+        "status": 200,
+        "orderOrEventMutation": false,
+        "unsupportedEventType": "pkm_answer.availability_probe",
+        "received": true
+      },
+      {
+        "name": "answer_request_availability",
+        "method": "GET",
+        "path": "/api/one/answer-requests/availability",
+        "status": 200,
+        "noStore": true,
+        "gates": {
+          "enabled": true,
+          "requests": true,
+          "payments": true,
+          "payouts": true
+        }
+      },
+      {
+        "name": "owner_preparation_queue_available",
+        "method": "GET",
+        "path": "/api/one/answer-requests/answerable",
+        "status": 200,
+        "noStore": true,
+        "queueCount": 0,
+        "queueContentsOmitted": true
+      }
+    ],
+    "limitations": [
+      "Availability checks do not prove a completed owner-approved answer, payment or readable delivery.",
+      "No model prompt, private fact, vault unlock, payment or financial mutation is performed.",
+      "Live-provider review remains false pending separate durable-cache and contract evidence.",
+      "The deployed main baseline is separate from the unmerged #7849 final changes."
+    ],
+    "workflow": {
+      "conclusion": "success",
+      "headSha": "a05166ee8687a941979c23bfe9535ee0970f0237",
+      "status": "completed",
+      "workflowName": "Deploy to UAT"
+    },
+    "serving": {
+      "revision": "consent-protocol-02071-zap",
+      "trafficPercent": 100,
+      "deploymentSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+      "expectedShaMatches": true,
+      "ready": [
+        {
+          "lastTransitionTime": "2026-10-13T00:03:14.241446Z",
+          "message": "Deploying revision succeeded in 6m37.55s.",
+          "status": "True",
+          "type": "Ready"
+        }
+      ],
+      "image": "gcr.io/hushh-pda-uat/consent-protocol@sha256:34e28a58f1a75e53db4d580d9c048f88006515d7434b2eb9c612f768867ae10a"
+    },
+    "drive": {
+      "baselineRevision": "consent-protocol-02068-juz",
+      "environment": {
+        "DRIVE_WORK_DRAIN_ENABLED": "true",
+        "DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID": "hushh-pda-uat",
+        "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL": "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com",
+        "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE": "https://api.uat.hushh.ai",
+        "DRIVE_REQUEST_PAYMENTS_ENABLED": "true",
+        "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "true",
+        "DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
+        "DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED": "true",
+        "STRIPE_MODE": "live",
+        "STRIPE_CONNECT_MODE": "live",
+        "GOOGLE_DRIVE_OAUTH_CLIENT_ID": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
+          }
+        },
+        "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
+          }
+        },
+        "GOOGLE_DRIVE_PICKER_API_KEY": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "GOOGLE_DRIVE_PICKER_API_KEY"
+          }
+        },
+        "DRIVE_DOCUMENT_KEY_V1": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "DRIVE_DOCUMENT_KEY_V1"
+          }
+        },
+        "DRIVE_SHARING_KEY_V1": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "DRIVE_SHARING_KEY_V1"
+          }
+        },
+        "STRIPE_SECRET_KEY": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "STRIPE_LIVE_SECRET_KEY"
+          }
+        },
+        "STRIPE_WEBHOOK_SECRET": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "STRIPE_LIVE_WEBHOOK_SECRET"
+          }
+        },
+        "STRIPE_CONNECT_WEBHOOK_SECRET": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET"
+          }
+        },
+        "STRIPE_CONNECT_SECRET_KEY": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "STRIPE_LIVE_SECRET_KEY"
+          }
+        },
+        "STRIPE_CONNECT_TEST_WEBHOOK_SECRET": {
+          "secretKeyRef": {
+            "key": "latest",
+            "name": "STRIPE_CONNECT_WEBHOOK_SECRET"
+          }
+        }
+      },
+      "changedKeys": []
+    },
+    "answerEnvironment": {
+      "PKM_ANSWER_REQUESTS_ENABLED": "true",
+      "PKM_ANSWER_PAYMENTS_ENABLED": "true",
+      "PKM_ANSWER_COMPOSER_ENABLED": "true",
+      "PKM_ANSWER_LIVE_PROVIDER_REVIEWED": "false",
+      "PKM_ANSWER_STRIPE_MODE": "test",
+      "HUSSH_GEMINI_TEXT_MODEL": "gemini-3.6-flash",
+      "GOOGLE_GENAI_USE_VERTEXAI": "true",
+      "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
+      "GOOGLE_CLOUD_LOCATION": "global",
+      "GENAI_GOOGLE_CLOUD_PROJECT": "hushh-vertex-personal54",
+      "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+      "HUSHH_VERTEX_LOCATIONS": "global,us,eu",
+      "HUSHH_ONE_CHAT_VERTEX_PROJECT": "hussh-511311",
+      "HUSHH_ONE_VOICE_VERTEX_PROJECT": "hussh-511311",
+      "CONSENT_API_PUBLIC_ORIGIN": "https://api.uat.hushh.ai",
+      "APP_FRONTEND_ORIGIN": {
+        "secretKeyRef": {
+          "key": "latest",
+          "name": "APP_FRONTEND_ORIGIN"
+        }
+      }
+    },
+    "answerCredentialReferences": {
+      "PKM_ANSWER_STRIPE_SECRET_KEY": {
+        "secretKeyRef": {
+          "key": "latest",
+          "name": "STRIPE_SECRET_KEY"
+        }
+      },
+      "PKM_ANSWER_STRIPE_WEBHOOK_SECRET": {
+        "secretKeyRef": {
+          "key": "latest",
+          "name": "STRIPE_WEBHOOK_SECRET"
+        }
+      }
+    },
+    "deployedSourceWriterBoundary": {
+      "sourceSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+      "gene": "one_paid_answer_writer",
+      "model": {
+        "provider": "gemini",
+        "name": "gemini-default",
+        "mode": "hushh_managed_vertex",
+        "thinking_level": "low"
+      },
+      "runtimeMode": "single_turn",
+      "plaintextTelemetry": false,
+      "actualGeminiInvocationPerformed": false
+    },
+    "stripeCredentialCheck": {
+      "keyIsTest": true,
+      "webhookSigningSecretPresent": true
+    },
+    "maintainerAuth": {
+      "existingMaintainerVerified": true,
+      "uidOmitted": true,
+      "exchangeStatus": 200
+    },
+    "verificationState": "read_only_availability_observed"
+  },
+  "providerConfigurationMutationsPerformed": [],
+  "officialEndpointReview": {
+    "observedAt": "2026-10-13T00:24:49.632458+00:00",
+    "source": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency?popup=false",
+    "locationsSource": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations",
+    "configuredRegions": [
+      "global",
+      "us",
+      "eu"
+    ],
+    "processingSemantics": {
+      "global": "Requests may be processed in any Google Cloud location; no processing-residency guarantee.",
+      "us": "Jurisdictional processing within the United States.",
+      "eu": "Jurisdictional processing within EU member states."
+    },
+    "limitations": [
+      "Processing-region commitments do not resolve the implicit DURABLE cache storage lifetime/deletion/residency.",
+      "Existing global/us/eu routing preserved; no project-wide cache or endpoint policy changed."
+    ]
+  },
+  "syntheticRealGeminiAdapterProbe": {
+    "observedAt": "2026-10-13T00:30:39.828414+00:00",
+    "status": "passed",
+    "scope": "Local production AnswerComposer / managed ADK single-turn with real Vertex transport and strictly synthetic facts",
+    "deploymentBindingSource": {
+      "revision": "consent-protocol-02071-zap",
+      "deploymentSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139"
+    },
+    "project": "hushh-vertex-personal54",
+    "model": "gemini-3.6-flash",
+    "configuredLocations": [
+      "global",
+      "us",
+      "eu"
+    ],
+    "calls": [
+      {
+        "number": 1,
+        "measurement": "first_local_process_call",
+        "status": "success",
+        "nonemptyAnswer": true,
+        "answerLengthChars": 122,
+        "coversCount": 3,
+        "gapsCount": 0,
+        "boundedJsonContractAccepted": true,
+        "elapsedMs": 3922.01
+      },
+      {
+        "number": 2,
+        "measurement": "second_same_process_call",
+        "status": "success",
+        "nonemptyAnswer": true,
+        "answerLengthChars": 120,
+        "coversCount": 3,
+        "gapsCount": 0,
+        "boundedJsonContractAccepted": true,
+        "elapsedMs": 1354.65
+      }
+    ],
+    "httpCalls": [
+      {
+        "method": "post",
+        "project": "hushh-vertex-personal54",
+        "location": "global",
+        "model": "gemini-3.6-flash",
+        "operation": "generateContent",
+        "status": 200,
+        "elapsedMs": 1744.85
+      },
+      {
+        "method": "post",
+        "project": "hushh-vertex-personal54",
+        "location": "global",
+        "model": "gemini-3.6-flash",
+        "operation": "generateContent",
+        "status": 200,
+        "elapsedMs": 1324.93
+      }
+    ],
+    "noPrivateFacts": true,
+    "promptAndReplyPersisted": false,
+    "runtimeOrProviderSettingsChanged": false,
+    "databaseOrPaymentOperations": false,
+    "providerReviewSatisfied": false,
+    "limitations": [
+      "Two individual samples measure first and second composer calls in one local process; they are not a latency distribution or SLA.",
+      "The first call includes local manifest/client/auth initialization; it is not a measured Cloud Run cold start.",
+      "The second call reuses the local shared regional transport; provider cache-hit behavior is not asserted.",
+      "CLI OAuth uses the already authorised local identity, not the deployed Cloud Run service identity.",
+      "No consent-gated UAT route, owner profile, projection/decryption browser, receipt/staging, payment or readable delivery is exercised.",
+      "DURABLE caching, applicable terms/abuse retention and owner disclosure prerequisites remain unresolved; review flags stay false."
+    ],
+    "authentication": {
+      "mode": "vertex_adc",
+      "localCredentialSource": "existing_active_gcloud_identity",
+      "identityType": "authorized_user",
+      "identityAndCredentialValuesOmitted": true
+    },
+    "privateTelemetryNoContent": true,
+    "dependencies": {
+      "google-adk": "2.9.0",
+      "google-genai": "2.23.0",
+      "google-auth": "2.58.0"
+    },
+    "localSourceHead": "8aac6a05ee6d5f735005d3fd73ab6a39d114b8bc",
+    "localHarnessOverrides": "Only ephemeral process environment for exact verified project/model and existing CLI OAuth; no deployed runtime or provider configuration mutation",
+    "twoVertexCallsVerified": true
+  },
+  "displayedOwnerConsent": {
+    "source": "hushh-webapp/components/consent/answer-request-review.tsx",
+    "disclosure": "After approval, Google Gemini on Vertex AI writes from only ticked information; owner device encrypts and holds until verified payment. Ticked information reaches that provider under its retention and caching policies.",
+    "checkbox": "I agree to this question and the ticked information being used by Google Gemini to write the answer.",
+    "approvalBinding": "Model-processing consent, exact scopes, question and price are required before preparation and bound to request terms.",
+    "reviewSatisfied": false,
+    "remainingOwnerDecision": "Product/privacy owner must accept the displayed disclosure against the verified exact retention, contract and processing-residency evidence; the general policy reference does not establish a DURABLE TTL or abuse-monitoring exemption."
+  }
+}

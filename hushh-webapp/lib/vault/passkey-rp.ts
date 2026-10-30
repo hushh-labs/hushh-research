@@ -1,9 +1,12 @@
+import domainAliases from "./passkey-domain-aliases.json";
+
 type ResolvePasskeyRpIdOptions = {
   isNative: boolean;
   hostname?: string | null;
 };
 
 export const CANONICAL_NATIVE_PASSKEY_RP_ID = "one.hushh.ai";
+export type PasskeyEnvironment = keyof typeof domainAliases;
 
 function extractHost(input: string | null | undefined): string | null {
   if (!input) return null;
@@ -34,19 +37,76 @@ export function normalizeRpHost(host: string | null | undefined): string | null 
   return normalized;
 }
 
+export function resolvePasskeyEnvironment(
+  hostname: string | null | undefined,
+): PasskeyEnvironment | null {
+  const host = normalizeRpHost(hostname);
+  if (!host) return null;
+  return (
+    (Object.keys(domainAliases) as PasskeyEnvironment[]).find((environment) =>
+      domainAliases[environment].includes(host),
+    ) ?? null
+  );
+}
+
+/**
+ * A WebAuthn RP ID may be the current host or one of its registrable suffixes.
+ * Keep this check centralized so wrapper selection and trusted-device flows
+ * apply the same origin-boundary rule. Exact domain pairs are authorized by
+ * the RP's /.well-known/webauthn document in browsers supporting Related
+ * Origin Requests. Stored RP IDs must never be rewritten.
+ */
+export function isPasskeyRpIdCompatibleWithHost(
+  hostname: string | null | undefined,
+  rpId: string | null | undefined,
+): boolean {
+  if (isLikelyIpAddress(hostname) || isLikelyIpAddress(rpId)) return false;
+  const normalizedHost = normalizeRpHost(hostname);
+  const normalizedRpId = normalizeRpHost(rpId);
+  if (!normalizedHost || !normalizedRpId) return false;
+  if (isLikelyIpAddress(normalizedHost) || isLikelyIpAddress(normalizedRpId)) {
+    return false;
+  }
+  return (
+    normalizedHost === normalizedRpId ||
+    normalizedHost.endsWith(`.${normalizedRpId}`) ||
+    Object.values(domainAliases).some(
+      (pair) => pair.includes(normalizedHost) && pair.includes(normalizedRpId),
+    )
+  );
+}
+
+/** WebAuthn RPs are registrable domains; bare IP addresses are never valid. */
+function isLikelyIpAddress(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? "";
+  if (!raw) return false;
+  const host = raw.startsWith("[") ? raw : extractHost(raw) || raw;
+  const unbracketed = host.replace(/^\[|\]$/g, "");
+  const ipv4Parts = unbracketed.split(".");
+  if (
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  ) {
+    return true;
+  }
+  return unbracketed.includes(":") && /^[0-9a-fA-F:]+$/.test(unbracketed);
+}
 export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   const explicitRp = normalizeRpHost(process.env.NEXT_PUBLIC_PASSKEY_RP_ID);
-  if (explicitRp) {
-    return explicitRp;
-  }
-
   if (options.isNative) {
-    return CANONICAL_NATIVE_PASSKEY_RP_ID;
+    return explicitRp || CANONICAL_NATIVE_PASSKEY_RP_ID;
   }
 
   const runtimeHost = normalizeRpHost(options.hostname);
   if (runtimeHost) {
+    // Web credentials are bound to the document that is asking for them.
+    // Prefer the exact runtime host over a stale parent-domain build value so
+    // dev/UAT/prod cannot silently share a browser RP after a deploy.
     return runtimeHost;
+  }
+
+  if (explicitRp) {
+    return explicitRp;
   }
 
   if (typeof window !== "undefined") {

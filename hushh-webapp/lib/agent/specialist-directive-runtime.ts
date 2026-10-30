@@ -38,12 +38,35 @@ export type DelegateResult = {
   display?: string;
 };
 
-type Share = {
+export type Share = {
   grantId: string;
   recipientKeyId: string;
   recipientUserId?: string;
   label: string;
 };
+
+/**
+ * Translates a `publish_location_envelopes` client directive (parked by
+ * _park_publish_location_envelopes_directive in action_tools.py, one entry
+ * per grant location.share_selected just created server-side) into the
+ * `SpecialistDirective` shape runLocationDirective already knows how to run.
+ * Returns null when the payload carries no shares -- there is nothing to
+ * publish, and the caller should not invent a directive to run anyway.
+ */
+export function buildPublishLocationEnvelopesDirective(
+  payload: Record<string, unknown> | undefined,
+): SpecialistDirective | null {
+  const shares = Array.isArray(payload?.shares) ? (payload.shares as Share[]) : null;
+  if (!shares || shares.length === 0) return null;
+  return {
+    kind: "action",
+    payload: {
+      id: globalThis.crypto?.randomUUID?.() ?? `publish-${Date.now()}`,
+      type: "publish_share",
+      shares,
+    },
+  };
+}
 
 /**
  * Run a location specialist_directive in the browser, reusing the exact crypto

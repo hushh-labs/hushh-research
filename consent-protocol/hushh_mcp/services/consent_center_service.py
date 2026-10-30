@@ -1,16 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
-from typing import Any
+import time
+from typing import Any, cast
+from uuid import UUID
 
 from starlette.concurrency import run_in_threadpool
 
+from db.db_client import get_db
 from hushh_mcp.consent.scope_helpers import get_scope_description
+from hushh_mcp.consent.scope_labels import human_scope_label
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    BUCKETS as DRIVE_BUCKETS,
+)
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    SURFACES as DRIVE_SURFACES,
+)
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    DriveSharingCenterContributor,
+)
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -18,6 +32,41 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The metadata keys the owner-facing history reads to name and picture the
+# counterpart (``_counterpart``, ``_developer_label``, ``_normalize_history``).
+# Every ledger row a requester's action produces after the REQUESTED row (a
+# grant, a denial, a withdrawal, a read of the export) must carry them, or the
+# newest row headlines the owner's history with the raw principal id.
+REQUESTER_IDENTITY_METADATA_KEYS: tuple[str, ...] = (
+    "requester_actor_type",
+    "requester_label",
+    "requester_entity_id",
+    "requester_image_url",
+    "requester_website_url",
+    "developer_app_id",
+    "developer_app_display_name",
+)
+
+# Audit rows that record something happening to a grant without changing its
+# state. History keeps them as events but never lets one decide a group's
+# status, label, or position.
+NON_TRANSITION_CONSENT_ACTIONS: frozenset[str] = frozenset({"EXPORT_READ"})
+
+
+def requester_identity_metadata(metadata: Any) -> dict[str, Any]:
+    """Return only the requester identity keys present in ``metadata``.
+
+    Used by every follow-on ledger write so the identity travels with the row
+    instead of being reconstructed from the raw principal id.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: metadata[key]
+        for key in REQUESTER_IDENTITY_METADATA_KEYS
+        if metadata.get(key) not in (None, "")
+    }
 
 
 def _marketplace_consent_center_enabled() -> bool:
@@ -54,11 +103,23 @@ def _one_location_consent_center_enabled() -> bool:
 
 
 def _consent_summary_v2_enabled() -> bool:
-    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
+    # Defaults ON: the v2 path fetches each surface's underlying data (Location
+    # state, marketplace requests, ...) ONCE and derives all three counts
+    # (pending/active/previous) from it, instead of the legacy path's
+    # `asyncio.gather` over three `_get_surface_count` calls that each
+    # independently re-run the exact same underlying fetches. For the
+    # investor actor -- the default, and the common case -- that meant
+    # `list_state()` alone (already ~18-21 SQL round trips) ran three times
+    # per summary load instead of once, which was most of why this endpoint
+    # was measured at ~77 queries and 37-47s+. The explicit opt-out below is
+    # the rollback lever if something about the derived counts turns out to
+    # disagree with the legacy scalar counts in a way this flip did not
+    # anticipate.
+    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -68,39 +129,107 @@ class ConsentCenterService:
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
 
-    def __init__(self) -> None:
+    def __init__(self, *, read_only: bool = False, require_complete: bool = False) -> None:
+        self._read_only = read_only
+        self._require_complete = require_complete
         self._consent_db = ConsentDBService()
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
+        self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
+        self._drive_center = DriveSharingCenterContributor()
+        from hushh_mcp.services.pkm_answer_center_contributor import PkmAnswerCenterContributor
+
+        self._answer_center = PkmAnswerCenterContributor()
         self._location_center = None
-        if _one_location_consent_center_enabled():
+        if require_complete or _one_location_consent_center_enabled():
             try:
                 from hushh_mcp.services.one_location_center_contributor import (
                     OneLocationCenterContributor,
                 )
 
-                self._location_center = OneLocationCenterContributor()
+                self._location_center = OneLocationCenterContributor(
+                    read_only=read_only, require_complete=require_complete
+                )
             except Exception as exc:  # never block the consent surface
+                if require_complete:
+                    raise
                 logger.warning(
                     "consent_center.one_location_contributor_init_failed error=%s",
                     exc,
                 )
                 self._location_center = None
         self._marketplace_center = None
-        if _marketplace_consent_center_enabled():
+        if require_complete or _marketplace_consent_center_enabled():
             try:
                 from hushh_mcp.services.marketplace_center_contributor import (
                     MarketplaceCenterContributor,
                 )
 
-                self._marketplace_center = MarketplaceCenterContributor()
+                self._marketplace_center = (
+                    MarketplaceCenterContributor(require_complete=True)
+                    if require_complete
+                    else MarketplaceCenterContributor()
+                )
             except Exception as exc:  # never block the consent surface
+                if require_complete:
+                    raise
                 logger.warning(
                     "consent_center.marketplace_contributor_init_failed error=%s",
                     exc,
                 )
                 self._marketplace_center = None
+
+    async def _drive_counts(self, user_id: str) -> dict[str, int]:
+        contributor = getattr(self, "_drive_center", None)
+        result = (
+            await contributor.counts(user_id) if contributor else dict.fromkeys(DRIVE_BUCKETS, 0)
+        )
+        self._drive_schema_available = bool(result.get("schema_available", False))
+        return result
+
+    async def _drive_preview(self, user_id: str) -> dict[str, Any]:
+        contributor = getattr(self, "_drive_center", None)
+        if contributor:
+            result = await contributor.preview(user_id)
+            self._drive_schema_available = result["schema_available"]
+            return cast(dict[str, Any], result)
+        return {
+            "buckets": {key: [] for key in DRIVE_BUCKETS},
+            "counts": dict.fromkeys(DRIVE_BUCKETS, 0),
+        }
+
+    async def _paginate_with_drive(
+        self, entries, *, user_id, surface, page, limit, query
+    ) -> dict[str, Any]:
+        contributor = getattr(self, "_drive_center", None)
+        if not contributor:
+            return self._paginate_entries(entries, page=page, limit=limit, query=query)
+        existing = [item for item in entries if self._match_text(item, query or "")]
+        start = (page - 1) * limit
+        drive_offset = max(0, start - len(existing))
+        # Only this window can overlap the global page, even if every existing
+        # entry sorts before (or after) every Drive entry. Counts are not capped.
+        projection = await contributor.page(
+            user_id,
+            bucket=DRIVE_SURFACES[surface],
+            query=query or "",
+            offset=drive_offset,
+            limit=start + limit - drive_offset,
+        )
+        self._drive_schema_available = projection["schema_available"]
+        if getattr(self, "_require_complete", False) and not self._drive_schema_available:
+            raise RuntimeError("consent_source_unavailable")
+        merged = self._sort_display_entries([*existing, *projection["items"]])
+        local_start = start - drive_offset
+        total = len(existing) + projection["total"]
+        return {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": start + limit < total,
+            "items": merged[local_start : local_start + limit],
+        }
 
     async def _marketplace_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
         """Information Marketplace access-request entries grouped by consent
@@ -122,12 +251,27 @@ class ConsentCenterService:
         try:
             return await self._marketplace_center.collect(user_id)
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
-                "consent_center.marketplace_collect_failed user=%s error=%s",
-                user_id,
-                exc,
+                "consent_center.marketplace_collect_failed type=%s",
+                type(exc).__name__,
             )
             return empty
+
+    async def _extra_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        marketplace = await self._marketplace_buckets_async(user_id)
+        contributor = getattr(self, "_answer_center", None)
+        if contributor is None:
+            return marketplace
+        try:
+            answers = await contributor.collect(user_id)
+        except Exception as error:
+            if getattr(self, "_require_complete", False):
+                raise
+            logger.warning("answer_center.unavailable type=%s", type(error).__name__)
+            return marketplace
+        return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
 
     def _location_buckets(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
         """Coordinate-free One Location entries grouped by consent bucket.
@@ -147,6 +291,8 @@ class ConsentCenterService:
         try:
             return self._location_center.collect(user_id)
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
                 "consent_center.one_location_collect_failed user=%s error=%s",
                 user_id,
@@ -162,6 +308,20 @@ class ConsentCenterService:
         event loop and serialises concurrent consent/vault/persona requests.
         """
         return await run_in_threadpool(self._location_buckets, user_id)
+
+    async def _location_counts_async(self, user_id: str) -> dict[str, int]:
+        if not getattr(self, "_location_center", None):
+            return {"pending": 0, "active": 0, "previous": 0}
+        # Keep the contributor's count authority, without loading the full picker.
+        try:
+            return await run_in_threadpool(self._location_center.counts, user_id)
+        except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
+            logger.warning(
+                "consent_center.one_location_counts_failed error_type=%s", type(exc).__name__
+            )
+            return {"pending": 0, "active": 0, "previous": 0}
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -184,6 +344,13 @@ class ConsentCenterService:
             if not counterpart_id and normalized_agent.startswith("investor:"):
                 counterpart_id = normalized_agent.split(":", 1)[1] or None
             return "investor", counterpart_id
+        if metadata.get("requester_actor_type") == "person" or normalized_agent.startswith(
+            "one_person:"
+        ):
+            counterpart_id = metadata.get("requester_entity_id")
+            if not counterpart_id and normalized_agent.startswith("one_person:"):
+                counterpart_id = normalized_agent.split(":", 1)[1] or None
+            return "person", counterpart_id
         if normalized_agent in {"self", ""}:
             return "self", None
         return "developer", normalized_agent or None
@@ -205,6 +372,12 @@ class ConsentCenterService:
             ).strip()
             if investor_label:
                 return investor_label
+        if metadata.get("requester_actor_type") == "person":
+            person_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
+            if person_label:
+                return person_label
         return str(agent_id or "").strip()
 
     @staticmethod
@@ -217,6 +390,7 @@ class ConsentCenterService:
             "CANCELLED": "cancelled",
             "REVOKED": "revoked",
             "TIMEOUT": "expired",
+            "EXPORT_READ": "opened",
         }
         return mapping.get(normalized, normalized.lower() or "unknown")
 
@@ -307,24 +481,47 @@ class ConsentCenterService:
                         event.get("request_id"),
                     ]
                 )
+        for item in list(entry.get("bundle_items") or []):
+            if isinstance(item, dict):
+                haystacks.extend((item.get("label"), item.get("status")))
         return any(needle in str(value or "").lower() for value in haystacks)
 
-    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
-        normalized_user_id = str(user_id or "").strip()
-        if normalized_user_id in self._owned_identifier_cache:
-            return self._owned_identifier_cache[normalized_user_id]
+    async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
         try:
-            identifiers = await self._identity.list_account_identifiers(normalized_user_id)
+            identifiers = (
+                await self._identity.list_account_identifiers(normalized_user_id, refresh=False)
+                if (getattr(self, "_read_only", False) or getattr(self, "_require_complete", False))
+                else await self._identity.list_account_identifiers(normalized_user_id)
+            )
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.debug(
                 "consent_center.identifier_expansion_skipped user_id=%s error=%s",
                 normalized_user_id,
                 exc,
             )
             identifiers = []
-        resolved = identifiers or [normalized_user_id]
-        self._owned_identifier_cache[normalized_user_id] = resolved
-        return resolved
+        return identifiers or [normalized_user_id]
+
+    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id in self._owned_identifier_cache:
+            return self._owned_identifier_cache[normalized_user_id]
+        inflight = self._owned_identifier_inflight.get(normalized_user_id)
+        if inflight is None:
+            inflight = asyncio.create_task(self._resolve_owned_user_identifiers(normalized_user_id))
+            self._owned_identifier_inflight[normalized_user_id] = inflight
+        try:
+            resolved = await asyncio.shield(inflight)
+            self._owned_identifier_cache[normalized_user_id] = resolved
+            return resolved
+        finally:
+            if (
+                inflight.done()
+                and self._owned_identifier_inflight.get(normalized_user_id) is inflight
+            ):
+                self._owned_identifier_inflight.pop(normalized_user_id, None)
 
     @staticmethod
     def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
@@ -336,16 +533,65 @@ class ConsentCenterService:
             return {}
         return {"user_ids": normalized_identifiers}
 
+    @staticmethod
+    def _person_user_ids(public_refs: list[str]) -> dict[str, str]:
+        """Resolve public profile references without exposing account IDs in entries."""
+        normalized_refs: set[str] = set()
+        for value in public_refs:
+            try:
+                normalized_refs.add(str(UUID(value)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        if not normalized_refs:
+            return {}
+        rows = (
+            get_db()
+            .execute_raw(
+                """
+            SELECT public_person_ref, user_id
+            FROM actor_profiles
+            WHERE public_person_ref = ANY(CAST(:person_refs AS UUID[]))
+              AND public_profile_status = 'active'
+            """,
+                {"person_refs": sorted(normalized_refs)},
+            )
+            .data
+            or []
+        )
+        return {
+            str(row["public_person_ref"]): str(row["user_id"])
+            for row in rows
+            if row.get("public_person_ref") and row.get("user_id")
+        }
+
     async def _hydrate_entry_identities(
         self, entries: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
+        person_refs = [
+            str(entry.get("counterpart_id") or "").strip()
+            for entry in entries
+            if entry.get("counterpart_type") == "person" and entry.get("counterpart_id")
+        ]
+        person_user_ids: dict[str, str] = {}
+        if person_refs:
+            try:
+                person_user_ids = await run_in_threadpool(self._person_user_ids, person_refs)
+            except Exception as exc:
+                logger.warning(
+                    "consent_center.person_identity_lookup_failed error=%s", type(exc).__name__
+                )
         identity_ids = [
             str(entry.get("counterpart_id") or "").strip()
             for entry in entries
             if str(entry.get("counterpart_type") or "").strip() in {"investor", "ria", "self"}
             and str(entry.get("counterpart_id") or "").strip()
         ]
-        identities = await self._identity.ensure_many(identity_ids)
+        identity_ids.extend(person_user_ids.values())
+        identities = (
+            await self._identity.get_many(identity_ids)
+            if getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
+            else await self._identity.ensure_many(identity_ids)
+        )
 
         hydrated: list[dict[str, Any]] = []
         for entry in entries:
@@ -353,7 +599,17 @@ class ConsentCenterService:
             counterpart_id = str(item.get("counterpart_id") or "").strip() or None
             counterpart_type = str(item.get("counterpart_type") or "").strip() or "developer"
             metadata = self._metadata(item.get("metadata"))
-            identity = identities.get(counterpart_id or "")
+            if counterpart_type == "person":
+                try:
+                    person_ref = str(UUID(counterpart_id)) if counterpart_id else ""
+                except (ValueError, AttributeError, TypeError):
+                    person_ref = ""
+                identity = identities.get(person_user_ids.get(person_ref, ""))
+                # A removed photo, inactive profile, or failed lookup must not
+                # keep serving the request-time image snapshot.
+                item["counterpart_image_url"] = None
+            else:
+                identity = identities.get(counterpart_id or "")
 
             counterpart_label = str(item.get("counterpart_label") or "").strip() or None
             counterpart_secondary_label = (
@@ -361,9 +617,13 @@ class ConsentCenterService:
             )
             counterpart_email = str(item.get("counterpart_email") or "").strip().lower() or None
 
-            if counterpart_type in {"investor", "ria", "self"} and identity:
+            if counterpart_type in {"investor", "ria", "person", "self"} and identity:
                 identity_label = str(identity.get("display_name") or "").strip() or None
                 identity_email = str(identity.get("email") or "").strip().lower() or None
+                # Connect and Location read the current identity photo. A
+                # request-time image can be absent or stale after a profile
+                # change, so person entries use that same current value.
+                item["counterpart_image_url"] = str(identity.get("photo_url") or "").strip() or None
                 if identity_label and (
                     not counterpart_label or counterpart_label == counterpart_id
                 ):
@@ -462,6 +722,14 @@ class ConsentCenterService:
                 return 0
 
         return sorted(entries, key=_timestamp, reverse=True)
+
+    @classmethod
+    def _sort_display_entries(cls, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # Tie-breaking only AFTER domain chain reduction. Changing the stable
+        # event order before reduction can change the selected lifecycle state.
+        return cls._sort_entries(
+            sorted(entries, key=lambda item: str(item.get("id") or ""), reverse=True)
+        )
 
     @staticmethod
     def _is_connection_entry(entry: dict[str, Any], *, actor: str) -> bool:
@@ -590,6 +858,59 @@ class ConsentCenterService:
             "items": filtered[start:end],
         }
 
+    @staticmethod
+    def _person_request_label(scope: Any, metadata: dict[str, Any], stored: Any) -> str | None:
+        """The one human name for a person-to-person request's scope, or None.
+
+        Person requests (``request_source == "one_person_profile"``) name their
+        scope with ``human_scope_label`` everywhere else (the request card,
+        ``progress.fields[].label``, the Feed's ``requested_labels``); the owner's
+        lists used the raw stored text or nothing, so one request read "Food
+        preferences" in chat and "Food preferences kind" on the owner's row.
+        """
+        if metadata.get("request_source") != "one_person_profile":
+            return None
+        return human_scope_label(
+            str(scope or ""), str(metadata.get("human_label") or stored or "") or None
+        )
+
+    @staticmethod
+    def _join_labels(labels: list[str]) -> str:
+        if len(labels) <= 1:
+            return labels[0] if labels else "Information"
+        return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+    @classmethod
+    def _annotate_person_bundles(cls, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Give every field of one person request its ``bundle_id`` and the bundle's labels.
+
+        The Active list keeps one row per field (each is its own grant and is
+        revoked on its own), but a single request must read as one thing. Each
+        entry gains ``bundle_id``, ``bundle_labels`` (distinct human labels, in
+        order) and ``bundle_label`` ("Food preferences and Dietary constraints"),
+        so a client can group by ``bundle_id``. Other entries are unchanged.
+        """
+        labels_by_bundle: dict[str, list[str]] = {}
+        for entry in entries:
+            metadata = cls._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            label = entry.get("scope_description")
+            if not bundle_id or metadata.get("request_source") != "one_person_profile":
+                continue
+            labels = labels_by_bundle.setdefault(bundle_id, [])
+            if isinstance(label, str) and label and label not in labels:
+                labels.append(label)
+        for entry in entries:
+            metadata = cls._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            if bundle_id not in labels_by_bundle:
+                continue
+            labels = labels_by_bundle[bundle_id]
+            entry["bundle_id"] = bundle_id
+            entry["bundle_labels"] = list(labels)
+            entry["bundle_label"] = cls._join_labels(labels)
+        return entries
+
     def _normalize_pending(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or "")
         metadata = self._metadata(item.get("metadata"))
@@ -644,18 +965,162 @@ class ConsentCenterService:
             },
         }
 
+    async def _present_pending_bundles(
+        self, user_id: str, entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """One owner-facing review per person request; ledger state stays per item."""
+        bundled: dict[str, list[dict[str, Any]]] = {}
+        ordinary: list[dict[str, Any]] = []
+        for entry in entries:
+            metadata = self._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            if (
+                entry.get("kind") == "incoming_request"
+                and metadata.get("request_source") == "one_person_profile"
+                and bundle_id
+            ):
+                bundled.setdefault(bundle_id, []).append(entry)
+            else:
+                ordinary.append(entry)
+        ordinary = self._collapse_consent_chains(ordinary)
+        if not bundled:
+            return ordinary
+
+        def load_items() -> list[dict[str, Any]]:
+            return [
+                dict(row)
+                for row in (
+                    get_db()
+                    .execute_raw(
+                        """SELECT bundle.bundle_id, bundle.requester_principal,
+                                  item.request_id, item.scope, item.label
+                           FROM one_information_request_bundles bundle
+                           JOIN one_information_request_items item
+                             ON item.bundle_id = bundle.bundle_id
+                           WHERE bundle.subject_user_id = :owner
+                             AND bundle.bundle_id::TEXT IN (
+                               SELECT value FROM jsonb_array_elements_text(
+                                 CAST(:bundle_ids AS JSONB)))
+                           ORDER BY bundle.created_at DESC, item.created_at, item.request_id""",
+                        {"owner": user_id, "bundle_ids": json.dumps(list(bundled))},
+                    )
+                    .data
+                    or []
+                )
+            ]
+
+        rows = await asyncio.to_thread(load_items)
+        rows_by_bundle: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            rows_by_bundle.setdefault(str(row["bundle_id"]), []).append(row)
+        request_ids = [str(row["request_id"]) for row in rows]
+        status_loader = getattr(self._consent_db, "get_request_statuses", None)
+        if callable(status_loader):
+            statuses = await status_loader(user_id, request_ids)
+        else:
+            statuses = {
+                request_id: await self._consent_db.get_request_status(user_id, request_id)
+                for request_id in request_ids
+            }
+        now_ms = int(time.time() * 1000)
+        groups: list[dict[str, Any]] = []
+        for bundle_id, pending_entries in bundled.items():
+            source_rows = rows_by_bundle.get(bundle_id, [])
+            # An absent correlation record cannot prove bundle membership.
+            if not source_rows:
+                ordinary.extend(pending_entries)
+                continue
+            pending_by_id = {str(entry.get("request_id") or ""): entry for entry in pending_entries}
+            head = pending_entries[0]
+            expected = int(self._metadata(head.get("metadata")).get("bundle_scope_count") or 0)
+            complete = expected > 0 and len(source_rows) == expected
+            projected_items: list[dict[str, Any]] = []
+            for row in source_rows:
+                request_id = str(row["request_id"])
+                status = statuses.get(request_id) or {}
+                metadata = self._metadata(status.get("metadata"))
+                valid = (
+                    str(status.get("user_id") or user_id) == user_id
+                    and str(status.get("agent_id") or "") == str(row["requester_principal"])
+                    and str(status.get("scope") or "") == str(row["scope"])
+                    and str(metadata.get("bundle_id") or "") == bundle_id
+                )
+                action = str(status.get("action") or "") if valid else ""
+                expires_at = status.get("expires_at") or status.get("poll_timeout_at")
+                expired = bool(
+                    expires_at is not None
+                    and int(expires_at) <= now_ms
+                    and action in {"REQUESTED", "CONSENT_GRANTED"}
+                )
+                state = (
+                    "expired"
+                    if expired
+                    else {
+                        "REQUESTED": "pending",
+                        "CONSENT_GRANTED": "granted",
+                        "CONSENT_DENIED": "denied",
+                        "CANCELLED": "cancelled",
+                        "REVOKED": "revoked",
+                        "TIMEOUT": "expired",
+                    }.get(action, "unavailable")
+                )
+                projected_items.append(
+                    {
+                        "request_id": request_id,
+                        "label": human_scope_label(
+                            str(row.get("scope") or ""), str(row.get("label") or "") or None
+                        ),
+                        "status": state,
+                        "entry": None,
+                    }
+                )
+            complete = complete and all(item["status"] != "unavailable" for item in projected_items)
+            if complete:
+                for item in projected_items:
+                    if item["status"] == "pending":
+                        item["entry"] = pending_by_id.get(item["request_id"])
+            groups.append(
+                {
+                    **head,
+                    "id": f"bundle:{bundle_id}",
+                    "action": None,
+                    "request_id": None,
+                    "request_url": None,
+                    "scope": None,
+                    "scope_description": f"{expected or len(source_rows)} information items",
+                    "status": "pending" if complete else "preparing",
+                    "allowed_next_action": None,
+                    "metadata": {
+                        "bundle_id": bundle_id,
+                        "bundle_scope_count": expected,
+                        "request_source": "one_person_profile",
+                    },
+                    "bundle_id": bundle_id,
+                    "bundle_complete": complete,
+                    "bundle_items": projected_items,
+                }
+            )
+        return self._sort_entries([*ordinary, *groups])
+
     def _normalize_active(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or item.get("agent_id") or "")
         metadata = self._metadata(item.get("metadata"))
         counterpart_type, counterpart_id = self._counterpart(agent_id, metadata)
         status = "active"
+        source_id = item.get("token_id") or item.get("id") or ""
+        if getattr(self, "_require_complete", False):
+            if item.get("source_record_id") is None:
+                raise RuntimeError("consent_source_record_id_unavailable")
+            source_id = f"consent_grant:{item['source_record_id']}"
         return {
-            "id": str(item.get("token_id") or item.get("id") or ""),
+            "id": str(source_id),
             "kind": "active_grant",
             "status": status,
             "action": "CONSENT_GRANTED",
             "scope": item.get("scope"),
-            "scope_description": None,
+            "scope_description": self._person_request_label(
+                item.get("scope"), metadata, item.get("scope_description")
+            ),
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
@@ -694,7 +1159,10 @@ class ConsentCenterService:
             "status": status,
             "action": item.get("action"),
             "scope": item.get("scope"),
-            "scope_description": item.get("scope_description"),
+            "scope_description": self._person_request_label(
+                item.get("scope"), metadata, item.get("scope_description")
+            )
+            or item.get("scope_description"),
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
@@ -759,12 +1227,17 @@ class ConsentCenterService:
                 group.get("latest_request_at")
             ):
                 group["latest_request_at"] = entry.get("issued_at")
-                group["status"] = entry.get("status")
             scope_label = entry.get("scope_description") or entry.get("scope")
             if scope_label and scope_label not in group["scopes"]:
                 group["scopes"].append(scope_label)
 
         grouped = list(groups.values())
+        for group in grouped:
+            # A trailing EXPORT_READ must not headline the person's group as
+            # "opened"; the newest state-changing row is the group's face.
+            group["status"] = self._latest_state_entry(self._sort_entries(group["entries"])).get(
+                "status"
+            )
         grouped.sort(
             key=lambda item: self._issued_at_ms(item.get("latest_request_at")),
             reverse=True,
@@ -854,6 +1327,21 @@ class ConsentCenterService:
         parts = [counterpart_type, counterpart_id, cls._chain_subject(entry)]
         return "|".join(part.lower() for part in parts if part)
 
+    @staticmethod
+    def _latest_state_entry(sorted_entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """The newest entry that changed state, given entries sorted newest-first.
+
+        A trailing EXPORT_READ (the requester opened a live grant) must not
+        headline the group: its status is "opened", not the grant's, and its
+        metadata may be thinner than the decision row's. Falls back to the
+        newest entry when nothing else exists.
+        """
+        for entry in sorted_entries:
+            action = str(entry.get("action") or "").strip().upper()
+            if action not in NON_TRANSITION_CONSENT_ACTIONS:
+                return entry
+        return sorted_entries[0]
+
     @classmethod
     def _group_history_identifier_trails(
         cls, entries: list[dict[str, Any]]
@@ -865,7 +1353,7 @@ class ConsentCenterService:
         grouped_rows: list[dict[str, Any]] = []
         for identifier_key, identifier_entries in identifier_groups.items():
             sorted_identifier_entries = cls._sort_entries(identifier_entries)
-            primary = dict(sorted_identifier_entries[0])
+            primary = dict(cls._latest_state_entry(sorted_identifier_entries))
             trail_groups: dict[str, list[dict[str, Any]]] = {}
             for entry in sorted_identifier_entries:
                 trail_groups.setdefault(
@@ -876,7 +1364,7 @@ class ConsentCenterService:
             trails: list[dict[str, Any]] = []
             for trail_key, trail_entries in trail_groups.items():
                 sorted_trail_entries = cls._sort_entries(trail_entries)
-                latest = sorted_trail_entries[0]
+                latest = cls._latest_state_entry(sorted_trail_entries)
                 request_ids = [
                     str(entry.get("request_id") or entry.get("id") or "").strip()
                     for entry in sorted_trail_entries
@@ -1170,8 +1658,8 @@ class ConsentCenterService:
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return await self._hydrate_entry_identities(
-            [self._normalize_active(item) for item in active]
+        return self._annotate_person_bundles(
+            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
         )
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
@@ -1179,9 +1667,13 @@ class ConsentCenterService:
         history_result = await self._consent_db.get_audit_log(
             user_id,
             page=1,
-            limit=5000,
+            limit=None if getattr(self, "_require_complete", False) else 5000,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
+        if getattr(self, "_require_complete", False) and history_result.get("total", 0) > len(
+            history_result.get("items", [])
+        ):
+            raise RuntimeError("consent_source_history_incomplete")
         return await self._hydrate_entry_identities(
             [self._normalize_history(item) for item in history_result.get("items", [])]
         )
@@ -1245,6 +1737,8 @@ class ConsentCenterService:
                 ConnectionsService().list_requests, user_id, direction="incoming"
             )
         except Exception as exc:  # never block the consent surface
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
                 "consent_center.connection_request_entries_failed user=%s error=%s",
                 user_id,
@@ -1301,18 +1795,16 @@ class ConsentCenterService:
                 if normalized_mode == "consents"
                 else None
             )
-            location_count = 0
+            location_count = (await self._drive_counts(user_id))[DRIVE_SURFACES[surface]]
             if location_buckets:
                 if surface == "pending":
-                    location_count = len(location_buckets["incoming_requests"])
+                    location_count += len(location_buckets["incoming_requests"])
                 elif surface == "active":
-                    location_count = len(location_buckets["active_grants"])
+                    location_count += len(location_buckets["active_grants"])
                 else:
-                    location_count = len(location_buckets["history"])
+                    location_count += len(location_buckets["history"])
             marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
+                await self._extra_buckets_async(user_id) if normalized_mode == "consents" else None
             )
             if marketplace_buckets:
                 if surface == "pending":
@@ -1323,16 +1815,13 @@ class ConsentCenterService:
                     location_count += len(marketplace_buckets["history"])
             if surface == "pending":
                 connection_count = await self._incoming_connection_request_count(user_id)
+                pending_entries = self._filter_mode_entries(
+                    await self._load_investor_pending_entries(user_id),
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
                 return (
-                    len(
-                        self._collapse_consent_chains(
-                            self._filter_mode_entries(
-                                await self._load_investor_pending_entries(user_id),
-                                actor=normalized_actor,
-                                mode=normalized_mode,
-                            )
-                        )
-                    )
+                    len(await self._present_pending_bundles(user_id, pending_entries))
                     + location_count
                     + connection_count
                 )
@@ -1477,7 +1966,11 @@ class ConsentCenterService:
             else []
         )
         active_entries = (
-            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
+            self._annotate_person_bundles(
+                await self._hydrate_entry_identities(
+                    [self._normalize_active(item) for item in active]
+                )
+            )
             if need_active
             else []
         )
@@ -1554,7 +2047,7 @@ class ConsentCenterService:
             invite_entries = [*invite_entries, *location_buckets["invites"]]
 
         marketplace_buckets = (
-            await self._marketplace_buckets_async(user_id)
+            await self._extra_buckets_async(user_id)
             if (actor is None or normalized_actor != "ria")
             else None
         )
@@ -1572,16 +2065,37 @@ class ConsentCenterService:
             actor=normalized_actor,
         )
 
+        drive_counts = dict.fromkeys(DRIVE_BUCKETS, 0)
+        drive_preview_counts = dict.fromkeys(DRIVE_BUCKETS, 0)
+        if actor is None or normalized_actor != "ria":
+            drive = await self._drive_preview(user_id)
+            drive_counts = drive["counts"]
+            buckets = drive["buckets"]
+            if need_incoming:
+                incoming.extend(buckets["incoming_requests"])
+            if need_active:
+                active_entries.extend(buckets["active_grants"])
+            if need_history:
+                history_entries.extend(buckets["history"])
+            outgoing_entries.extend(buckets["outgoing_requests"])
+            drive_preview_counts = {key: len(value) for key, value in buckets.items()}
+
+        def projected_total(key: str, count: int, included: bool = True) -> int:
+            return count + drive_counts[key] - drive_preview_counts[key] if included else count
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
             "ria_onboarding": ria_onboarding,
             "summary": {
-                "incoming_requests": len(incoming),
-                "outgoing_requests": len(outgoing_entries),
-                "active_grants": len(active_entries),
+                "incoming_requests": projected_total(
+                    "incoming_requests", len(incoming), need_incoming
+                ),
+                "outgoing_requests": projected_total("outgoing_requests", len(outgoing_entries)),
+                "active_grants": projected_total("active_grants", len(active_entries), need_active),
                 "invites": len(invite_entries),
-                "history": len(history_entries),
+                "history": projected_total("history", len(history_entries), need_history),
                 "developer_requests": len(developer_requests),
                 "ria_roster": roster_summary,
             },
@@ -1635,19 +2149,22 @@ class ConsentCenterService:
             )
         elif normalized_actor == "investor":
             (
-                location_buckets,
+                location_counts,
                 marketplace_buckets,
                 pending_entries,
                 active_entries,
                 previous_entries,
-                connection_count,
+                (connection_count, drive_counts),
             ) = await asyncio.gather(
-                self._location_buckets_async(user_id),
-                self._marketplace_buckets_async(user_id),
+                self._location_counts_async(user_id),
+                self._extra_buckets_async(user_id),
                 self._load_investor_pending_entries(user_id),
                 self._load_investor_active_entries(user_id),
                 self._load_investor_previous_entries(user_id),
-                self._incoming_connection_request_count(user_id),
+                asyncio.gather(
+                    self._incoming_connection_request_count(user_id),
+                    self._drive_counts(user_id),
+                ),
             )
 
             def contributor_count(surface: str) -> int:
@@ -1656,16 +2173,19 @@ class ConsentCenterService:
                     "active": "active_grants",
                     "previous": "history",
                 }[surface]
-                return len(location_buckets[bucket]) + len(marketplace_buckets[bucket])
+                return (
+                    location_counts[surface]
+                    + len(marketplace_buckets[bucket])
+                    + drive_counts[bucket]
+                )
 
             pending_count = (
                 len(
-                    self._collapse_consent_chains(
+                    await self._present_pending_bundles(
+                        user_id,
                         self._filter_mode_entries(
-                            pending_entries,
-                            actor=normalized_actor,
-                            mode=normalized_mode,
-                        )
+                            pending_entries, actor=normalized_actor, mode=normalized_mode
+                        ),
                     )
                 )
                 + contributor_count("pending")
@@ -1719,7 +2239,51 @@ class ConsentCenterService:
                 "active": active_count,
                 "previous": previous_count,
             },
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
         }
+
+    async def source_fence(self, user_id: str) -> str:
+        from db.db_client import get_db_connection
+        from hushh_mcp.services.consent_source_fence import capture_consent_source_fence
+
+        identifiers = await self._owned_user_identifiers(user_id)
+
+        def capture():
+            with get_db_connection() as connection:
+                return capture_consent_source_fence(
+                    connection,
+                    owner=user_id,
+                    identifiers=identifiers,
+                    configuration={
+                        "location": _one_location_consent_center_enabled(),
+                        "marketplace": _marketplace_consent_center_enabled(),
+                    },
+                )
+
+        return await run_in_threadpool(capture)
+
+    def _source_entries(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not getattr(self, "_require_complete", False):
+            return entries
+        fields = (
+            "id",
+            "kind",
+            "status",
+            "action",
+            "scope",
+            "counterpart_type",
+            "counterpart_id",
+            "issued_at",
+            "expires_at",
+        )
+        return [
+            {
+                **{field: item.get(field) for field in fields},
+                "active": item.get("kind") == "active_grant"
+                and item.get("status") in {"active", "approved", "granted"},
+            }
+            for item in entries
+        ]
 
     async def list_center(
         self,
@@ -1732,6 +2296,7 @@ class ConsentCenterService:
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
@@ -1739,6 +2304,44 @@ class ConsentCenterService:
         safe_top = max(1, min(int(top), 10)) if top is not None else None
         safe_limit = safe_top or max(1, min(limit, 100))
         safe_page = 1 if safe_top is not None else max(1, page)
+
+        if (
+            request_view == "sent"
+            and normalized_actor == "investor"
+            and normalized_mode == "consents"
+            and normalized_surface == "pending"
+        ):
+            # B's requests remain rediscoverable, including after disconnect or
+            # a rollout pause. They never enter A's Needs You / approval count.
+            extra = await self._extra_buckets_async(user_id)
+            outgoing = extra.get("outgoing_requests", [])
+            if getattr(self, "_require_complete", False):
+                location = await self._location_buckets_async(user_id)
+                outgoing = [*outgoing, *location.get("outgoing_requests", [])]
+            paged = await self._paginate_with_drive(
+                outgoing,
+                user_id=user_id,
+                surface="sent",
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
+            return {
+                "user_id": user_id,
+                "actor": normalized_actor,
+                "surface": normalized_surface,
+                "mode": normalized_mode,
+                "request_view": "sent",
+                "query": query or "",
+                **paged,
+                "items": self._source_entries(paged["items"]),
+                "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+                **(
+                    {"source_read_verified": True}
+                    if getattr(self, "_require_complete", False)
+                    else {}
+                ),
+            }
 
         if normalized_mode == "connections":
             entries = await self._load_connection_entries_for_actor(
@@ -1773,26 +2376,46 @@ class ConsentCenterService:
             }
 
         if normalized_actor == "investor":
-            if normalized_surface == "pending":
-                entries = await self._load_investor_pending_entries(user_id)
-            elif normalized_surface == "active":
-                entries = await self._load_investor_active_entries(user_id)
-            else:
-                entries = await self._load_investor_previous_entries(user_id)
-            entries = self._filter_mode_entries(
+
+            async def surface_entries() -> list[dict[str, Any]]:
+                if normalized_surface == "pending":
+                    entries = await self._load_investor_pending_entries(user_id)
+                elif normalized_surface == "active":
+                    entries = await self._load_investor_active_entries(user_id)
+                else:
+                    entries = await self._load_investor_previous_entries(user_id)
+                entries = self._filter_mode_entries(
+                    entries,
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
+                if getattr(self, "_require_complete", False):
+                    return entries
+                return (
+                    self._group_history_identifier_trails(entries)
+                    if normalized_surface == "previous"
+                    else await self._present_pending_bundles(user_id, entries)
+                    if normalized_surface == "pending"
+                    else self._collapse_consent_chains(entries)
+                )
+
+            async def pending_connection_entries() -> list[dict]:
+                if normalized_surface != "pending":
+                    return []
+                return await self._incoming_connection_request_entries(user_id)
+
+            # Connections mode returned above. As in get_center_summary, these
+            # independent reads each check out their own pooled connection.
+            (
                 entries,
-                actor=normalized_actor,
-                mode=normalized_mode,
-            )
-            entries = (
-                self._group_history_identifier_trails(entries)
-                if normalized_surface == "previous"
-                else self._collapse_consent_chains(entries)
-            )
-            location_buckets = (
-                await self._location_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
+                location_buckets,
+                marketplace_buckets,
+                connection_entries,
+            ) = await asyncio.gather(
+                surface_entries(),
+                self._location_buckets_async(user_id),
+                self._extra_buckets_async(user_id),
+                pending_connection_entries(),
             )
             if location_buckets:
                 if normalized_surface == "pending":
@@ -1801,11 +2424,7 @@ class ConsentCenterService:
                     entries = [*entries, *location_buckets["active_grants"]]
                 else:
                     entries = [*entries, *location_buckets["history"]]
-            marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
-            )
+
             if marketplace_buckets:
                 if normalized_surface == "pending":
                     entries = [*entries, *marketplace_buckets["incoming_requests"]]
@@ -1813,11 +2432,11 @@ class ConsentCenterService:
                     entries = [*entries, *marketplace_buckets["active_grants"]]
                 else:
                     entries = [*entries, *marketplace_buckets["history"]]
-            if normalized_mode == "consents" and normalized_surface == "pending":
-                connection_entries = await self._incoming_connection_request_entries(user_id)
-                entries = [*entries, *connection_entries]
-            paged = self._paginate_entries(
+            entries = [*entries, *connection_entries]
+            paged = await self._paginate_with_drive(
                 entries,
+                user_id=user_id,
+                surface=normalized_surface,
                 page=safe_page,
                 limit=safe_limit,
                 query=query,
@@ -1880,7 +2499,9 @@ class ConsentCenterService:
             "limit": paged["limit"],
             "total": paged["total"],
             "has_more": paged["has_more"],
-            "items": paged["items"],
+            "items": self._source_entries(paged["items"]),
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+            **({"source_read_verified": True} if getattr(self, "_require_complete", False) else {}),
         }
 
     # =========================================================================

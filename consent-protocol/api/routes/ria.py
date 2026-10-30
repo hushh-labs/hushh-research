@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.account import _verify_phone_claim_id_token
 from db.connection import get_pool
 from hushh_mcp.services.actor_identity_service import (
@@ -21,6 +23,8 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityService,
 )
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.nws_nearby_service import NwsNearbyError, NwsNearbyService
+from hushh_mcp.services.nws_networth_service import NwsNetWorthError, NwsNetWorthService
 from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimEmailError,
@@ -179,6 +183,7 @@ class RIAPicksParseRequest(BaseModel):
 class RIAPicksSyncRequest(BaseModel):
     label: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
+    investor_debate_thesis: str | None = Field(None, max_length=2000)
     top_picks: list[dict] = Field(default_factory=list, max_length=5000)
     avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
@@ -252,6 +257,106 @@ def _iam_schema_not_ready_response() -> JSONResponse:
             "error": "RIA verification service is temporarily unavailable",
             "code": "IAM_SCHEMA_NOT_READY",
         },
+    )
+
+
+class RIANearbyDiscoverRequest(BaseModel):
+    """A location to look around, plus the advisor's on-screen filters.
+
+    Bounds mirror the upstream contract so a bad request is refused here rather
+    than spent against a rate limit every Hushh caller shares. ``country_code``
+    is accepted only alongside a postal code — see the service for why a
+    coordinate deliberately carries no country context.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=3, max_length=16)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    top_n: int = Field(default=100, ge=1, le=400)
+    initial_radius_km: float = Field(default=20.0, gt=0, le=250)
+    max_radius_km: float = Field(default=100.0, gt=0, le=500)
+    lanes: list[str] = Field(default_factory=list, max_length=6)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    minimum_confidence_grade: str = Field(default="B", min_length=1, max_length=1)
+
+
+class RIANearbyShortlistRequest(BaseModel):
+    """One shortlist or dismiss action against a public NWS record.
+
+    ``snapshot`` is the public record as rendered, stored so the shortlist can
+    be listed without another upstream call. It is bounded rather than free-form
+    because it is caller-supplied and lands in a JSONB column (CWE-400).
+    """
+
+    person_id: str = Field(..., min_length=1, max_length=128)
+    action: str = Field(default="shortlist", min_length=1, max_length=32)
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("snapshot")
+    @classmethod
+    def bound_snapshot(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(value) > 40:
+            raise ValueError("snapshot has too many fields")
+        if len(json.dumps(value, default=str)) > 8192:
+            raise ValueError("snapshot is too large")
+        return value
+
+
+class RIANetWorthDiscoverRequest(BaseModel):
+    """A US location to look up published net-worth estimates around.
+
+    Narrower than the directory request on purpose. The upstream accepts only a
+    US ZIP on the postal path and applies no trimming or case folding of its
+    own, and it takes exactly three result counts. Refusing anything else here
+    keeps a malformed request from spending the product's shared per-minute
+    grant, which a coordinate lookup spends twice.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=5, max_length=10)
+    count: int = Field(default=100)
+    financial_mode: str = Field(default="estimated", min_length=1, max_length=32)
+    minimum_confidence: str = Field(default="C", min_length=1, max_length=1)
+    minimum_coverage: float = Field(default=0.55, ge=0.0, le=1.0)
+
+
+def _nearby_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _handle_nearby_error(exc: NwsNearbyError) -> HTTPException:
+    # The upstream limits per {key, egress IP} and every caller shares both, so
+    # its Retry-After is the whole surface's. Passing it through lets a client
+    # wait the stated time instead of hammering a closed door.
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": "RIA_NEARBY_UNAVAILABLE", "message": str(exc)},
+        headers=headers,
+    )
+
+
+def _handle_networth_error(exc: NwsNetWorthError) -> HTTPException:
+    """Surface the net-worth failure with its own discriminator.
+
+    The directory handler stamps one code on every failure, so a client cannot
+    tell a rejected ZIP from a dead upstream without reading the status. This
+    path carries the service's own code instead, because the three states a
+    screen must distinguish — not configured, temporarily unavailable, and bad
+    input — all differ in whether retrying is worth anything.
+    """
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+        headers=headers,
     )
 
 
@@ -451,6 +556,122 @@ async def ria_clients(
         if limit != 50:
             params["limit"] = limit
         return await service.list_ria_clients(firebase_uid, **params)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+
+
+@router.post("/nearby/discover")
+@limiter.limit(RateLimits.RIA_NEARBY_DIRECTORY_READ)
+async def ria_nearby_discover(
+    request: Request,
+    response: Response,
+    payload: RIANearbyDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Public-association records near a location the advisor chose.
+
+    POST rather than GET even though it reads nothing: a GET would put the
+    advisor's coordinate in the request line, which the access log records
+    verbatim and which also lands in browser history and any Referer. The
+    advisors and Maps proxies are POST for the same reason.
+
+    A coverage miss is a normal 200 with an empty result set, not an error. The
+    upstream's coverage block is returned untouched so the screen can say what
+    is true — no approved dataset here — rather than implying a failure or
+    quietly substituting the one market that does have data.
+    """
+    _ = firebase_uid  # auth-gate only; results are public and not user-scoped
+    _nearby_no_store(response)
+    try:
+        return await NwsNearbyService().discover(
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            country_code=payload.country_code,
+            top_n=payload.top_n,
+            initial_radius_km=payload.initial_radius_km,
+            max_radius_km=payload.max_radius_km,
+            lanes=payload.lanes,
+            tags=payload.tags,
+            minimum_confidence_grade=payload.minimum_confidence_grade,
+        )
+    except NwsNearbyError as exc:
+        raise _handle_nearby_error(exc) from exc
+
+
+@router.post("/nearby/shortlist")
+@limiter.limit(RateLimits.RIA_NEARBY_SHORTLIST_WRITE)
+async def ria_nearby_shortlist_write(
+    request: Request,
+    response: Response,
+    payload: RIANearbyShortlistRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return await service.record_nws_nearby_action(
+            firebase_uid,
+            person_id=payload.person_id,
+            action=payload.action,
+            snapshot=payload.snapshot,
+        )
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/nearby/networth")
+@limiter.limit(RateLimits.RIA_NEARBY_NETWORTH_READ)
+async def ria_nearby_networth_discover(
+    request: Request,
+    response: Response,
+    payload: RIANetWorthDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Published net-worth estimates for people associated with a US location.
+
+    POST for the same reason the directory read is: a coordinate in a request
+    line is recorded verbatim by every access log it passes through.
+
+    Unlike the directory read, the advisor's identity matters here. A coordinate
+    lookup requires a consent receipt bound to a stable pseudonymous subject, so
+    the Firebase UID is used — never sent, only HMAC'd into an opaque actor the
+    upstream can bind a receipt to without learning who it is.
+
+    A covered location with no publishable estimate is a normal 200 with an
+    empty list. That is the common answer, not a failure: the geography index
+    spans the whole country while the reviewed financial roster does not, and
+    the two counts are returned separately so the screen can say so rather than
+    implying the search broke.
+    """
+    _nearby_no_store(response)
+    try:
+        return await NwsNetWorthService().discover(
+            firebase_uid=firebase_uid,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            count=payload.count,
+            financial_mode=payload.financial_mode,
+            minimum_confidence=payload.minimum_confidence,
+            minimum_coverage=payload.minimum_coverage,
+        )
+    except NwsNetWorthError as exc:
+        raise _handle_networth_error(exc) from exc
+
+
+@router.get("/nearby/shortlist")
+async def ria_nearby_shortlist_read(
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=200),
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return {"items": await service.list_nws_nearby_shortlist(firebase_uid, limit=limit)}
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
 
@@ -660,8 +881,8 @@ async def renaissance_screening(firebase_uid: str = Depends(require_firebase_aut
 
 
 @router.get("/picks")
-async def get_active_ria_pick_package(firebase_uid: str = Depends(require_firebase_auth)):
-    """Return the authenticated RIA's encrypted active Picks package."""
+async def get_active_ria_pick_package(firebase_uid: str = Depends(_require_ria_verified)):
+    """Return the verified RIA's encrypted active Picks package (403 for anyone else)."""
     service = RIAIAMService()
     try:
         return await service.get_active_ria_pick_package(firebase_uid)
@@ -674,7 +895,7 @@ async def get_active_ria_pick_package(firebase_uid: str = Depends(require_fireba
 @router.post("/picks/parse")
 async def parse_ria_picks_csv(
     payload: RIAPicksParseRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     _ = firebase_uid
     service = RIAIAMService()
@@ -698,7 +919,7 @@ async def parse_ria_picks_csv(
 @router.post("/picks")
 async def upload_ria_picks(
     payload: RIAPicksSyncRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -706,6 +927,7 @@ async def upload_ria_picks(
             firebase_uid,
             label=payload.label,
             package_note=payload.package_note,
+            investor_debate_thesis=payload.investor_debate_thesis,
             top_picks=payload.top_picks,
             avoid_rows=payload.avoid_rows,
             screening_sections=payload.screening_sections,
@@ -778,7 +1000,8 @@ async def ria_claim_lookup(
     try:
         return await service.lookup(payload.phone)
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        detail = {"code": exc.code, "message": str(exc)} if exc.code else str(exc)
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 @router.post("/claim/otp/start")
@@ -1111,24 +1334,60 @@ def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any
 # reloads twice does not stack workers on one row.
 _DOSSIER_RESUMING: set[int] = set()
 
+# How long a row may sit in `queued` before a read treats it as stranded
+# rather than a worker that is legitimately still starting up. Generous next
+# to the ~10s frontend poll interval and the resolve_email/build_payload/
+# start_scan calls a live worker makes before its first status write, so a
+# request landing while dispatch is genuinely still in flight does not race
+# it into starting a second scan.
+_DOSSIER_QUEUED_STALL_THRESHOLD = timedelta(seconds=90)
+
 
 async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
-    """Re-enter the poll for a row left mid-scan, if one is stalled.
+    """Re-enter the poll for a row left mid-scan or never started, if stalled.
 
     The worker is an in-process background task on a CPU-throttled Cloud Run
     service: once an instance stops receiving requests its CPU is withdrawn,
-    the poll freezes mid-flight, and the row is stranded in `scanning` forever
-    with the scan itself finishing perfectly well upstream. The read that
-    renders the card is a request, so it is also the thing that can revive the
-    poll — the scan id is already durable on the row, so resuming costs one
-    poll rather than a new scan.
+    a poll can freeze mid-flight, and a row can be stranded forever with the
+    scan itself finishing perfectly well upstream. The read that renders the
+    card is a request, so it is also the thing that can revive it.
+
+    Two stall points, not one. `scanning` was the only one handled here --
+    the scan id is durable on the row, so resuming it costs one poll rather
+    than a new scan. But the SAME withdrawal can happen even earlier: the
+    background task is scheduled the instant the claim HTTP response goes
+    out, and if CPU is pulled before that task gets its first turn on the
+    event loop, the row never leaves `queued` at all -- reported as
+    "Preparing your dossier..." frozen indefinitely, because nothing was ever
+    driving it in the first place. That case has no scan id to resume, so it
+    re-enters the worker from the start rather than resuming a poll, gated by
+    `_DOSSIER_QUEUED_STALL_THRESHOLD` so a request landing while the original
+    dispatch is genuinely still starting up does not race it into a second
+    scan.
     """
-    if str(row["status"] or "") != "scanning" or row["completed_at"] is not None:
+    status = str(row["status"] or "")
+    if row["completed_at"] is not None:
         return
-    scan_id = str(row["scan_id"] or "").strip()
     dossier_id = int(row["id"])
-    if not scan_id or dossier_id in _DOSSIER_RESUMING:
+    if dossier_id in _DOSSIER_RESUMING:
         return
+
+    resume_scan_id = ""
+    if status == "scanning":
+        resume_scan_id = str(row["scan_id"] or "").strip()
+        if not resume_scan_id:
+            return
+    elif status == "queued":
+        requested_at = row["requested_at"]
+        if requested_at is None:
+            return
+        if requested_at.tzinfo is None:
+            requested_at = requested_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - requested_at < _DOSSIER_QUEUED_STALL_THRESHOLD:
+            return
+    else:
+        return
+
     context = await _load_dossier_claim_context(user_id)
     if context is None:
         return
@@ -1148,7 +1407,7 @@ async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
                 ria_profile_id=str(context.get("ria_profile_id") or ""),
                 claim_type=str(metadata.get("claim_type") or ""),
                 reference_metadata=metadata,
-                resume_scan_id=scan_id,
+                resume_scan_id=resume_scan_id,
             )
         finally:
             _DOSSIER_RESUMING.discard(dossier_id)

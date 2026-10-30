@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 
 import {
   executeAgentGatewayAction,
@@ -6,10 +7,12 @@ import {
 } from "@/lib/agent/agent-action-runtime";
 import {
   registerLocalOnboardingHandler,
+  resolveLocalOnboardingHandler,
+  useLocalOnboardingActionHandler,
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 function runtimeState(
   overrides: Partial<AppRuntimeState> = {},
@@ -25,8 +28,8 @@ function runtimeState(
       token_valid: true,
     },
     route: {
-      pathname: "/agent",
-      screen: "app",
+      pathname: ROUTES.HOME,
+      screen: "chat",
       subview: null,
     },
     runtime: {
@@ -59,6 +62,58 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it.each([
+    ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
+    ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],
+  ])("%s preserves the other public Picks dimension without carrying private query state", async (actionId, href, category, source) => {
+    const previous = window.location.href;
+    window.history.replaceState(null, "", href);
+    try {
+      const router = { push: vi.fn() };
+      const result = await executeAgentGatewayAction({
+        actionId, allowedActionIds: [], userId: "user_1", router,
+        appRuntimeState: runtimeState({
+          route: { pathname: "/ria/picks", screen: "ria_picks" },
+          persona: { active: "ria", primary_nav: "ria", available: ["ria"], ria_switch_available: true, ria_setup_available: false },
+        }),
+        hasPortfolioData: true, busyOperations: {}, setAnalysisParams: vi.fn(),
+      });
+      expect(result.status).toBe("started");
+      const target = new URL(router.push.mock.calls[0][0], window.location.origin);
+      expect(Object.fromEntries(target.searchParams)).toEqual({ category, source });
+      expect(result.routeAfter).toBe(target.pathname + target.search);
+    } finally { window.history.replaceState(null, "", previous); }
+  });
+
+  it("never names a surface the action did not open", async () => {
+    // Regression: this runtime was Kai-only once, and every route action
+    // reported `${label} opened in Finance.` long after it became the shared
+    // path for every surface. Asking for Voice Settings answered "Open Voice
+    // Settings opened in Finance."
+    //
+    // The action's own surface_id is no better -- it names where the action is
+    // authored, not where it lands, so route.voice_settings would claim
+    // "Agents". The summary names no place at all now.
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.voice_settings",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(result.status).toBe("started");
+    expect(result.resultSummary).not.toMatch(/Finance/i);
+    expect(result.resultSummary).not.toMatch(/Agents/i);
+    // The label alone is the honest description of what happened.
+    expect(result.resultSummary).toBe("Open Voice Settings.");
+  });
+
   it("admits generated direct route actions outside the current screen inventory", async () => {
     const router = { push: vi.fn() };
 
@@ -78,6 +133,30 @@ describe("executeAgentGatewayAction", () => {
       status: "started",
       actionId: "route.one_location",
       routeAfter: ROUTES.ONE_LOCATION,
+    });
+  });
+
+  it("refuses a route template it cannot fill instead of pushing it literally", async () => {
+    // route.person_profile targets /people/[personRef]; typed search can pick
+    // it, and a literal push opened a broken page (or the owner's own).
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.person_profile",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "failed",
+      actionId: "route.person_profile",
+      reason: "route_needs_entity",
     });
   });
 
@@ -358,6 +437,53 @@ describe("executeAgentGatewayAction", () => {
       });
     } finally {
       unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
+
+  it("does not start a local effect when cancelled during handler resolution", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn().mockResolvedValue({ status: "succeeded", summary: "Opened." });
+    registerLocalOnboardingHandler("onboarding.claim_one", handler);
+    try {
+      const pending = executeAgentGatewayAction({
+        actionId: "onboarding.claim_one",
+        signal: controller.signal,
+        userId: "user_1",
+        router: { push: vi.fn() },
+        appRuntimeState: runtimeState({ route: { pathname: "/", screen: "one_intro", subview: null } }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+      controller.abort();
+      await expect(pending).resolves.toMatchObject({ status: "failed", reason: "execution_aborted" });
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
+
+  it("does not start a prepared effect after cancellation during revalidation", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn().mockResolvedValue({ status: "succeeded", summary: "Done." });
+    let release!: () => void;
+    const binding = { owner: "user_1" };
+    const prepare = vi.fn(() => new Promise<{ status: "ready"; binding: typeof binding; summary: string }>((resolve) => {
+      release = () => resolve({ status: "ready", binding, summary: "Ready." });
+    }));
+    const hook = renderHook(() => useLocalOnboardingActionHandler("location.pause_updates", handler, { prepare }));
+    try {
+      const pending = resolveLocalOnboardingHandler("location.pause_updates")!({}, {
+        signal: controller.signal,
+        preparedBinding: binding,
+      });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      controller.abort();
+      release();
+      await expect(pending).resolves.toMatchObject({ status: "failed" });
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      hook.unmount();
     }
   });
 });

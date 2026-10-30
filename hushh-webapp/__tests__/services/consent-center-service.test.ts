@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiFetch } = vi.hoisted(() => ({
+const { mockApiFetch, mockCacheSet } = vi.hoisted(() => ({
   mockApiFetch: vi.fn(),
+  mockCacheSet: vi.fn(),
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -11,7 +12,7 @@ vi.mock("@/lib/services/api-service", () => ({
 // Cache mocks — keeps each test hermetic; listEntries hits the cache path.
 vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
-    getInstance: vi.fn(() => ({ get: vi.fn(() => undefined), set: vi.fn() })),
+    getInstance: vi.fn(() => ({ get: vi.fn(() => undefined), set: mockCacheSet })),
   },
   CACHE_KEYS: {
     CONSENT_CENTER_LIST: (...a: unknown[]) => `list:${a.join(":")}`,
@@ -27,6 +28,8 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -38,6 +41,37 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ConsentCenterService actorless One routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([
+    ["summary", "unchanged"], ["list", "unchanged"],
+    ["summary", "mutated"], ["list", "mutated"],
+    ["summary", "signed-out"], ["list", "signed-out"],
+  ] as const)("preserves a slow %s response and caches only its current %s scope", async (kind, state) => {
+    publishValidatedAuthSessionOwner("test-owner");
+    let finish!: (value: Response) => void;
+    mockApiFetch.mockReturnValueOnce(new Promise<Response>((resolve) => { finish = resolve; }));
+    const payload = kind === "summary" ? { counts: { pending: 1 }, extra: "preserved" }
+      : { items: [], total: 0, page: 1, limit: 20, has_more: false, extra: "preserved" };
+    const options = { idToken: "tok", userId: `slow-${kind}`, force: true };
+    if (state === "mutated") noteConsentMutated(options.userId, 12345);
+    const pending = kind === "summary" ? ConsentCenterService.getSummary(options)
+      : ConsentCenterService.listEntries({ ...options, surface: "pending" });
+    if (state === "mutated") noteConsentMutated(options.userId, 12345);
+    if (state === "signed-out") publishValidatedAuthSessionOwner(null);
+    finish(jsonResponse(payload));
+    await expect(pending).resolves.toEqual(payload);
+    if (state === "unchanged") expect(mockCacheSet).toHaveBeenCalled();
+    else expect(mockCacheSet).not.toHaveBeenCalled();
+    publishValidatedAuthSessionOwner("test-owner");
+  });
+
+  it("requests the isolated Sent documents projection without RIA compatibility", async () => {
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, page: 1, limit: 20, has_more: false }));
+    await ConsentCenterService.listEntries({ idToken: "tok", userId: "u-1", surface: "pending", requestView: "sent" });
+    const [url] = mockApiFetch.mock.calls[0];
+    expect(url).toContain("request_view=sent");
+    expect(url).not.toContain("actor=ria");
   });
 
   it("loads One summary without emitting actor=investor", async () => {

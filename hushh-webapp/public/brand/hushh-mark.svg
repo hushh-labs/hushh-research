@@ -1,0 +1,292 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="128 105 760 760" fill="none" role="img" aria-labelledby="shush-title shush-description" preserveAspectRatio="xMidYMid meet">
+  <title id="shush-title">Glossy golden shushing face</title>
+  <desc id="shush-description">Editable vector recreation of the supplied shushing-face reference. A round yellow face with glossy brown eyes and a gold hand holding one finger over a small mouth. All artwork uses paths, shapes, and SVG gradients. Transparent background; no embedded bitmap, fonts, scripts, or external resources.</desc>
+  <defs>
+    <radialGradient id="shush-face-gold" gradientUnits="userSpaceOnUse" cx="447.362" cy="50.000" r="840" gradientTransform="translate(447.362 50.000) scale(1 0.96291) translate(-447.362 -50.000)">
+      <stop offset="0.00" stop-color="#ffffbc" />
+      <stop offset="0.10" stop-color="#fff890" />
+      <stop offset="0.20" stop-color="#ffe76b" />
+      <stop offset="0.30" stop-color="#ffd74d" />
+      <stop offset="0.40" stop-color="#fdc735" />
+      <stop offset="0.50" stop-color="#f5b825" />
+      <stop offset="0.60" stop-color="#eba91b" />
+      <stop offset="0.70" stop-color="#e09b18" />
+      <stop offset="0.80" stop-color="#d38d1c" />
+      <stop offset="0.90" stop-color="#c58027" />
+      <stop offset="1.00" stop-color="#b57339" />
+    </radialGradient>
+    <linearGradient id="shush-face-outer-edge" gradientUnits="userSpaceOnUse" x1="335" y1="158" x2="634" y2="790">
+      <stop stop-color="#fffef1" stop-opacity="0.92" />
+      <stop offset="0.45" stop-color="#ffefa4" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#eec46e" stop-opacity="0.45" />
+    </linearGradient>
+    <linearGradient id="shush-face-cap" gradientUnits="userSpaceOnUse" x1="507" y1="162" x2="507" y2="337">
+      <stop stop-color="#fffed0" stop-opacity="0.97" />
+      <stop offset="0.44" stop-color="#ffed89" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#ffe285" stop-opacity="0.60" />
+    </linearGradient>
+    <linearGradient id="shush-face-cap-edge" gradientUnits="userSpaceOnUse" x1="504" y1="161" x2="504" y2="222">
+      <stop stop-color="#ffffe0" stop-opacity="0.68" />
+      <stop offset="1" stop-color="#fff0a0" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-face-left-gloss" gradientUnits="userSpaceOnUse" x1="217" y1="308" x2="250" y2="542">
+      <stop stop-color="#fffacc" stop-opacity="0.89" />
+      <stop offset="0.58" stop-color="#fffbc6" stop-opacity="0.93" />
+      <stop offset="1" stop-color="#fff1b0" stop-opacity="0.5" />
+    </linearGradient>
+    <linearGradient id="shush-face-right-gloss" gradientUnits="userSpaceOnUse" x1="741" y1="294" x2="803" y2="610">
+      <stop stop-color="#fff0a6" stop-opacity="0.36" />
+      <stop offset="0.4" stop-color="#ffe7a0" stop-opacity="0.52" />
+      <stop offset="1" stop-color="#ffe1a0" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-face-lower-rim" gradientUnits="userSpaceOnUse" x1="288" y1="687" x2="745" y2="699">
+      <stop stop-color="#ffe7ab" stop-opacity="0.75" />
+      <stop offset="0.5" stop-color="#e8b454" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffe5a1" stop-opacity="0.6" />
+    </linearGradient>
+    <radialGradient id="shush-eye-left-socket" gradientUnits="userSpaceOnUse" cx="405" cy="319" r="47" gradientTransform="translate(405 319) scale(1 1.08) translate(-405 -319)">
+      <stop offset="0.65" stop-color="#8d4302" stop-opacity="0.68" />
+      <stop offset="0.78" stop-color="#aa5701" stop-opacity="0.49" />
+      <stop offset="0.89" stop-color="#d58700" stop-opacity="0.28" />
+      <stop offset="1" stop-color="#efac12" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="shush-eye-right-socket" gradientUnits="userSpaceOnUse" cx="612.5" cy="319" r="47" gradientTransform="translate(612.5 319) scale(1 1.08) translate(-612.5 -319)">
+      <stop offset="0.65" stop-color="#8d4302" stop-opacity="0.68" />
+      <stop offset="0.78" stop-color="#aa5701" stop-opacity="0.49" />
+      <stop offset="0.89" stop-color="#d58700" stop-opacity="0.28" />
+      <stop offset="1" stop-color="#efac12" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="shush-eye-black" gradientUnits="userSpaceOnUse" x1="0" y1="286" x2="0" y2="364">
+      <stop stop-color="#120905" />
+      <stop offset="0.5" stop-color="#241306" />
+      <stop offset="1" stop-color="#432807" />
+    </linearGradient>
+    <linearGradient id="shush-eye-inner" gradientUnits="userSpaceOnUse" x1="0" y1="303" x2="0" y2="360">
+      <stop stop-color="#453020" />
+      <stop offset="0.3" stop-color="#38220d" />
+      <stop offset="1" stop-color="#392006" />
+    </linearGradient>
+    <linearGradient id="shush-eye-gloss" gradientUnits="userSpaceOnUse" x1="0" y1="292" x2="0" y2="324">
+      <stop stop-color="#bbb9b6" />
+      <stop offset="0.43" stop-color="#88827f" />
+      <stop offset="1" stop-color="#5c4c3e" />
+    </linearGradient>
+    <linearGradient id="shush-eye-bottom-edge" gradientUnits="userSpaceOnUse" x1="0" y1="337" x2="0" y2="371">
+      <stop stop-color="#fff6a0" stop-opacity="0" />
+      <stop offset="1" stop-color="#fff9a6" stop-opacity="0.88" />
+    </linearGradient>
+    <radialGradient id="shush-mouth-socket" gradientUnits="userSpaceOnUse" cx="508" cy="475" r="64" gradientTransform="translate(508 475) scale(1 0.41) translate(-508 -475)">
+      <stop offset="0.47" stop-color="#874501" stop-opacity="0.59" />
+      <stop offset="0.73" stop-color="#ab6404" stop-opacity="0.34" />
+      <stop offset="1" stop-color="#d9910b" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="shush-mouth-depth" gradientUnits="userSpaceOnUse" x1="509" y1="464" x2="509" y2="495">
+      <stop stop-color="#401300" />
+      <stop offset="1" stop-color="#6a2400" />
+    </linearGradient>
+    <linearGradient id="shush-mouth-lip" gradientUnits="userSpaceOnUse" x1="509" y1="469" x2="509" y2="498">
+      <stop stop-color="#c48509" />
+      <stop offset="1" stop-color="#fff398" />
+    </linearGradient>
+    <radialGradient id="shush-face-edge-glaze" gradientUnits="userSpaceOnUse" cx="509" cy="466" r="324" gradientTransform="translate(509 466) scale(1 1.008) translate(-509 -466)">
+      <stop offset="0.90" stop-color="#ffe3a0" stop-opacity="0" />
+      <stop offset="0.966" stop-color="#ffe8a3" stop-opacity="0.12" />
+      <stop offset="0.990" stop-color="#fff2c2" stop-opacity="0.58" />
+      <stop offset="1" stop-color="#fffdec" stop-opacity="0.82" />
+    </radialGradient>
+    <linearGradient id="shush-hand-index" gradientUnits="userSpaceOnUse" x1="476" y1="465" x2="536" y2="465">
+      <stop stop-color="#bd891b" />
+      <stop offset=".10" stop-color="#f9d85f" />
+      <stop offset=".27" stop-color="#f6cd52" />
+      <stop offset=".59" stop-color="#eeb733" />
+      <stop offset=".84" stop-color="#dda120" />
+      <stop offset="1" stop-color="#f9d16c" />
+    </linearGradient>
+    <radialGradient id="shush-hand-index-tip" gradientUnits="userSpaceOnUse" cx="504" cy="403" r="32" gradientTransform="translate(0 225.36) scale(1 .44)">
+      <stop stop-color="#fffed3" />
+      <stop offset=".37" stop-color="#fff7ad" />
+      <stop offset=".79" stop-color="#fff195" stop-opacity=".25" />
+      <stop offset="1" stop-color="#fff195" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="shush-hand-index-edge" gradientUnits="userSpaceOnUse" x1="480" y1="470" x2="494" y2="471">
+      <stop stop-color="#fff3ba" stop-opacity="0" />
+      <stop offset=".3" stop-color="#fff6b3" stop-opacity=".4" />
+      <stop offset=".5" stop-color="#fff9c2" stop-opacity=".92" />
+      <stop offset=".75" stop-color="#fff3ba" stop-opacity=".59" />
+      <stop offset="1" stop-color="#fff3ba" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-hand-palm" gradientUnits="userSpaceOnUse" x1="423" y1="607" x2="542" y2="816">
+      <stop stop-color="#fadd79" />
+      <stop offset=".36" stop-color="#efbe4b" />
+      <stop offset=".73" stop-color="#e4a531" />
+      <stop offset=".91" stop-color="#d99b33" />
+      <stop offset="1" stop-color="#bc8023" />
+    </linearGradient>
+    <linearGradient id="shush-hand-palm-rim" gradientUnits="userSpaceOnUse" x1="398" y1="712" x2="531" y2="800">
+      <stop stop-color="#ffeda4" />
+      <stop offset=".19" stop-color="#f8d373" />
+      <stop offset=".66" stop-color="#efbc5c" />
+      <stop offset="1" stop-color="#d29934" />
+    </linearGradient>
+    <linearGradient id="shush-hand-thumb" gradientUnits="userSpaceOnUse" x1="614" y1="588" x2="613" y2="705">
+      <stop stop-color="#fff0a1" />
+      <stop offset=".18" stop-color="#f7d169" />
+      <stop offset=".42" stop-color="#e8b241" />
+      <stop offset="1" stop-color="#c99126" />
+    </linearGradient>
+    <linearGradient id="shush-hand-thumb-edge" gradientUnits="userSpaceOnUse" x1="631" y1="621" x2="523" y2="778">
+      <stop stop-color="#fff29e" />
+      <stop offset=".3" stop-color="#fddd73" />
+      <stop offset=".69" stop-color="#f9d16a" />
+      <stop offset="1" stop-color="#f8cc62" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="shush-hand-thumb-gloss" gradientUnits="userSpaceOnUse" cx="624" cy="606" r="24" gradientTransform="translate(624 606) rotate(-37) scale(1 .52) translate(-624 -606)">
+      <stop stop-color="#fffed5" />
+      <stop offset=".27" stop-color="#fff8b7" stop-opacity=".96" />
+      <stop offset=".52" stop-color="#fff3a2" stop-opacity=".65" />
+      <stop offset=".77" stop-color="#ffefa5" stop-opacity=".2" />
+      <stop offset="1" stop-color="#ffefa5" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="shush-hand-palm-well" gradientUnits="userSpaceOnUse" x1="528" y1="688" x2="576" y2="733">
+      <stop stop-color="#a96709" />
+      <stop offset=".46" stop-color="#be8010" />
+      <stop offset="1" stop-color="#e3a423" />
+    </linearGradient>
+    <radialGradient id="shush-hand-back-finger" gradientUnits="userSpaceOnUse" cx="493" cy="548" r="118" gradientTransform="matrix(1 0 0 .94 0 32.88)">
+      <stop stop-color="#fff2a0" />
+      <stop offset=".29" stop-color="#fad65b" />
+      <stop offset=".57" stop-color="#edba37" />
+      <stop offset=".84" stop-color="#d49825" />
+      <stop offset="1" stop-color="#ab7216" />
+    </radialGradient>
+    <radialGradient id="shush-hand-middle-finger" gradientUnits="userSpaceOnUse" cx="482" cy="582" r="113" gradientTransform="matrix(1 0 0 .94 0 34.92)">
+      <stop stop-color="#fff2a0" />
+      <stop offset=".24" stop-color="#fad868" />
+      <stop offset=".57" stop-color="#efb838" />
+      <stop offset=".86" stop-color="#cf942a" />
+      <stop offset="1" stop-color="#a67116" />
+    </radialGradient>
+    <linearGradient id="shush-hand-finger-shine" gradientUnits="userSpaceOnUse" x1="508" y1="541" x2="514" y2="561">
+      <stop stop-color="#fffac6" stop-opacity="0" />
+      <stop offset=".22" stop-color="#fff7b8" stop-opacity=".19" />
+      <stop offset=".44" stop-color="#fffbd0" stop-opacity=".95" />
+      <stop offset=".57" stop-color="#fffbc5" stop-opacity=".9" />
+      <stop offset=".78" stop-color="#fff3a4" stop-opacity=".24" />
+      <stop offset="1" stop-color="#fff3a4" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-hand-middle-shine" gradientUnits="userSpaceOnUse" x1="480" y1="575" x2="482" y2="600">
+      <stop stop-color="#fffac6" stop-opacity="0" />
+      <stop offset=".17" stop-color="#fff7b8" stop-opacity=".2" />
+      <stop offset=".37" stop-color="#fffbd0" stop-opacity=".97" />
+      <stop offset=".51" stop-color="#fffbc5" stop-opacity=".91" />
+      <stop offset=".71" stop-color="#fff3a4" stop-opacity=".24" />
+      <stop offset="1" stop-color="#fff3a4" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="shush-hand-front-finger" gradientUnits="userSpaceOnUse" cx="460" cy="626" r="159" gradientTransform="matrix(.82 0 0 1.14 82.8 -87.64)">
+      <stop stop-color="#ffe88b" />
+      <stop offset=".23" stop-color="#f5cf67" />
+      <stop offset=".53" stop-color="#e9b548" />
+      <stop offset=".73" stop-color="#dba137" />
+      <stop offset=".87" stop-color="#dca139" />
+      <stop offset="1" stop-color="#e8b75b" />
+    </radialGradient>
+    <linearGradient id="shush-hand-front-gloss" gradientUnits="userSpaceOnUse" x1="486" y1="602" x2="486" y2="633">
+      <stop stop-color="#fffac6" stop-opacity="0" />
+      <stop offset=".15" stop-color="#fff7b8" stop-opacity=".15" />
+      <stop offset=".38" stop-color="#fffcd3" stop-opacity=".98" />
+      <stop offset=".5" stop-color="#fffbc5" stop-opacity=".93" />
+      <stop offset=".71" stop-color="#fff3a4" stop-opacity=".19" />
+      <stop offset="1" stop-color="#fff3a4" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-hand-front-left" gradientUnits="userSpaceOnUse" x1="410" y1="660" x2="429" y2="666">
+      <stop stop-color="#fff8bc" stop-opacity="0" />
+      <stop offset=".22" stop-color="#fff8bc" stop-opacity=".15" />
+      <stop offset=".47" stop-color="#fff8b9" stop-opacity=".96" />
+      <stop offset=".65" stop-color="#ffeba0" stop-opacity=".4" />
+      <stop offset="1" stop-color="#ffe782" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-hand-front-tip" gradientUnits="userSpaceOnUse" x1="508" y1="670" x2="551" y2="705">
+      <stop stop-color="#d6a33e" />
+      <stop offset=".35" stop-color="#edb747" />
+      <stop offset=".7" stop-color="#f0be54" />
+      <stop offset="1" stop-color="#ce9631" />
+    </linearGradient>
+    <linearGradient id="shush-hand-hole" gradientUnits="userSpaceOnUse" x1="487" y1="652" x2="522" y2="691">
+      <stop stop-color="#895007" />
+      <stop offset=".31" stop-color="#462005" />
+      <stop offset=".67" stop-color="#6b3c03" />
+      <stop offset="1" stop-color="#b47a0c" />
+    </linearGradient>
+    <linearGradient id="shush-hand-palm-crease" gradientUnits="userSpaceOnUse" x1="499" y1="697" x2="521" y2="766">
+      <stop stop-color="#ffe38c" />
+      <stop offset=".52" stop-color="#f8d681" />
+      <stop offset="1" stop-color="#f6d17e" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="shush-hand-finger-edge" gradientUnits="userSpaceOnUse" x1="551" y1="541" x2="580" y2="660">
+      <stop stop-color="#fff8b1" />
+      <stop offset=".33" stop-color="#ffe797" />
+      <stop offset=".77" stop-color="#ffd064" />
+      <stop offset="1" stop-color="#e5ab2a" />
+    </linearGradient>
+    <linearGradient id="shush-hand-soft-shadow" gradientUnits="userSpaceOnUse" x1="465" y1="568" x2="472" y2="605">
+      <stop stop-color="#ad730a" stop-opacity=".02" />
+      <stop offset=".55" stop-color="#ad730a" stop-opacity=".64" />
+      <stop offset="1" stop-color="#ad730a" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <g id="shush-face">
+    <path id="face-outline" d="M508.5 141.2C682.9 141.2 827.4 282.8 830.1 458.9C832.4 630.6 694.8 783.2 519.5 790.3C341.3 797.4 191.1 650.6 188.1 473.8C184.5 294.6 327.9 143 508.5 141.2Z" fill="url(#shush-face-gold)" stroke="url(#shush-face-outer-edge)" stroke-width="2.1" />
+    <path d="M508.5 141.2C682.9 141.2 827.4 282.8 830.1 458.9C832.4 630.6 694.8 783.2 519.5 790.3C341.3 797.4 191.1 650.6 188.1 473.8C184.5 294.6 327.9 143 508.5 141.2Z" fill="url(#shush-face-edge-glaze)" />
+    <path id="forehead-reflection" d="M297.6 279.6C315.5 213.6 416 161.5 507.9 162.6C599.2 158.7 697.2 220.3 715.8 277.6C722.6 297.9 717.2 316.7 697.8 330.9C643.1 306.1 578.1 302.8 511.2 303.6C439.3 302.9 372.6 311.5 315.5 332.5C297.5 319.9 290.8 300.6 297.6 279.6Z" fill="url(#shush-face-cap)" stroke="url(#shush-face-cap)" stroke-width="2.4" stroke-opacity="0.16" stroke-linejoin="round" />
+    <path d="M327 230C374 186 443 161 509 162C577 161 646 190 689 234C640 198 577 181 510 181C442 181 380 197 327 230Z" fill="url(#shush-face-cap-edge)" />
+    <path id="left-reflection" d="M276.5 283.3C238 324.9 213.2 381.1 211.8 434.3C209.7 477.9 220.1 514.9 244.5 545.4C230.9 507 225.5 470.7 229.3 433.3C234.5 379.2 251 343.3 273.1 317.6C271.8 305.9 273.1 294.3 276.5 283.3Z" fill="url(#shush-face-left-gloss)" stroke="url(#shush-face-left-gloss)" stroke-width="2.4" stroke-opacity="0.16" stroke-linejoin="round" />
+    <path id="right-reflection" d="M732.6 266.7C781.2 312.2 806.9 374.3 811 435.9C817.2 507.8 797.4 563.9 751.2 607.8C773.3 561.8 781.8 518.3 777.7 470.8C775.9 411.4 762.8 365.6 742.5 338.2C744.9 312.8 741.7 288.3 732.6 266.7Z" fill="url(#shush-face-right-gloss)" stroke="url(#shush-face-right-gloss)" stroke-width="2.4" stroke-opacity="0.16" stroke-linejoin="round" />
+    <path d="M199.1 483.5C204.2 609.6 285 723.3 404.4 768.6M585.8 778.8C712.1 749.2 809.7 637.1 825.1 508.6" fill="none" stroke="url(#shush-face-lower-rim)" stroke-width="3.2" stroke-linecap="round" opacity="0.28" />
+  </g>
+  <g id="shush-eyes">
+    <ellipse cx="406" cy="320" rx="51" ry="58" fill="url(#shush-eye-left-socket)" />
+    <ellipse cx="613" cy="320" rx="51" ry="58" fill="url(#shush-eye-right-socket)" />
+    <path d="M367.6 326.1C367.5 302.9 383.1 284.5 404.6 284.5C426.8 284.5 441.5 302.4 441.5 326.2C441.5 348.2 426.4 365.1 405.1 365.1C383.7 365.1 367.5 348.7 367.6 326.1Z" fill="url(#shush-eye-black)" stroke="#884906" stroke-width="1.1" />
+    <path d="M575.1 326.1C575 302.9 590.6 284.5 612.1 284.5C634.3 284.5 649 302.4 649 326.2C649 348.2 633.9 365.1 612.6 365.1C591.2 365.1 575 348.7 575.1 326.1Z" fill="url(#shush-eye-black)" stroke="#884906" stroke-width="1.1" />
+    <path d="M379.4 316.8C390.9 305.5 418.2 305.3 432.3 317.8C437.1 339.9 425.1 358.1 405.6 359.8C385.6 359.7 374.2 340.4 379.4 316.8Z" fill="url(#shush-eye-inner)" />
+    <path d="M586.9 316.8C598.4 305.5 625.7 305.3 639.8 317.8C644.6 339.9 632.6 358.1 613.1 359.8C593.1 359.7 581.7 340.4 586.9 316.8Z" fill="url(#shush-eye-inner)" />
+    <path id="left-eye-highlight" d="M377.6 318.5C380.8 303.3 390.7 293.7 404.1 293.5C417.6 293.4 429 303 433.1 319.4C416.4 309.1 395.1 308.4 377.6 318.5Z" fill="url(#shush-eye-gloss)" />
+    <path id="right-eye-highlight" d="M585.1 318.5C588.3 303.3 598.2 293.7 611.6 293.5C625.1 293.4 636.5 303 640.6 319.4C623.9 309.1 602.6 308.4 585.1 318.5Z" fill="url(#shush-eye-gloss)" />
+    <path d="M367.4 327C367.4 350.4 383.9 367 405.4 367C426.4 367 442.7 350.1 442.7 327M574.9 327C574.9 350.4 591.4 367 612.9 367C633.9 367 650.2 350.1 650.2 327" fill="none" stroke="url(#shush-eye-bottom-edge)" stroke-width="3.3" stroke-linecap="round" />
+  </g>
+  <g id="shush-mouth">
+    <ellipse cx="508" cy="475" rx="66" ry="28" fill="url(#shush-mouth-socket)" />
+    <path d="M453.4 475.7C451.8 467.2 469.2 463.8 492.1 464.4L526 464.4C547.8 463.5 563.8 466.8 563.6 475.5C562.7 486.8 541.6 495.9 509.1 495.4C477.8 495.9 456.5 487 453.4 475.7Z" fill="url(#shush-mouth-depth)" stroke="url(#shush-mouth-lip)" stroke-width="2.5" />
+  </g>
+  <g id="shush-hand">
+    <path id="hand-raised-index" d="M470.5 555.5 C478 534 480.1 508.5 482.6 481.8 C484.4 459.9 485.4 438.2 487.7 418.7 C489.4 405.4 495 398.9 505.8 398.5 C519 398 525.6 408.2 528.2 425.3 C532.1 455.7 532.4 493.8 532 540.7 L508.5 561.5 Z" fill="url(#shush-hand-index)" stroke="#f7df8b" stroke-width=".8" />
+    <path d="M473 551 C480 529 481.9 501 484.2 477 C486.1 456 486.7 435.2 489 418 C490.5 407 495.5 401.3 503.5 400.1 C494.8 405.4 494.6 415.9 493.7 432.2 C492.2 459.3 491.8 490.7 489 516.4 C487.5 531.6 485.7 541.4 483.3 548.4 Z" fill="url(#shush-hand-index-edge)" />
+    <path d="M505.8 400 C518.9 399.7 523.8 409.5 526.2 424.3 L526.9 432 C518.9 424.2 504.9 417.7 489.1 423.2 L489.9 417 C491.6 405.6 496.8 400.3 505.8 400Z" fill="url(#shush-hand-index-tip)" />
+    <path d="M521.6 415.3 C528.5 445.9 529.2 493 528.5 540.6" fill="none" stroke="#ffe67b" stroke-width="2.1" stroke-linecap="round" opacity=".71" />
+    <path id="hand-palm-silhouette" d="M444 577 C423 596 411.7 630.4 404 664 C397.3 692.8 391.1 726.7 390.5 751 C389.1 781.3 397.8 805 416.6 819.3 C435.5 833.6 458.5 832.5 480 823.8 C501.3 815.3 519.6 796.6 539.4 781.7 C561.7 765 581 745.7 594.5 720.8 C608.7 694.7 621.3 667.1 638.1 643.6 C648.3 629.5 655.5 617.4 650.3 604.1 C646.5 593.2 637.7 587.2 628 587.5 C614.9 587.7 605.1 596.2 596 608.5 L565 597 L529 572 Z" fill="url(#shush-hand-palm)" stroke="#f0dba3" stroke-width=".8" />
+    <path d="M600 608 C609.8 593.8 621.2 588.5 630.2 590 C642.7 591.1 650.4 601.3 649.1 613.2 C647.5 627.2 632.4 644.9 620.5 663.9 C606.4 686.1 596.9 710.3 580.4 733.2 C565.7 753.7 544 771.2 521.4 784.1 C544 757.6 558.7 728.2 569.8 697 C581 665.4 584 635.5 600 608Z" fill="url(#shush-hand-thumb)" />
+    <path d="M514 688 C535 675 556 662 572 646 C585 633 591 622 598 610 C598.3 629.9 587.5 656.2 576.4 678.8 C564 704.2 545.5 724.8 524 738 C517.2 724.4 514.2 707.5 514 688Z" fill="url(#shush-hand-palm-well)" />
+    <path d="M580.6 677.1 C583.2 681.7 581.4 686 576.4 690.5 C557.7 708.5 541 719.9 524.9 725.1 L519 714.8 C539.9 704.5 560.5 691.8 580.6 677.1Z" fill="#f6ce6c" opacity=".18" />
+    <path d="M600 608 C609.8 593.8 621.2 588.5 630.2 590 C642.7 591.1 650.4 601.3 649.1 613.2 C647.5 627.2 632.4 644.9 620.5 663.9 C606.4 686.1 596.9 710.3 580.4 733.2 C565.7 753.7 544 771.2 521.4 784.1 C544 757.6 558.7 728.2 569.8 697 C581 665.4 584 635.5 600 608Z" fill="url(#shush-hand-thumb-gloss)" />
+    <path d="M644.9 602.9 C655.8 626.2 629.1 647.2 613.1 676.2 C601.4 697.8 591.5 721.1 575.4 740.5 C559.5 759.7 540.9 774.7 517.5 789.1 L514.9 778.4 C546.6 758.3 568.5 734.8 584.6 706.2 C598.9 680.9 611.6 655.1 628.4 634.4 C639.1 621.2 646.6 614.1 644.9 602.9Z" fill="url(#shush-hand-thumb-edge)" opacity=".65" />
+    <path d="M434 596 C412 627 403.2 666.8 396.1 704.3 C388.1 747.8 387.1 786.5 411.7 813 C427.9 830.4 450.9 835.5 474.8 826.2 C499.1 816.3 514.3 797.2 523.2 770.2 C530.3 749.4 529.4 725.9 521.9 706.2 L501.5 704.9 C507 739.3 500.5 767.8 480.6 781.5 C464.4 792.7 444 789.5 430.9 775.3 C412.9 755.6 412.2 728.8 417.5 694.2 C422.2 662 429.4 627.9 443.4 609.3Z" fill="url(#shush-hand-palm-rim)" />
+    <path id="hand-folded-rear" d="M437 573.8 C456.1 559.1 483.6 549.9 510.1 541.7 C525.9 536.5 543.7 531.1 554.9 532.7 C566.7 534.2 573.7 544.7 579.2 558.6 C588.5 582.2 594.4 603.5 597.2 620 C600.1 635.3 592.5 647.1 581.8 654.7 L557.3 662.7 C547.8 642.5 542.5 618.2 534.1 597.4 L462.5 591.7 L425.1 603.4 C425.1 590.6 429.4 580.1 437 573.8Z" fill="url(#shush-hand-back-finger)" stroke="#f8df8e" stroke-width=".6" />
+    <path d="M456 564.1 C479 554.6 507.6 545.6 534.4 539.9 C544.5 537.8 553.4 536.5 560.2 540.5 C563.7 542.6 566.6 547.7 568.7 553.2 C564 549.1 557.7 548.7 549.8 550.3 C520.4 556.2 488.1 566.8 460.5 573.7 C452.1 576.4 447.6 575.2 451.6 570.6Z" fill="url(#shush-hand-finger-shine)" />
+    <path d="M554.8 535.8 C566.7 536.3 573.7 550.1 579 565.1 C587.6 589 593.5 609.2 594.5 622.9 C595.5 635.1 590 644.4 582.5 650.2 C590.5 636.6 589.9 626.1 586.6 611.6 C582.7 593.7 577.2 576.5 570.3 559.7 C565.7 548.4 561.3 541.6 554.8 535.8Z" fill="url(#shush-hand-finger-edge)" opacity=".62" />
+    <path d="M447 583.3 C471 574.2 518 563.7 541.6 565.2 C556 566 564.5 578 572.9 596.7 C585 623.7 588.5 641.1 580.8 654.4 L563.6 663 L493 615 L428 605Z" fill="url(#shush-hand-soft-shadow)" />
+    <path id="hand-folded-middle" d="M431.5 587.6 C445.3 577 478.7 571.5 505.9 568.2 C524.1 565.8 543.3 564.3 554 569.1 C563.3 573.3 568.8 585.5 573.5 598.3 C580.2 616.3 584.1 634.9 584.1 647.5 C584.1 659.9 575 671.2 563.6 681 L536 687.8 L513.3 630.7 L447 628 L420.3 617.2 C419 606.6 420.5 596.2 431.5 587.6Z" fill="url(#shush-hand-middle-finger)" stroke="#f7df8b" stroke-width=".6" />
+    <path d="M435.6 588.9 C456.5 579.5 480.5 576.3 507.2 573.3 C526.4 571.3 541.1 570.6 549.8 574 C555.7 576.4 559 582.5 561.5 589.1 C551.4 582.8 538 583.2 523 584.5 C494.7 586.9 463.7 592.1 441.7 598.4 C433 600.7 430.2 599.9 430.9 596.1Z" fill="url(#shush-hand-middle-shine)" />
+    <path d="M551.2 571.4 C562.1 575.5 568.6 594 573.7 610.1 C578.3 624.6 581.9 639.3 580.9 649.2 C579.9 659.1 573.4 669.1 565.7 676.9 C573.7 662.1 575.3 652.8 573.2 639.9 C570.3 621.8 565.6 605.4 559.2 589.9 C555.9 581.9 553 576.3 551.2 571.4Z" fill="url(#shush-hand-finger-edge)" opacity=".62" />
+    <path d="M430.5 609.7 C450.4 599.7 492.8 597.9 516.7 600.1 C538.6 602 550.2 612.4 557.6 630.9 C565.5 651.1 567.1 668.2 558.6 683.5 C552.9 693.9 541.8 703.1 529.7 709.7 L492.9 692 L424.3 641.9Z" fill="#b57b0a" opacity=".12" />
+    <path id="hand-inner-finger-gap" d="M489.5 651 C499.6 651.5 510.5 647.1 517.6 648.4 C522.9 649.4 522.6 660 525.8 668 C522.9 679.1 519.1 691.2 512.2 704.1 C507.3 712.5 504.9 711 502.1 700.8 C499.1 689.2 497.7 677.1 493.1 666.3 C489.1 657.1 485 652 489.5 651Z" fill="url(#shush-hand-hole)" />
+    <path id="hand-folded-front" d="M425.8 620 C433.5 606.5 445.6 601.9 463.2 601.9 L504.2 602.1 C525.3 602.3 540.3 606.2 548.9 618.2 C556.1 628.2 560.6 646.8 563.3 661.5 C566 677.4 554.4 692.5 537.6 704 C528.9 710 519.9 713.5 512.9 708 C506.2 702.9 505.7 696.3 509.3 689.2 C512.3 683 518.1 678.2 525.1 673 C522.6 666.8 520.4 660.1 518.8 652.1 C510.3 655.4 502.1 657.3 487.9 657.1 C493.7 672.6 497 690.9 499.8 713.4 C503.8 744.1 498.6 768.2 478.5 780.4 C459.2 792.5 438.2 785.8 426.1 770.2 C412.5 752.7 410.3 728.2 414.4 700 C418.2 673.8 421.1 639.8 425.8 620Z" fill="url(#shush-hand-front-finger)" />
+    <path d="M435.5 612.5 C444.5 607.2 457.3 606.1 472.4 606.3 L504.4 606.7 C522.3 607 534 610.3 539.6 617.3 C542.2 620.3 543.5 623.7 544.3 627.2 C527.4 622.9 512.5 622.5 494.3 622.3 L463.2 622.2 C451.2 622.3 442 622.5 433.4 626.7 C428.8 629.1 429 617.7 435.5 612.5Z" fill="url(#shush-hand-front-gloss)" />
+    <path d="M430.1 621.4 C434.1 619.5 435.6 622.6 433.1 629.6 C421.1 663.6 417.4 704 414 733.4 C413.6 750.9 417.4 765.4 424 775 C410.3 760.1 407.7 740.7 410.5 716 C413.4 685.4 418.2 647.5 425.7 628 C427.4 623.6 428.8 622.1 430.1 621.4Z" fill="url(#shush-hand-front-left)" />
+    <path d="M535.9 651.9 C545.7 648.7 553.2 653.9 556 663.9 C558.7 673.9 549.3 686.6 536.3 696.1 C529.6 701 521.9 706.8 516 706.5 C508.4 701.8 510.5 694.1 516.9 687 C521.3 682.3 527.8 677.6 532.9 673.8 L526.9 659Z" fill="url(#shush-hand-front-tip)" />
+    <path d="M539.5 611.4 C549.5 617.1 554.3 633.7 558.1 649.5 C561.3 662.6 562.2 670.7 556.7 680.4 C550.7 690.4 537.3 702.8 525 707.6 C536.8 698.6 545.5 689.3 551.8 679.7 C557.2 671.1 556.2 663.1 553.6 651.4 C550.9 638.9 547.8 622.4 539.5 611.4Z" fill="url(#shush-hand-finger-edge)" opacity=".62" />
+    <path d="M489.5 658.3 C493.9 661.8 497.2 674.4 499.8 686.3 C502.4 698.5 505.7 710.7 511 719.7 C516.1 728.5 517.3 741.5 513.6 757.4 C516.1 741 510.3 732.1 505.4 723.9 C499 713.1 497.4 699.5 495 685.4 C493.2 674.2 491.5 665.3 489.5 658.3Z" fill="url(#shush-hand-palm-crease)" />
+    <path d="M522.5 708.8 C529.2 724.8 528.5 746.4 520.9 765.7 L515.9 776.5 C520.8 753.2 521.6 732.1 517.5 714.1Z" fill="#ffe192" opacity=".72" />
+    <path d="M394.1 737 C391 761.8 393.9 785.2 405 803.7" fill="none" stroke="#fff0a4" stroke-width="1.8" stroke-linecap="round" opacity=".72" />
+  </g>
+</svg>

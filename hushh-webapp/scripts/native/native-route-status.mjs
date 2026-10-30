@@ -59,11 +59,12 @@ export function nativeRouteAuditProgressKey(status) {
  * marker is a contract failure—not an app bootstrap state worth waiting on.
  */
 export function isSettledNativeRouteAuditSurface(status, route) {
+  const allowedAuthStates = route.allowedAuthStates || [route.expectedAuth];
   return (
-    status.auth === route.expectedAuth &&
+    allowedAuthStates.includes(status.auth) &&
     route.allowedDataStates.includes(status.data) &&
     status.doc === "complete" &&
     status.found === "1" &&
-    (route.expectedAuth !== "authenticated" || status.bootstrap === "vault_unlocked")
+    (!allowedAuthStates.includes("authenticated") || status.bootstrap === "vault_unlocked")
   );
 }

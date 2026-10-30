@@ -4,7 +4,7 @@
 
 Canonical visual owner: [Observability Architecture Map](./observability-architecture-map.md). Use that map for topology and reporting boundaries; this page is the event taxonomy and emitter map beneath it.
 
-This matrix documents the maintained Kai observability contract:
+This matrix documents the maintained One-platform observability contract:
 
 1. what each event means
 2. which params are required
@@ -54,7 +54,7 @@ Every emitted observability event carries centrally added shared params:
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
-| `consent_pending_loaded` | Pending consent load outcome | `result` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health | GA DebugView |
+| `consent_pending_loaded` | Pending consent load outcome | `result`, `load_surface`, `pending_count_bucket` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health; separates an ignored queue from an empty one, and a real screen view from the unlock warm prefetch | GA DebugView |
 | `consent_action_submitted` | Approve / deny / revoke submitted | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action attempts | GA DebugView |
 | `consent_action_result` | Approve / deny / revoke resolved | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action success/failure outcomes | GA DebugView |
 | `profile_method_switch_result` | Vault/profile method switch outcome | `result` | `hushh-webapp/lib/services/vault-method-service.ts` | vault/profile migration health | GA DebugView |
@@ -69,7 +69,7 @@ Every emitted observability event carries centrally added shared params:
 | --- | --- | --- | --- | --- | --- |
 | `persona_switched` | App persona switch surface selected investor or RIA | `action`, `result` | `hushh-webapp/components/app-ui/top-app-bar.tsx` | RIA top-of-funnel continuity for authenticated users | GA DebugView, RIA funnel SQL |
 | `ria_onboarding_submitted` | RIA onboarding form submitted | `result` | `hushh-webapp/app/ria/onboarding/page.tsx` | RIA onboarding start/completion quality | GA DebugView |
-| `ria_verification_status_changed` | RIA verification status transition | `action`, `result` | `hushh-webapp/app/ria/onboarding/page.tsx` | RIA status progression | GA DebugView |
+| `ria_verification_status_changed` | Verification decision returned for an RIA onboarding submission | `action` (status reached), `result` (`expected_error` on rejection) | `hushh-webapp/lib/observability/ria-events.ts` via `hushh-webapp/app/ria/onboarding/page.tsx` | RIA verification outcome rate; distinguishes a submitted profile from an approved one | `npm run verify:analytics`, GA DebugView |
 | `marketplace_profile_viewed` | Marketplace RIA profile rendered usable public profile state | `action`, `result` | `hushh-webapp/app/marketplace/ria/page-client.tsx` | marketplace high-intent engagement | GA DebugView, feature engagement SQL |
 | `ria_request_created` | RIA request creation result | `result` | `hushh-webapp/lib/services/ria-service.ts` | RIA request creation KPI support | GA DebugView, RIA funnel SQL |
 | `ria_workspace_opened` | RIA client workspace opened | `result` | `hushh-webapp/components/ria/use-ria-client-workspace-state.ts` | workspace readiness and activation support | GA DebugView, RIA funnel SQL |
@@ -79,11 +79,56 @@ Every emitted observability event carries centrally added shared params:
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
 | `gmail_connect_started` | Gmail connect flow started | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail onboarding baseline | GA DebugView |
-| `gmail_connect_result` | Gmail connect start/complete result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail connection quality | GA DebugView |
+| `gmail_connect_result` | Gmail web/native connect start or OAuth completion result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Connection attempts and completed connections remain separate | focused native-service test, GA DebugView |
 | `gmail_disconnect_result` | Gmail disconnect outcome | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | disconnect success/error rate | GA DebugView |
 | `gmail_sync_requested` | Manual Gmail sync requested | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync request volume | GA DebugView |
-| `gmail_sync_result` | Gmail sync queue/already-running result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync queue health | GA DebugView |
+| `gmail_sync_result` | Gmail sync queue, terminal run, or poll result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts`, `hushh-webapp/lib/profile/gmail-connector-store.ts` | Distinguishes a requested/accepted job from a completed, canceled, failed, or unobservable run | schema/service tests, GA DebugView |
 | `gmail_receipts_loaded` | Receipt list load result | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | receipts UX quality | GA DebugView |
+
+## One feature-action observability (rollout contract)
+
+These are deliberate *feature* actions, not proof that a specialist AI agent was invoked. Each event carries only a fixed `route_id`, runtime-validated bounded `action`, and `result`. The common adapter adds environment and platform. `success`, `expected_error`, and `error` are recorded on completed, canceled/no-op, and failed paths respectively. No memory text/domain, card data or reveal, calendar contents, KYC scopes, counterparty, workflow ID, email, or error message may be sent. Count distinct account IDs only when GA4 actually receives a stable User-ID; device/browser counts remain a separate diagnostic.
+
+| Event | Bounded actions | Emitter | Dashboard interpretation |
+| --- | --- | --- | --- |
+| `one_memory_action` | `capture_prepared`, `capture_saved`, `detail_edited`, `detail_deleted`, `export_saved`, `auto_save_changed` | Memory workspace after a completed action | Memory adoption and action mix; a prepared review is not a save |
+| `one_wallet_action` | `card_added`, `card_deleted` | Owner Wallet workspace after service success | Card-management activity, never card contents or reveal count |
+| `one_calendar_action` | `connected`, `disconnected`, `chat_opened` | Calendar owner workspace, or the verified same-window OAuth callback when no popup attempt exists | Connector adoption and assistance handoffs; opening chat is not an agent answer |
+| `one_kyc_action` | `access_approved`, `access_denied`, `redraft_completed`, `reply_sent`, `reply_rejected`, `workflow_refreshed` | One KYC workflow after the corresponding confirmed operation | KYC workflow progress; reply sent is counted even if subsequent encrypted PKM writeback fails |
+| `one_crm_action` | `record_created`, `record_updated`, `record_deleted` | Development-only Connected Systems workspace after confirmed mutations | Developer diagnostics only; excluded from the production founder and One capability KPIs |
+
+These emitters are in the client release. Until a representative event is observed in the selected GA4 export, the dashboard shows **not yet measured**, not zero. iOS needs a shipped native build before new client events appear from public iPhones. CRM / Connected Systems remains feature-flagged and development-only, so it is not presented as a production customer KPI.
+
+The owned `consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql` feature-engagement, platform-mix, health, and freshness queries include the four production feature-action events. They group the bounded action and result and report device/browser identifiers separately from identified accounts. `one_crm_action` is deliberately absent from those production queries.
+
+The web route observer now runs inside validated auth context and binds the analytics ID before a route view. This removes one known ordering risk, but historical web account coverage cannot be retroactively repaired. Verify the user-ID field on a fresh signed-in UAT journey and in the subsequent BigQuery export before calling the web user total complete.
+
+## One Location Behaviour
+
+One Location reporting combines web, iOS, and Android into one product total.
+The `platform` context remains attached only so operators can prove that every
+supported surface is flowing; it is not a separate product scorecard. Counts
+are device/browser analytics until account identity is consistently bound on
+all three surfaces.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `one_location_share_confirmed` | Live-location share outcome | `route_id`, `result`, selected/success/failure counts, duration bucket | `hushh-webapp/lib/observability/location-events.ts` | combined Location feature adoption and technical success | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_check_in_completed` | One-off Check-In outcome distinct from live sharing | `route_id`, `result`, selected/success/failure counts, `circle_targeted` | One Location Check-In flow | Check-In adoption and reliability | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_check_out_completed` | Confirmed end of an active nearby Check-In; excludes failed or no-op checkout attempts | `route_id`, `result=success` | One Location nearby Check-In flow, after server checkout confirmation | Check-Out completion and journey reporting | nearby Check-In component tests, observability schema test, metrics Location drill-down |
+| `one_location_sos_triggered` | Save My Soul/SMS outcome without location, message, or recipient data | `route_id`, `result`, aggregate reach counts, `has_note` | One Location SMS flow | safety-feature adoption and delivery failures | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_request_sent` | Request Location send outcome | `route_id`, `result`, aggregate selected/success/failure counts, `has_note` | One Location request composer | request adoption and send reliability | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_contact_signal_synced` | Contact-sync result | `route_id`, `result`, source, count bucket, aggregate match/invite counts | `hushh-webapp/lib/contacts/use-contact-sync.ts` | contact-sync completion and quality | contact-sync tests, metrics Location drill-down |
+| `one_location_public_link_created` | Public live-location link creation | `route_id`, `result`, duration bucket, clipboard flag, active count | One Location Links flow | public-sharing creation and failure rate | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_circle_invite_created` | Invite-to-One link creation | `route_id`, `result`, duration bucket, clipboard flag, active count | One Location invite flow | invitation adoption and failure rate | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_circle_created` | Named Circle creation and type mix | `route_id`, `result`, `circle_kind` | One Location and Connect Circles | Circles created in-range by Family/Friends/Custom | Circle tests, metrics Location drill-down |
+| `one_location_journey_action` | Cross-surface Connect, invitations, Circles, request fulfilment, public/share views, and nearby Check-In results | `route_id`, `action`, `result`, `entry_surface`, `target_type`; optional low-cardinality kind/count bucket | shared Location observability helper, contact-sync/invitation hooks, Connect Circles, consent actions, public-link view, nearby Check-In | combined end-to-end journey reach, Circle engagement, and successful/failed nearby Check-Ins | `npm run verify:analytics`, schema privacy test, targeted Connect/Circle/nearby Check-In tests |
+
+The journey event must never contain IDs, Circle names, contact values,
+coordinates, invite codes, public tokens, messages, or other free text. The
+allowlist is enforced in `hushh-webapp/lib/observability/schema.ts`; the
+dashboard receives only BigQuery aggregates. Newly added journey rows render as
+“measuring after rollout” until this event is observed in the production export.
 
 ## Growth Funnel Canonical Events
 
@@ -134,6 +179,26 @@ Growth-parameter policy:
 | --- | --- | --- | --- | --- | --- |
 | `api_request_completed` | Central API health signal with normalized route and status buckets | `endpoint_template`, `http_method`, `result`, `status_bucket`, `duration_ms_bucket` | `hushh-webapp/lib/observability/client.ts`, called from `hushh-webapp/lib/services/api-service.ts` | request health, expected/unexpected failure classification, dashboard health rollups | `npm run verify:analytics`, GA DebugView, BigQuery instrumentation-health query |
 
+### Web GA4 event budget
+
+gtag.js limits GA4 events per page with a token bucket: 20 tokens, 5 more each
+second, never above 20. An event that arrives with no token is dropped silently;
+no request is made and no error is raised. One Kai dashboard load emits dozens of
+`api_request_completed` hits in a few seconds, and before gtag.js loads every
+queued hit is processed in one burst. That burst used to drop product events such
+as `portfolio_viewed` and `consent_pending_loaded`, which is why the UAT release
+analytics smoke failed intermittently.
+
+`hushh-webapp/lib/observability/adapters/gtag-hit-budget.ts` now decides who
+spends the budget. The high-volume operational events (`api_request_completed`,
+`cache_resource_resolved`, `route_readiness_completed`, `route_refresh_completed`,
+`warmup_completed`, `live_memory_source_verified`, `live_activity_consolidation_completed`) only reach gtag while 8 tokens stay free for product events;
+every other event is always forwarded. Every event still reaches `dataLayer`.
+Consequence for reporting: on the web stream, operational events are a
+budget-shaped sample during load bursts, not a complete count. Read request
+volume from backend request summaries, and use these events for rates and
+buckets.
+
 ## Cache Performance and UX Readiness
 
 These events are metadata-only. They must never include raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, portfolio values, or decrypted data.
@@ -155,13 +220,44 @@ These events contain bounded aggregate buckets only. They must never include dec
 | `agent_pkm_context_unavailable` | Counts turns deliberately stopped before the model receives empty PKM context | `result`, bounded `reason` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | context-free personal-turn prevention | `npm run verify:analytics` |
 | `agent_pkm_save_confirmation_completed` | Measures user-confirmed PKM save completion without identifying what was saved or shared | `result`, saved/failed count buckets, `has_active_recipients` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | save-confirmation completion and sharing-impact reliability | `npm run verify:analytics` |
 
+## Live Memory Source Checks
+
+The Live Memory sync re-reads each living source on a bounded cadence and
+stores what it verified in the owner's encrypted inventory. This event measures
+that pipeline for the fleet: how long a committed change waited for its
+encrypted write, how many changes were still waiting on a source, and how many
+failed reads came before a source recovered.
+
+Buckets only. The payload is the source kind, the outcome and three bands. It
+must never carry an owner id, a record id, a value, a timestamp, an exact count
+or an error message; the owner-only exact lag stays inside the encrypted
+`source_health` bookkeeping. Every param is a closed set: the schema drops the
+whole event if one is missing or holds anything else.
+
+A source reused from its freshness window, or still waiting out its retry
+delay, was not read and emits nothing. The profile is re-read on every wake, so
+it is reported only when the build wrote a change. A quiet wake emits nothing,
+and neither does a build that never stores.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `live_memory_source_verified` | One living source was read by the background sync and the encrypted store succeeded; at most one per kind per build | `kind`, `outcome` (`verified`, `unavailable`, `capped`), `lag_bucket` (`lt_1m`, `1m_5m`, `5m_15m`, `15m_1h`, `gte_1h`, `unknown`), `pending_bucket` and `retry_bucket` (`0`, `1`, `2_5`, `6_20`, `gt_20`, `unknown`) | `hushh-webapp/lib/pkm/live-mirror-telemetry.ts` via `hushh-webapp/lib/pkm/living-source-sync.ts` | fleet commit-to-encrypted-write lag by kind (p50/p95), per-source backlog, bounded retry behaviour | `npm run verify:analytics`, `__tests__/lib/pkm/living-source-sync.test.ts`, `__tests__/lib/pkm/live-mirror-telemetry.test.ts` |
+| `live_activity_consolidation_completed` | Not a Live Memory source check: one background consolidation of the device activity log (`saved`; `nothing_durable`, nothing new kept; `host_skipped`; `failed`, a counted failure, a run that could not read memory.md, or one that found a local memory save stuck; `memory_full`, events kept). Busy, skipped and cancelled (stale, aborted, offline, or waiting for a local memory save) runs emit nothing | `outcome` (`saved`, `nothing_durable`, `host_skipped`, `failed`, `memory_full`), `saved_bucket` (`0`, `1`, `2_5`, `6_20`, `gt_20`, `unknown`) | `hushh-webapp/components/profile/live-activity-bridge.tsx` via `hushh-webapp/lib/pkm/live-activity/live-activity-consolidation.ts` | activity-to-memory yield, host-skipped versus model-judged cycles, failure and full-memory rates | `npm run verify:analytics` (includes `__tests__/services/observability-live-activity-schema.test.ts`), `__tests__/components/live-activity-bridge.test.tsx` |
+
+`lag_bucket` is `unknown` when no committed change was waiting on that source
+or the journal could not date it; `pending_bucket` is `unknown` after a journal
+reset; `retry_bucket` counts failed reads in a row before this one and is
+`unknown` for the profile, which keeps no retry state. `capped` means the source
+was refused at one of its declared bounds, not that it could not be reached. On web this is an operational event and spends
+gtag's budget only above the product reserve (see Web GA4 event budget).
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.
 
 | Event | Current status | Next action before dashboard use |
 | --- | --- | --- |
-| `ria_request_blocked_policy` | declared only | add emitter or remove from contract |
-| `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract |
+| `ria_request_blocked_policy` | declared only | add emitter or remove from contract. No policy-block path exists on the RIA request flow today, so emitting it would mean inventing the concept first. |
+| `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract. This is a server-side MCP concern; the web client cannot emit it, and no emitter exists in `consent-protocol` either. |
 
 Do not build dashboard assumptions on declared-only events.

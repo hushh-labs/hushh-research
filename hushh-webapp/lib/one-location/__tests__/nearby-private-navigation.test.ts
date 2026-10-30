@@ -12,14 +12,18 @@ describe("nearby private check-in navigation", () => {
     window.sessionStorage.clear();
   });
 
-  it("uses one opaque per-tab token for the private handoff and map resume", () => {
+  it("uses one opaque per-tab token for the private handoff and check-in resume", () => {
     const token = beginNearbyPrivateReturn();
 
     expect(buildNearbyPrivateCheckInHref(token)).toBe(
       `/one/location?action=private-check-in&source=nearby&returnToken=${token}`,
     );
+    // Resume returns to check-in's own route. It used to name Your Map with
+    // `?action=check-in`, a screen that withholds the check-in sheet and then
+    // redirects here anyway -- so coming back from a private share rebuilt the
+    // wrong map first.
     expect(buildNearbyCheckInResumeHref(token)).toBe(
-      `/one/location/map?action=check-in&resume=${token}`,
+      `/one/location/check-in?resume=${token}`,
     );
     expect(consumeNearbyPrivateReturn(token)).toBe(true);
     expect(consumeNearbyPrivateReturn(token)).toBe(false);

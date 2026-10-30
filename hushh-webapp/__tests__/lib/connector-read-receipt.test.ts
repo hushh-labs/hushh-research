@@ -1,0 +1,222 @@
+import { describe, expect, it } from "vitest";
+import { parseConnectorReadReceipt } from "@/lib/agent/connector-read-receipt";
+import { parseAgentToolResultExperience } from "@/lib/agent/agui-structured-experiences";
+
+const receipt = {
+  schema_version: "specialist_read.v1", connector: "mail", status: "ok",
+  sources: [{ source_ref: "mail:1", label: "Mail", kind: "metadata" }],
+  truncated: true, metadata_only: true,
+};
+
+describe("connector read receipts", () => {
+  it("offers continuation only for a bounded partial owner Drive metadata result", () => {
+    const partial = { ...receipt, connector: "drive", sources: [],
+      background_search_available: true, background_search_query: "Find product documents" };
+    expect(parseConnectorReadReceipt(partial)).toMatchObject({
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents",
+    });
+    for (const override of [{ connector: "mail" }, { truncated: false }, { metadata_only: false },
+      { status: "unavailable" }, { background_search_query: null },
+      { background_search_query: "x".repeat(2049) }, { background_search_available: false }]) {
+      expect(parseConnectorReadReceipt({ ...partial, ...override })).not.toHaveProperty("backgroundSearchAvailable");
+    }
+  });
+
+  it("preserves the literal multiline continuation and drops only an invalid action", () => {
+    const partial = { ...receipt, connector: "drive", sources: [], background_search_available: true };
+    for (const query of ["Find product docs\nfrom last week\tplease", "x".repeat(2048)]) {
+      expect(parseConnectorReadReceipt({ ...partial, background_search_query: query }))
+        .toMatchObject({ backgroundSearchAvailable: true, backgroundSearchQuery: query });
+    }
+    for (const query of ["x".repeat(2049), "é".repeat(1025), "private\u0000query"]) {
+      const parsed = parseConnectorReadReceipt({ ...partial, background_search_query: query });
+      expect(parsed).toMatchObject({ status: "ok", metadataOnly: true, truncated: true });
+      expect(parsed).not.toHaveProperty("backgroundSearchQuery");
+      expect(parsed).not.toHaveProperty("backgroundSearchAvailable");
+    }
+  });
+
+  it("preserves only opaque Drive citations and bounded page provenance", () => {
+    const ref = `document:${"a".repeat(32)}`;
+    const structured = { ...receipt, connector: "drive", metadata_only: false,
+      sources: [{ source_ref: ref, kind: "document", label: "Document", page: 2 }] };
+    const value = parseAgentToolResultExperience("ask_documents_agent", { text: "PRIVATE DOCUMENT", structured });
+    expect(value).toEqual({ type: "one.connector_read.v1", connector: "drive", status: "ok", sourceRefs: [ref], sourcePages: [2], truncated: true, metadataOnly: false });
+    expect(JSON.stringify(value)).not.toContain("PRIVATE");
+    expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], page: 101 }] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], label: "PRIVATE FILENAME" }] })).toBeNull();
+    const found = { ...structured, metadata_only: true,
+      sources: [{ source_ref: ref, kind: "metadata", label: "Document", page: null }] };
+    expect(parseConnectorReadReceipt(found)).toMatchObject({ metadataOnly: true, sourceRefs: [ref] });
+    expect(parseConnectorReadReceipt({ ...found, sources: [{ ...found.sources[0], open_url: "https://evil.invalid" }] })).toBeNull();
+  });
+  it("adapts only the declared Mail result and drops the outer tool text", () => {
+    const value = parseAgentToolResultExperience("ask_email_agent", JSON.stringify({
+      text: "PRIVATE_TOOL_TEXT", status: "ok", structured: receipt,
+    }));
+    expect(value).toEqual({ type: "one.connector_read.v1", connector: "mail", status: "ok",
+      sourceRefs: ["mail:1"], truncated: true, metadataOnly: true });
+    expect(JSON.stringify(value)).not.toContain("PRIVATE");
+    expect(parseAgentToolResultExperience("send_email", { structured: receipt })).toBeNull();
+  });
+
+  it("accepts a workspace Drive receipt only when provider and outcome agree", () => {
+    const structured = { ...receipt, connector: "drive", sources: [],
+      background_search_available: true, background_search_query: "Find product documents" };
+    const result = { provider: "drive", status: "ok", structured, files: [{ name: "PRIVATE FILE" }] };
+    const parsed = parseAgentToolResultExperience("read_workspace_tool", result, { provider: "drive" });
+    expect(parsed).toMatchObject({ type: "one.connector_read.v1", connector: "drive",
+      backgroundSearchAvailable: true, backgroundSearchQuery: "Find product documents" });
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE FILE");
+    expect(parseAgentToolResultExperience("read_workspace_tool", result, { provider: "calendar" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, provider: "gmail" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, status: "unavailable" })).toBeNull();
+    expect(parseAgentToolResultExperience("read_workspace_tool", { ...result, structured: receipt })).toBeNull();
+  });
+
+  it("keeps the source receipt for Mail message and thread body reads", () => {
+    // The backend labels body-read sources "message" (read_message and
+    // read_thread alike) with metadata_only false. Dropping them lost the receipt.
+    const body = { ...receipt, metadata_only: false,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" },
+        { source_ref: "mail:2", label: "Mail", kind: "message" }] };
+    const value = parseAgentToolResultExperience("ask_email_agent", {
+      text: "PRIVATE BODY TEXT", status: "ok", structured: body,
+    });
+    expect(value).toEqual({ type: "one.connector_read.v1", connector: "mail", status: "ok",
+      sourceRefs: ["mail:1", "mail:2"], truncated: true, metadataOnly: false });
+    expect(JSON.stringify(value)).not.toContain("PRIVATE");
+    // The kind must agree with the declared scope in both directions.
+    expect(parseConnectorReadReceipt({ ...body, metadata_only: true })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...body,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "thread" }] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...body,
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "document" }] })).toBeNull();
+  });
+
+  it.each([
+    { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
+    { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },
+    { sources: [{ source_ref: "mail:1", label: "PRIVATE_FILENAME", kind: "metadata" }] },
+    { sources: [{ source_ref: "mail:26", label: "Mail", kind: "metadata" }] },
+    { sources: [...receipt.sources, ...receipt.sources] }, { status: "reconnect_required" },
+    { metadata_only: false }, { truncated: "false" },
+  ])("rejects malformed or widening receipt %j", (override) => {
+    expect(parseConnectorReadReceipt({ ...receipt, ...override })).toBeNull();
+  });
+
+  it("preserves safe reconnect state without inventing an OAuth action", () => {
+    expect(parseConnectorReadReceipt({ ...receipt, sources: [], status: "reconnect_required" }))
+      .toMatchObject({ status: "reconnect_required", sourceRefs: [] });
+  });
+
+  it("projects a provider-specific setup card only for an explicit Workspace MCP permission result", () => {
+    // Private tool arguments are removed at the wire boundary. The safe
+    // provider enum in the result must be sufficient to offer reconnection.
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool",
+      { status: "permission_required", provider: "calendar", private_result: "not_retained" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "calendar",
+      status: "connect_required",
+    });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive", tools: [] },
+      { provider: "drive" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "drive",
+      status: "connect_required",
+    });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool",
+      { status: "permission_required" },
+      { provider: "gmail", query: "private search terms" },
+    )).toMatchObject({ provider: "gmail", status: "connect_required" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive" },
+      { provider: "gmail" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "ok", provider: "drive" },
+      { provider: "drive" },
+    )).toMatchObject({ provider: "drive", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "api_available", provider: "gmail" },
+      { provider: "gmail" },
+    )).toMatchObject({ provider: "gmail", status: "manage_available" });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool", { status: "ok", provider: "gmail" }, { provider: "gmail" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "untrusted_tool",
+      { status: "permission_required", provider: "drive" },
+      { provider: "drive" },
+    )).toBeNull();
+  });
+
+  it("projects only a generic setup action for the owner's private connectors", () => {
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ name: "PRIVATE CONNECTOR NAME", status: "saved" }],
+    });
+    expect(result).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "custom",
+      status: "manage_available",
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTOR NAME");
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", provider: "custom",
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "blocked", result: { status: "setup_available", provider: "custom" },
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("other_tool", {
+      status: "setup_available", provider: "custom",
+    })).toBeNull();
+  });
+  it("shows only bounded, identified connector metadata in the Chat card", () => {
+    const id = `custom_${"a".repeat(32)}`;
+    const result = parseAgentToolResultExperience("inspect_private_connectors", {
+      status: "setup_available", provider: "custom",
+      saved: [{ id, name: "Synthetic app", status: "reconnect_needed", token: "synthetic-private-token" }],
+    });
+    expect(result).toMatchObject({ provider: "custom", saved: [{ id, name: "Synthetic app", status: "reconnect_needed" }] });
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-token");
+  });
+
+  it("admits an owner compilation action only on a successful Drive metadata listing", () => {
+    const sources = Array.from({ length: 30 }, (_, index) => ({
+      source_ref: `document:${index.toString(16).padStart(32, "0")}`,
+      kind: "metadata", label: "Document", page: null,
+    }));
+    const listing = { ...receipt, connector: "drive", sources,
+      owner_compile_available: true,
+      owner_compile_query: "share all last 30 days standup notes",
+      owner_compile_window: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" } };
+    expect(parseConnectorReadReceipt(listing)).toMatchObject({
+      ownerCompileAvailable: true, ownerCompileQuery: listing.owner_compile_query,
+      ownerCompileWindow: listing.owner_compile_window, sourceRefs: expect.any(Array),
+    });
+    expect(parseConnectorReadReceipt({ ...listing, connector: "mail" })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, status: "unavailable" })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, metadata_only: false })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, sources: [...sources, ...sources, ...sources] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: "a".repeat(2049) })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_window: {
+      ...listing.owner_compile_window, start_date: "2026-02-30",
+    } })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_window: {
+      ...listing.owner_compile_window, timezone: "Bad/Timezone",
+    } })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: null,
+      owner_compile_window: null })).not.toHaveProperty("ownerCompileAvailable");
+  });
+});

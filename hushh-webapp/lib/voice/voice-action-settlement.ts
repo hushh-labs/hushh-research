@@ -1,6 +1,7 @@
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import type { AppRuntimeState, VoiceActionResult, VoicePlanMode } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
+import { appRouteMatches } from "@/lib/navigation/route-settlement";
+import type { AppRuntimeState, VoiceActionResult, VoicePlanMode } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type RouteSnapshot = AppRuntimeState["route"];
 
@@ -33,17 +34,8 @@ function normalizeHref(value: string | null | undefined): string {
   return String(value || "").trim();
 }
 
-function stripQuery(href: string): string {
-  const index = href.indexOf("?");
-  return index >= 0 ? href.slice(0, index) : href;
-}
-
 function routeMatchesTarget(currentPath: string, expectedRoute: string): boolean {
-  if (!currentPath || !expectedRoute) return false;
-  if (expectedRoute.includes("?")) {
-    return currentPath === expectedRoute;
-  }
-  return stripQuery(currentPath) === stripQuery(expectedRoute);
+  return appRouteMatches(currentPath, expectedRoute);
 }
 
 function hasMeaningfulSurfaceMetadata(surface: VoiceSurfaceMetadata | null | undefined): boolean {

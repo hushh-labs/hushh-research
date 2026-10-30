@@ -1,0 +1,110 @@
+/* Finance consumes the same semantic roles and reading measure as Connect. */
+.workspace, .detail {
+  --app-shell-reading: 728px;
+  --type-navigation-title-size: 17px;
+  --type-navigation-title-line: 22px;
+  --type-navigation-title-weight: 600;
+  --type-row-label-size: 14px;
+  --type-row-label-line: 21px;
+  --type-row-label-weight: 550;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-line: 21px;
+  --type-row-label-compact-weight: 550;
+  --type-row-description-size: 12px;
+  --type-row-description-line: 18px;
+  --type-row-description-compact-size: 12px;
+  --type-row-description-compact-line: 18px;
+  --type-section-label-size: 14px;
+  --type-section-label-line: 22px;
+  --type-section-label-weight: 600;
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+  --finance-positive: var(--app-success-deep);
+  --finance-negative: var(--app-destructive-deep);
+  font-family: var(--font-app-body);
+}
+.workspace { min-width: 0; }
+.overviewGrid { display: grid; gap: 20px; align-items: start; }
+.description { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.historyRow { display: flex; align-items: center; gap: 8px; margin-inline: 16px; border-bottom: 1px solid var(--border); }
+.historyRow:last-child { border-bottom: 0; }
+.historyPrimary { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; padding-block: 16px; text-align: left; overflow-wrap: anywhere; border-radius: var(--radius-sm); }
+.historyPrimary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.summaryFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+.summaryFacts dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.summaryFacts dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (min-width: 768px) { .overviewGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: stretch; } }
+:global(.dark) .workspace, :global(.dark) .detail {
+  --finance-positive: var(--app-success-bright);
+  --finance-negative: var(--app-destructive-bright);
+}
+.workspace :global([data-slot="settings-row-title"]),
+.detail :global([data-slot="settings-row-title"]) { font-size: 14px; line-height: 21px; font-weight: 550; }
+.workspace :global([data-slot="settings-group-heading"]),
+.detail :global([data-slot="settings-group-heading"]) { font-size: 14px; line-height: 22px; font-weight: 600; }
+.stockRows { padding: 0 16px; }
+.stockRows > button { padding: 16px 0; }
+.stockRows :global([data-stock-name]) { font-size: 14px; line-height: 21px; font-weight: 550; }
+.stockRows :global([data-stock-meta]) { font-size: 12px; line-height: 18px; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.fact { padding: 14px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.fact dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.fact dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.value { font-size: clamp(30px, 6vw, 40px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.holdingLayout { display: grid; min-width: 0; }
+.holdingDetails { min-width: 0; }
+@media (min-width: 1024px) {
+  .holdingSheet[data-vaul-drawer-direction="bottom"] { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+  .holdingWithHistory { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+  .holdingWithHistory > .holdingDetails { border-inline-start: 1px solid var(--border); }
+}
+.toolbar { display: flex; align-items: center; gap: 8px; }
+.toolbar input { height: 48px; font-size: 16px; line-height: 22px; box-shadow: none; }
+@media (min-width: 621px) { .toolbar input { font-size: 14px; } }
+
+/* Portfolio overview follows the value/briefing, composition and holdings rhythm. */
+.portfolioTop, .portfolioInsights { display: grid; gap: 16px; min-width: 0; }
+.portfolioTop > *, .portfolioInsights > * { min-width: 0; }
+.portfolioTop > :global([data-slot="card"]), .portfolioInsights > :global([data-slot="card"]) { height: 100%; }
+.portfolioAllocation { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: var(--muted); }
+.portfolioAllocation > span { min-width: 0; }
+.portfolioList { display: grid; gap: 0; }
+.portfolioListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.portfolioListRow:last-child { border-bottom: 0; }
+.portfolioHoldingMark { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border-radius: 12px; background: var(--muted); font-size: 12px; font-weight: 700; }
+@media (min-width: 768px) {
+  .portfolioTop { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .portfolioInsights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.insightCard { display: flex; height: 100%; flex-direction: column; align-items: stretch; gap: 16px; padding: 20px; }
+.cardFooter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
+.concentrationSummary { display: flex; align-items: center; gap: 16px; padding-block: 8px; }
+.concentrationRing, .concentrationValue { display: grid; place-items: center; flex: none; width: 104px; height: 104px; text-align: center; }
+.concentrationRing { position: relative; isolation: isolate; border-radius: 50%; background: conic-gradient(var(--app-accent-deep) var(--holding-share), var(--muted) 0); }
+.concentrationRing::before { content: ""; position: absolute; inset: 7px; border-radius: inherit; background: var(--app-card-surface-default-solid); z-index: -1; }
+.concentrationRing strong, .concentrationValue strong { display: block; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.concentrationRing > span > span, .concentrationValue > span > span { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
+.concentrationLabel { min-width: 0; }
+.insightEyebrow { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.insightHoldingName { margin-block: 5px 3px; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
+.insightFacts { margin: 0; }
+.insightFacts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 18px; }
+.insightFacts dt { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.insightFacts dd { margin: 0; color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: end; }
+.insightFacts svg, .insightNotice svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+.insightNotice { display: flex; align-items: flex-start; gap: 7px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; }
+.balanceChange { padding-top: 8px; }
+.insightAmount { margin-top: 6px; font-size: clamp(28px, 5vw, 36px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unavailableChange { margin-top: 6px; color: var(--muted-foreground); font-size: 20px; line-height: 28px; }
+:global(.dark) .concentrationRing { background: conic-gradient(var(--app-accent-bright) var(--holding-share), var(--muted) 0); }
+@media (min-width: 640px) { .insightCard { padding: 24px; } }
+@media (min-width: 768px) {
+  .insightShell > div { display: flex; flex: 1; flex-direction: column; }
+  .insightShell .insightCard { flex: 1; height: auto; }
+  .insightCard > .cardFooter { margin-block-start: auto; }
+}
+
+.importEntry { background: var(--app-accent-surface) !important; border-color: var(--app-accent-border) !important; }
+.bankEntry { background: var(--app-accent-surface); border-radius: var(--app-input-radius); }

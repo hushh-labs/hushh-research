@@ -12,10 +12,33 @@
  * which is the correct scope for crawler directives.
  */
 
-/** Canonical production origin. Mirrors `metadataBase` in the root layout. */
-export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://hushh.ai"
-).replace(/\/$/, "");
+/** Canonical application origin; public brand pages are owned by www.hussh.si. */
+export function canonicalSiteUrl(raw = process.env.NEXT_PUBLIC_APP_URL): string {
+  if (!raw) return "https://one.hussh.si";
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return "https://one.hussh.si";
+    const host = url.hostname.replace(/\.(?:hushh\.ai|hussh\.ai|hussh\.si)$/, ".hussh.si");
+    if (!["one.hussh.si", "uat.one.hussh.si", "dev.one.hussh.si"].includes(host)) return "https://one.hussh.si";
+    return `https://${host}`;
+  } catch {
+    return "https://one.hussh.si";
+  }
+}
+
+export const SITE_URL = canonicalSiteUrl();
+
+/** No implicit production indexing from NODE_ENV, which also marks UAT builds. */
+export function isProductionIndexing(): boolean {
+  return process.env.NEXT_PUBLIC_APP_ENV === "production";
+}
+
+/** Redirect-only public entrypoints share their existing rendered destinations. */
+export const PUBLIC_CANONICAL_PATHS: Readonly<Record<string, string>> = {
+  "/developers": "/welcome?tab=developers",
+  "/research": "/welcome?tab=research",
+  "/blog": "/welcome?tab=blog",
+};
 
 /**
  * Public, indexable routes. Keep this list aligned with marketing/entry
@@ -23,20 +46,23 @@ export const SITE_URL = (
  */
 export const PUBLIC_ROUTES = [
   "/",
-  "/getting-started",
   "/marketplace",
   "/developers",
   "/research",
   "/research/protocol",
   "/blog",
+  "/manishhussh",
 ] as const;
+
+/** Public legal documents have no product-agent interaction contract. */
+export const PUBLIC_LEGAL_ROUTES = ["/privacy", "/terms", "/delete-account"] as const;
 
 export type PublicRoute = (typeof PUBLIC_ROUTES)[number];
 
 export type PublicRouteSemantic = {
   title: string;
   description: string;
-  schemaType: "WebPage" | "CollectionPage";
+  schemaType: "WebPage" | "CollectionPage" | "ProfilePage";
   voicePlaybookId: string;
 };
 
@@ -50,13 +76,9 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
     title: "Hussh One | Your Private Agent",
     description: "Private AI agents with consent at the core. Your information, your control.",
     schemaType: "WebPage",
-    voicePlaybookId: "route.one.intro",
-  },
-  "/getting-started": {
-    title: "Get started with Hussh One",
-    description: "Understand how to claim and set up your private agent with consent-first controls.",
-    schemaType: "WebPage",
-    voicePlaybookId: "route.getting.started",
+    // `/` is dual-mode: anonymous visitors receive the intro surface, while
+    // the authenticated canonical route is the Chat workspace.
+    voicePlaybookId: "route.chat.root",
   },
   "/marketplace": {
     title: "Hussh Information Marketplace",
@@ -88,6 +110,13 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
     schemaType: "CollectionPage",
     voicePlaybookId: "route.blog",
   },
+  "/manishhussh": {
+    title: "Manish Sainani | Founder & CEO, Hussh",
+    description:
+      "Manish Sainani is the Founder & CEO of Hussh, building personal agent infrastructure people own: Hussh One and the open consent protocol PCHP.",
+    schemaType: "ProfilePage",
+    voicePlaybookId: "route.manishhussh",
+  },
 };
 
 /**
@@ -95,8 +124,10 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
  * authenticated product surfaces and machine endpoints.
  */
 export const DISALLOWED_PREFIXES = [
+  "/calendar/reschedule",
   "/api/",
   "/login",
+  "/getting-started",
   "/agent",
   "/one",
   "/kai",
@@ -114,10 +145,23 @@ export const DISALLOWED_PREFIXES = [
   // Public Wallet Profile pages are per-person contact details shared by link
   // and revocable at any time. Never indexed, never trained on.
   "/c",
+  "/oauth",
+  "/connect",
+  "/wallet",
+  "/people",
+  "/circle",
 ] as const;
 
 /** Build an absolute URL for a site-relative path. */
 export function absoluteUrl(path: string): string {
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${SITE_URL}${suffix}`;
+}
+
+/** Public documents and blog entries only; private, API and per-person URLs fail closed. */
+export function isIndexablePath(path: string): boolean {
+  return (PUBLIC_ROUTES as readonly string[]).includes(path)
+    || (PUBLIC_LEGAL_ROUTES as readonly string[]).includes(path)
+    || path === "/welcome"
+    || (path.startsWith("/blog/") && !path.startsWith("/blog/api/"));
 }

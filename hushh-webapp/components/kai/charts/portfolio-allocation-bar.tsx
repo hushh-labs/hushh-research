@@ -9,8 +9,11 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { allocationColor } from "@/lib/kai/allocation-colors";
 
 export interface PortfolioAllocationDatum {
   name: string;
@@ -19,6 +22,7 @@ export interface PortfolioAllocationDatum {
 
 interface PortfolioAllocationBarProps {
   data: PortfolioAllocationDatum[];
+  totalValue?: number;
   selectedName?: string | null;
   onSelectionChange?: (name: string | null) => void;
   className?: string;
@@ -43,6 +47,7 @@ function toChartKey(name: string, index: number): string {
  */
 export function PortfolioAllocationBar({
   data,
+  totalValue,
   selectedName = null,
   onSelectionChange,
   className,
@@ -51,18 +56,18 @@ export function PortfolioAllocationBar({
     const eligible = data.filter(
       (entry) => Number.isFinite(entry.value) && entry.value > 0,
     );
-    const totalValue = eligible.reduce((sum, entry) => sum + entry.value, 0);
+    const mappedValue = eligible.reduce((sum, entry) => sum + entry.value, 0);
     const nextSegments = eligible.map((entry, index) => ({
       ...entry,
       key: toChartKey(entry.name, index),
-      percent: totalValue > 0 ? (entry.value / totalValue) * 100 : 0,
+      percent: (totalValue ?? mappedValue) > 0 ? (entry.value / (totalValue ?? mappedValue)) * 100 : 0,
     }));
     const nextConfig = Object.fromEntries(
-      nextSegments.map((entry, index) => [
+      nextSegments.map((entry) => [
         entry.key,
         {
           label: entry.name,
-          color: `var(--chart-${(index % 5) + 1})`,
+          color: allocationColor(entry.name),
         },
       ]),
     ) satisfies ChartConfig;
@@ -77,11 +82,11 @@ export function PortfolioAllocationBar({
 
     return {
       segments: nextSegments,
-      total: totalValue,
+      total: mappedValue,
       chartConfig: nextConfig,
       chartRow: nextChartRow,
     };
-  }, [data]);
+  }, [data, totalValue]);
 
   if (!segments.length) return null;
 
@@ -98,9 +103,9 @@ export function PortfolioAllocationBar({
           layout="vertical"
           margin={{ top: 8, right: 0, bottom: 8, left: 0 }}
         >
-          <XAxis type="number" domain={[0, total]} hide />
+          <XAxis type="number" domain={[0, totalValue ?? total]} hide />
           <YAxis type="category" dataKey="label" hide />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -122,7 +127,7 @@ export function PortfolioAllocationBar({
             }
           />
           {segments.map((segment) => (
-            <Bar
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
               key={segment.key}
               dataKey={segment.key}
               stackId="allocation"
@@ -144,7 +149,7 @@ export function PortfolioAllocationBar({
       </ChartContainer>
 
       <div
-        className="flex flex-wrap gap-x-4 gap-y-2"
+        className="divide-y divide-border"
         aria-label="Portfolio allocation categories"
       >
         {segments.map((segment) => {
@@ -157,7 +162,7 @@ export function PortfolioAllocationBar({
                 onSelectionChange?.(selected ? null : segment.name)
               }
               className={cn(
-                "inline-flex min-h-9 items-center gap-2 rounded-full px-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "flex min-h-14 w-full items-center gap-3 rounded-sm py-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 selected
                   ? "bg-accent-surface text-accent-strong"
                   : "text-muted-foreground hover:text-foreground",
@@ -167,16 +172,17 @@ export function PortfolioAllocationBar({
               <span
                 aria-hidden="true"
                 className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: `var(--color-${segment.key})` }}
+                style={{ backgroundColor: allocationColor(segment.name) }}
               />
               <span className="font-medium text-foreground">
                 {segment.name}
               </span>
-              <span>{segment.percent.toFixed(0)}%</span>
+              <span className="ml-auto text-right tabular-nums"><span className="block font-medium text-foreground">{formatCurrency(segment.value)}</span><span className="block text-xs text-muted-foreground">{segment.percent.toFixed(1)}%</span></span>
             </button>
           );
         })}
       </div>
+      <p className="text-xs leading-[18px] text-muted-foreground">Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
     </ChartSurfaceCard>
   );
 }

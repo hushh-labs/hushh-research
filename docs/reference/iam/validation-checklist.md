@@ -1,5 +1,21 @@
 # Validation Checklist
 
+- [ ] Sign-out withdraws the live identity immediately so vault and realtime
+  consumers dispose their session. Token retrieval and notification cleanup share
+  a two-second best-effort budget; expired cleanup cannot start later push deletion.
+  Auth credentials, the web session cookie, and local owner state are still cleared
+  before terminal document replacement. A late auth validation cannot republish
+  the signed-out identity, and Profile does not issue a competing navigation.
+- [ ] Owner renewal: expired same-user self-owner evidence can renew only with
+  an intact durable grant; wrong user/scope/device, unknown grant, and any later
+  revocation fail closed. An outage must not fall back to bootstrap issuance.
+- [ ] Self-owner overlap never extends an old token's original expiry; one later
+  revocation invalidates old and latest grants despite tied/skewed timestamps.
+  Device/delegated tokens remain latest-only; missing renewal acknowledgment is rejected.
+- [ ] Owner document session: route changes/short interruptions retain the key;
+  expired tokens never authorize requests, and lock/sign-out/UID change/disposal
+  invalidate late unlock, renewal, and native iMessage publication results.
+
 
 ## Visual Context
 
@@ -17,10 +33,56 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Functional Checks
 
+- [ ] Lost-vault deletion keeps phone entry usable when optional identity hydration
+  fails. Full-number server comparison precedes SMS; the entered number never
+  selects the owner or changes a binding. Fresh provider and exact linked-phone
+  proof are rechecked at final erasure. Cancellation and account switching during
+  token preparation cannot submit deletion. Deliberately retained identities have
+  a distinct terminal notice and never offer fresh signup.
+
+- [ ] Existing vault accounts and completed-setup accounts do not re-enter phone
+  onboarding during login, refresh, invitation return, or a direct phone-page
+  visit. New incomplete accounts still verify after Google authentication.
+- [ ] Missing identity shadows resolve before admission; unavailable bootstrap
+  or identity reads show recovery without inventing an unverified-phone claim.
+  OTP entry survives token refresh, and account switching clears the old flow.
+- [ ] A saved backend phone remains visible when the primary provider is
+  phone-less, returns an older number, or republishes after view-cache expiry.
+  Temporary identity failures offer Retry rather than Add/verification. Verify
+  recovery after online/foreground, bounded retries and unmount cleanup.
+  From another screen, phone recovery must offer the canonical Account route;
+  Retry runs only after its unavailable-phone control is mounted and signed in.
+- [ ] A delayed identity response cannot overwrite a newer phone claim, including
+  logout/login to the same UID. Concurrent name/avatar saves still execute and
+  reconcile stale readbacks. Foreground recovery preserves a sent OTP.
+- [ ] A passive backend provider snapshot cannot replace a saved E.164 phone,
+  even when an OTP claim commits during its lookup. Native completion sends
+  explicit finalization intent; wrong owner/phone and conflicting ownership are
+  rejected without changing either binding. First verification and replacement
+  still succeed with matching fresh provider proof.
+- [ ] A genuine full negative identity after a phone binding transfer clears
+  the old owner's number; resolver calls and later provider updates cannot
+  resurrect it after cache expiry. Degraded legacy projections are not removal
+  evidence, and a late empty lookup cannot undo a later confirmed absence.
+
+
 1. Persona switch restores `last_active_persona`.
 2. Investor and RIA route trees enforce actor gates.
 3. Marketplace tabs render expected public-card data.
 4. Consent request/approve/deny/revoke flows complete end-to-end.
+   For person-to-person requests, verify that only the stored bundle requester
+   receives the metadata-only resolution update, and that a matching unlocked
+   Chat card rereads authority before browser-local encrypted readback. Wrong
+   bundle, revoked grant, locked vault, and unavailable export must not reveal
+   values; notification delivery must not become approval or read authority.
+   A queued pre-event publication must not consume a matching status-change
+   event: reread backend authority even when pending is already queued. A
+   forged approval event with a still-pending backend result cannot approve
+   access or continue Chat; repeated actual approvals continue it once.
+   The Connections tab shows active people from the canonical relationship
+   page with their first-connected date, not resolved request logs. A failed
+   relationship read is retryable and must not appear as an empty graph;
+   closing a consent detail never submits a decision.
 5. Schema-missing compatibility:
    `GET /api/iam/persona` returns investor-safe `200`,
    `/api/ria/*` and `/api/marketplace/*` return `503 IAM_SCHEMA_NOT_READY`.
@@ -33,8 +95,90 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 4. Revoked/expired relationships lose data access immediately.
 5. Every `attr.source_library.*` scope is rejected at discovery, request,
    approval, token validation, export, download, refresh, and public projection.
+6. One Location standing auto-approval revalidates the named contact or Circle
+   relationship at grant mutation time; a stale client snapshot cannot mint a
+   grant after relationship removal.
+7. One Location standing auto-approval rejects pre-existing, partial-rule, and
+   `until_stopped` requests; those remain pending for an explicit owner action.
+8. One Location approval requires explicit `manual` or `automatic` intent;
+   omitted intent and mismatched rule/duration context fail before mutation.
+9. New-person contact discovery and automatic relationship creation require
+   current exact verified-phone proofs and Connect-directory eligibility under
+   `contact_directory_auto_connect_v2`. An untouched version-zero preference is
+   eligible by default without invented consent timestamps. Explicit contact
+   opt-out, marketplace hide, malformed positive-version evidence, and missing
+   schema fail closed. Explicit re-enabling still requires
+   `contact_find_auto_connect_v1`. An exact, unique verified-phone proof may map
+   to an already-active canonical relationship without target discoverability;
+   that path adds no new relationship origin or Trusted/Circle projection.
+10. Every eligible non-suppressed contact match becomes connected without a
+    request/accept step; a revoked pair remains suppressed until a separate,
+    explicit reconnect action occurs. A hidden revoked pair is not disclosed;
+    only a currently directory-eligible revoked target may be reported as suppressed.
+11. Country parity covers national, `+` country-code, and confidently
+    disambiguated digit-only country-code formats for India, the United States,
+    and representative supported numbering plans. Valid local fixed-line
+    collision cases stay regional, and Google People's E.164 `canonicalForm`
+    wins over a cross-country display value. A source cap, partial permission,
+    failed batch, or unknown region is reported as partial/unchecked and never
+    converted into a definitive zero match.
+12. Verified-phone bindings are canonical E.164 and unique at the database
+    boundary. Any historical ambiguous group is cleared in full and refreshed
+    from the identity authority; no timestamp or user-id heuristic chooses an
+    owner.
+13. Opt-out and marketplace-hide writers serialize with contact-sync activation,
+    including inserts when no actor or marketplace profile existed. Provenance
+    records the directory policy and actual preference state, never fabricated
+    v1 consent evidence or phone proofs.
+14. Connect, the Location hub, and Location onboarding preserve `auto_connected`,
+    `already_connected`, and `suppressed` labels. Partial/unknown results stay
+    visibly incomplete and retryable; unknown contacts are not invite candidates.
+    Settings return resumes the initiating flow once, and finishing onboarding
+    during a pending scan still exposes the named results in the Location hub.
 
 ## Security and Privacy Checks
+
+- Historical automatic Trusted memberships do not reveal the owner's roster,
+  counts or overview through any reader. Only owner-authored `direct_add`
+  provenance admits a non-owner; missing/unknown/wrong-actor provenance fails
+  closed. Ordinary Circle access and owner visibility remain unchanged.
+- Disconnect cleanup removes non-owner rows only from Circles shared by both
+  active participants, never unrelated rosters. Verify owner-row preservation,
+  former-member isolation and no-op retry using real PostgreSQL statements.
+
+- Native custom MCP calls set the external-content barrier before dispatch. The
+  person's own connectors run without review, budget or first-call limits
+  (founder decision 2026-09-27); another owner's connector is refused with
+  `MCP_OWNER_MISMATCH`. Subsequent model requests retain only
+  real native tool objects with the canonical exact-call review authority, not
+  same-named impostors, arbitrary approval callbacks or provider built-ins.
+  Verify reviewed composition through the installed ADK Runner separately from
+  live provider and browser approval acceptance.
+
+- Google connection completion rejects a different active provider subject before
+  refresh-token reuse; disconnected accounts require fresh credentials. Cached
+  tokens and grants come from one snapshot; refresh writes compare the original
+  credential generation. A declined service permission creates no grant.
+- Atomic provider/grant publication and an attempt-bound generation fence reject
+  stale same-account callbacks after disconnect/reconnect. The opt-in disposable
+  PostgreSQL suite proves competing publication, rollback, both start/disconnect
+  orderings, in-flight cancellation, stale refresh failures and expiry after lock
+  waits. Native owner/state/permission and web PKCE are tested without provider
+  calls. Real provider/native acceptance and remote revoke ordering remain separate.
+- Drive MCP read adapters require the Drive service grant, pin Google's official
+  endpoint, and reject copy/create and unknown tools even when the cumulative
+  Google token has broader privileges. Chat/native authenticated read acceptance
+  remains separate from these source-level checks.
+- Drive connection routes require authenticated owner matching and read-only
+  permissions; native completion requires bound state. Shared browser completion
+  derives service from its consumed attempt. Wrong-service completion consumes
+  the attempt without provider exchange; unexpected diagnostics are sanitized.
+- Google callback UI admits only the server-confirmed service, checks popup
+  service identity, and never infers a timed-out completion from a prior grant.
+  Real transport tests reject unmount, owner switch and A-to-B-to-A before
+  dispatch. Native Drive SDK requests return only a code; callers still need
+  the backend attempt state and current owner authority. Compilation and source
+  contract checks do not establish provider/native acceptance.
 
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.
@@ -45,47 +189,75 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 7. Device owner capabilities require Firebase identity plus a fresh P-256 signature.
 8. Device revocation rejects challenges and subsequent owner-capability issuance.
 9. Developer tokens cannot mint `VAULT_OWNER`, unwrap the vault, or write PKM.
-10. Connected Systems never unlinks on timeout, authorization failure, MCP
+10. Contact-sync graph mutation writes no location grant, envelope, SMS
+    selection, scope proposal, PKM value, capability, or private-information
+    record. Once active, a contact-sync relationship follows the same
+    `all_contacts` standing auto-approval policy as a request-accepted
+    connection; the standing owner rule and a later eligible location request
+    remain required. If a superseded connection request carries pending scope
+    proposals, those proposals remain pending for explicit review and are never
+    activated by contact sync.
+11. Connected Systems never unlinks on timeout, authorization failure, MCP
     error, or malformed response; owner-confirmed recovery disconnects only the
     server-resolved active binding and preserves workflow/audit history.
-11. Nearby presence defaults to absent, requires fresh owner confirmation and
+12. Nearby presence defaults to absent, requires fresh owner confirmation and
     phone verification, and is visible only to another explicitly active
     check-in whose independently confirmed point is inside the fixed exact
     radius.
-12. Nearby roster and Connect responses expose rotating aliases and safe display
+13. Nearby roster and Connect responses expose rotating aliases and safe display
     labels only—never peer coordinates, distance, selected place, email, phone,
     or stable user ids.
-13. Check out synchronously clears encrypted anchor/candidate material. Expiry
+14. Check out synchronously clears encrypted anchor/candidate material. Expiry
     synchronously blocks roster and alias resolution; the next feature
     operation or the required hosted hourly retention job scrubs due material
     and leaves only bounded metadata for account deletion and the 12-hour
     Location retention purge.
-14. Candidate tokens are short-epoch, server-keyed, and broad-phase only.
+15. Candidate tokens are short-epoch, server-keyed, and broad-phase only.
     Exact point-to-point distance is rechecked after decryption; Connect binds that result to
     both presence versions and atomically rechecks eligibility on insert.
-15. GPS-only nearby simulation is unavailable in production even when its
+16. GPS-only nearby simulation is unavailable in production even when its
     mode is misconfigured; Check out remains available while discovery is
     disabled.
-16. Forged or stale Source Library manifests, paths, scope-registry rows, grants,
+17. Forged or stale Source Library manifests, paths, scope-registry rows, grants,
     and tokens cannot expose any Source Library branch or revive retired exports.
-17. Source Library share targets are explicitly owner-bound, share operations pin
+18. Source Library share targets are explicitly owner-bound, share operations pin
     the reviewed item revision, and audience labels remain provider-managed rather
     than verified ACL claims.
-18. Source Library publication and revocation are proven by the reconciled target
+19. Source Library publication and revocation are proven by the reconciled target
     artifact state. Creating or deleting only a SQLite share row is never sufficient.
-19. Source Library SQLite contains no plaintext file paths, titles, recipient
+20. Source Library SQLite contains no plaintext file paths, titles, recipient
     emails, provider identifiers, document bytes, extracted text, or raw hashes.
-20. Source Library ciphertext uses both the active vault key and the profile-bound
+21. Source Library ciphertext uses both the active vault key and the profile-bound
     device-custody secret; wrong profile, user, device, purpose, or AAD fails closed.
-21. Missing device custody with existing Source Library ciphertext reports recovery
+22. Missing device custody with existing Source Library ciphertext reports recovery
     required and never silently creates a replacement key. Lock, revocation,
     profile change, and disconnect zeroize custody; disconnect also removes the
     local Source Library plane after confirmation.
-22. A completed V2 custody migration rejects replayed V1 envelopes. The Keychain
+23. A completed V2 custody migration rejects replayed V1 envelopes. The Keychain
     item is verified on signed macOS with Data Protection Keychain,
     `WhenUnlockedThisDeviceOnly`, non-synchronizable, and local-user-presence
     semantics. It is not described as Secure Enclave storage without a
     non-exportable `SecKey` implementation.
+
+## Drive Document Review Checks
+
+1. Consent Center/Feed cache only generic state and opaque request references; private
+   names, recipient identity and coverage load only through owner-protected no-store routes.
+2. Document selection IDs cannot reach generic PKM approval, scope revocation or voice actions.
+3. Approval/removal bind the exact server-reviewed revision and whole file/grant set. Opening
+   a notification or refreshing status never submits a decision.
+4. Dispatch and every chained private read recheck the vault generation. Lock/account changes
+   drop private presentation; acknowledged mutations reconcile even if the next read fails.
+5. Approval acceptance is pending, not proof of Google success. Per-file removal outcomes
+   remain distinct from unrelated permissions and are observed through bounded refreshes.
+6. Missing pre-rollout tables do not break unrelated consent surfaces; real SQL failures
+   are errors, not authoritative empty counts. Recorded access survives execution disablement.
+7. B's requester form reauthenticates the current Google-linked Firebase user, never signs
+   into a substitute account. Owner/epoch changes suppress late submission. Unchanged
+   uncertain retries reuse the request key and never claim an earlier request was unsent.
+8. Public owner references resolve server-side and the domain rechecks the relationship
+   under locks. B's Sent documents projection is separate from A's pending/Needs You count;
+   it reveals no private matches and remains available when creation is disabled.
 
 ## Ecosystem Checks
 
@@ -96,6 +268,26 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 5. ADK/A2A compliance checks pass.
 
 ## Exit Criteria
+
+### Independent email and Microsoft authentication
+
+1. Automatic exact-domain admission, current evidence, revocation and shared
+   budgets precede every OTP submission. Optional CA evidence cannot approve alone.
+2. The existing mail API sends from `one@hushh.ai`; record inbox receipt separately
+   from API acceptance. No WorkOS or customer-admin dependency is introduced.
+3. Single-use proof, persisted failures, browser binding, resend supersession and
+   lock-wait expiry races pass real Postgres checks.
+4. OTP signs existing verified-primary-email accounts in directly with the same
+   UID. Unverified primary emails, disabled/deleted accounts and deprovisioned
+   WorkOS-created accounts stay blocked; active origin alone is not a restriction.
+5. Erasure removes email credentials; retention continues with issuance disabled.
+   Vault reset preserves enrollment. Authentication grants no consent or vault key.
+6. Personal/company Microsoft, repeat OTP UID and vault-locked behavior need live
+   acceptance. Web checks do not certify native or voice return paths.
+
+See [Independent Email Authentication](./independent-email-auth.md).
+
+### Overall exit
 
 1. All checklist sections pass.
 2. No open P0/P1 IAM defects.

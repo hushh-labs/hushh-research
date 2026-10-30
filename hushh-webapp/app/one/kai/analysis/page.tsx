@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { ArrowLeft, X } from "@/components/icons";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -10,20 +10,21 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import {
   APP_MEASURE_STYLES,
   AppPageContentRegion,
-  AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { AnalysisHistoryDashboard } from "@/components/kai/views/analysis-history-dashboard";
+import { KaiStocksView } from "@/components/kai/views/kai-stocks-view";
+import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
 import { KaiAnalysisPreviewView } from "@/components/kai/views/kai-analysis-preview-view";
 import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -47,29 +48,31 @@ import {
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 import { ApiService, type KaiStockPreviewResponse } from "@/lib/services/api-service";
+import { CacheService } from "@/lib/services/cache-service";
 import {
-  getKaiActivePickSource,
-  setKaiActivePickSource,
-} from "@/lib/kai/pick-source-selection";
-import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
-import { getAnalysisSuggestions } from "@/lib/kai/analysis-suggestions";
+  deriveAnalysisRouteIntent,
+  pickCancelledAnalysisReturnEntry,
+  shouldShowAnalysisPreview,
+} from "@/lib/kai/analysis-route-intent";
 import { getStockContext } from "@/lib/services/kai-service";
 import {
   buildKaiAnalysisPreviewRoute,
   buildKaiMarketRoute,
+  KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { isLocalAnalysisPreviewRequest } from "@/components/kai/shared/local-market-preview";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
@@ -117,7 +120,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
   }
 
   return (
-    <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
       <RoundTabsCard
         roundNumber={1}
         title="Initial Deep Analysis"
@@ -161,6 +164,7 @@ export function KaiAnalysisPageContent() {
 
   const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
+  const { activePickSource } = useKaiMarketHome();
 
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const analysisParamsUpdatedAt = useKaiSession((s) => s.analysisParamsUpdatedAt);
@@ -169,9 +173,19 @@ export function KaiAnalysisPageContent() {
 
   const debateId = searchParams.get("debate_id");
   const analysisEntryId = searchParams.get("analysis_id");
+  const stocksActive = pathname === KAI_MARKET_PATH && searchParams.get("tab") === "analysis";
+  const workspaceSelected = Boolean(
+    analysisEntryId || debateId || searchParams.get("focus") === "active" ||
+    searchParams.get("run_id") ||
+    ["debate", "summary", "detailed"].includes(searchParams.get("view") || ""),
+  );
+  const stocksLanding = stocksActive && !workspaceSelected && !searchParams.get("ticker");
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
+  // The `analysis_id`/`debate_id` a lookup finished without finding, e.g. a
+  // Feed link to a result that expired, was deleted or never finished saving.
+  const [missingEntryRouteId, setMissingEntryRouteId] = useState<string | null>(null);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [historyFallbackEntry, setHistoryFallbackEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [activeRunTask, setActiveRunTask] = useState<DebateRunTask | null>(null);
@@ -179,8 +193,12 @@ export function KaiAnalysisPageContent() {
   const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
   const [historyCount, setHistoryCount] = useState(0);
+  const [selectedStockSymbol, setSelectedStockSymbol] = useState<string | null>(null);
   // Landing shows the summary "table"; debate is its own ?view=debate route.
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("summary");
+  const workspaceTabRef = useRef<WorkspaceTab>("summary");
+  workspaceTabRef.current = workspaceTab;
+  const lastFocusedRouteKeyRef = useRef<string | null>(null);
   const workspaceTabOptions = useMemo(
     () => [
       { value: "debate", label: "Debate" },
@@ -189,13 +207,24 @@ export function KaiAnalysisPageContent() {
     ],
     [],
   );
-  const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const [headerSnapshotState, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
   const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
+  // The URL (as a string) at the moment a live debate was cancelled. While the
+  // URL still reads the same, the cancelled run's `focus`/`ticker` must not
+  // reopen the stock preview. Cleared as soon as the URL moves on.
+  const [closingRouteKey, setClosingRouteKey] = useState<string | null>(null);
+  const closeNavigationRef = useRef(0);
+  const previewStartRef = useRef(0);
+
+  useEffect(() => {
+    setStartingPreviewDebate(false);
+    return () => { previewStartRef.current += 1; };
+  }, [pathname, searchParams]);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -208,12 +237,26 @@ export function KaiAnalysisPageContent() {
     Boolean(analysisParams?.userId) &&
     analysisParams?.userId !== "__pending__";
   const canStartNewRun =
+    stocksActive && workspaceSelected &&
     localIntentReady &&
     !activeRunTask &&
     !focusedRunTask &&
     !liveEntry &&
     !resolvedEntry;
   const liveIntentReady = Boolean(activeRunTask) || canStartNewRun;
+
+  useEffect(() => {
+    // Back returns to the Stocks browser while this pane stays mounted. A
+    // retained result or background task must not reopen the workspace there.
+    // The task manager keeps running; only its presentation is released.
+    if (!stocksLanding) return;
+    setAnalysisParams(null);
+    setLiveEntry(null);
+    setResolvedEntry(null);
+    setFocusedRunId(null);
+    setFocusedRunTask(null);
+    setHistoryFallbackEntry(null);
+  }, [stocksLanding, setAnalysisParams]);
 
   const setDebateIdParam = useCallback(
     (nextDebateId?: string | null) => {
@@ -231,6 +274,9 @@ export function KaiAnalysisPageContent() {
     if (!routeIntent.shouldApply) return;
 
     if (routeIntent.focusActive || routeIntent.runId) {
+      const routeKey = routeIntent.runId
+        ? `run:${routeIntent.runId}`
+        : "focus:active";
       if (routeIntent.runId) {
         setFocusedRunId(routeIntent.runId);
       }
@@ -238,10 +284,14 @@ export function KaiAnalysisPageContent() {
       // Focusing a run defaults to its debate view, but never overrides a tab
       // the URL names outright.
       setWorkspaceTab(routeIntent.workspaceTab ?? "debate");
-      requestAnimationFrame(() => {
-        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      });
+      if (lastFocusedRouteKeyRef.current !== routeKey) {
+        lastFocusedRouteKeyRef.current = routeKey;
+        requestAnimationFrame(() => {
+          workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+        });
+      }
     } else if (routeIntent.showHistory) {
+      lastFocusedRouteKeyRef.current = null;
       setFocusedRunId(null);
       setShowHistoryWhileActive(true);
       setWorkspaceTab("debate");
@@ -336,6 +386,7 @@ export function KaiAnalysisPageContent() {
     if ((!debateId && !analysisEntryId) || !userId || !vaultKey) {
       setResolvedEntry(null);
       setResolvingEntry(false);
+      setMissingEntryRouteId(null);
       return;
     }
     const resolvedUserId = userId;
@@ -359,6 +410,7 @@ export function KaiAnalysisPageContent() {
               .flat()
               .find((entry) => extractDebateId(entry) === debateId) ?? null;
         setResolvedEntry(match || null);
+        setMissingEntryRouteId(match ? null : analysisEntryId || debateId);
       } finally {
         if (!cancelled) {
           setResolvingEntry(false);
@@ -373,8 +425,12 @@ export function KaiAnalysisPageContent() {
     };
   }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken]);
 
+  const searchParamsRef = useRef(new URLSearchParams(searchParams.toString()));
+  useEffect(() => {
+    searchParamsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
   const handleSelectTicker = useCallback(
-    (ticker: string) => {
+    (ticker: string, pickSource = previewPickSource) => {
       const normalizedTicker = String(ticker || "").trim().toUpperCase();
       if (!normalizedTicker) return;
       setResolvedEntry(null);
@@ -389,7 +445,7 @@ export function KaiAnalysisPageContent() {
       router.push(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
-          pickSource: previewPickSource,
+          pickSource,
         })
       );
     },
@@ -416,6 +472,11 @@ export function KaiAnalysisPageContent() {
   );
 
   const handleCloseLiveDebate = useCallback(() => {
+    const cancelledTicker = String(
+      activeRunTask?.ticker || focusedRunTask?.ticker || analysisParams?.ticker || "",
+    )
+      .trim()
+      .toUpperCase();
     if (activeRunTask && vaultOwnerToken) {
       void DebateRunManagerService.cancelRun({
         runId: activeRunTask.runId,
@@ -423,13 +484,68 @@ export function KaiAnalysisPageContent() {
         vaultOwnerToken,
       }).catch(() => undefined);
     }
+    const closingKey = searchParams.toString();
+    setClosingRouteKey(closingKey);
     setAnalysisParams(null);
     setLiveEntry(null);
     setFocusedRunId(null);
     setFocusedRunTask(null);
     setShowHistoryWhileActive(false);
-    setDebateIdParam(null);
-  }, [activeRunTask, setAnalysisParams, setDebateIdParam, vaultOwnerToken]);
+
+    // Return to the analysis the person was on: the newest saved analysis for
+    // this ticker, else the analysis landing. The target never names the
+    // ticker, so the preview and its research-source picker cannot reopen.
+    const token = ++closeNavigationRef.current;
+    const loadHistory =
+      cancelledTicker && userId && vaultKey
+        ? KaiHistoryService.getAllHistory({
+            userId,
+            vaultKey,
+            vaultOwnerToken: vaultOwnerToken || "",
+          }).catch(() => ({}))
+        : Promise.resolve({});
+    void loadHistory.then((history) => {
+      if (closeNavigationRef.current !== token) return;
+      if (searchParamsRef.current.toString() !== closingKey) return;
+      const entry = pickCancelledAnalysisReturnEntry(
+        cancelledTicker,
+        Object.values(history).flat(),
+      );
+      if (entry) setWorkspaceTab("summary");
+      router.replace(
+        buildKaiMarketRoute(
+          "analysis",
+          entry ? { analysis_id: getAnalysisHistoryEntryRouteId(entry) } : {},
+        ),
+        { scroll: false },
+      );
+    });
+  }, [
+    activeRunTask,
+    analysisParams?.ticker,
+    focusedRunTask?.ticker,
+    router,
+    searchParams,
+    setAnalysisParams,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (closingRouteKey !== null && closingRouteKey !== searchParams.toString()) {
+      setClosingRouteKey(null);
+    }
+  }, [closingRouteKey, searchParams]);
+
+  useEffect(
+    () => () => {
+      // A pending cancel navigation must not pull the person back after they
+      // have left the analysis surface.
+      closeNavigationRef.current += 1;
+    },
+    [],
+  );
 
   const handleReanalyze = useCallback(
     (ticker: string) => {
@@ -454,13 +570,20 @@ export function KaiAnalysisPageContent() {
     [previewPickSource, router, setAnalysisParams, setDebateIdParam]
   );
 
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
   const setWorkspaceView = useCallback(
     (value: WorkspaceTab) => {
-      setWorkspaceTab(value);
+      if (workspaceTabRef.current !== value) {
+        workspaceTabRef.current = value;
+        setWorkspaceTab(value);
+      }
       const params = new URLSearchParams(searchParamsRef.current.toString());
+      if (params.get("view") === value) return;
       params.set("view", value);
+      // Treat this as the optimistic route authority so Embla's settle event
+      // cannot issue the same Next navigation a second time before
+      // useSearchParams catches up. That duplicate navigation was the visible
+      // flash on every Analysis tab switch.
+      searchParamsRef.current = new URLSearchParams(params.toString());
       if (value === "debate") {
         // Debate is its own back-navigable route under Analysis.
         router.push(
@@ -511,7 +634,7 @@ export function KaiAnalysisPageContent() {
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
-          description: "Final recommendation is ready. Kai is storing this analysis in your PKM.",
+          
         });
       }
       setLiveEntry(entry);
@@ -520,9 +643,6 @@ export function KaiAnalysisPageContent() {
       setFocusedRunId(meta.runId);
       setShowHistoryWhileActive(false);
       setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
-      requestAnimationFrame(() => {
-        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      });
     },
     [analysisParams?.portfolioSource, setAnalysisParams]
   );
@@ -570,17 +690,21 @@ export function KaiAnalysisPageContent() {
     [searchParams]
   );
   const hasConfirmedAnalysisIntent = analysisParams?.launchConfirmed === true;
-  const shouldShowPreview =
-    Boolean(previewTickerRaw) &&
-    !hasRunRouteIntent &&
-    (!hasActiveRouteIntent || !hasConfirmedAnalysisIntent) &&
-    !showHistoryWhileActive &&
-    !debateId &&
-    !activeRunTask &&
-    !hasFocusedRun &&
-    !liveEntry &&
-    !resolvedEntry;
+  const shouldShowPreview = shouldShowAnalysisPreview({
+    previewTicker: previewTickerRaw,
+    hasRunRouteIntent,
+    hasActiveRouteIntent,
+    hasConfirmedAnalysisIntent,
+    showHistoryWhileActive,
+    hasDebateId: Boolean(debateId),
+    hasActiveRun: Boolean(activeRunTask),
+    hasFocusedRun,
+    hasOpenEntry: Boolean(liveEntry || resolvedEntry),
+    closingLiveDebate:
+      closingRouteKey !== null && closingRouteKey === searchParams.toString(),
+  });
   const showWorkspace =
+    stocksActive && workspaceSelected &&
     !showHistoryWhileActive &&
     !shouldShowPreview &&
     Boolean(liveIntentReady || liveEntry || resolvedEntry || hasFocusedRun);
@@ -602,27 +726,7 @@ export function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
-  const analysisSuggestions = useMemo(() => {
-    if (!userId || showWorkspace || previewTickerFromQuery || activeRunTask) {
-      return [];
-    }
-    return getAnalysisSuggestions({
-      userId,
-      activeSymbol: activeTicker || null,
-      previewSymbol: previewTickerFromQuery || null,
-      recentSymbols: [activeEntry?.ticker, historyFallbackEntry?.ticker].filter(
-        (ticker): ticker is string => typeof ticker === "string",
-      ),
-    });
-  }, [
-    activeEntry?.ticker,
-    activeRunTask,
-    activeTicker,
-    historyFallbackEntry?.ticker,
-    previewTickerFromQuery,
-    showWorkspace,
-    userId,
-  ]);
+  const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !resolvingEntry;
 
   useEffect(() => {
     if (!shouldShowPreview || !hasActiveRouteIntent || !previewTickerRaw) return;
@@ -674,7 +778,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis.cancel_active", actionId: "analysis.cancel_active", label: "Cancel analysis", purpose: "Cancel the active analysis." }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
+            ...(previewTickerFromQuery ? [{ id: "analysis.confirm_preview", actionId: "analysis.confirm_preview", label: "Start analysis debate from preview", purpose: "Confirm the visible preview before a debate begins." }] : []),
             ...(activeRunTask ? [{ id: "analysis.resume_active", actionId: "analysis.resume_active", label: "Open active analysis", purpose: "Resume the active analysis workspace." }] : []),
           ]),
     ];
@@ -697,6 +801,7 @@ export function KaiAnalysisPageContent() {
           },
         ]
       : [
+          ...(showStockBrowser ? [{ id: "stocks", title: "Stocks", purpose: "Browse stocks, compare company facts, and open a research preview." }] : []),
           {
             id: "history_dashboard",
             title: "Analysis history",
@@ -704,6 +809,7 @@ export function KaiAnalysisPageContent() {
           },
         ];
     const controls = [
+      ...(showStockBrowser && selectedStockSymbol && vaultKey ? [{ id: "analysis_stock_details_preview", label: `Analyze ${selectedStockSymbol}`, purpose: "Open the selected stock preview before confirming a debate.", actionId: "analysis.start", role: "button" }] : []),
       ...(showWorkspace
         ? [
             { id: "analysis_back_to_history", label: "Back to history", purpose: "Return to history.", actionId: "analysis.back_to_history", role: "button" },
@@ -713,7 +819,7 @@ export function KaiAnalysisPageContent() {
             ...(liveIntentReady ? [{ id: "analysis_cancel", label: "Cancel analysis", purpose: "Cancel the active analysis.", actionId: "analysis.cancel_active", role: "button" }] : []),
           ]
         : [
-            ...(previewTickerFromQuery ? [{ id: "analysis_start_preview", label: "Start debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
+            ...(previewTickerFromQuery ? [{ id: "analysis_start_preview", label: "Start analysis debate", purpose: "Confirm the preview and begin the debate.", actionId: "analysis.confirm_preview", role: "button" }] : []),
             ...(activeRunTask ? [{ id: "analysis_open_active", label: "Open active analysis", purpose: "Resume the active analysis.", actionId: "analysis.resume_active", role: "button" }] : []),
           ]),
     ];
@@ -728,6 +834,7 @@ export function KaiAnalysisPageContent() {
               : ["Detailed review"]),
         ]
       : [
+          ...(showStockBrowser ? ["Stocks"] : []),
           ...(previewTickerFromQuery ? ["Stock preview"] : []),
           ...(activeRunTask ? ["Active analysis banner"] : []),
           "Analysis history",
@@ -735,31 +842,31 @@ export function KaiAnalysisPageContent() {
 
     return {
       screenId: showWorkspace ? "kai_analysis_workspace" : "kai_analysis_history",
-      title: "Analysis",
+      title: showWorkspace ? "Analysis" : "Stocks",
       purpose: showWorkspace
         ? "This workspace runs and reviews ticker analysis across debate, summary, and detailed views."
-        : "This screen keeps saved analysis history, preview cards, and active-analysis return points in one place.",
-      primaryEntity: activeTicker || previewTickerFromQuery || null,
+        : "Browse stocks and company facts, start stock research, and review saved analysis.",
+      primaryEntity: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       // A ticker is public and is the whole subject of this screen, so it is
       // safe to say aloud. Without it One knew it was on Analysis but not
       // which stock -- it could not answer "what am I looking at".
-      spokenSubject: activeTicker || previewTickerFromQuery || null,
+      spokenSubject: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       sections,
       actions,
       controls,
       concepts: [
         {
           id: "analysis",
-          label: "Analysis",
-          explanation: "Analysis is the research workspace for running and reviewing ticker debates.",
-          aliases: ["analysis", "debate", "research"],
+          label: "Stocks",
+          explanation: "Stocks brings company facts, stock research, and saved debates together.",
+          aliases: ["stocks", "analysis", "debate", "research"],
         },
       ],
-      activeSection: showWorkspace ? workspaceTabLabel : "Analysis history",
+      activeSection: showWorkspace ? workspaceTabLabel : showStockBrowser ? "Stocks" : "Analysis history",
       activeTab: showWorkspace ? workspaceTab : null,
-      selectedEntity: activeTicker || previewTickerFromQuery || null,
+      selectedEntity: activeTicker || previewTickerFromQuery || selectedStockSymbol || null,
       visibleModules,
-      focusedWidget: showWorkspace ? `${workspaceTabLabel} tab` : "Analysis history",
+      focusedWidget: showWorkspace ? `${workspaceTabLabel} tab` : showStockBrowser ? "Stocks" : "Analysis history",
       availableActions: actions.map((action) => action.label),
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -810,6 +917,9 @@ export function KaiAnalysisPageContent() {
     resolvingEntry,
     showHistoryWhileActive,
     showWorkspace,
+    showStockBrowser,
+    selectedStockSymbol,
+    vaultKey,
     stockPreviewError,
     stockPreviewLoading,
     workspaceTab,
@@ -825,9 +935,13 @@ export function KaiAnalysisPageContent() {
       router.replace(buildKaiMarketRoute("analysis", { focus: "active" }));
       return;
     }
+    const attempt = ++previewStartRef.current;
     setStartingPreviewDebate(true);
     void getStockContext(currentPreviewTicker, vaultOwnerToken)
       .then((context) => {
+        // Back, a different stock or a tab change revokes this presentation's
+        // pending launch. A late context response must not navigate back into it.
+        if (previewStartRef.current !== attempt) return;
         setResolvedEntry(null);
         setLiveEntry(null);
         setFocusedRunId(null);
@@ -849,13 +963,11 @@ export function KaiAnalysisPageContent() {
           }),
         );
       })
-      .catch((error) => {
-        toast.error("Could not start debate.", {
-          description: error instanceof Error ? error.message : "Please try again.",
-        });
+      .catch(() => {
+        if (previewStartRef.current === attempt) toast.error("Could not start debate.");
       })
       .finally(() => {
-        setStartingPreviewDebate(false);
+        if (previewStartRef.current === attempt) setStartingPreviewDebate(false);
       });
   }, [
     previewPickSource,
@@ -873,9 +985,15 @@ export function KaiAnalysisPageContent() {
     setShowHistoryWhileActive(false);
     router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
   }, [router, setAnalysisParams]);
-  const handleChangePreviewStock = useCallback(() => {
-    openKaiCommandBar();
-  }, []);
+  const handleOpenActiveAnalysis = useCallback(() => {
+    if (!activeRunTask) return;
+    setFocusedRunId(activeRunTask.runId);
+    setShowHistoryWhileActive(false);
+    setWorkspaceTab("debate");
+    router.push(buildKaiMarketRoute("analysis", {
+      focus: "active", run_id: activeRunTask.runId, view: "debate",
+    }), { scroll: false });
+  }, [activeRunTask, router]);
   useLocalOnboardingActionHandler("analysis.back_to_history", () => {
     setAnalysisParams(null);
     setFocusedRunId(null);
@@ -903,9 +1021,7 @@ export function KaiAnalysisPageContent() {
   });
   useLocalOnboardingActionHandler("analysis.resume_active", () => {
     if (!activeRunTask) return { status: "blocked", summary: "There is no active analysis to resume." };
-    setFocusedRunId(activeRunTask.runId);
-    setShowHistoryWhileActive(false);
-    setWorkspaceTab("debate");
+    handleOpenActiveAnalysis();
     return { status: "succeeded", summary: "Active analysis opened." };
   });
   useLocalOnboardingActionHandler("analysis.confirm_preview", () => {
@@ -913,6 +1029,7 @@ export function KaiAnalysisPageContent() {
     handleStartDebateFromPreview();
     return { status: "started", summary: "Starting the confirmed analysis debate." };
   });
+  const headerSnapshot = marketSnapshotForTicker(headerSnapshotState, activeTicker);
   const headerPriceLabel =
     headerSnapshotLoading && (headerSnapshot?.last_price ?? null) === null
       ? "Loading price..."
@@ -927,16 +1044,26 @@ export function KaiAnalysisPageContent() {
     }
 
     let cancelled = false;
+    const cache = CacheService.getInstance();
     const cached = getLatestMarketSnapshotFromCache(userId, activeTicker);
     setHeaderSnapshotLoading(Boolean(vaultOwnerToken) && !cached);
     if (!cancelled) {
-      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, activeTicker));
     }
+
+    const unsubscribeCache = cache.subscribe((event) => {
+      if (cancelled || event.type !== "set") return;
+      if (!event.key.startsWith(`kai_market_home_${userId}_`)) return;
+      const next = getLatestMarketSnapshotFromCache(userId, activeTicker);
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, next, activeTicker));
+      setHeaderSnapshotLoading(false);
+    });
 
     if (!vaultOwnerToken) {
       setHeaderSnapshotLoading(false);
       return () => {
         cancelled = true;
+        unsubscribeCache();
       };
     }
 
@@ -949,7 +1076,7 @@ export function KaiAnalysisPageContent() {
           daysBack: 7,
         });
         if (!cancelled) {
-          setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, activeTicker));
         }
       } catch {
         // Keep best known cached value.
@@ -962,6 +1089,7 @@ export function KaiAnalysisPageContent() {
 
     return () => {
       cancelled = true;
+      unsubscribeCache();
     };
   }, [activeTicker, showWorkspace, userId, vaultOwnerToken]);
 
@@ -975,13 +1103,8 @@ export function KaiAnalysisPageContent() {
       setPreviewPickSource(querySource);
       return;
     }
-    setPreviewPickSource(getKaiActivePickSource(userId));
-  }, [previewPickSourceFromQuery, userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    setKaiActivePickSource(userId, previewPickSource);
-  }, [previewPickSource, userId]);
+    setPreviewPickSource(activePickSource);
+  }, [activePickSource, previewPickSourceFromQuery, userId]);
 
   useEffect(() => {
     if (!previewTickerFromQuery || !userId || !vaultOwnerToken) {
@@ -1055,7 +1178,7 @@ export function KaiAnalysisPageContent() {
 
   if (!user || !userId) {
     return (
-      <AppPageShell as="div" width="standard" className="flex min-h-96 items-center justify-center">
+      <div className="flex min-h-96 w-full min-w-0 items-center justify-center">
         <NativeTestBeacon
           routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
@@ -1063,13 +1186,14 @@ export function KaiAnalysisPageContent() {
           dataState="loading"
         />
         <HushhLoader variant="inline" label={toInvestorLoading("ANALYSIS")} />
-      </AppPageShell>
+      </div>
     );
   }
 
   if (!vaultKey) {
     return (
-      <AppPageShell as="div" width="reading">
+      <div className="w-full min-w-0 space-y-4">
+        {showStockBrowser ? <KaiStocksView onSelectedSymbolChange={setSelectedStockSymbol} /> : null}
         <NativeTestBeacon
           routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
@@ -1087,7 +1211,7 @@ export function KaiAnalysisPageContent() {
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <MorphyButton onClick={() => router.push(ROUTES.KAI_HOME)}>
-              Return to Kai
+              Return to Finance
             </MorphyButton>
             <MorphyButton
               variant="none"
@@ -1099,7 +1223,7 @@ export function KaiAnalysisPageContent() {
           </div>
           </SurfaceCardContent>
         </SurfaceCard>
-      </AppPageShell>
+      </div>
     );
   }
 
@@ -1122,6 +1246,18 @@ export function KaiAnalysisPageContent() {
               description="Review the live debate and detailed recommendation."
               actions={
                 <>
+                  {!liveIntentReady ? (
+                    <MorphyButton
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={handleBrowseRecommendations}
+                      data-voice-control-id="analysis_back_to_history"
+                    >
+                      <Icon icon={ArrowLeft} size="xs" className="mr-1" />
+                      Back to history
+                    </MorphyButton>
+                  ) : null}
                   {liveIntentReady ? (
                     <MorphyButton
                       variant="none"
@@ -1182,6 +1318,7 @@ export function KaiAnalysisPageContent() {
                   value={workspaceTab}
                   onValueChange={handleWorkspaceTabChange}
                   options={workspaceTabOptions}
+                  variant="agent-top"
                   className="mx-auto w-full"
                 />
               </div>
@@ -1189,6 +1326,8 @@ export function KaiAnalysisPageContent() {
                 tabSetId="analysis-workspace"
                 activeValue={workspaceTab}
                 options={workspaceTabOptions}
+                heightMode="active"
+                viewportMinHeight="fill"
                 onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
                 onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
               >
@@ -1253,7 +1392,7 @@ export function KaiAnalysisPageContent() {
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-                        Kai is saving this debate to your PKM history.
+                        One is saving this debate to your PKM history.
                       </div>
                     ) : null}
                     {focusedRunTask?.persistenceState === "failed" ? (
@@ -1321,64 +1460,90 @@ export function KaiAnalysisPageContent() {
               workspace="analysis"
               title={
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  Analysis
+                  Stocks
                   {historyCount > 0 ? (
                     <Badge variant="secondary" className="text-[10px]">{historyCount}</Badge>
                   ) : null}
                 </span>
               }
-              description="Review saved debates and reopen a previous decision."
+              description="Browse companies and review saved analysis."
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
-          {analysisSuggestions.length > 0 ? (
-            <SurfaceCard className="w-full">
-              <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
-                <button
-                  type="button"
-                  onClick={() => openKaiCommandBar()}
-                  className="flex h-9 w-full items-center gap-2 rounded-full border border-border/70 px-3.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Icon icon={Search} size="sm" className="shrink-0" />
-                  Search any stock to analyze
-                </button>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="mr-1 text-xs font-medium text-muted-foreground">
-                    Research starters
-                  </span>
-                  {analysisSuggestions.map((suggestion) => (
-                    <MorphyButton
-                      key={suggestion.symbol}
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      className="h-8 rounded-full border border-border/70 pl-1.5 pr-3 text-xs text-foreground hover:bg-muted"
-                      onClick={() => handleSelectTicker(suggestion.symbol)}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <SymbolAvatar symbol={suggestion.symbol} size="sm" />
-                        {suggestion.symbol}
-                      </span>
-                    </MorphyButton>
-                  ))}
+          <KaiStocksView browseStocks={showStockBrowser} historyRequested={showHistoryWhileActive} onHistoryClose={() => setShowHistoryWhileActive(false)} onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} history={<AnalysisHistoryDashboard
+            userId={userId}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken || ""}
+            onSelectTicker={handleSelectTicker}
+            onViewHistory={handleViewHistory}
+            onHistoryCount={setHistoryCount}
+            showDebateInputs={false}
+            ephemeralEntry={historyFallbackEntry}
+          />} />
+          {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
+            <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
+              <SurfaceCardContent className="p-5 text-center">
+                <h2 className="text-lg font-semibold">This analysis is no longer available</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  It may have expired, been deleted, or never finished saving to your history.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
+                    Back to history
+                  </MorphyButton>
                 </div>
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}
-          {previewTickerFromQuery ? (
+          <KaiControlSurface
+            open={Boolean(previewTickerFromQuery)}
+            onOpenChange={(open) => {
+              if (open) return;
+              handleBrowseRecommendations();
+            }}
+            leading={
+              previewTickerFromQuery ? (
+                <SymbolAvatar
+                  symbol={previewTickerFromQuery}
+                  name={previewTickerFromQuery}
+                  size="lg"
+                />
+              ) : null
+            }
+            eyebrow="Stock analysis"
+            title={previewTickerFromQuery || "Stock preview"}
+            description="Confirm the live quote and research source before starting the debate."
+            bodyClassName="!p-0"
+            surfaceClassName="!max-h-[calc(100dvh-var(--kb-height,0px))]"
+            showMobileCloseButton={false}
+            footer={
+              <div className="flex w-full justify-end">
+                <MorphyButton
+                  variant="blue-gradient"
+                  effect="fill"
+                  className="w-full sm:w-auto sm:min-w-40"
+                  onClick={handleStartDebateFromPreview}
+                  disabled={stockPreviewLoading || startingPreviewDebate || !stockPreview}
+                >
+                  {startingPreviewDebate ? "Preparing debate..." : "Start analysis debate"}
+                </MorphyButton>
+              </div>
+            }
+          >
             <StockComparisonPreview
               preview={stockPreview}
               loading={stockPreviewLoading}
               error={stockPreviewError}
               onStartDebate={handleStartDebateFromPreview}
               onBrowseRecommendations={handleBrowseRecommendations}
-              onChangeStock={handleChangePreviewStock}
               activePickSource={previewPickSource}
               onPickSourceChange={setPreviewPickSource}
               compact
               starting={startingPreviewDebate}
+              embeddedInDetailSurface
+              showStartAction={false}
             />
-          ) : null}
+          </KaiControlSurface>
           {activeRunTask ? (
             <SurfaceCard accent="sky" className="w-full">
               <SurfaceCardContent className="px-3 py-2 text-xs text-accent-strong">
@@ -1390,41 +1555,23 @@ export function KaiAnalysisPageContent() {
                 size="sm"
                 className="ml-2 h-7 px-2 text-xs"
                 data-voice-control-id="analysis_open_active"
-                onClick={() => {
-                  if (activeRunTask?.runId) {
-                    setFocusedRunId(activeRunTask.runId);
-                  }
-                  setShowHistoryWhileActive(false);
-                  setWorkspaceTab("debate");
-                  requestAnimationFrame(() => {
-                    workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-                  });
-                }}
+                onClick={handleOpenActiveAnalysis}
               >
                 Open active analysis
               </MorphyButton>
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}
-          <AnalysisHistoryDashboard
-            userId={userId}
-            vaultKey={vaultKey}
-            vaultOwnerToken={vaultOwnerToken || ""}
-            onSelectTicker={handleSelectTicker}
-            onViewHistory={handleViewHistory}
-            onHistoryCount={setHistoryCount}
-            showDebateInputs={false}
-            ephemeralEntry={historyFallbackEntry}
-          />
+
             </SurfaceStack>
           </AppPageContentRegion>
         </div>
       ) : null}
 
       {resolvingEntry ? (
-        <AppPageShell as="div" width="standard" className="flex min-h-64 items-center justify-center">
+        <div className="flex min-h-64 w-full min-w-0 items-center justify-center">
           <HushhLoader variant="inline" label="Loading saved analysis..." />
-        </AppPageShell>
+        </div>
       ) : null}
     </>
   );

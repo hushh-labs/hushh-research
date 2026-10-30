@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import type { User } from "firebase/auth";
 
 import { useAuth } from "@/hooks/use-auth";
 import { AuthService } from "@/lib/services/auth-service";
@@ -11,45 +10,19 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { VaultService } from "@/lib/services/vault-service";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { signInOperatorReviewer } from "@/lib/testing/reviewer-operator-auth";
+import { isHumanReviewerSession, humanReviewerAdmissionStage } from "@/lib/testing/reviewer-authentication-policy.mjs";
+import { updateBootstrapStatus } from "@/lib/testing/reviewer-bootstrap-status";
+import { withNativeTestVaultRetry, withVaultBootstrapTimeout } from "@/lib/testing/native-test-vault-retry";
 import { useVault } from "@/lib/vault/vault-context";
+import { isValidatedAuthSessionOwnerCurrent, snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-function updateBootstrapStatus(
-  stage: string,
-  options?: { userId?: string | null; errorClass?: string | null }
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const bridge = window.__HUSHH_NATIVE_TEST__;
-  if (!bridge?.enabled) {
-    return;
-  }
-  const stageRank: Record<string, number> = {
-    waiting_auth: 10,
-    authenticating: 20,
-    authenticated: 30,
-    waiting_vault_user: 35,
-    loading_vault_state: 40,
-    unlocking_vault: 50,
-    vault_unlocked: 60,
-    auth_error: 70,
-    uid_mismatch: 70,
-    vault_error: 70,
-  };
-  const currentStage = bridge.bootstrapState || "";
-  const currentRank = stageRank[currentStage] ?? 0;
-  const nextRank = stageRank[stage] ?? 0;
-  const failureStages = new Set(["auth_error", "uid_mismatch", "vault_error"]);
-  const isRecoveringFromFailure =
-    failureStages.has(currentStage) && !failureStages.has(stage);
-  if (nextRank < currentRank && !isRecoveringFromFailure) {
-    return;
-  }
-  bridge.bootstrapState = stage;
-  bridge.bootstrapUserId = options?.userId ?? bridge.bootstrapUserId ?? "";
-  bridge.bootstrapError = "";
-  bridge.bootstrapErrorClass = options?.errorClass ?? "";
+/** Six characters of a uid: enough to tell two identities apart in a log line, never a secret. */
+function uidPrefix(uid: string | null | undefined): string {
+  return String(uid ?? "").slice(0, 6);
 }
+
 
 function nativeTestErrorClass(error: unknown): string {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -64,51 +37,61 @@ function nativeTestErrorClass(error: unknown): string {
 
 let nativeTestReviewerBootstrapInflight: Promise<void> | null = null;
 let nativeTestReviewerBootstrapCooldownUntil = 0;
-// A provider boundary can remount while the native bridge finishes initializing.
-// This stays process-memory-only and exists solely for the native test handoff;
-// it is never written to storage or used outside native test mode.
-let nativeTestBootstrapUser: User | null = null;
-const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = 20_000;
-
-async function withVaultBootstrapTimeout<T>(
-  label: string,
-  operation: Promise<T>
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error(`${label} timed out`));
-        }, NATIVE_TEST_VAULT_STEP_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
-
 export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
-  const { loading: authLoading, user, setNativeUser } = useAuth();
+  const humanReviewer = isHumanReviewerSession(config);
+  const operatorReviewer = config.reviewerAuthMode === "operator_issued_token";
+  const operatorAdmissionRef = useRef<"fresh" | "issuing" | "verified" | "retired">("fresh");
+  const { loading: authLoading, sessionVerificationRequired, user, userId, accountPrincipal, setNativeUser } = useAuth();
   const { isVaultUnlocked, unlockVault } = useVault();
   const [authRetryTick, setAuthRetryTick] = useState(0);
-  // Native Firebase can resolve a custom-token sign-in before AuthContext has
-  // published its next render. Keep that authenticated user in memory only so
-  // the test-only vault bootstrap has a continuous handoff; the app still
-  // prefers the canonical context user whenever it is available.
-  const [bootstrapUser, setBootstrapUser] = useState<User | null>(null);
+  const [vaultRetryTick, setVaultRetryTick] = useState(0);
+  const unlockRetryGenerationRef = useRef<number | null>(null);
   const authAttemptedRef = useRef(false);
   const authAttemptedAtRef = useRef(0);
   const identityMismatchForExpectedUserRef = useRef<string | null>(null);
-  const unlockInFlightForUidRef = useRef<string | null>(null);
-  const nativeSessionRecoveryInFlightRef = useRef(false);
+  const identityMismatchObservedUidRef = useRef<string | null>(null);
+  const replacedPersistedUidRef = useRef<string | null>(null);
+  const nativeSessionRecoveryInFlightRef = useRef<object | null>(null);
+
+  useEffect(() => {
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!humanReviewer || !bridge) return;
+    const observe = () => {
+      const owner = snapshotValidatedAuthSessionOwner();
+      return {
+        ownerMatches: Boolean(config.expectedUserId && owner?.userId === config.expectedUserId && user?.uid === config.expectedUserId),
+        authReady: !authLoading && Boolean(owner),
+        unlocked: isVaultUnlocked,
+        authGeneration: owner?.generation ?? null,
+        vaultEpoch: snapshotVaultSessionEpoch(),
+      };
+    };
+    bridge.reviewerSessionSnapshot = observe;
+    return () => { if (bridge.reviewerSessionSnapshot === observe) delete bridge.reviewerSessionSnapshot; };
+  }, [humanReviewer, config, user?.uid, authLoading, isVaultUnlocked]);
 
   useEffect(() => {
     if (!config.enabled || !config.autoReviewerLogin) {
+      return undefined;
+    }
+
+    if (operatorReviewer && operatorAdmissionRef.current === "retired") {
+      updateBootstrapStatus("auth_error", { userId: "", invalidate: true, errorClass: "authentication" });
+      return undefined;
+    }
+
+    if (humanReviewer || (operatorReviewer && operatorAdmissionRef.current === "verified")) {
+      const stage = humanReviewerAdmissionStage(config.expectedUserId, user?.uid ?? null,
+        authLoading, operatorReviewer || Boolean(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId));
+      if (operatorReviewer && (stage === "auth_error" || stage === "uid_mismatch")) {
+        operatorAdmissionRef.current = "retired";
+      }
+      updateBootstrapStatus(stage, {
+        userId: stage === "authenticated" ? user?.uid ?? "" : "",
+        invalidate: stage !== "authenticated",
+        errorClass: stage === "uid_mismatch" ? "identity" : stage === "auth_error" ? "authentication" : null,
+      });
       return undefined;
     }
 
@@ -120,6 +103,38 @@ export function NativeTestBootstrap() {
     }
 
     if (user) {
+      if (operatorReviewer && operatorAdmissionRef.current !== "verified") {
+        updateBootstrapStatus(operatorAdmissionRef.current === "issuing" ? "waiting_auth" : "auth_error", {
+          userId: "", invalidate: true,
+          errorClass: operatorAdmissionRef.current === "issuing" ? null : "authentication",
+        });
+        return undefined;
+      }
+      // A session the device kept from before the audit (a simulator whose
+      // keychain survived an app removal, a phone signed in as its owner) is
+      // not the requested fixture. When the audit names an identity and this
+      // is not it, replace it once instead of auditing as whoever was there
+      // last; a second sighting of the same uid after that is a real
+      // mismatch and falls through to the ordinary failure below.
+      if (
+        config.expectedUserId &&
+        user.uid !== config.expectedUserId &&
+        replacedPersistedUidRef.current !== user.uid
+      ) {
+        replacedPersistedUidRef.current = user.uid;
+        updateBootstrapStatus("authenticating");
+        void AuthService.signOut()
+          .catch(() => undefined)
+          .finally(() => {
+            // In native mode the auth context publishes identity only through
+            // its own restore and sign-in paths and ignores Firebase state
+            // changes, so the service sign-out alone leaves the persisted
+            // user published; withdraw it explicitly.
+            setNativeUser(null);
+            setAuthRetryTick((value) => value + 1);
+          });
+        return undefined;
+      }
       updateBootstrapStatus("authenticated", {
         userId: user.uid,
       });
@@ -130,7 +145,10 @@ export function NativeTestBootstrap() {
       config.expectedUserId &&
       identityMismatchForExpectedUserRef.current === config.expectedUserId
     ) {
-      updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+      updateBootstrapStatus("uid_mismatch", {
+        errorClass: "identity",
+        detail: `signin_result:${uidPrefix(identityMismatchObservedUidRef.current)}`,
+      });
       return undefined;
     }
 
@@ -164,19 +182,31 @@ export function NativeTestBootstrap() {
         if (Capacitor.isNativePlatform()) {
           await AuthService.signOut().catch(() => undefined);
         }
-        const localReviewerCredentials = Capacitor.isNativePlatform()
+        const useCustomReviewerToken =
+          window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode === "custom_token";
+        const localReviewerCredentials = Capacitor.isNativePlatform() || useCustomReviewerToken
           ? null
           : resolveLocalReviewerCredentials(
               typeof window !== "undefined" ? window.location.hostname : null
             );
-        const authResult = localReviewerCredentials
+        if (operatorReviewer) operatorAdmissionRef.current = "issuing";
+        const authResult = operatorReviewer
+          ? await signInOperatorReviewer({
+              enabled: config.enabled,
+              autoReviewerLogin: config.autoReviewerLogin,
+              reviewerAuthMode: config.reviewerAuthMode,
+              expectedUserId: config.expectedUserId,
+            })
+          : localReviewerCredentials
           ? await AuthService.signInWithEmailAndPassword(
               localReviewerCredentials.email,
               localReviewerCredentials.password
             )
           : await (async () => {
+              // The backend mint requires the reviewer passphrase.
               const { token } = await ApiService.createAppReviewModeSession("reviewer", {
-                smokePassphrase: config.vaultPassphrase,
+                smokePassphrase: config.reviewerSessionPassphrase || config.vaultPassphrase,
+                reviewerUid: config.expectedUserId,
               });
               return AuthService.signInWithCustomToken(token);
             })();
@@ -190,26 +220,30 @@ export function NativeTestBootstrap() {
           config.expectedUserId &&
           authenticatedUser.uid !== config.expectedUserId
         ) {
+          if (operatorReviewer) operatorAdmissionRef.current = "retired";
           identityMismatchForExpectedUserRef.current = config.expectedUserId;
+          identityMismatchObservedUidRef.current = authenticatedUser.uid;
           nativeTestReviewerBootstrapCooldownUntil = Date.now() + 5 * 60_000;
-          updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+          updateBootstrapStatus("uid_mismatch", {
+            errorClass: "identity",
+            detail: `signin_result:${uidPrefix(authenticatedUser.uid)}`,
+          });
           await AuthService.signOut();
-          nativeTestBootstrapUser = null;
-          setBootstrapUser(null);
           console.error("[NativeTestBootstrap] Auth bootstrap failed: identity_mismatch");
           return;
         }
 
+        if (operatorReviewer) operatorAdmissionRef.current = "verified";
         setNativeUser(authenticatedUser);
-        nativeTestBootstrapUser = authenticatedUser;
-        setBootstrapUser(authenticatedUser);
         updateBootstrapStatus("authenticated", {
           userId: authenticatedUser.uid,
         });
       } catch (error) {
+        if (operatorReviewer) operatorAdmissionRef.current = "retired";
         const message =
           error instanceof Error ? error.message : "Native test auth bootstrap failed";
         updateBootstrapStatus("auth_error", {
+          ...(operatorReviewer ? { userId: "", invalidate: true } : {}),
           errorClass: nativeTestErrorClass(error),
         });
         if (/rate limit exceeded/i.test(message)) {
@@ -229,70 +263,76 @@ export function NativeTestBootstrap() {
     config.autoReviewerLogin,
     config.enabled,
     config.expectedUserId,
+    config.reviewerAuthMode,
+    humanReviewer,
+    operatorReviewer,
+    config.reviewerSessionPassphrase,
     config.vaultPassphrase,
     setNativeUser,
     user,
   ]);
 
   useEffect(() => {
-    if (!config.enabled || !config.autoReviewerLogin || !config.vaultPassphrase) {
-      return;
-    }
-
-    // The Firebase singleton is the last in-memory fallback across a provider
-    // remount during native bridge initialization. It is never serialized and
-    // remains scoped to the authenticated Firebase session.
-    const vaultUser =
-      user ??
-      bootstrapUser ??
-      nativeTestBootstrapUser ??
-      AuthService.getCurrentUser();
-    if (!vaultUser) {
-      updateBootstrapStatus("waiting_vault_user");
-      if (
-        Capacitor.isNativePlatform() &&
-        !nativeSessionRecoveryInFlightRef.current
-      ) {
-        nativeSessionRecoveryInFlightRef.current = true;
-        void AuthService.restoreNativeSession()
-          .then((restoredUser) => {
-            if (!restoredUser) {
-              return;
-            }
-            nativeTestBootstrapUser = restoredUser;
-            setBootstrapUser(restoredUser);
-            setNativeUser(restoredUser);
-          })
-          .finally(() => {
-            nativeSessionRecoveryInFlightRef.current = false;
-          });
+    if (humanReviewer || operatorReviewer) {
+      if ((!operatorReviewer || operatorAdmissionRef.current === "verified") && humanReviewerAdmissionStage(config.expectedUserId, user?.uid ?? null,
+        authLoading, Boolean(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId)) === "authenticated") {
+        updateBootstrapStatus(isVaultUnlocked ? "vault_unlocked" : "authenticated", {
+          userId: user!.uid, invalidate: !isVaultUnlocked,
+        });
       }
       return;
     }
-
-    if (config.expectedUserId && vaultUser.uid !== config.expectedUserId) {
-      updateBootstrapStatus("uid_mismatch", {
-        errorClass: "identity",
-      });
+    if (!config.enabled || !config.autoReviewerLogin || (!config.vaultPassphrase && !isVaultUnlocked)) {
       return;
     }
 
+    // Firebase identity is not application-owner admission. Restoring native
+    // authentication may start validation, but cannot authorize vault reads.
+    if (!user) {
+      updateBootstrapStatus("waiting_vault_user", { userId: "", invalidate: true });
+      let cancelled = false;
+      const episode = snapshotAuthSessionGeneration();
+      const attempt = {};
+      if (Capacitor.isNativePlatform() && !nativeSessionRecoveryInFlightRef.current) {
+        nativeSessionRecoveryInFlightRef.current = attempt;
+        void AuthService.restoreNativeSession().then((restoredUser) => {
+          if (!cancelled && episode && isValidatedAuthSessionOwnerCurrent(episode)
+              && restoredUser && (!config.expectedUserId || restoredUser.uid === config.expectedUserId)) {
+            setNativeUser(restoredUser);
+          }
+        }).finally(() => {
+          if (nativeSessionRecoveryInFlightRef.current === attempt) nativeSessionRecoveryInFlightRef.current = null;
+        });
+      }
+      return () => {
+        cancelled = true;
+        if (nativeSessionRecoveryInFlightRef.current === attempt) nativeSessionRecoveryInFlightRef.current = null;
+      };
+    }
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (authLoading || sessionVerificationRequired || !owner || !accountPrincipal
+        || userId !== owner.ownerId || user.uid !== owner.firebaseUid
+        || accountPrincipal.ownerId !== owner.ownerId
+        || accountPrincipal.firebaseUid !== owner.firebaseUid
+        || accountPrincipal.accountGeneration !== owner.accountGeneration) {
+      updateBootstrapStatus("waiting_vault_user", { userId: "", invalidate: true });
+      return;
+    }
+    if (config.expectedUserId && user.uid !== config.expectedUserId) {
+      updateBootstrapStatus("uid_mismatch", { userId: "", invalidate: true, errorClass: "identity" });
+      return;
+    }
     if (isVaultUnlocked) {
-      unlockInFlightForUidRef.current = null;
-      updateBootstrapStatus("vault_unlocked", {
-        userId: vaultUser.uid,
-      });
+      unlockRetryGenerationRef.current = null;
+      updateBootstrapStatus("vault_unlocked", { userId: user.uid });
       return;
     }
-
-    if (unlockInFlightForUidRef.current === vaultUser.uid) {
-      return;
-    }
-
-    unlockInFlightForUidRef.current = vaultUser.uid;
-    updateBootstrapStatus("loading_vault_state", {
-      userId: vaultUser.uid,
-    });
+    if (!config.vaultPassphrase) return;
+    let cancelled = false;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const isCurrent = () => !cancelled && isValidatedAuthSessionOwnerCurrent(owner)
+      && snapshotVaultSessionEpoch() === vaultEpoch;
+    updateBootstrapStatus("loading_vault_state", { userId: user.uid, invalidate: true });
 
     void (async () => {
       try {
@@ -300,22 +340,24 @@ export function NativeTestBootstrap() {
         // for vault presence, phone, and setup state. Calling the native vault
         // plugin first duplicated the same backend lookup and could leave iOS
         // stuck in `checking vault` while this authoritative snapshot waited.
-        const setupState = await withVaultBootstrapTimeout(
+        const setupState = await withNativeTestVaultRetry(
           "Setup state load",
-          PreVaultUserStateService.bootstrapState(vaultUser.uid),
+          () => isCurrent() ? PreVaultUserStateService.bootstrapState(owner.ownerId) : Promise.reject(new Error("Vault bootstrap retired")),
         );
+        if (!isCurrent()) return;
         if (!setupState.hasVault) {
           throw new Error(
             "Reviewer fixture has no existing vault; native audit will not create one",
           );
         }
 
-        const vaultState = await withVaultBootstrapTimeout(
+        const vaultState = await withNativeTestVaultRetry(
           "Vault state load",
-          VaultService.getVaultState(vaultUser.uid)
+          () => isCurrent() ? VaultService.getVaultState(owner.ownerId) : Promise.reject(new Error("Vault bootstrap retired")),
         );
+        if (!isCurrent()) return;
         updateBootstrapStatus("unlocking_vault", {
-          userId: vaultUser.uid,
+          userId: user.uid,
         });
         const decryptedKey = await withVaultBootstrapTimeout(
           "Vault unlock",
@@ -326,6 +368,7 @@ export function NativeTestBootstrap() {
           })
         );
 
+        if (!isCurrent()) return;
         if (!decryptedKey) {
           throw new Error("Vault unlock returned no decrypted key");
         }
@@ -338,37 +381,47 @@ export function NativeTestBootstrap() {
 
         const { token, expiresAt } = await withVaultBootstrapTimeout(
           "Vault owner token issue",
-          VaultService.getOrIssueVaultOwnerToken(vaultUser.uid)
+          VaultService.getOrIssueVaultOwnerToken(owner.ownerId)
         );
-        if (typeof window !== "undefined" && window.__HUSHH_NATIVE_TEST__?.enabled) {
+        if (!isCurrent()) return;
+        if (!unlockVault(decryptedKey, token, expiresAt)) {
+          if (unlockRetryGenerationRef.current !== owner.generation) {
+            unlockRetryGenerationRef.current = owner.generation;
+            setVaultRetryTick((value) => value + 1);
+            return;
+          }
+          throw new Error("Vault owner rejected unlock");
+        }
+        if (window.__HUSHH_NATIVE_TEST__?.enabled) {
           window.__HUSHH_NATIVE_TEST__.replayVaultUnlock = () => {
-            unlockVault(decryptedKey, token, expiresAt);
+            if (isValidatedAuthSessionOwnerCurrent(owner)) unlockVault(decryptedKey, token, expiresAt);
           };
         }
-        unlockVault(decryptedKey, token, expiresAt);
-        updateBootstrapStatus("vault_unlocked", {
-          userId: vaultUser.uid,
-        });
+        // Success is published by the next owner-bound unlocked render above.
       } catch (error) {
+        if (!isCurrent()) return;
         updateBootstrapStatus("vault_error", {
-          userId: vaultUser.uid,
+          userId: user.uid,
           errorClass: nativeTestErrorClass(error),
         });
         console.error(
           `[NativeTestBootstrap] Vault bootstrap failed: ${nativeTestErrorClass(error)}`,
         );
-      } finally {
-        if (unlockInFlightForUidRef.current === vaultUser.uid) {
-          unlockInFlightForUidRef.current = null;
-        }
       }
     })();
+    return () => { cancelled = true; };
   }, [
+    accountPrincipal,
+    authLoading,
+    sessionVerificationRequired,
+    userId,
+    vaultRetryTick,
     config.autoReviewerLogin,
-    bootstrapUser,
     config.enabled,
     config.expectedUserId,
+    humanReviewer,
     config.vaultPassphrase,
+    operatorReviewer,
     isVaultUnlocked,
     setNativeUser,
     unlockVault,

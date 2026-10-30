@@ -59,6 +59,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       hasVault: false,
       phoneVerified: false,
       setupCompleted: false,
+      createdAt: 1700000000000,
     });
 
     const first = PreVaultUserStateService.bootstrapState("bootstrap-race-user");
@@ -74,6 +75,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       userId: "bootstrap-race-user",
       hasVault: false,
       phoneVerified: false,
+      createdAt: 1700000000000,
     });
     await expect(second).resolves.toMatchObject({
       userId: "bootstrap-race-user",
@@ -269,5 +271,141 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       setupCapabilityIds: ["connections"],
       oneRuntimeSetupChoice: "byok_pending_vault",
     });
+  });
+
+  it("mirrors an explicit decline to the durable store, distinct from completion", async () => {
+    const userId = "bootstrap-declined-capability-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock.mockResolvedValueOnce({
+      userId,
+      setupCompleted: false,
+      setupCapabilityIds: [],
+      setupCapabilityDeclinedIds: ["gmail"],
+    });
+
+    const state = await PreVaultUserStateService.syncDeclinedCapabilities(
+      userId,
+      ["gmail"],
+    );
+
+    expect(PreVaultUserStateService.hasDeclinedCapability(state, "gmail")).toBe(
+      true,
+    );
+    expect(
+      PreVaultUserStateService.hasDeclinedCapability(state, "calendar"),
+    ).toBe(false);
+    expect(state.setupCapabilityIds).toEqual([]);
+    const updateOptions = apiJsonMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(updateOptions.body))).toEqual({
+      userId,
+      setupCapabilityDeclinedIds: ["gmail"],
+    });
+  });
+
+  it("treats a missing or empty declined-capability state as not declined", () => {
+    expect(PreVaultUserStateService.hasDeclinedCapability(null, "gmail")).toBe(
+      false,
+    );
+  });
+});
+
+/**
+ * `hasVault` on this record answers "does this account own a lock". It has to
+ * be able to say "I don't know", because the record is not always read from the
+ * backend — `primeSetupResolved` builds one locally when the cache is cold, and
+ * that payload says nothing about locks.
+ *
+ * While the field was a plain boolean, "said nothing" normalised to a confident
+ * `false`. `VaultService.readBootstrapVaultCheck` served that as the answer and
+ * `checkVault` pinned it into a 30-minute session hint — so finishing setup
+ * could persist "this person has no lock" moments after they made one, and
+ * every screen that trusts a cached negative then offered "Set a lock".
+ */
+describe("PreVaultUserStateService — lock presence is allowed to be unknown", () => {
+  it("keeps an explicit backend answer, in both directions", async () => {
+    const userId = "user-lock-explicit";
+    getIdTokenMock.mockResolvedValue("token");
+    apiJsonMock.mockResolvedValueOnce({
+      userId,
+      hasVault: true,
+      vaultStatus: "active",
+    });
+
+    const state = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    });
+
+    expect(state.hasVault).toBe(true);
+  });
+
+  it("believes an explicit false even when the status string says active", async () => {
+    // `/db/vault/check` and `/db/vault/pre-vault-state` answer this by looking
+    // at the unlock-method rows; the status string alone does not. ORing the
+    // two, as this used to, threw the better-informed answer away.
+    const userId = "user-lock-no-wrapper";
+    getIdTokenMock.mockResolvedValue("token");
+    apiJsonMock.mockResolvedValueOnce({
+      userId,
+      hasVault: false,
+      vaultStatus: "active",
+    });
+
+    const state = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    });
+
+    expect(state.hasVault).toBe(false);
+  });
+
+  it("derives from the status when only the status was reported", async () => {
+    const userId = "user-lock-status-only";
+    getIdTokenMock.mockResolvedValue("token");
+    apiJsonMock.mockResolvedValueOnce({ userId, vaultStatus: "active" });
+
+    const state = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    });
+
+    expect(state.hasVault).toBe(true);
+  });
+
+  it("reports a placeholder row as no lock, not as unknown", async () => {
+    const userId = "user-lock-placeholder";
+    getIdTokenMock.mockResolvedValue("token");
+    apiJsonMock.mockResolvedValueOnce({ userId, vaultStatus: "placeholder" });
+
+    const state = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    });
+
+    expect(state.hasVault).toBe(false);
+  });
+
+  it("says unknown when the payload reported neither field", async () => {
+    const userId = "user-lock-silent";
+    getIdTokenMock.mockResolvedValue("token");
+    apiJsonMock.mockResolvedValueOnce({ userId, setupCompleted: true });
+
+    const state = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    });
+
+    expect(state.hasVault).toBeNull();
+  });
+
+  it("does not invent a negative when finishing setup with a cold cache", () => {
+    // The exact sequence that shipped the bug: the hub commits completion, the
+    // bootstrap cache is cold, so a record is built locally — and it used to
+    // assert `hasVault: false` about somebody who had just made a lock.
+    const userId = "user-prime-cold";
+
+    const primed = PreVaultUserStateService.primeSetupResolved({
+      userId,
+      skipped: false,
+    });
+
+    expect(primed.setupCompleted).toBe(true);
+    expect(primed.hasVault).toBeNull();
+    expect(primed.hasVault).not.toBe(false);
   });
 });

@@ -1,13 +1,27 @@
 "use client";
 
 import type { PkmWriteCoordinatorResult } from "@/lib/services/pkm-write-coordinator";
-import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { loadMarkdownMemory, MARKDOWN_MEMORY_DOMAIN, markdownFactsFromCards, peekMarkdownMemory, recoverMarkdownMemorySync, stageMarkdownMemoryFacts } from "@/lib/pkm/markdown-memory";
+import { isNonPersistableCredentialKind, planSecretCaptures } from "@/lib/pkm/secret-span-guard";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 export const KYC_IDENTITY_PKM_DOMAIN = "identity" as const;
 
 export type KycIdentityProfile = {
   legalName?: string;
   dateOfBirth?: string;
+  /**
+   * Sex, only as the person typed or chose it.
+   *
+   * Optional on purpose, and never derived: not from a name, not from a
+   * pronoun, not from a photo, and never substituted by gender, which is a
+   * different thing about a person. Absent means absent, and a question about
+   * it is answered "not recorded" rather than guessed.
+   */
+  sex?: string;
   citizenshipCountryCode?: string;
   citizenshipCountryName?: string;
   employmentStatus?: KycEmploymentStatus;
@@ -55,57 +69,130 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** Persists user-entered identity onboarding fields in the encrypted identity domain. */
+function suppliedIdentityFacts(profile: KycIdentityProfile): string[] {
+  return [
+    profile.legalName ? `Legal name: ${profile.legalName}` : "",
+    profile.dateOfBirth ? `Date of birth: ${profile.dateOfBirth}` : "",
+    profile.sex?.trim() ? `Sex: ${profile.sex.trim()}` : "",
+    profile.citizenshipCountryName || profile.citizenshipCountryCode
+      ? `Citizenship: ${[profile.citizenshipCountryName, profile.citizenshipCountryCode].filter(Boolean).join(" / ")}` : "",
+    profile.employmentStatus ? `Employment status: ${profile.employmentStatus.replaceAll("_", " ")}` : "",
+  ].filter(Boolean);
+}
+
+export function isKycIdentityPrefaceComplete(value: unknown): boolean {
+  const profile = asRecord(value);
+  return Boolean(
+    (typeof profile.about_me === "string" && profile.about_me.trim()) ||
+      (typeof profile.freeform_import_completed_at === "string" &&
+        profile.freeform_import_completed_at.trim())
+  );
+}
+
+/** KYC personal information uses the same plain Soul.md as ordinary chat. */
 export class KycIdentityProfilePkmService {
-  static saveProfile(
-    params: KycIdentityProfilePkmWriteParams,
-  ): Promise<PkmWriteCoordinatorResult> {
-    if (params.profile.dateOfBirth && !isValidDateOfBirth(params.profile.dateOfBirth)) {
-      return Promise.reject(new Error("Date of birth must be a real past date."));
-    }
-
-    const savedAt = new Date().toISOString();
-
-    return PkmWriteCoordinator.saveMergedDomain({
-      userId: params.userId,
-      domain: KYC_IDENTITY_PKM_DOMAIN,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      confirmation: {
-        confirmedByUser: true,
-        surface: "web",
-        source: "kyc_identity_onboarding",
-      },
-      build: (context) => ({
-        domainData: {
-          ...(context.currentDomainData ?? {}),
-          identity_profile: {
-            ...asRecord(context.currentDomainData?.identity_profile),
-            full_name: params.profile.legalName ?? "",
-            legal_name: params.profile.legalName ?? "",
-            date_of_birth: params.profile.dateOfBirth ?? "",
-            citizenship_country_code: params.profile.citizenshipCountryCode ?? "",
-            country_of_citizenship: params.profile.citizenshipCountryName ?? "",
-            employment_status: params.profile.employmentStatus ?? "not_currently_employed",
-            about_me: params.profile.aboutMe ?? "",
-            updated_at: savedAt,
-            schema_version: 2,
-          },
-        },
-        // Keep sensitive identity values out of the readable PKM projection.
-        summary: {
-          identity_profile_updated: true,
-        },
-      }),
+  static async hasCompletedIntake(params: {
+    userId: string; vaultKey: string; vaultOwnerToken: string;
+  }): Promise<boolean> {
+    const guard = createAgentPkmCaptureGuard({
+      userId: params.userId, signal: new AbortController().signal, isEnabled: () => true,
     });
+    await guard.assertCurrent();
+    const memory = await loadMarkdownMemory(params);
+    await guard.assertCurrent();
+    if (!memory) throw new Error("Private memory unavailable.");
+    if (!shouldSkipReviewerBackgroundWritesForAutomation()) await recoverMarkdownMemorySync({ ...params,
+      beforeEffect: async () => { if (shouldSkipReviewerBackgroundWritesForAutomation()) throw new DOMException("Background memory recovery cancelled", "AbortError"); } });
+    await guard.assertCurrent();
+    const current = peekMarkdownMemory(params.userId) ?? memory;
+    if (current.kycIntakeCompletedAt) return true;
+    if (current.syncStatus === "saving" || current.syncStatus === "retryable")
+      throw new Error("Private memory is still syncing.");
+    // Read only the old completion signal for existing accounts. No personal
+    // values are copied into Soul and no legacy domain is written.
+    const legacy = await PkmDomainResourceService.getStaleFirst({
+      ...params, domain: KYC_IDENTITY_PKM_DOMAIN, backgroundRefresh: false,
+    });
+    await guard.assertCurrent();
+    return hasCompletedKycIdentityIntake(legacy?.data?.identity_profile);
+  }
+
+  static async saveProfile(params: KycIdentityProfilePkmWriteParams): Promise<PkmWriteCoordinatorResult> {
+    if (params.profile.dateOfBirth && !isValidDateOfBirth(params.profile.dateOfBirth))
+      throw new Error("Date of birth must be a real past date.");
+    if (!params.vaultKey || !params.vaultOwnerToken) return {
+      success: false, saveState: "failed", fullBlob: {},
+      message: "Identity details need an unlocked vault before they can be saved.",
+    };
+    const session = { userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken };
+    const guard = createAgentPkmCaptureGuard({
+      userId: params.userId, signal: new AbortController().signal, isEnabled: () => true,
+    });
+    await guard.assertCurrent();
+    const memory = await loadMarkdownMemory(session);
+    await guard.assertCurrent();
+    if (!memory) throw new Error("Private memory unavailable.");
+
+    const aboutMe = params.profile.aboutMe?.trim() || "";
+    const protectedInput = planSecretCaptures([aboutMe]);
+    const identifierFacts = protectedInput.captures
+      .filter(capture => !isNonPersistableCredentialKind(capture.kind))
+      .map(capture => `${capture.label}: ${capture.value}`);
+    const prepared = aboutMe ? await prepareNaturalLanguagePkm({
+      userId: params.userId,
+      message: protectedInput.render(capture => ({
+        id: capture.id,
+        label: isNonPersistableCredentialKind(capture.kind) ? "Credential omitted" : capture.label,
+      }))[0]!,
+      currentDomains: [MARKDOWN_MEMORY_DOMAIN],
+      currentManifests: [],
+      vaultOwnerToken: params.vaultOwnerToken,
+      source: "kyc_identity_onboarding",
+      allowEmpty: true,
+      beforeEffect: guard.assertCurrent,
+      isEffectCurrent: guard.isCurrent,
+    }) : null;
+    await guard.assertCurrent();
+    if (prepared && ((prepared.sourceCoverage ?? []).some(isUnresolvedSourceBlock) ||
+      (prepared.previews ?? []).some(preview => preview.used_fallback || preview.error) ||
+      prepared.cards.some(card => card.preparation_requires_review))) return {
+      success: false, saveState: "failed", fullBlob: {},
+      message: "The full summary couldn't be processed. Nothing new was added; retry the import.",
+    };
+    const facts = [
+      ...suppliedIdentityFacts(params.profile),
+      ...identifierFacts,
+      ...markdownFactsFromCards(prepared?.cards ?? []),
+    ];
+    if (!facts.length) return {
+      success: false, saveState: "failed", fullBlob: {},
+      message: "No private details could be recognized. Edit the summary and try again.",
+    };
+    const result = await stageMarkdownMemoryFacts({
+      ...session, facts, completeKycIntake: true, beforeEffect: guard.assertCurrent,
+      confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_onboarding" },
+    });
+    return {
+      success: result.success, saveState: result.success ? "saved" : "failed", fullBlob: {},
+      message: result.success ? "Your details are available in memory.md and syncing privately."
+        : result.message || "Your details could not be added to memory.md.",
+    };
   }
 }
 
+export function hasCompletedKycIdentityIntake(profile: unknown): boolean {
+  const identityProfile = asRecord(profile);
+  return (
+    identityProfile.identity_intake_status === "completed" ||
+    typeof identityProfile.identity_intake_completed_at === "string" ||
+    isKycIdentityPrefaceComplete(identityProfile)
+  );
+}
+
 /**
- * Holds a completed KYC preface only in this JavaScript process until the
- * person chooses the master setup action and unlocks their vault. It never
- * writes sensitive identity information to browser or server pre-vault state.
- * A refresh before vault setup deliberately asks for the details again.
+ * Compatibility-only in-process storage for drafts created before the KYC
+ * vault prerequisite. New KYC input must open vault setup instead of staging
+ * here; this remains until every legacy caller has drained its pending draft.
  */
 const pendingProfiles = new Map<string, KycIdentityProfile>();
 

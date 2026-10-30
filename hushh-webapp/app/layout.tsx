@@ -1,6 +1,8 @@
 import { NetworkStatusBanner } from "@/components/system/network-status-banner";
+import { BootSurface } from "@/components/app-ui/boot-surface";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SITE_URL } from "@/lib/seo/site";
 import { buildOrganizationGraph } from "@/lib/seo/structured-data";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
@@ -11,14 +13,19 @@ import {
   resolveGtmContainerId,
   shouldLoadWebAnalyticsScripts,
 } from "@/lib/observability/env";
+import { buildWebAnalyticsBootstrap } from "@/lib/observability/page-context";
 
 const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
+const nativeRuntimeAttestation = (() => {
+  const value = String(process.env.NEXT_PUBLIC_HUSHH_NATIVE_RUNTIME_ATTESTATION || "").trim();
+  return /^[a-f0-9]{64}$/.test(value) ? value : "";
+})();
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://hushh.ai"),
-  title: "Hussh One | Your Private Agent",
+  metadataBase: new URL(SITE_URL),
+  title: "Hussh One | Agent One",
   description:
     "Private AI agents with consent at the core. Your information, your control.",
   keywords: [
@@ -45,10 +52,10 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "Hussh One | Your Private Agent",
+    title: "Hussh One | Agent One",
     description: "Private AI agents with consent at the core.",
     siteName: "Hussh",
-    url: "https://hushh.ai",
+    url: SITE_URL,
     type: "website",
     images: [
       {
@@ -61,7 +68,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Hussh One | Your Private Agent",
+    title: "Hussh One | Agent One",
     description: "Private AI agents with consent at the core.",
     images: ["/quiet-emoji-icon.png"],
   },
@@ -80,7 +87,7 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-visual",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e0e10" },
   ],
 };
 
@@ -102,30 +109,47 @@ export default function RootLayout({
         {/* Accent no-FOUC: apply the persisted accent preference before first
             paint (default iOS Blue needs no attribute; gold sets data-accent).
             Body mirrors ACCENT_NO_FOUC_SCRIPT in lib/theme/accent.ts. */}
-        <script
+        <Script
+          id="accent-no-fouc"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
-        <script
+        <Script
+          id="native-ios-class"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
+            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}else if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="android"){document.documentElement.classList.add("native-android");}}catch(e){}`,
           }}
         />
-        {loadWebAnalyticsScripts && analyticsMeasurementId ? (
+        {nativeRuntimeAttestation ? (
+          <Script
+            id="hushh-native-runtime-attestation"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{
+              // This is a non-secret build fingerprint. The local Plaid proof
+              // verifies the copied WebView output contains the fingerprint
+              // derived from its exact backend/environment configuration.
+              __html: `window.__HUSHH_NATIVE_RUNTIME_ATTESTATION__=${JSON.stringify(nativeRuntimeAttestation)};`,
+            }}
+          />
+        ) : null}
+        <Script id="calendar-capability-consume" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: "if(window.location.pathname.replace(/\\/$/,'')==='/calendar/reschedule'&&window.location.hash){window.__oneCalendarReschedulingCapability=window.location.hash.slice(1);window.history.replaceState(window.history.state,'',window.location.pathname);}" }} />
+        {loadWebAnalyticsScripts && (analyticsMeasurementId || gtmContainerId) ? (
           <>
             <Script
               id="ga-base"
-              strategy="afterInteractive"
+              strategy="beforeInteractive"
               dangerouslySetInnerHTML={{
-                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
+                __html: buildWebAnalyticsBootstrap(analyticsMeasurementId),
               }}
             />
-            <Script
+            {analyticsMeasurementId ? <Script
               id="ga-loader"
               strategy="afterInteractive"
               src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
-            />
+            /> : null}
           </>
         ) : null}
         {loadWebAnalyticsScripts && gtmContainerId ? (
@@ -143,6 +167,10 @@ export default function RootLayout({
         className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          {/* One boot surface for the whole cold-start sequence. Outside
+              every Suspense boundary, so it is in each route's static HTML
+              and continues the native splash from the first frame. */}
+          <BootSurface />
           <RootLayoutClient fontClasses="">
             <NetworkStatusBanner />
             {children}

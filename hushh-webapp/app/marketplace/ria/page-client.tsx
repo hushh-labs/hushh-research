@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, ShieldCheck } from "lucide-react";
+import { Building2, ShieldCheck } from "@/components/icons";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/services/ria-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { trackEvent } from "@/lib/observability/client";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 function verificationBadge(status: string) {
   const normalized = status.toLowerCase();
@@ -69,7 +69,7 @@ export default function MarketplaceRiaProfilePageClient() {
     async function load() {
       if (!riaId) {
         setProfile(null);
-        setError("Missing RIA profile identifier.");
+        setError("Missing advisor profile identifier.");
         setLoading(false);
         return;
       }
@@ -90,7 +90,7 @@ export default function MarketplaceRiaProfilePageClient() {
       } catch (loadError) {
         if (!cancelled) {
           setProfile(null);
-          setError(loadError instanceof Error ? loadError.message : "Failed to load RIA profile");
+          setError(loadError instanceof Error ? loadError.message : "Failed to load advisor profile");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -113,9 +113,7 @@ export default function MarketplaceRiaProfilePageClient() {
         addresseeUserId: profile.user_id,
         message: "Would like to connect.",
       });
-      toast.success("Advisory request sent", {
-        description: "The advisor can review it in their pending connections.",
-      });
+      toast.success("Advisory request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (requestError) {
       toast.error(
@@ -136,13 +134,13 @@ export default function MarketplaceRiaProfilePageClient() {
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "marketplace_ria_profile",
-      title: profile?.display_name || "Marketplace RIA Profile",
+      title: profile?.display_name || "Marketplace Advisor Profile",
       purpose: "Public advisor marketplace profile with consent-gated request action.",
       primaryEntity: profile?.display_name || riaId,
       controls: [
         {
           id: "marketplace_ria_profile_route",
-          label: "Marketplace RIA profile",
+          label: "Marketplace advisor profile",
           type: "route",
           actionId: "route.marketplace_ria_profile",
         },

@@ -237,7 +237,7 @@ _STABLE_VOICE_BOUNDARY = (
     "freshness, evidence, or their own data. If the user shares a durable "
     "preference or asks you to remember something, offer a PKM review/confirmation "
     "path; never save inferred memory directly from the transcript. For finance, "
-    "Kai is the specialist contract: answer stock, market, "
+    "you speak as One over the finance specialist contract: answer stock, market, "
     "and portfolio-analysis questions within these boundaries instead of refusing "
     "categorically. Do not guarantee returns, give legal or tax advice, place "
     "trades, move money, or bypass confirmation. Answer plainly in English."
@@ -393,20 +393,20 @@ def _has_finance_capability(ctx: AgentPersonaContext) -> bool:
 def _finance_clause(ctx: AgentPersonaContext) -> str:
     if _has_finance_capability(ctx):
         return (
-            "Kai finance capability is in scope for this turn. Do not say you are "
+            "Finance capability is in scope for this turn. Do not say you are "
             "unable to provide stock analysis or portfolio analysis solely because "
-            "the topic is financial. Use the available Kai action contracts and "
+            "the topic is financial. Use the available finance action contracts and "
             "current screen state to explain what can be analyzed, preview the next "
             "governed step, or guide the user to the analysis, portfolio, import, "
             "investments, or optimize surface. If holdings or live market data are "
             "not present in the visible/redacted context, say what data is missing "
-            "and offer the appropriate Kai route instead of inventing data."
+            "and offer the appropriate finance route instead of inventing data."
         )
     return (
         "If the user asks for finance while the current surface does not expose "
-        "Kai finance contracts, do not issue a blanket refusal. Explain that Kai "
+        "finance contracts, do not issue a blanket refusal. Explain that One "
         "handles stock, market, and portfolio analysis, then offer to route them "
-        "to the governed Kai analysis or portfolio surface."
+        "to the governed analysis or portfolio surface."
     )
 
 

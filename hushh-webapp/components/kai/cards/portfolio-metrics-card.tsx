@@ -13,7 +13,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BarChart3, Percent, DollarSign, Layers } from "lucide-react";
+import { BarChart3, Percent, DollarSign, Layers } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";

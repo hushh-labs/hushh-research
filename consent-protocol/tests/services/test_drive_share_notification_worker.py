@@ -1,0 +1,505 @@
+"""Real PostgreSQL leases for generic Drive-share notification delivery."""
+
+# ruff: noqa: F811 -- shared isolated PostgreSQL fixtures.
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import text
+
+from hushh_mcp.services.drive_share_notification_store import DriveShareNotificationStore
+from hushh_mcp.services.drive_share_notification_worker import (
+    DriveShareNotificationWorker,
+    notification_payload,
+)
+from tests.services.test_drive_sharing_store import (  # noqa: F401
+    connector_postgres_url,
+    documents,
+    drive,
+    drive_connect,
+    lifecycle,
+    live_drive,
+    request,
+    rows,
+    sharing,
+)
+
+MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+@pytest.fixture
+async def notification_store(sharing):
+    with sharing.db.engine.begin() as connection:
+        migration = text((MIGRATIONS / "235_drive_share_notification_outbox.sql").read_text())
+        connection.execute(migration)
+        # Release migrations must remain replayable in an already-provisioned
+        # environment, including after all constraints/indexes exist.
+        connection.execute(migration)
+    return DriveShareNotificationStore(db=sharing.db)
+
+
+def event(store):
+    # A request also writes a requester Feed milestone. These tests exercise
+    # the owner-directed push and must not depend on outbox row order.
+    return next(
+        row
+        for row in rows(store, "drive_share_events")
+        if row["event_type"] == "document_share_request"
+    )
+
+
+def make_due(store, event_id):
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""
+            UPDATE drive_share_events
+            SET notification_next_attempt_at=clock_timestamp()-INTERVAL '1 second'
+            WHERE event_id=:event
+            """),
+            {"event": event_id},
+        )
+
+
+@pytest.mark.asyncio
+async def test_document_event_push_is_opaque_deduped_and_settled_as_dispatch_only(
+    sharing, notification_store
+):
+    await request(sharing)
+    before = event(notification_store)
+    send = MagicMock(return_value=1)
+
+    result = await DriveShareNotificationWorker(notification_store, send_push=send).run()
+
+    assert result == {
+        "schema_version": "drive.share_notifications.worker.v1",
+        "outcomes": {"settled": 1, "suppressed": 1},
+    }
+    send.assert_called_once()
+    args, kwargs = send.call_args
+    assert args == ("owner",)
+    assert kwargs == {
+        "notification_type": "document_share_request",
+        "notification_tag": f"drive-share-event:{before['event_id']}",
+        "data": {
+            "type": "document_share_request",
+            "request_id": str(before["request_id"]),
+            "event_id": str(before["event_id"]),
+            "message_id": f"drive-share-event:{before['event_id']}",
+            # The fixture owner holds picker-only Drive access. The one extra
+            # field is a closed step name, never request or provider detail.
+            "setup": "drive",
+        },
+        # The generic FCM adapter requires presentation/link arguments. They
+        # are fixed fallbacks, never a dynamic request/provider URL; the client
+        # derives its review route from the closed type + opaque UUID above.
+        "title": "Document request",
+        "body": "Open One for next steps.",
+        "deep_link": "/one/feed",
+        "notification_category": "ONE_DOCUMENT_SHARING",
+        "show_alert": True,
+        "include_user_id": False,
+    }
+    # The store leaves encrypted request data unopened; the generic outbound
+    # payload contains neither identity/provider metadata nor document details.
+    serialized = json.dumps(kwargs, sort_keys=True)
+    for private in ("Private six-month", "recipient@example.invalid", "1234567"):
+        assert private not in serialized
+    assert "document_share_request" in serialized
+    assert str(before["request_id"]) in serialized
+
+    after = event(notification_store)
+    assert after["notification_state"] == "settled"
+    assert after["notification_settled_at"] is not None
+    assert after["delivered_at"] is not None
+    assert after["notification_lease_id"] is None
+    assert after["notification_attempt_count"] == 1
+    # A settled record is an attempted generic push handoff, not a device/user
+    # receipt. A later drain cannot duplicate the event-id tag.
+    assert (await DriveShareNotificationWorker(notification_store, send_push=send).run())[
+        "outcomes"
+    ] == {}
+    send.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_feature_disabled_inspects_but_never_claims_or_dispatches(
+    sharing, notification_store, monkeypatch
+):
+    await request(sharing)
+    monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "false")
+    send = MagicMock(return_value=1)
+
+    result = await DriveShareNotificationWorker(notification_store, send_push=send).run()
+
+    assert result == {
+        "schema_version": "drive.share_notifications.worker.v1",
+        "outcomes": {"disabled": 2},
+    }
+    assert event(notification_store)["notification_state"] == "queued"
+    send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_workers_claim_one_event_once(sharing, notification_store):
+    await request(sharing)
+    send = MagicMock(return_value=1)
+    first = DriveShareNotificationWorker(notification_store, send_push=send)
+    second = DriveShareNotificationWorker(notification_store, send_push=send)
+
+    await asyncio.gather(first.run(), second.run())
+
+    send.assert_called_once()
+    assert event(notification_store)["notification_state"] == "settled"
+
+
+@pytest.mark.asyncio
+async def test_expired_lease_is_recovered_without_a_stale_worker_settling_new_work(
+    sharing, notification_store
+):
+    await request(sharing)
+    before = event(notification_store)
+    old = await notification_store.claim(event_id=str(before["event_id"]))
+    assert old is not None
+    with notification_store.db.engine.begin() as connection:
+        connection.execute(
+            text("""
+            UPDATE drive_share_events
+            SET notification_lease_expires_at=clock_timestamp()-INTERVAL '1 second'
+            WHERE event_id=:event
+            """),
+            {"event": before["event_id"]},
+        )
+
+    new = await notification_store.claim(event_id=str(before["event_id"]))
+    assert new is not None and new["notification_lease_id"] != old["notification_lease_id"]
+    assert not await notification_store.settle(old)
+    assert await notification_store.settle(new)
+
+    after = event(notification_store)
+    assert after["notification_state"] == "settled"
+    assert after["notification_attempt_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_dispatch_failures_retry_with_a_bound_then_settle_unavailable(
+    sharing, notification_store
+):
+    await request(sharing)
+    initial = event(notification_store)
+    send = MagicMock(side_effect=RuntimeError("synthetic transport failure"))
+    worker = DriveShareNotificationWorker(notification_store, send_push=send)
+
+    for attempt in range(1, 4):
+        result = await worker.run()
+        current = event(notification_store)
+        if attempt < 3:
+            assert result["outcomes"] == {
+                "retry_scheduled": 1,
+                **({"suppressed": 1} if attempt == 1 else {}),
+            }
+            assert current["notification_state"] == "queued"
+            assert current["notification_settled_at"] is None
+            assert current["notification_error_code"] == "notification_unavailable"
+            make_due(notification_store, initial["event_id"])
+        else:
+            assert result["outcomes"] == {"settled_unavailable": 1}
+            assert current["notification_state"] == "settled"
+            assert current["notification_settled_at"] is not None
+            assert current["delivered_at"] is not None
+            assert current["notification_error_code"] == "notification_unavailable"
+        assert current["notification_attempt_count"] == attempt
+    assert send.call_count == 3
+    assert (await worker.run())["outcomes"] == {}
+
+
+def test_payload_refuses_nonopaque_event_or_request_identifiers():
+    with pytest.raises(ValueError):
+        notification_payload(
+            {
+                "event_id": "not-an-event",
+                "request_id": "not-a-request",
+                "event_type": "document_share_request",
+            }
+        )
+
+
+def test_payload_suppresses_unreviewed_event_types():
+    assert (
+        notification_payload(
+            {
+                "event_id": "11111111-1111-4111-8111-111111111111",
+                "request_id": "22222222-2222-4222-8222-222222222222",
+                "event_type": "document_share_unreviewed_future_event",
+            }
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_unreviewed_event_type_is_suppressed_before_the_push_adapter_is_called():
+    store = SimpleNamespace(suppress=AsyncMock(return_value=True))
+    send = MagicMock()
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_unreviewed_future_event",
+        "user_id": "opaque-user",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+
+    assert await worker._dispatch(job) == "suppressed"
+    store.suppress.assert_awaited_once_with(job)
+    send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_payment_ready_push_checks_live_order_before_dispatch():
+    store = SimpleNamespace(
+        payment_ready_current=AsyncMock(return_value=False),
+        suppress=AsyncMock(return_value=True),
+        settle=AsyncMock(return_value=True),
+    )
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_payment_ready",
+        "user_id": "requester",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+
+    assert await worker._dispatch(job) == "suppressed"
+    store.payment_ready_current.assert_awaited_once_with(
+        request_id=job["request_id"], user_id=job["user_id"]
+    )
+    send.assert_not_called()
+
+    store.payment_ready_current.return_value = True
+    assert await worker._dispatch(job) == "settled"
+    send.assert_called_once()
+    # Prices vary by request and the opaque payload carries none, so the copy names none.
+    assert "$" not in send.call_args.kwargs["title"] + send.call_args.kwargs["body"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_status", ["pending", "approved", "partial"])
+async def test_payment_push_accepts_approved_requests_but_suppresses_expired_checkout(
+    sharing, notification_store, request_status
+):
+    created = await request(sharing)
+    request_id = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET payment_required=TRUE,status=:status
+              WHERE request_id=:request"""),
+            {"request": request_id, "status": request_status},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status,stripe_checkout_expires_at)
+              VALUES (:request,'owner','recipient','awaiting_payment',
+                clock_timestamp()+INTERVAL '5 minutes')"""),
+            {"request": request_id},
+        )
+    assert not await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='checkout_open',stripe_checkout_session_id='cs_test_notice',
+                stripe_checkout_url='https://checkout.stripe.com/c/pay/test'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET stripe_checkout_expires_at=clock_timestamp()-INTERVAL '1 second'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert not await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+
+
+@pytest.mark.asyncio
+async def test_owner_setup_step_is_the_first_unmet_step_of_the_owners_open_request(
+    sharing, notification_store, monkeypatch
+):
+    request_id, circle = (await request(sharing))["requestId"], str(uuid4())
+
+    def change(sql):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(text(sql), {"request": request_id, "circle": circle})
+
+    async def step(user_id="owner"):
+        return await notification_store.owner_setup_step(request_id=request_id, user_id=user_id)
+
+    # Picker-only access cannot find files for a request.
+    assert await step() == "drive"
+    # Negative control: the requester never reads the owner's setup state.
+    assert await step("recipient") is None
+    live_drive(sharing, monkeypatch)
+    assert await step() is None
+    change("""UPDATE drive_share_requests SET preparation_error_code='owner_payout_required'
+      WHERE request_id=:request""")
+    assert await step() == "payouts"
+    change("""UPDATE drive_share_requests SET preparation_error_code='owner_price_required'
+      WHERE request_id=:request""")
+    # Outside the Trusted circle the owner prices the request on Allow.
+    assert await step() is None
+    change("INSERT INTO one_location_circles VALUES (:circle,'owner','trusted','active')")
+    change("INSERT INTO one_location_circle_memberships VALUES (:circle,'recipient','active')")
+    assert await step() == "price"
+    # A paid request never regains a setup action.
+    change("""INSERT INTO drive_request_payment_orders
+      (request_id,user_id,requester_user_id,status,paid_at)
+      VALUES (:request,'owner','recipient','paid',clock_timestamp())""")
+    assert await step() is None
+
+
+@pytest.mark.asyncio
+async def test_request_push_names_only_a_closed_setup_step_and_never_waits_on_it(caplog):
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_request",
+        "user_id": "opaque-owner",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+    store = SimpleNamespace(
+        owner_setup_step=AsyncMock(return_value="payouts"), settle=AsyncMock(return_value=True)
+    )
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+
+    assert await worker._dispatch(job) == "settled"
+    store.owner_setup_step.assert_awaited_once_with(
+        request_id=job["request_id"], user_id="opaque-owner"
+    )
+    assert send.call_args.kwargs["data"]["setup"] == "payouts"
+
+    # Negative controls: any other value, or a failed lookup, sends the plain
+    # review push. The failure log names no identity or request.
+    for lookup in (
+        AsyncMock(return_value="https://evil.example"),
+        AsyncMock(side_effect=RuntimeError(f"{job['request_id']} opaque-owner")),
+    ):
+        store.owner_setup_step = lookup
+        with caplog.at_level(logging.WARNING):
+            assert await worker._dispatch(job) == "settled"
+        assert "setup" not in send.call_args.kwargs["data"]
+    assert "drive_notify.setup_unavailable RuntimeError" in caplog.text
+    assert job["request_id"] not in caplog.text and "opaque-owner" not in caplog.text
+
+    # A Drive question comes from its own outbox; that store is never asked.
+    questions = SimpleNamespace(owner_setup_step=AsyncMock(), settle=AsyncMock(return_value=True))
+    question = {**job, "event_type": "document_share_question"}
+    assert await DriveShareNotificationWorker(questions, send_push=send)._dispatch(question) == (
+        "settled"
+    )
+    questions.owner_setup_step.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_zero_push_delivery_is_retried_not_falsely_settled():
+    store = SimpleNamespace(retry=AsyncMock(return_value="retry_scheduled"), settle=AsyncMock())
+    send = MagicMock(return_value=0)
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_request",
+        "user_id": "opaque-user",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+
+    assert await worker._dispatch(job) == "retry_scheduled"
+    store.retry.assert_awaited_once_with(job)
+    store.settle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bounds",
+    [{"max_jobs": 0}, {"max_jobs": 21}, {"max_jobs": True}, {"deadline_seconds": 541}],
+)
+async def test_notification_worker_bounds_are_enforced(bounds):
+    worker = DriveShareNotificationWorker(DriveShareNotificationStore(db=MagicMock()))
+    with pytest.raises(ValueError, match="invalid worker bounds"):
+        await worker.run(**bounds)
+
+
+def test_every_surface_shares_one_type_list_and_the_same_words():
+    """The backend worker, the web worker and the app must agree, or a new type
+    is silently dropped on one surface (five hard-coded lists before 244)."""
+    import re
+
+    from hushh_mcp.services.drive_share_notification_worker import (
+        DOCUMENT_REQUEST_SETUP_STEPS,
+        DOCUMENT_SHARE_NOTIFICATION_COPY,
+    )
+
+    web = Path(__file__).resolve().parents[3] / "hushh-webapp"
+    for relative in ("public/firebase-messaging-sw.js", "lib/consent/document-share-consent.ts"):
+        source = (web / relative).read_text()
+        allowlist = re.search(
+            r"DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set\(\[(.*?)\]\)", source, re.S
+        )
+        assert allowlist, relative
+        assert set(re.findall(r'"(document_share_[a-z_]+)"', allowlist.group(1))) == set(
+            DOCUMENT_SHARE_NOTIFICATION_COPY
+        ), relative
+        for title, body in DOCUMENT_SHARE_NOTIFICATION_COPY.values():
+            assert f'"{title}"' in source and f'"{body}"' in source, (relative, title)
+    # A setup step the web worker cannot route would silently open the review.
+    worker = (web / "public/firebase-messaging-sw.js").read_text()
+    targets = re.search(r"DOCUMENT_REQUEST_SETUP_TARGETS = \{(.*?)\};", worker, re.S)
+    assert targets and set(re.findall(r"^\s*([a-z]+):", targets.group(1), re.M)) == (
+        DOCUMENT_REQUEST_SETUP_STEPS
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_dispatch_logs_counts_only(caplog, monkeypatch):
+    import logging
+
+    event_id = "11111111-1111-4111-8111-111111111111"
+    request_id = "22222222-2222-4222-8222-222222222222"
+    job = {
+        "event_id": event_id,
+        "request_id": request_id,
+        "event_type": "document_share_question",
+        "user_id": "opaque-user",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+    store = SimpleNamespace(
+        due=AsyncMock(side_effect=[[{"event_id": event_id, "user_id": "opaque-user"}], []]),
+        claim=AsyncMock(return_value=job),
+        settle=AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_share_notification_worker.connector_feature_enabled",
+        lambda *_: True,
+    )
+    with caplog.at_level(logging.INFO):
+        await DriveShareNotificationWorker(store, send_push=MagicMock(return_value=1)).run()
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "drive_notify.run settled=1" in logged
+    assert "opaque-user" not in logged and event_id not in logged and request_id not in logged

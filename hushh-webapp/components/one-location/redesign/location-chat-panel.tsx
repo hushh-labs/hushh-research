@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Maximize2, RotateCcw } from "lucide-react";
+import { Maximize2, RotateCcw } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";

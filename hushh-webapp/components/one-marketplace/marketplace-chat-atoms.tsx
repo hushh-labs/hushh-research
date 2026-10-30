@@ -1,6 +1,6 @@
 "use client";
 
-import { Store } from "lucide-react";
+import { Store } from "@/components/icons";
 
 /** Shared card surface + muted-copy tokens (same app-card design system the
  *  Location chat uses, inlined here so the marketplace chat is self-contained). */

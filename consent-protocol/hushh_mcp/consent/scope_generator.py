@@ -11,13 +11,20 @@ Scopes support nested paths:
 import difflib
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional, cast
 
 from db.db_client import get_db
-from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope, is_reserved_domain_scope
+from hushh_mcp.consent.scope_catalog_reads import read_scope_catalog_rows
+from hushh_mcp.consent.scope_sensitivity import tag_is_sensitive
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
+
+
+class ScopeCatalogUnavailableError(RuntimeError):
+    """Discovery authority could not be read; this is not an empty catalog."""
 
 
 def _scope_domain(scope: str) -> str:
@@ -33,7 +40,7 @@ def rank_scope_matches(
     *,
     query: str = "",
     domain: str = "",
-    limit: int = 20,
+    limit: int | None = 20,
 ) -> list[dict]:
     """
     Deterministically rank pre-computed scope entries against an intent query.
@@ -53,7 +60,11 @@ def rank_scope_matches(
     normalized_query = str(query or "").strip().lower()
     domain_filter = str(domain or "").strip().lower()
     try:
-        capped_limit = max(1, min(int(limit), 50))
+        # Discovery pages remain bounded, but the previous 50-row ceiling was
+        # also used by Profile and request validation. That made valid fields
+        # disappear from a person's catalog and made an opaque reference fail
+        # validation merely because it sorted after the first page.
+        capped_limit = None if limit is None else max(1, min(int(limit), 500))
     except (TypeError, ValueError):
         capped_limit = 20
 
@@ -217,7 +228,7 @@ class DynamicScopeGenerator:
         return str(domain or "").strip().lower()
 
     @staticmethod
-    def _normalize_scope_path(path: str | None) -> str:
+    def _normalize_scope_path(path: object) -> str:
         if not isinstance(path, str):
             return ""
         raw = path.strip().lower()
@@ -225,6 +236,13 @@ class DynamicScopeGenerator:
             return ""
         segments: list[str] = []
         for part in raw.split("."):
+            part = part.strip()
+            # Preserve schema markers and private-key spelling. Stripping the
+            # leading underscore changed _items/_entities into different paths
+            # and also hid the signal used to exclude genuinely private keys.
+            if part.startswith("_"):
+                segments.append(part)
+                continue
             normalized_part = "".join(
                 ch if (ch.isalnum() or ch == "_") else "_" for ch in part.strip()
             ).strip("_")
@@ -307,22 +325,31 @@ class DynamicScopeGenerator:
             "default_projection_updated_at": None,
         }
 
-    async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
-        result = (
-            self.db.table("pkm_index")
-            .select("available_domains", "domain_summaries")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-        if not result.data:
+    async def _get_legacy_scope_catalog(
+        self, user_id: str, *, connection: Any = None
+    ) -> dict[str, dict[str, set[str]]]:
+        if connection is not None:
+            records = await connection.fetch(
+                "SELECT available_domains,domain_summaries FROM pkm_index WHERE user_id=$1 LIMIT 1",
+                user_id,
+            )
+            rows = [dict(row) for row in records]
+        else:
+            rows = (
+                self.db.table("pkm_index")
+                .select("available_domains", "domain_summaries")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            ).data or []
+        if not rows:
             return {}
-
-        row = result.data[0]
-        available_domains = self._normalize_domains(row.get("available_domains") or [])
-        domain_summaries = row.get("domain_summaries")
-        if not isinstance(domain_summaries, dict):
-            domain_summaries = {}
+        row = rows[0]
+        domains = row.get("available_domains") or []
+        if isinstance(domains, str):
+            domains = json.loads(domains)
+        available_domains = self._normalize_domains(domains)
+        domain_summaries = self._coerce_json_dict(row.get("domain_summaries"))
 
         catalog: dict[str, dict[str, set[str]]] = {
             domain: {"paths": set(), "wildcards": set()}
@@ -404,48 +431,23 @@ class DynamicScopeGenerator:
 
         return await self._get_legacy_scope_catalog(user_id)
 
-    async def get_available_scope_entries(self, user_id: str) -> list[dict]:
-        """
-        Get manifest-backed scope discovery entries with provenance metadata.
+    async def get_available_scope_entries(
+        self, user_id: str, *, connection: Any = None
+    ) -> list[dict]:
+        """Resolve discovery and transactional approval through the same catalog.
 
-        Each entry describes one requestable scope string and why it exists.
+        A supplied connection retains the caller's existing locks and transaction;
+        it does not create a new snapshot or a separate information authority.
         """
         try:
-            index_result = (
-                self.db.table("pkm_index")
-                .select("available_domains")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
+            source_rows = await read_scope_catalog_rows(
+                lambda: self.db, user_id, connection=connection
             )
-            manifest_result = (
-                self.db.table("pkm_manifests")
-                .select(
-                    "domain,top_level_scope_paths,externalizable_paths,"
-                    "manifest_version,summary_projection"
-                )
-                .eq("user_id", user_id)
-                .execute()
-            )
-            path_result = (
-                self.db.table("pkm_manifest_paths")
-                .select(
-                    "domain,json_path,path_type,exposure_eligibility,consent_label,scope_handle"
-                )
-                .eq("user_id", user_id)
-                .execute()
-            )
-            registry_result = (
-                self.db.table("pkm_scope_registry")
-                .select(
-                    "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
-                )
-                .eq("user_id", user_id)
-                .execute()
-            )
-        except Exception:
+        except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")
-            return []
+            raise ScopeCatalogUnavailableError(
+                "Available information could not be checked. Please try again."
+            ) from exc
 
         def _source_rank(kind: str) -> int:
             return {
@@ -466,6 +468,12 @@ class DynamicScopeGenerator:
             # Manifest/index rows are policy input, not authority. A stale or
             # forged row cannot revive a domain that is private by contract.
             if is_private_pkm_export_scope(scope):
+                return
+            path = str(entry.get("path") or "").strip()
+            reserved_scope = is_reserved_domain_scope(
+                scope
+            ) and ConsentScope.is_external_requestable_scope(scope)
+            if path and is_internal_manifest_path(path) and not reserved_scope:
                 return
             # Every entry produced by this generator is a manifest-derived
             # dynamic scope.  Keep the canonical scope and the existing
@@ -501,14 +509,25 @@ class DynamicScopeGenerator:
             merged["exposure_eligibility"] = bool(
                 current.get("exposure_eligibility") or entry.get("exposure_eligibility")
             )
+            # A PKM sensitivity tag only ever escalates (C7): a lower-ranked
+            # source that tagged the branch keeps it tagged after the merge.
+            merged["sensitivity_label"] = next(
+                (
+                    tag
+                    for tag in (entry.get("sensitivity_label"), current.get("sensitivity_label"))
+                    if tag_is_sensitive(tag)
+                ),
+                merged.get("sensitivity_label"),
+            )
             entries[scope] = merged
 
+        index_rows = source_rows["pkm_index"]
         index_domains = self._normalize_domains(
-            (index_result.data or [{}])[0].get("available_domains") if index_result.data else []
+            index_rows[0].get("available_domains") if index_rows else []
         )
-        manifest_rows = manifest_result.data or []
-        path_rows = path_result.data or []
-        registry_rows = registry_result.data or []
+        manifest_rows = source_rows["pkm_manifests"]
+        path_rows = source_rows["pkm_manifest_paths"]
+        registry_rows = source_rows["pkm_scope_registry"]
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
         materialization_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
@@ -599,17 +618,19 @@ class DynamicScopeGenerator:
                         or row.get("manifest_version"),
                     }
                     materialization_by_top_level[(domain, top_level_path)] = materialization
+                # Count private/disabled sections too: a domain wildcard must
+                # not become an alternate route around a section's posture.
+                all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
                 if (
                     visibility.get("consumer_visible") is not False
                     and visibility.get("internal_only") is not True
                     and visibility.get("visibility_posture") != "private"
+                    and row.get("exposure_enabled") is not False
                     and materialization.get("materialization_state") != "empty"
                 ):
-                    all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
-                    if visibility.get("visibility_posture") != "private":
-                        enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
-                            top_level_path
-                        )
+                    enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
+                        top_level_path
+                    )
                 registry_by_top_level[(domain, top_level_path)] = {
                     "registry_handle": str(row.get("scope_handle") or "").strip() or None,
                     "label": str(row.get("scope_label") or "").strip() or None,
@@ -650,7 +671,8 @@ class DynamicScopeGenerator:
             ):
                 continue
             domain_leaf_count = sum(
-                int(entry.get("materialized_leaf_count") or 0) for entry in domain_materialization
+                int(cast(int | str, entry.get("materialized_leaf_count") or 0))
+                for entry in domain_materialization
             )
             domain_state = "materialized" if domain_leaf_count > 0 else "unknown"
             _upsert_scope_entry(
@@ -677,7 +699,7 @@ class DynamicScopeGenerator:
                     "materialized_leaf_count": domain_leaf_count,
                     "source_manifest_revision": max(
                         (
-                            int(entry.get("source_manifest_revision") or 0)
+                            int(cast(int | str, entry.get("source_manifest_revision") or 0))
                             for entry in domain_materialization
                         ),
                         default=0,
@@ -747,6 +769,12 @@ class DynamicScopeGenerator:
                     continue
                 if not self._is_exportable_scope(domain=domain, path=path):
                     continue
+                # Plumbing is never a person's information. The structural
+                # check below this one only ever compared a depth-1 segment, so
+                # `profile.domain_intent.primary` published while
+                # `domain_intent` was blocked. This reads every segment.
+                if is_internal_manifest_path(path):
+                    continue
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
@@ -800,6 +828,10 @@ class DynamicScopeGenerator:
                 continue
             if not self._is_exportable_scope(domain=domain, path=path):
                 continue
+            # Same rule, same reason, at the emitter that produced the twenty-four
+            # rows a person actually saw.
+            if is_internal_manifest_path(path):
+                continue
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
@@ -813,8 +845,12 @@ class DynamicScopeGenerator:
                     "scope": self.generate_scope(domain, path),
                     "domain": domain,
                     "path": path,
+                    "path_type": str(row.get("path_type") or "leaf").strip().lower(),
+                    "segment_id": str(row.get("segment_id") or "root").strip().lower() or "root",
                     "wildcard": False,
                     "source_kind": "pkm_manifest_paths",
+                    # The PKM's own tag for this branch (C7 sensitivity input).
+                    "sensitivity_label": str(row.get("sensitivity_label") or "").strip() or None,
                     "registry_handle": str(row.get("scope_handle") or "").strip()
                     or registry_meta.get("registry_handle"),
                     "label": str(row.get("consent_label") or "").strip()
@@ -844,10 +880,13 @@ class DynamicScopeGenerator:
                 }
             )
 
-        if entries:
+        # An authoritative catalog that filters to empty is not legacy state.
+        # Falling back here would recreate wildcards deliberately withheld by
+        # private/disabled sections or current manifest exclusions.
+        if entries or manifest_rows or path_rows or registry_rows:
             return [entries[scope] for scope in sorted(entries)]
 
-        legacy_catalog = await self._get_legacy_scope_catalog(user_id)
+        legacy_catalog = await self._get_legacy_scope_catalog(user_id, connection=connection)
         for domain, entry in legacy_catalog.items():
             _upsert_scope_entry(
                 {

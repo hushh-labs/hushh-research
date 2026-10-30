@@ -1,50 +1,33 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "@radix-ui/react-slot"
-import { Loader2 } from "lucide-react"
+import { Loader2 } from "@/components/icons"
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
 import { cn } from "@/lib/utils"
-
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
-  {
-    variants: {
-      variant: {
-        default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
-        destructive:
-          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
-        outline:
-          "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
-        secondary:
-          "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
-        ghost:
-          "text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]",
-        link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 hover:underline",
-      },
-      size: {
-        default:
-          "ui-text-button-label min-h-[50px] h-[50px] px-4 py-3 has-[>svg]:px-3",
-        xs: "min-h-7 h-7 gap-1 rounded-[var(--app-radius-sm)] px-2 text-[13px] font-semibold leading-[18px] has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "min-h-9 h-9 rounded-[var(--app-radius-md)] gap-1.5 px-3 text-[15px] font-semibold leading-[20px] has-[>svg]:px-2.5",
-        lg: "ui-text-button-label min-h-[50px] h-[50px] rounded-full px-6 has-[>svg]:px-4",
-        icon: "size-9 rounded-full",
-        "icon-xs": "size-6 rounded-full [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
-)
+import {
+  buttonVariants,
+  type ButtonVariantProps,
+} from "@/lib/ui/button-variants"
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+    ButtonVariantProps {
   asChild?: boolean
   isLoading?: boolean
+  /**
+   * The press ripple is on by default, from the pointerdown point and clipped
+   * to the button's shape. Pass `false` only when the caller renders its own
+   * ripple (the Morphy Button does), so a press never paints two layers.
+   */
+  showRipple?: boolean
+}
+
+type ButtonVariantName = NonNullable<ButtonVariantProps["variant"]>
+
+// Solid fills take a currentColor ripple so the press reads against the
+// fill; every other variant takes the lighter glass ripple.
+function rippleEffectFor(variant: ButtonVariantProps["variant"]) {
+  const filled: ReadonlyArray<ButtonVariantName> = ["default", "destructive"]
+  return filled.includes(variant ?? "default") ? "fill" : "glass"
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -55,6 +38,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size,
       asChild = false,
       isLoading = false,
+      showRipple = true,
       children,
       disabled,
       ...props
@@ -62,6 +46,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref,
   ) => {
     const Comp = asChild ? Slot : "button"
+    const isDisabled = Boolean(disabled || isLoading)
+    const ripple = showRipple ? (
+      <MaterialRipple
+        variant="none"
+        effect={rippleEffectFor(variant)}
+        disabled={isDisabled}
+      />
+    ) : null
 
     // When using asChild, we must ensure only one child is passed to Slot.
     // If loading, we handle the content inside a single span.
@@ -74,9 +66,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     // the exact middle regardless of label width.
     const content = isLoading ? (
       <span className="relative inline-flex items-center justify-center">
-        <span aria-hidden="true" className="opacity-0">
-          {children}
-        </span>
+        {/* NOT aria-hidden. It is visually hidden to reserve the width, but
+            hiding it from the accessibility tree too left a loading button
+            with NO accessible name at all — the spinner beside it is
+            aria-hidden as well, so screen readers announced an unlabelled
+            button, and a long wait had nothing to identify it. */}
+        <span className="opacity-0">{children}</span>
         <span className="absolute inset-0 flex items-center justify-center">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         </span>
@@ -85,15 +80,41 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       children
     )
 
+    // Slot takes exactly one child, so under asChild the ripple rides inside
+    // that child rather than beside it.
+    const slotted = (() => {
+      if (!asChild) return null
+      const child = React.Children.only(children) as React.ReactElement<{
+        children?: React.ReactNode
+      }>
+      if (!ripple || !React.isValidElement(child)) return child
+      return React.cloneElement(child, {
+        children: (
+          <>
+            {child.props.children}
+            {ripple}
+          </>
+        ),
+      })
+    })()
+
     return (
       <Comp
         type={asChild ? undefined : "button"}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
-        disabled={disabled || isLoading}
+        aria-busy={isLoading || undefined}
+        disabled={isDisabled}
         {...props}
       >
-        {asChild ? React.Children.only(children) : content}
+        {asChild ? (
+          slotted
+        ) : (
+          <>
+            {content}
+            {ripple}
+          </>
+        )}
       </Comp>
     )
   },

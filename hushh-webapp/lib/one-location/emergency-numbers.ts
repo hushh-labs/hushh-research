@@ -7,6 +7,8 @@
  * enough for an emergency dial action.
  */
 
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
+
 export type EmergencyInfo = {
   /** ISO 3166-1 alpha-2 country code (uppercase). */
   countryCode: string;
@@ -106,6 +108,29 @@ export function emergencyInfoForCountryCode(
   return country;
 }
 
+/**
+ * A cached result, plus the fix it was confirmed at.
+ *
+ * The origin is what makes a cache safe to trust instantly. A number cached in
+ * Delhi is the right answer in Delhi and the WRONG answer in Chicago, and the
+ * one screen that must never show a wrong number is this one. Entries written
+ * before the origin existed have no coordinates and are only ever used as a
+ * last-resort fallback, never as an instant seed.
+ */
+export type CachedEmergencyInfo = EmergencyInfo & {
+  lat: number | null;
+  lng: number | null;
+};
+
+/**
+ * How far from the cached fix the cached country is still assumed to hold.
+ *
+ * Generous enough to cover a normal day's movement so returning users skip the
+ * lookup entirely, and far tighter than any flight. Beyond it the cached answer
+ * is not shown at all until the authoritative lookup confirms the country.
+ */
+export const EMERGENCY_CACHE_TRUST_RADIUS_METERS = 100_000;
+
 /** localStorage key for the last successfully resolved local emergency info. */
 export const EMERGENCY_INFO_CACHE_KEY = "one_location_emergency_info_v1";
 
@@ -124,29 +149,108 @@ export const EMERGENCY_LOOKUP_TIMEOUT_MS = 5_000;
  * country was last resolved. Returns null when nothing is cached, storage is
  * unavailable, or the cached country is no longer known.
  */
-export function readCachedEmergencyInfo(): EmergencyInfo | null {
+export function readCachedEmergencyInfo(): CachedEmergencyInfo | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(EMERGENCY_INFO_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { countryCode?: unknown } | null;
+    const parsed = JSON.parse(raw) as {
+      countryCode?: unknown;
+      lat?: unknown;
+      lng?: unknown;
+    } | null;
     const countryCode =
       typeof parsed?.countryCode === "string" ? parsed.countryCode : null;
-    return emergencyInfoForCountryCode(countryCode);
+    const info = emergencyInfoForCountryCode(countryCode);
+    if (!info) return null;
+    const lat = typeof parsed?.lat === "number" && Number.isFinite(parsed.lat)
+      ? parsed.lat
+      : null;
+    const lng = typeof parsed?.lng === "number" && Number.isFinite(parsed.lng)
+      ? parsed.lng
+      : null;
+    // Both or neither: half an origin cannot be distance-checked, and a
+    // half-checked origin is the failure this field exists to prevent.
+    const hasOrigin = lat !== null && lng !== null;
+    return { ...info, lat: hasOrigin ? lat : null, lng: hasOrigin ? lng : null };
   } catch {
     return null;
   }
 }
 
-/** Persist the last resolved local emergency info for instant reuse. */
-export function writeCachedEmergencyInfo(info: EmergencyInfo): void {
+/**
+ * Persist the resolved local emergency info together with the fix that proved
+ * it. Callers that genuinely have no coordinates may omit them, at the cost of
+ * the entry never being trusted as an instant seed.
+ */
+export function writeCachedEmergencyInfo(
+  info: EmergencyInfo,
+  origin?: { latitude: number; longitude: number } | null,
+): void {
   if (typeof window === "undefined") return;
   try {
+    const hasOrigin =
+      Number.isFinite(origin?.latitude) && Number.isFinite(origin?.longitude);
     window.localStorage.setItem(
       EMERGENCY_INFO_CACHE_KEY,
-      JSON.stringify({ countryCode: info.countryCode }),
+      JSON.stringify(
+        hasOrigin
+          ? {
+              countryCode: info.countryCode,
+              lat: origin!.latitude,
+              lng: origin!.longitude,
+            }
+          : { countryCode: info.countryCode },
+      ),
     );
   } catch {
     // Best-effort: a full or disabled store simply skips the warm cache.
   }
+}
+
+/**
+ * Whether a country confirmed at `origin` is still assumed to hold at `point`.
+ *
+ * The single distance rule behind both reusing a cached number and deciding a
+ * fresh fix needs re-checking. Missing or non-finite coordinates are false:
+ * "we cannot tell" must never read as "same country".
+ */
+export function isWithinEmergencyTrustRadius(
+  origin: { latitude: number; longitude: number } | null | undefined,
+  point: { latitude: number; longitude: number } | null | undefined,
+): boolean {
+  if (
+    !origin ||
+    !point ||
+    !Number.isFinite(origin.latitude) ||
+    !Number.isFinite(origin.longitude) ||
+    !Number.isFinite(point.latitude) ||
+    !Number.isFinite(point.longitude)
+  ) {
+    return false;
+  }
+  return (
+    haversineMeters(
+      { lat: origin.latitude, lng: origin.longitude },
+      { lat: point.latitude, lng: point.longitude },
+    ) <= EMERGENCY_CACHE_TRUST_RADIUS_METERS
+  );
+}
+
+/**
+ * Whether a cached country may be shown immediately for the given fix.
+ *
+ * False for entries with no origin and for anything outside the trust radius —
+ * in both cases the honest state is "still checking", not a number from
+ * somewhere the person no longer is.
+ */
+export function isCachedEmergencyInfoUsableAt(
+  cached: CachedEmergencyInfo | null,
+  point: { latitude: number; longitude: number } | null | undefined,
+): boolean {
+  if (!cached || cached.lat === null || cached.lng === null) return false;
+  return isWithinEmergencyTrustRadius(
+    { latitude: cached.lat, longitude: cached.lng },
+    point,
+  );
 }

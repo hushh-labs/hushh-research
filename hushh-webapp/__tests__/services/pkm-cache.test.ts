@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as vaultEncryption from "@/lib/vault/encrypt";
 
 const apiFetchMock = vi.fn();
 
@@ -25,6 +26,8 @@ vi.mock("@/lib/firebase/config", () => ({
 }));
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
   PersonalKnowledgeModelService,
@@ -32,12 +35,13 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 
 describe("PKM cache behavior", () => {
+  afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; vi.restoreAllMocks(); });
   beforeEach(() => {
     vi.clearAllMocks();
     CacheService.getInstance().clear();
   });
 
-  it("dedupes concurrent metadata fetches", async () => {
+  it("dedupes equivalent cold and forced metadata fetches", async () => {
     apiFetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -53,13 +57,111 @@ describe("PKM cache behavior", () => {
     );
 
     const [a, b] = await Promise.all([
-      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
+      PersonalKnowledgeModelService.getMetadata("user-1", true, "vault-owner-token"),
       PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
     ]);
 
     expect(a.userId).toBe("user-1");
     expect(b.userId).toBe("user-1");
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps financial reads available without seeding tickers in restricted review and preserves authorized sync", async () => {
+    const userId = "reviewer-ticker-owner";
+    vi.spyOn(PersonalKnowledgeModelService, "getEncryptedData").mockResolvedValue(null);
+    vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue({
+      ...PersonalKnowledgeModelService.emptyMetadata(userId), domains: [{ key: "financial" }],
+    } as Awaited<ReturnType<typeof PersonalKnowledgeModelService.getMetadata>>);
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainData").mockResolvedValue({
+      ciphertext: "synthetic", iv: "synthetic", tag: "synthetic", storageMode: "domain",
+    });
+    vi.spyOn(vaultEncryption, "decryptData").mockResolvedValue(JSON.stringify({ holdings: [{ symbol: "TEST" }] }));
+    apiFetchMock.mockResolvedValue(new Response(JSON.stringify({ seeded_rows: 0 }), { status: 200 }));
+    for (const reviewerMutationPolicy of ["read_only", "preparation_only", "bounded_mutation"] as const) {
+      CacheService.getInstance().clear();
+      window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+      const blob = await PersonalKnowledgeModelService.loadFullBlob({ userId, vaultKey: "key", vaultOwnerToken: "token" });
+      expect(blob.financial).toEqual({ holdings: [{ symbol: "TEST" }] });
+      expect(apiFetchMock).not.toHaveBeenCalled();
+    }
+    CacheService.getInstance().clear();
+    window.__HUSHH_NATIVE_TEST__!.reviewerMutationPolicy = "mutation_authorized";
+    await PersonalKnowledgeModelService.loadFullBlob({ userId, vaultKey: "key", vaultOwnerToken: "token" });
+    expect(apiFetchMock).toHaveBeenCalledOnce();
+    const [path, request] = apiFetchMock.mock.calls[0]!;
+    expect(path).toBe(`/api/tickers/sync-holdings/${userId}`);
+    expect(request.isEffectCurrent()).toBe(true);
+    window.__HUSHH_NATIVE_TEST__!.reviewerMutationPolicy = "read_only";
+    expect(request.isEffectCurrent()).toBe(false);
+  });
+
+  it("forced domain reads bypass fresh ciphertext cache", async () => {
+    const userId = "forced-owner";
+    CacheService.getInstance().set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "professional"),
+      { ciphertext: "synthetic-old", iv: "synthetic", tag: "synthetic", algorithm: "aes-256-gcm" }, 60000);
+    apiFetchMock.mockResolvedValue(new Response(JSON.stringify({ encrypted_blob: {
+      ciphertext: "synthetic-current", iv: "synthetic", tag: "synthetic", algorithm: "aes-256-gcm",
+    } }), { status: 200 }));
+    const blob = await PersonalKnowledgeModelService.getDomainData(userId, "professional", "owner-token", undefined, true);
+    expect(blob?.ciphertext).toBe("synthetic-current");
+    expect(apiFetchMock).toHaveBeenCalledOnce();
+    expect(apiFetchMock.mock.calls[0]![1].headers["Cache-Control"]).toBe("no-cache");
+  });
+
+  it("a renewed vault starts a fresh authoritative domain read", async () => {
+    let finishOld!: (response: Response) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
+    const old = PersonalKnowledgeModelService.getDomainData("renewed-owner", "professional", "old-token", undefined, true);
+    advanceVaultSessionEpoch();
+    apiFetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ encrypted_blob: {
+      ciphertext: "current-session", iv: "synthetic", tag: "synthetic",
+    } }), { status: 200 }));
+    const current = await PersonalKnowledgeModelService.getDomainData("renewed-owner", "professional", "current-token", undefined, true);
+    expect(current?.ciphertext).toBe("current-session");
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    finishOld(new Response(JSON.stringify({ encrypted_blob: null }), { status: 200 }));
+    await old;
+    expect(PersonalKnowledgeModelService.peekCachedDomainBlob("renewed-owner", "professional")?.ciphertext).toBe("current-session");
+  });
+
+  it("a forced domain read never joins an ordinary read already in flight", async () => {
+    let finishOrdinary!: (response: Response) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise(resolve => { finishOrdinary = resolve; }));
+    apiFetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ encrypted_blob: {
+      ciphertext: "synthetic-current", iv: "synthetic", tag: "synthetic", data_version: 2,
+    } }), { status: 200 }));
+    const ordinary = PersonalKnowledgeModelService.getDomainData("concurrent-owner", "professional", "owner-token");
+    const fresh = await PersonalKnowledgeModelService.getDomainData("concurrent-owner", "professional", "owner-token", undefined, true);
+    expect(fresh?.ciphertext).toBe("synthetic-current");
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    expect(apiFetchMock.mock.calls[1]![1].headers["Cache-Control"]).toBe("no-cache");
+    finishOrdinary(new Response(JSON.stringify({ encrypted_blob: null }), { status: 200 }));
+    await ordinary;
+    expect(PersonalKnowledgeModelService.peekCachedDomainBlob("concurrent-owner", "professional")?.ciphertext)
+      .toBe("synthetic-current");
+  });
+
+  it("an in-flight read cannot repopulate ciphertext after a PKM mutation", async () => {
+    let finish!: (response: Response) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const read = PersonalKnowledgeModelService.getDomainData("changed-owner", "professional", "owner-token");
+    bumpPkmInvalidationEpoch("changed-owner");
+    finish(new Response(JSON.stringify({ encrypted_blob: {
+      ciphertext: "obsolete", iv: "synthetic", tag: "synthetic",
+    } }), { status: 200 }));
+    await read;
+    expect(PersonalKnowledgeModelService.peekCachedDomainBlob("changed-owner", "professional")).toBeNull();
+  });
+
+  it.each([401, 403, 429, 503])("does not substitute cached metadata for current write authority on HTTP %s", async (status) => {
+    const userId = "current-write-owner";
+    const stale = { ...PersonalKnowledgeModelService.emptyMetadata(userId), totalAttributes: 1, lastUpdated: "2026-01-01T00:00:00Z" };
+    CacheService.getInstance().set(CACHE_KEYS.PKM_METADATA(userId), stale, 60000);
+    apiFetchMock.mockResolvedValue(new Response("unavailable", { status }));
+    await expect(PersonalKnowledgeModelService.getMetadata(userId, false, "owner-token", { allowStaleFallback: false }))
+      .rejects.toThrow(`HTTP ${status}`);
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(stale);
   });
 
   it("falls back to stale metadata instead of caching an empty state on unauthorized responses", async () => {
@@ -101,6 +203,16 @@ describe("PKM cache behavior", () => {
     expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(staleMetadata);
   });
 
+  it("does not turn a cold temporary metadata failure into an empty PKM", async () => {
+    apiFetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+
+    await expect(
+      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
+    ).rejects.toThrow("temporarily unavailable");
+
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA("user-1"))).toBeNull();
+  });
+
   it("does not trust a fresh empty metadata cache entry when a network fetch can return real domains", async () => {
     const userId = "user-1";
     const cache = CacheService.getInstance();
@@ -138,6 +250,12 @@ describe("PKM cache behavior", () => {
     const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `/api/pkm/metadata/${userId}`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Cache-Control": "no-cache" }),
+      }),
+    );
     expect(result.domains).toHaveLength(1);
     expect(result.domains[0]?.key).toBe("financial");
     expect(result.totalAttributes).toBe(19);
@@ -414,6 +532,24 @@ describe("PKM cache behavior", () => {
     expect(
       CacheService.getInstance().get(CACHE_KEYS.DOMAIN_MANIFEST("user-1", "financial"))
     ).toEqual(result.manifest);
+  });
+
+  it("fences sharing dispatch and suppresses late cache publication without misreporting a committed result", async () => {
+    let current = false;
+    const beforeEffect = async () => { if (!current) throw new DOMException("Retired", "AbortError"); };
+    const params = { userId: "user-1", domain: "financial", changes: [], beforeEffect, mayPublish: () => current };
+    await expect(PersonalKnowledgeModelService.updateScopeExposure(params)).rejects.toMatchObject({ name: "AbortError" });
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    let finish!: (response: Response) => void;
+    apiFetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    current = true;
+    const operation = PersonalKnowledgeModelService.updateScopeExposure(params);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(apiFetchMock.mock.calls[0]![1]).toMatchObject({ beforeDispatch: beforeEffect, isEffectCurrent: params.mayPublish });
+    current = false;
+    finish(new Response(JSON.stringify({ success: true, manifest: { domain: "financial" } }), { status: 200 }));
+    await expect(operation).resolves.toMatchObject({ success: true });
+    expect(CacheService.getInstance().get(CACHE_KEYS.DOMAIN_MANIFEST("user-1", "financial"))).toBeNull();
   });
 
   it("throws a typed conflict error for manifest version mismatches", async () => {

@@ -1,0 +1,451 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  parseAgentActivityExperience,
+  parseAgentToolResultExperience,
+  personSelectionPrompt,
+} from "@/lib/agent/agui-structured-experiences";
+
+const scopeResult = {
+  status: "ok",
+  person: {
+    displayName: "Alex Morgan",
+    personRef: "1234567890abcdef",
+    profilePath: "/people/1234567890abcdef",
+    relationship: "connected",
+  },
+  domainFilter: "Identity",
+  requestableScopes: [
+    {
+      scopeRef: "opaque-scope-ref",
+      label: "Employment status",
+      description: "Current employment eligibility status.",
+      domain: "Identity",
+      sensitivity: "high",
+    },
+  ],
+};
+
+describe("AG-UI structured experience registry", () => {
+  it("stages a dated document request without treating the proposal as sent", () => {
+    const proposal = {
+      status: "proposal_ready",
+      person: { personRef: "11111111-1111-4111-8111-111111111111", displayName: "A" },
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+      purpose: { purpose: "Six completed months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+    };
+    expect(parseAgentToolResultExperience("propose_document_request", proposal)).toEqual({
+      type: "one.document_request_review.v1",
+      personRef: proposal.person.personRef,
+      personName: "A",
+      clientRequestId: proposal.clientRequestId,
+      purpose: proposal.purpose.purpose,
+      periodStart: "2026-03-01",
+      periodEnd: "2026-08-31",
+    });
+    expect(parseAgentToolResultExperience("propose_document_request", {
+      ...proposal, purpose: { ...proposal.purpose, periodEnd: "2026-02-28" },
+    })).toBeNull();
+  });
+  it("stages the owner's Drive share card from a proposal, never from other statuses", () => {
+    const proposal = {
+      status: "proposal_ready",
+      person: { personRef: "11111111-1111-4111-8111-111111111111", displayName: "Rahul Sharma" },
+      filesRequest: "the Chris onboarding recordings",
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+      fileId: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+    };
+    const expected = {
+      type: "one.drive_share_review.v1",
+      audience: "person",
+      personRef: proposal.person.personRef,
+      personName: "Rahul Sharma",
+      clientRequestId: proposal.clientRequestId,
+      filesRequest: "the Chris onboarding recordings",
+    };
+    expect(parseAgentToolResultExperience("propose_drive_share", proposal)).toEqual(expected);
+    expect(
+      parseAgentActivityExperience("one.drive_share_review.v1", {
+        personRef: proposal.person.personRef,
+        personName: "Rahul Sharma",
+        clientRequestId: proposal.clientRequestId,
+        filesRequest: "the Chris onboarding recordings",
+      }),
+    ).toEqual(expected);
+    expect(
+      parseAgentToolResultExperience("propose_drive_share", { ...proposal, status: "connection_required" }),
+    ).toBeNull();
+    expect(
+      parseAgentToolResultExperience("propose_drive_share", { ...proposal, filesRequest: "  " }),
+    ).toBeNull();
+  });
+  it("stages a Trusted circle share card with no person", () => {
+    const proposal = {
+      status: "proposal_ready",
+      audience: "trusted_circle",
+      filesRequest: "the Chris onboarding recordings",
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+    };
+    expect(parseAgentToolResultExperience("propose_drive_share", proposal)).toEqual({
+      type: "one.drive_share_review.v1",
+      audience: "trusted_circle",
+      personRef: null,
+      personName: null,
+      clientRequestId: proposal.clientRequestId,
+      filesRequest: "the Chris onboarding recordings",
+    });
+  });
+  it("stages a complete saved-search share review only from its explicit proposal", () => {
+    const proposal = { status: "proposal_ready", audience: "trusted_circle",
+      searchJobId: "11111111-1111-4111-8111-111111111111",
+      clientRequestId: "22222222-2222-4222-8222-222222222222" };
+    const expected = { type: "one.drive_bulk_share_review.v1", audience: "trusted_circle",
+      searchJobId: proposal.searchJobId, clientRequestId: proposal.clientRequestId };
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", proposal)).toEqual(expected);
+    expect(parseAgentActivityExperience("one.drive_bulk_share_review.v1", proposal)).toEqual(expected);
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, status: "search_in_progress" })).toBeNull();
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, searchJobId: "bad" })).toBeNull();
+    expect(parseAgentToolResultExperience("propose_drive_bulk_share", { ...proposal, audience: "person" })).toBeNull();
+  });
+  it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
+    const result = parseAgentToolResultExperience("discover_person_information", {
+      ...scopeResult,
+      scopeCatalog: { page: 1, limit: 100, totalCount: 601, nextPage: 2, hasMore: true,
+        catalogRevision: "a".repeat(64), paginationReset: false,
+        domains: [{ domain: "professional", count: 601 }] },
+    });
+    expect(result).toMatchObject({ scopeCatalog: { totalCount: 601, nextPage: 2 } });
+    const legacy = parseAgentToolResultExperience("discover_person_information", {
+      ...scopeResult, requestableScopes: Array.from({ length: 501 }, (_, index) => ({
+        ...scopeResult.requestableScopes[0], scopeRef: `synthetic-${index}`,
+      })),
+    });
+    expect(legacy).toMatchObject({ catalogIncomplete: true });
+  });
+  it("parses server-issued person choices without accepting arbitrary profile links", () => {
+    const candidate = { selectionHandle: "a".repeat(32), personRef: "1234567890abcdef", displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef", detail: "a***@example.test" };
+    const result = parseAgentToolResultExperience("discover_person_information", {
+      status: "needs_clarification", candidates: [candidate,
+        { ...candidate, profilePath: "https://example.test" },
+        { ...candidate, selectionHandle: "forged" }],
+    });
+    expect(result).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
+      candidates: [candidate],
+    });
+  });
+  it("preserves an incomplete candidate signal for the picker", () => {
+    const candidate = {
+      selectionHandle: "c".repeat(32),
+      personRef: "1234567890abcdef",
+      displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef",
+      detail: null,
+    };
+    expect(
+      parseAgentToolResultExperience("discover_person_information", {
+        status: "needs_clarification",
+        candidates: [candidate],
+        candidatesIncomplete: true,
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "discover_person_information",
+      candidates: [candidate],
+      candidatesIncomplete: true,
+    });
+  });
+  it("keeps person choices visible when shared-information listing needs clarification", () => {
+    const candidate = {
+      selectionHandle: "b".repeat(32),
+      personRef: "1234567890abcdef",
+      displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef",
+      detail: "a***@example.test",
+    };
+    expect(
+      parseAgentToolResultExperience("list_information_shared_with_me", {
+        status: "needs_clarification",
+        candidates: [candidate],
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "list_information_shared_with_me",
+      candidates: [candidate],
+    });
+  });
+  it("keeps the tool that asked for a person and continues that request after a choice", () => {
+    const candidate = {
+      selectionHandle: "d".repeat(32),
+      personRef: "1234567890abcdef",
+      displayName: "Rahul Sharma",
+      profilePath: "/people/1234567890abcdef",
+      detail: null,
+    };
+    expect(
+      parseAgentToolResultExperience("propose_document_request", {
+        status: "needs_clarification",
+        candidates: [candidate],
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      sourceTool: "propose_document_request",
+      candidates: [candidate],
+    });
+    expect(personSelectionPrompt("propose_document_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("propose_information_request", "Rahul Sharma")).toBe(
+      "I mean Rahul Sharma.",
+    );
+    expect(personSelectionPrompt("discover_person_information", "Rahul Sharma")).toBe(
+      "Check what I can ask Rahul Sharma for.",
+    );
+  });
+  it("turns a consent proposal into the Profile-aligned review card", () => {
+    expect(
+      parseAgentToolResultExperience("propose_information_request", {
+        status: "proposal_ready",
+        proposalId: "must-not-render",
+        person: { displayName: "Alex Morgan", personRef: "1234567890abcdef", profilePath: "/people/1234567890abcdef" },
+        fields: ["Employment status", "Company name"],
+        purpose: "Complete the onboarding review.",
+        durationHours: 48,
+      }),
+    ).toEqual({
+      type: "one.information_request_review.v1",
+      personName: "Alex Morgan",
+      purpose: "Complete the onboarding review.",
+      durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "draft",
+      subjectRef: "1234567890abcdef",
+      bundleId: null,
+      requestId: null,
+      status: "awaiting_review",
+      fields: [
+        { label: "Employment status", domain: "Information", sensitivity: "standard" },
+        { label: "Company name", domain: "Information", sensitivity: "standard" },
+      ],
+    });
+  });
+  it("rejects a live proposal that cannot be bound to its selected person", () => {
+    expect(
+      parseAgentToolResultExperience("propose_information_request", {
+        status: "proposal_ready",
+        person: { displayName: "Alex Morgan", profilePath: "/people/1234567890abcdef" },
+        fields: ["Employment status"],
+        purpose: "Complete the onboarding review.",
+        durationHours: 48,
+      }),
+    ).toBeNull();
+  });
+  it("keeps restored request direction explicit and accepts terminal lifecycle states", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      requestId: "request_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "revoked",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      requestId: "request_12345678",
+      status: "revoked",
+    });
+  });
+  it("keeps per-field lifecycle status on restored request cards", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [
+        { label: "Work authorization", domain: "Identity", requestId: "request_12345678", status: "granted" },
+        { label: "Tax identifier", domain: "Identity", status: "pending" },
+      ],
+    });
+    expect(result?.fields).toEqual([
+      { label: "Work authorization", domain: "Identity", sensitivity: "standard", requestId: "request_12345678", status: "granted" },
+      { label: "Tax identifier", domain: "Identity", sensitivity: "standard", status: "pending" },
+    ]);
+  });
+  it("downgrades an unbound submitted descriptor to a neutral historical preview", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      bundleId: "bundle_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({
+      direction: "unknown",
+      phase: "historical",
+      subjectRef: null,
+      bundleId: "bundle_12345678",
+      status: "pending",
+    });
+  });
+  it("downgrades a submitted descriptor with an unknown direction", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "legacy",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({ direction: "unknown", phase: "historical" });
+  });
+  it("accepts the versioned scope activity and normalizes its bounded fields", () => {
+    expect(
+      parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),
+    ).toEqual({
+      type: "one.scope_discovery.v1",
+      person: {
+        personRef: "1234567890abcdef",
+        displayName: "Alex Morgan",
+        profilePath: "/people/1234567890abcdef",
+        relationship: "connected",
+      },
+      domainFilter: "Identity",
+      scopes: [
+        {
+          scopeRef: "opaque-scope-ref",
+          label: "Employment status",
+          description: "Current employment eligibility status.",
+          domain: "Identity",
+          sensitivity: "restricted",
+        },
+      ],
+    });
+  });
+
+  it("adapts the existing ADK tool result into the same app-owned registry", () => {
+    expect(
+      parseAgentToolResultExperience(
+        "discover_person_information",
+        JSON.stringify(scopeResult),
+      ),
+    ).toMatchObject({ type: "one.scope_discovery.v1" });
+  });
+
+  it("fails closed for unknown types, invalid routes, and unrelated tools", () => {
+    expect(parseAgentActivityExperience("model.react.v1", scopeResult)).toBeNull();
+    expect(
+      parseAgentToolResultExperience("unknown_tool", scopeResult),
+    ).toBeNull();
+    expect(
+      parseAgentToolResultExperience("discover_person_information", {
+        ...scopeResult,
+        person: { ...scopeResult.person, profilePath: "https://attacker.example" },
+      }),
+    ).toBeNull();
+    expect(
+      parseAgentToolResultExperience("discover_person_information", {
+        ...scopeResult,
+        person: { ...scopeResult.person, personRef: "fedcba9876543210" },
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts only complete, versioned Morphy experience payloads", () => {
+    expect(parseAgentActivityExperience("one.information_request_review.v1", {
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "awaiting_review",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "restricted" }],
+    })).toMatchObject({ type: "one.information_request_review.v1", status: "awaiting_review" });
+
+    expect(parseAgentActivityExperience("one.kyc_readiness.v1", {
+      subjectName: "Alex Morgan",
+      workflowName: "Payroll readiness",
+      summary: "Two items require review.",
+      legalReviewRequired: true,
+      items: [{ label: "Tax identifier", domain: "Identity", sensitivity: "high", status: "ask_first" }],
+    })).toMatchObject({ type: "one.kyc_readiness.v1", legalReviewRequired: true });
+
+    expect(parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 12,
+      accountedBlockCount: 12,
+      groups: [{ domain: "Professional", candidates: [{ candidateRef: "candidate-1", label: "Role", preview: "Product lead", sensitivity: "standard", sharingPosture: "private" }] }],
+    })).toMatchObject({ type: "one.memory_import_review.v1", accountedBlockCount: 12, presentationIncomplete: false });
+
+    expect(parseAgentActivityExperience("one.evidence_brief.v1", {
+      title: "Verification summary",
+      summary: "The available evidence supports the primary claim.",
+      confidence: "high",
+      findings: [{ label: "Source alignment", detail: "Two independent records agree." }],
+      sources: [{ label: "Primary record", url: "https://example.com/evidence" }],
+      unresolved: [],
+    })).toMatchObject({ type: "one.evidence_brief.v1", confidence: "high" });
+  });
+
+  it("rejects unsafe evidence links and incomplete memory coverage shapes", () => {
+    const evidence = parseAgentActivityExperience("one.evidence_brief.v1", {
+      title: "Verification summary",
+      summary: "A bounded summary.",
+      confidence: "medium",
+      findings: [],
+      sources: [{ label: "Unsafe", url: "javascript:alert(1)" }],
+      unresolved: [],
+    });
+    expect(evidence).toMatchObject({ sources: [] });
+    expect(parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 2,
+      accountedBlockCount: 3,
+      groups: [],
+    })).toBeNull();
+  });
+
+  it("marks dropped memory review rows as incomplete instead of claiming full coverage", () => {
+    const result = parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 1,
+      accountedBlockCount: 1,
+      groups: [{
+        domain: "Professional",
+        candidates: [
+          { candidateRef: "candidate-1", label: "Role", preview: "Product lead", sharingPosture: "private" },
+          { candidateRef: "candidate-1", label: "Duplicate", preview: "Must not be silently merged", sharingPosture: "private" },
+          { candidateRef: "candidate-2", label: "Malformed", preview: "", sharingPosture: "private" },
+        ],
+      }],
+    });
+
+    expect(result).toMatchObject({ presentationIncomplete: true });
+  });
+
+  it("marks truncated memory groups and candidates as incomplete", () => {
+    const groups = Array.from({ length: 51 }, (_, index) => ({
+      domain: `Domain ${index}`,
+      candidates: [{ candidateRef: `candidate-${index}`, label: "Role", preview: "Lead", sharingPosture: "private" }],
+    }));
+    const result = parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 1,
+      accountedBlockCount: 1,
+      groups,
+    });
+
+    expect(result).toMatchObject({ presentationIncomplete: true });
+  });
+});

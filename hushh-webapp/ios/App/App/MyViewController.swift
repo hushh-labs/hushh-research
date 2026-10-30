@@ -2,6 +2,81 @@ import UIKit
 import Capacitor
 import WebKit
 
+enum NativeWebSafeArea {
+    static func topInset(for webView: WKWebView, in window: UIWindow) -> CGFloat {
+        let webTop = webView.convert(webView.bounds, to: window).minY
+        return max(0, window.safeAreaInsets.top - webTop)
+    }
+}
+
+struct HushhNativeRouter: Router {
+    private static let nativeStaticPersonProfileRef = "00000000-0000-4000-8000-000000000001"
+    private static let personProfileRoutePrefix = "/people/"
+    private static let personProfileStaticAssetNames: Set<String> = [
+        "__next._full.txt",
+        "__next._head.txt",
+        "__next._index.txt",
+        "__next._tree.txt",
+        "__next.people.$d$personRef.__PAGE__.txt",
+        "__next.people.$d$personRef.txt",
+        "__next.people.txt",
+        "index.html",
+        "index.txt",
+    ]
+
+    var basePath: String = ""
+
+    func route(for path: String) -> String {
+        if let personProfileAssetPath = personProfileAssetPath(for: path) {
+            return basePath + personProfileAssetPath
+        }
+
+        let pathUrl = URL(fileURLWithPath: path)
+
+        if pathUrl.pathExtension.isEmpty {
+            return basePath + "/index.html"
+        }
+
+        return basePath + path
+    }
+
+    func personProfileAssetPath(for path: String) -> String? {
+        guard path.hasPrefix(Self.personProfileRoutePrefix) else {
+            return nil
+        }
+
+        let remainder = path.dropFirst(Self.personProfileRoutePrefix.count)
+        guard !remainder.isEmpty else {
+            return nil
+        }
+        if remainder.hasSuffix(".txt") && !remainder.contains("/") {
+            let personRef = remainder.dropLast(4)
+            guard !personRef.isEmpty else {
+                return nil
+            }
+            return "\(Self.personProfileRoutePrefix)\(Self.nativeStaticPersonProfileRef)/index.txt"
+        }
+
+        let parts = remainder.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let personRef = parts.first, !personRef.isEmpty else {
+            return nil
+        }
+
+        let assetName: String
+        if parts.count == 1 || parts[1].isEmpty {
+            assetName = "index.html"
+        } else {
+            assetName = String(parts[1])
+        }
+
+        guard Self.personProfileStaticAssetNames.contains(assetName) else {
+            return nil
+        }
+
+        return "\(Self.personProfileRoutePrefix)\(Self.nativeStaticPersonProfileRef)/\(assetName)"
+    }
+}
+
 /**
  * MyViewController - Custom Capacitor Bridge View Controller
  * 
@@ -16,8 +91,70 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+    private var vaultLayoutProbe: NativeVaultLayoutProbe?
+    #endif
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+    private var historyQualification: UIViewController?
+    private var historyQualificationAttempted = false
+    private var historyQualificationObserver: NSObjectProtocol?
+    private var historyQualificationLauncher: UIButton?
+    #endif
+    private var launchCover: UIView?
+    private var launchCoverObservation: NSKeyValueObservation?
+    private var safeAreaObservation: NSKeyValueObservation?
+    private var lastPublishedSafeAreaTop: CGFloat?
+    private static let launchCoverSafetyTimeout: TimeInterval = 4
+    private static let launchCoverFadeDuration: TimeInterval = 0.12
+
+    override open func router() -> Router {
+        HushhNativeRouter()
+    }
+
+    override open func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
+        let eligible: Bool
+        if #available(iOS 26.0, *) {
+            eligible = NativeDrawerQualificationPolicy.deviceEligible
+        } else { eligible = false }
+        // Capacitor replaces userContentController after its configuration
+        // hook. Install against the final controller before WK creates the
+        // document. This selects rendering, never operation/information authority.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),ownedChoices:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false"),walletCardForms:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")})});",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        return super.webView(with: frame, configuration: configuration)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        publishSafeAreaTop()
+        (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()
+        (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.layoutControls()
+        (bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)?.layoutDock()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        publishSafeAreaTop()
+    }
+
+    /// Presentation geometry only. UIKit remains authoritative when WebKit's
+    /// CSS env inset is temporarily zero during navigation or keyboard changes.
+    private func publishSafeAreaTop() {
+        guard isViewLoaded, let webView = webView, let window = view.window else { return }
+        // A full-window WebView needs the window's status-bar clearance even
+        // when its container reports a different safe area. Subtract the
+        // WebView's window position so an already inset viewport stays at zero.
+        let inset = NativeWebSafeArea.topInset(for: webView, in: window)
+        guard inset.isFinite, inset != lastPublishedSafeAreaTop else { return }
+        lastPublishedSafeAreaTop = inset
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--app-native-safe-area-top', '\(Double(inset))px')", completionHandler: nil)
+    }
 
     deinit {
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        #endif
         nativeTestPollTimer?.invalidate()
         nativeTestPollInFlight = false
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "hushhNativeTest")
@@ -25,6 +162,25 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        if let webView = self.webView {
+            installLaunchCover(over: webView)
+            safeAreaObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+                guard !webView.isLoading else { return }
+                DispatchQueue.main.async {
+                    self?.lastPublishedSafeAreaTop = nil
+                    self?.publishSafeAreaTop()
+                }
+            }
+        }
+
+        // A fresh process starts unshielded. After an inactive transition this
+        // host keeps the native cover above the WebView until the resumed
+        // document explicitly acknowledges that it is ready to be shown.
+        HushhSessionPrivacyShield.shared.attach(to: view)
+        HushhSessionPrivacyShield.shared.reloadDocument = { [weak self] in
+            self?.webView?.reload()
+        }
         
         // Disable bounce effect for stable scrolling (fixes iOS layout bounce)
         if let webView = self.webView {
@@ -47,11 +203,163 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 installNativeTestBridge(on: webView)
                 startNativeTestPolling(on: webView)
             }
+            #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+            if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
+                vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
+            }
+            #endif
+            #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+            if ProcessInfo.processInfo.arguments.contains(NativeHistoryQualification.argument) {
+                installHistoryQualificationLauncher()
+                historyQualificationObserver = NotificationCenter.default.addObserver(
+                    forName: HushhSessionPrivacyShield.presentationDidChange, object: nil, queue: .main
+                ) { [weak self] _ in self?.presentHistoryQualificationIfAdmitted() }
+            }
+            #endif
         }
     }
     
+    /// Cold-launch continuity. iOS dismisses LaunchScreen.storyboard when this
+    /// controller's first frame commits, but the WKWebView has not painted its
+    /// document yet; its backing canvas initially follows the system appearance
+    /// until React projects the chosen app theme. A copy of the launch
+    /// screen stays over it until the first document finishes loading. That
+    /// document opens on its boot surface, which draws the same mark at the same
+    /// place and size (components/app-ui/boot-surface.tsx; the WebKit layout
+    /// spec holds its ink to the splash's within 1.5 pt), so lifting the cover
+    /// changes nothing on screen. The fade matches the privacy shield's release.
+    private func installLaunchCover(over webView: WKWebView) {
+        let cover = UIImageView(image: UIImage(named: "Splash"))
+        cover.frame = view.bounds
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cover.contentMode = .scaleAspectFill
+        cover.clipsToBounds = true
+        cover.backgroundColor = .systemBackground
+        cover.isUserInteractionEnabled = false
+        cover.isAccessibilityElement = false
+        view.addSubview(cover)
+        launchCover = cover
+
+        launchCoverObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+            guard !webView.isLoading else { return }
+            DispatchQueue.main.async { self?.removeLaunchCover() }
+        }
+        // A document that never finishes (offline, a failed load) must not
+        // leave the cover up: its own boot surface owns the way out.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.launchCoverSafetyTimeout) { [weak self] in
+            self?.removeLaunchCover()
+        }
+    }
+
+    private func removeLaunchCover() {
+        launchCoverObservation?.invalidate()
+        launchCoverObservation = nil
+        guard let cover = launchCover else { return }
+        launchCover = nil
+        UIView.animate(
+            withDuration: Self.launchCoverFadeDuration,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseOut],
+            animations: { cover.alpha = 0 },
+            completion: { [weak self] _ in
+                cover.removeFromSuperview()
+                #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+                self?.presentHistoryQualificationIfAdmitted()
+                #endif
+            }
+        )
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+        presentHistoryQualificationIfAdmitted()
+        #endif
+    }
+
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+    /// Explicit, public-only entry after XCTest preparation or a privacy
+    /// retirement. Never automatically resurrect a retired presentation.
+    private func installHistoryQualificationLauncher() {
+        guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone else { return }
+        // Public recording isolation survives fixture exit and app inactivity.
+        // The existing WebView/session remains underneath; this opt-in study
+        // never reveals its protected content to an artifact on retirement.
+        let landing = UIView(frame: view.bounds)
+        landing.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        landing.backgroundColor = .systemBackground
+        landing.accessibilityIdentifier = "native-history-public-landing"
+        view.addSubview(landing)
+        let button = UIButton(type: .system)
+        button.setTitle("Open native study", for: .normal)
+        button.accessibilityIdentifier = "native-history-qualification-launcher"
+        button.backgroundColor = .secondarySystemBackground
+        button.layer.cornerRadius = 12
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(openHistoryQualification), for: .touchUpInside)
+        landing.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: landing.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: landing.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 180),
+            button.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        historyQualificationLauncher = button
+    }
+
+    @objc private func openHistoryQualification() {
+        guard historyQualification == nil else { return }
+        historyQualificationAttempted = false
+        presentHistoryQualificationIfAdmitted()
+    }
+
+    private func presentHistoryQualificationIfAdmitted() {
+        guard #available(iOS 26.0, *), !historyQualificationAttempted,
+              NativeHistoryQualification.admits(arguments: ProcessInfo.processInfo.arguments,
+                phone: UIDevice.current.userInterfaceIdiom == .phone, supported: true),
+              view.window != nil, launchCover == nil, webView?.isLoading == false,
+              presentedViewController == nil, UIApplication.shared.applicationState == .active,
+              !HushhSessionPrivacyShield.shared.snapshot().shielded else { return }
+        historyQualificationAttempted = true
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        historyQualificationObserver = nil
+        let fixture = NativeHistoryQualificationController()
+        fixture.onRetired = { [weak self] in
+            self?.historyQualification = nil
+            self?.historyQualificationLauncher?.isHidden = false
+        }
+        historyQualification = fixture
+        historyQualificationLauncher?.isHidden = true
+        view.endEditing(true)
+        present(fixture, animated: false) {
+            let shield = HushhSessionPrivacyShield.shared
+            shield.reassertCover()
+            if shield.snapshot().shielded { fixture.retire() }
+        }
+    }
+    #endif
+
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible,
+           let existing = webView, view === existing {
+            view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
+        }
+        #endif
+        #if DEBUG
+        // Qualification-only; older wrappers and Release retain their current
+        // host until composition, touch and physical frame pacing pass.
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           HushhNativePresentationPolicy.customControlsEnabled,
+           ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
+           let existing = webView, view === existing {
+            let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")
+            view = NativePresentationContainer(webView: existing,
+                basePresentation: contentBacked ? .contentBacked : .underlay,
+                drawerClipping: ProcessInfo.processInfo.arguments.contains("--hushh-native-drawer-clip"))
+        }
+        #endif
         
         print("🔌 [MyViewController] Registering all native plugins...")
         print("🔌 [MyViewController] Bridge available: \(bridge != nil)")
@@ -59,6 +367,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // Register all Hushh native plugins
         // These must match the jsName in each plugin's CAPBridgedPlugin protocol
         bridge?.registerPluginInstance(HushhAuthPlugin())
+        bridge?.registerPluginInstance(GoogleConnectorAuthPlugin())
         bridge?.registerPluginInstance(HushhVaultPlugin())
         bridge?.registerPluginInstance(HushhConsentPlugin())
         bridge?.registerPluginInstance(KaiPlugin())
@@ -70,8 +379,19 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         bridge?.registerPluginInstance(HushhLocationPlugin())
         bridge?.registerPluginInstance(HushhContactsPlugin())
+        bridge?.registerPluginInstance(HushhCardScannerPlugin())
+        bridge?.registerPluginInstance(HushhInvitationsPlugin())
+        bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
+        bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
+        bridge?.registerPluginInstance(HushhNativeNavigationPlugin())
+        bridge?.registerPluginInstance(HushhNativeChromePlugin())
+        bridge?.registerPluginInstance(HushhNativeDockPlugin())
+        bridge?.registerPluginInstance(HushhNativeDrawersPlugin())
+        bridge?.registerPluginInstance(HushhStreamPlugin())
+        bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
+        bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
         
-        print("✅ [MyViewController] All 12 plugins registered successfully:")
+        print("✅ [MyViewController] Native plugins registered:")
         print("   - HushhAuth (Google Sign-In)")
         print("   - HushhVault (Encryption + Cloud DB)")
         print("   - HushhConsent (Token Management)")
@@ -84,6 +404,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhNotifications (Push Token Registration)")
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
+        print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
+        print("   - HushhSessionPrivacy (resume privacy shield)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()
@@ -105,7 +427,17 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhAccount",
             "HushhNotifications",
             "HushhLocation",
-            "HushhContacts"
+            "HushhContacts",
+            "HushhInvitations",
+            "HushhVoiceInvocation",
+            "HushhSessionPrivacy",
+            "HushhNativeNavigation",
+            "HushhNativeChrome",
+            "HushhNativeDock",
+            "HushhNativeDrawers",
+            "HushhStream",
+            "HushhOAuthReturn",
+            "HushhPlaidLink"
         ]
         
         for name in pluginNames {
@@ -256,6 +588,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let bootstrapUserMatchesExpected = payload["bootstrapUserMatchesExpected"] as? Bool
         let bootstrapUidOk = bootstrapUserMatchesExpected.map { $0 ? "1" : "0" } ?? ""
         let bootstrapErrorClass = NativeTestArtifactSanitizer.errorClass(payload["bootstrapErrorClass"])
+        // source:uid-prefix, letters, digits, underscore and one colon only.
+        let bootstrapDetail = String((payload["bootstrapDetail"] as? String ?? "").unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == ":" }).prefix(40)
         let jsErrorClass = NativeTestArtifactSanitizer.errorClass(payload["jsErrorClass"])
         let jsRejectionClass = NativeTestArtifactSanitizer.errorClass(payload["jsRejectionClass"])
         let longWait = (payload["longImportWait"] as? Bool ?? false) ? "1" : "0"
@@ -276,7 +610,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let ready = routeReady && documentReady && markerFound
 
         let safeRoute = normalizeRoute(route)
-        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_run=\(uiFlowAuditRunId);ui_plan=\(uiFlowAuditPlanDigest);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_checkpoint=\(uiFlowCheckpoint);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
+        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);bootstrap_detail=\(bootstrapDetail);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_run=\(uiFlowAuditRunId);ui_plan=\(uiFlowAuditPlanDigest);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_checkpoint=\(uiFlowCheckpoint);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }

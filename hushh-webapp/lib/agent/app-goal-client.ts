@@ -7,14 +7,14 @@ import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settl
 import {
   projectKaiActionCapability,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/capability-projection";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import {
   firstMissingRequiredSlot,
   resolveJourneySlots,
   resolveNavigationJourney,
-} from "@/lib/voice/navigation-journey";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/navigation-journey";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 export type GoalRunV1 = {
   schema_version: "one.goal_run.v1";
@@ -88,6 +88,14 @@ export async function startAppGoal(
   // contract, not named here. This used to read `!== "analysis.start"`, so
   // the browser could only ever walk one journey however many were authored.
   const journeyAction = getKaiActionById(input.actionId);
+  if (journeyAction?.command?.domain === "location" && journeyAction.execution_target.status === "wired" && journeyAction.execution_target.path === "local_handler"
+    && !input.executionContext?.operationId) {
+    // The command provider owns its durable result. A handoff or navigation
+    // cannot complete this older in-memory goal/journey on its behalf.
+    return executeAgentGatewayAction({ ...input, actionId: input.actionId, slots,
+      appRuntimeState: input.getAppRuntimeState(), surfaceMetadata: input.getSurfaceMetadata(),
+      allowedActionIds: initialState.executable_action_ids ?? initialState.available_action_ids });
+  }
   const journey = journeyAction
     ? resolveNavigationJourney(input.actionId, journeyAction)
     : null;
@@ -99,7 +107,8 @@ export async function startAppGoal(
       slots,
       appRuntimeState: input.getAppRuntimeState(),
       surfaceMetadata: input.getSurfaceMetadata(),
-      allowedActionIds: initialState.available_action_ids,
+      allowedActionIds:
+        initialState.executable_action_ids ?? initialState.available_action_ids,
     });
     return settleAgentGatewayAction(result, {
       getCurrentRoute: () => input.getAppRuntimeState().route,
@@ -125,13 +134,16 @@ export async function startAppGoal(
   input.onGoalRun?.(goal);
 
   if (input.getAppRuntimeState().route.screen !== journey.destinationScreen) {
+    const initialExecutableActionIds =
+      input.getCapabilityState().executable_action_ids ??
+      input.getCapabilityState().available_action_ids;
     const routeResult = await executeAgentGatewayAction({
       ...input,
       actionId: journey.navigationActionId,
       slots: {},
       appRuntimeState: input.getAppRuntimeState(),
       surfaceMetadata: input.getSurfaceMetadata(),
-      allowedActionIds: initialState.available_action_ids,
+      allowedActionIds: initialExecutableActionIds,
     });
     const settledRoute = await settleAgentGatewayAction(routeResult, {
       getCurrentRoute: () => input.getAppRuntimeState().route,
@@ -172,7 +184,8 @@ export async function startAppGoal(
     slots: goal.slots,
     appRuntimeState: input.getAppRuntimeState(),
     surfaceMetadata: input.getSurfaceMetadata(),
-    allowedActionIds: settledState.available_action_ids,
+    allowedActionIds:
+      settledState.executable_action_ids ?? settledState.available_action_ids,
     goalAuthorization: {
       goalId: journey.goalId,
       expectedScreen: journey.destinationScreen,

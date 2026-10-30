@@ -13,11 +13,12 @@ import {
   ScanSearch,
   ShieldCheck,
   Workflow,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/use-auth";
+import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
@@ -65,7 +66,8 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
+import { KnowledgeSectionHeader } from "@/components/app-ui/knowledge-section-header";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -78,7 +80,7 @@ import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 import {
   Accordion,
@@ -633,7 +635,7 @@ function AccessWorkspace({
         ) : null}
 
         <div className="space-y-5">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={workspaceTab}
             onValueChange={(value) =>
               setWorkspaceTab(
@@ -650,7 +652,7 @@ function AccessWorkspace({
           />
 
           {workspaceTab === "overview" ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <SurfaceInset className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
@@ -663,7 +665,7 @@ function AccessWorkspace({
                     Agent id: <code>{access.app?.agent_id}</code>
                   </p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Contact email: <code>{access.app?.contact_email}</code>
+                    Contact mail: <code>{access.app?.contact_email}</code>
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -810,7 +812,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "tokens" ? (
-            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <p className="text-sm font-semibold text-foreground">
                 Self-serve credentials
               </p>
@@ -877,7 +879,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "profile" ? (
-            <SurfaceInset className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <SurfaceInset className="animate-in fade-in slide-in-from-bottom-2 duration-150">
               <FieldSet>
                 <FieldGroup>
                   <Field orientation="responsive">
@@ -1002,7 +1004,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "contract" ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <SurfaceInset className="space-y-3">
                 <p className="text-sm font-semibold text-foreground">
                   Public beta tools
@@ -1040,7 +1042,7 @@ export function DeveloperDocsHub({
   const mcpSnippets = useMemo(() => buildMcpSnippets(runtime), [runtime]);
   const isMobile = useIsMobile();
 
-  const { user, loading, signOut, setNativeUser, checkAuth } = useAuth();
+  const { user, userId, loading, signOut, setNativeUser, checkAuth } = useAuth();
   const [integrationTab, setIntegrationTab] = useState<
     "rest" | "remote-mcp" | "npm"
   >("remote-mcp");
@@ -1136,7 +1138,7 @@ export function DeveloperDocsHub({
   }, []);
 
   const refreshAccess = useCallback(
-    async (currentUser = user) => {
+    async (currentUser = user, ownerId = userId) => {
       if (!currentUser) {
         setAccess(null);
         setAccessError(null);
@@ -1151,7 +1153,7 @@ export function DeveloperDocsHub({
       try {
         const idToken = await currentUser.getIdToken();
         const payload = await getDeveloperAccess(idToken, {
-          userId: currentUser.uid,
+          userId: ownerId ?? undefined,
         });
         setAccess(payload);
         const client = payload.access_enabled
@@ -1173,7 +1175,7 @@ export function DeveloperDocsHub({
         setAccessLoading(false);
       }
     },
-    [runtime, user],
+    [runtime, user, userId],
   );
 
   useEffect(() => {
@@ -1181,14 +1183,15 @@ export function DeveloperDocsHub({
       return;
     }
 
-    const nextUid = user?.uid ?? null;
+    // Identity plus owner: a pending sign-in, its validation and sign-out each refresh.
+    const nextUid = user ? `${user.uid}:${userId ?? ""}` : null;
     if (lastAccessRefreshUidRef.current === nextUid) {
       return;
     }
 
     lastAccessRefreshUidRef.current = nextUid;
-    void refreshAccess(user);
-  }, [loading, refreshAccess, user]);
+    void refreshAccess(user, userId);
+  }, [loading, refreshAccess, user, userId]);
 
   async function handleProviderSignIn(provider: "google" | "apple") {
     try {
@@ -1197,17 +1200,22 @@ export function DeveloperDocsHub({
           ? await AuthService.signInWithGoogle()
           : await AuthService.signInWithApple();
       setNativeUser(authResult.user);
-      // Same sign-in, same mail as the main auth surface.
-      void ApiService.notifyAuthMail("signed_in");
+      // The backend decides whether this is the first-account welcome.
+      void ApiService.notifyFirstWelcome();
       await checkAuth();
-      await refreshAccess(authResult.user);
+      // Cache under the owner only once it is validated for this sign-in.
+      const principal = snapshotValidatedAuthSessionPrincipal();
+      await refreshAccess(
+        authResult.user,
+        principal?.firebaseUid === authResult.user.uid ? principal.ownerId : null,
+      );
     } catch (error) {
       console.error(`[developers] ${provider} sign-in failed`, error);
     }
   }
 
   async function handleEnableAccess() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before enabling developer access");
       return;
     }
@@ -1216,7 +1224,7 @@ export function DeveloperDocsHub({
     try {
       const idToken = await user.getIdToken();
       const payload = await enableDeveloperAccess(idToken, {
-        userId: user.uid,
+        userId,
       });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
@@ -1236,7 +1244,7 @@ export function DeveloperDocsHub({
   }
 
   async function handleRotateKey() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before rotating a token");
       return;
     }
@@ -1244,7 +1252,7 @@ export function DeveloperDocsHub({
     try {
       const idToken = await user.getIdToken();
       const payload = await rotateDeveloperAccessToken(idToken, {
-        userId: user.uid,
+        userId,
       });
       setAccess(payload);
       setRevealedToken(payload.raw_token || null);
@@ -1322,7 +1330,7 @@ export function DeveloperDocsHub({
   }
 
   async function handleSaveProfile() {
-    if (!user) {
+    if (!user || !userId) {
       toast.error("Sign in before updating your app profile");
       return;
     }
@@ -1334,7 +1342,7 @@ export function DeveloperDocsHub({
         idToken,
         profileDraft,
         {
-          userId: user.uid,
+          userId,
         },
       );
       setAccess(payload);
@@ -1384,8 +1392,8 @@ export function DeveloperDocsHub({
   return (
     <TooltipProvider>
       <AppPageShell
-        width="reading"
-        className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] pt-0 sm:pb-10 md:pb-8"
+        width="agent"
+        className="relative isolate"
         nativeTest={{
           routeId: "/developers",
           marker: "native-route-developers",
@@ -1394,21 +1402,19 @@ export function DeveloperDocsHub({
         }}
       >
         <AppPageHeaderRegion>
-          <PageHeader
-            eyebrow="Developers"
+          <KnowledgeSectionHeader
             title="Hussh Consent MCP"
             description="A five-tool, consent-first connection for agents and product experiences."
-            descriptionFullWidth
             icon={Cable}
-            accent="developers"
+            tone="green"
           />
         </AppPageHeaderRegion>
 
-        <AppPageContentRegion className="mt-5">
+        <AppPageContentRegion className="mt-4 min-w-0 space-y-4">
           <div className="min-w-0 space-y-6">
             <section
               id="start"
-              className="scroll-mt-24 border-y border-border/60 py-5"
+              className="scroll-mt-24 py-5"
             >
               <div className="space-y-1">
                 <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
@@ -1469,7 +1475,7 @@ export function DeveloperDocsHub({
                 <Accordion
                   type="single"
                   collapsible
-                  className="border-y border-border/65"
+                  className="border-0"
                 >
                   <AccordionItem value="advanced-start" className="border-b-0">
                     <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
@@ -1498,7 +1504,7 @@ export function DeveloperDocsHub({
 
             <section
               aria-labelledby="developer-reference-heading"
-              className="border-y border-border/60"
+              className="border-0"
             >
               <header className="space-y-1 px-1 py-4 sm:px-2">
                 <h2

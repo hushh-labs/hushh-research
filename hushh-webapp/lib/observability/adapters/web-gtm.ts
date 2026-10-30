@@ -1,9 +1,17 @@
+import { Capacitor } from "@capacitor/core";
+
 import type {
   ObservabilityAdapter,
   ObservabilityEventName,
   PrimitiveEventValue,
 } from "@/lib/observability/events";
+import {
+  createGtagHitBudget,
+  type GtagHitPriority,
+} from "@/lib/observability/adapters/gtag-hit-budget";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
+import { resolveAnalyticsPageContext } from "@/lib/observability/page-context";
+import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
 
 declare global {
   interface Window {
@@ -13,6 +21,46 @@ declare global {
       eventName: ObservabilityEventName,
       payload: Record<string, unknown>
     ) => void;
+    /** Registered by gtag.js per destination once that GA4 stream is live. */
+    google_tag_manager?: Record<string, unknown>;
+  }
+}
+
+/**
+ * High-volume operational telemetry. It only spends gtag's event budget above
+ * the reserve product events keep (see gtag-hit-budget.ts).
+ */
+const OPERATIONAL_EVENTS: ReadonlySet<ObservabilityEventName> = new Set([
+  "api_request_completed",
+  "cache_resource_resolved",
+  "route_readiness_completed",
+  "route_refresh_completed",
+  "warmup_completed",
+  "live_memory_source_verified",
+  "live_activity_consolidation_completed",
+]);
+
+let gtagHitBudget = createGtagHitBudget();
+
+export function resetWebGtmHitBudgetForTests(): void {
+  gtagHitBudget = createGtagHitBudget();
+}
+
+function resolveHitPriority(eventName: ObservabilityEventName): GtagHitPriority {
+  return OPERATIONAL_EVENTS.has(eventName) ? "operational" : "product";
+}
+
+/** Refresh SDK defaults before asynchronous route/auth work, without a pageview. */
+export function refreshWebGtmPageContext(): void {
+  if (typeof window === "undefined" || Capacitor.isNativePlatform()) return;
+  if (shouldDisableExternalTelemetryForAutomation()) return;
+  const measurementId = resolveAnalyticsMeasurementId();
+  if (typeof window.gtag !== "function") return;
+  const context = resolveAnalyticsPageContext(window.location.href, document.referrer);
+  const configure = window.gtag as unknown as (...args: unknown[]) => void;
+  configure("set", context);
+  if (measurementId) {
+    configure("config", measurementId, { update: true, send_page_view: false, ...context });
   }
 }
 
@@ -20,15 +68,19 @@ export const webGtmAdapter: ObservabilityAdapter = {
   name: "web-gtm",
 
   isAvailable(): boolean {
-    return typeof window !== "undefined";
+    return typeof window !== "undefined" && !Capacitor.isNativePlatform();
   },
 
   async track(
     eventName: ObservabilityEventName,
     payload: Record<string, PrimitiveEventValue>
   ): Promise<void> {
-    if (typeof window === "undefined") return;
+    if (!this.isAvailable()) return;
+    if (shouldDisableExternalTelemetryForAutomation()) return;
 
+    // GTM can dispatch synchronously on push. Refresh both SDK scopes before
+    // either transport, without expanding the schema-approved event payload.
+    refreshWebGtmPageContext();
     window.dataLayer = window.dataLayer || [];
     const transportPayload = {
       event: eventName,
@@ -42,12 +94,16 @@ export const webGtmAdapter: ObservabilityAdapter = {
       return;
     }
 
-    if (typeof window.gtag === "function") {
-      window.gtag("event", eventName, {
-        send_to: measurementId,
-        event_source: "observability_v2",
-        ...payload,
-      });
-    }
+    if (typeof window.gtag !== "function") return;
+    // Seen at the first event after gtag.js loads, so refill starts slightly
+    // late. That only under-counts tokens; it never spends the product reserve.
+    if (window.google_tag_manager?.[measurementId]) gtagHitBudget.markLive();
+    if (!gtagHitBudget.admit(resolveHitPriority(eventName))) return;
+
+    window.gtag("event", eventName, {
+      send_to: measurementId,
+      event_source: "observability_v2",
+      ...payload,
+    });
   },
 };

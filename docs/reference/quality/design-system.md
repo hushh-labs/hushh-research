@@ -1,6 +1,5 @@
 # Hussh Frontend Design System
 
-
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
@@ -10,22 +9,32 @@ The cross-layer visual, shell, material, and AX rules are maintained in
 layering and primitive placement beneath that contract.
 
 ## Purpose
+
 This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the standalone design-system root, and makes app-ui the semantic composition layer above it.
 
 ## Component Layering Contract
-| Layer | Location | Ownership | Rules |
-|---|---|---|---|
-| Stock primitives | `hushh-webapp/components/ui/*` | shadcn registry | Registry-backed only. Treat as vendor code. |
-| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
-| App reusable components | `hushh-webapp/components/app-ui/*` | Hussh | App-specific semantic composition belongs here, never in `components/ui`. |
-| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hussh | Compose Morphy and app-ui layers; do not create parallel primitives. |
+
+| Layer                   | Location                                                             | Ownership       | Rules                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Stock primitives        | `hushh-webapp/components/ui/*`                                       | shadcn registry | Registry-backed only. Treat as vendor code.                                                                                                |
+| Morphy UX               | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh           | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
+| App reusable components | `hushh-webapp/components/app-ui/*`                                   | Hussh           | App-specific semantic composition belongs here, never in `components/ui`.                                                                  |
+| Feature composition     | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**`         | Hussh           | Compose Morphy and app-ui layers; do not create parallel primitives.                                                                       |
 
 ## Canonical Policies
+
+The shushing brand mark is authored in
+`hushh-webapp/assets/brand/hushh-mark-source.svg`. Run `npm run build:brand-assets`
+in `hushh-webapp` to regenerate the shared raster mark, browser icons, native
+launcher and splash assets, and Wallet artwork. The historical source PNG is a
+generated compatibility projection. Welcome artwork uses `HushhMark` in both
+themes; never render the brand as an operating-system emoji.
+
 1. Default to stock shadcn imports for baseline controls.
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
-5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition. The paired swipeable content pager is `SwipeViews` at `@/lib/morphy-ux/ui/swipe-views` (see Lean Route Headers And Responsive Lists below) — use it instead of a new carousel/tab-content implementation whenever a page has more than one locally-selectable view.
+5. Tab ownership is semantic and canonical. Route/query-owned workspace navigation uses `TopShellTabs` backed by `TOP_SHELL_TAB_REGISTRY`; locally selectable views and filters use `SegmentedTabs` from `@/lib/morphy-ux/ui/segmented-tabs`. Do not introduce compatibility names or route-local tab primitives. `SegmentedTabs` owns `tablist`/`tab` semantics, selected state, and roving Arrow/Home/End keyboard focus. The paired swipeable content pager is `SwipeViews` at `@/lib/morphy-ux/ui/swipe-views` (see Lean Route Headers And Responsive Lists below) — use it instead of a new carousel/tab-content implementation whenever a page has more than one locally-selectable view.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 8. `AppPageShell` and `FullscreenFlowShell` own the route container contract; feature files must not replace that contract with route-local `max-w-* mx-auto px-*` wrappers.
@@ -34,18 +43,25 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    - `standard`
    - `expanded`
 10. The canonical header accent model is semantic, not raw color-family naming:
-   - `neutral`
-   - `kai`
-   - `ria`
-   - `consent`
-   - `marketplace`
-   - `developers`
+
+- `neutral`
+- `kai`
+- `ria`
+- `consent`
+- `marketplace`
+- `developers`
+
 11. Email draft HTML is not route UI. Email Helper drafts must use the shared `agent_kyc.approved_disclosure_formatter.v1` strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise. Dense email tables need horizontal scroll wrappers with fixed minimum widths instead of squeezed mobile columns.
 12. Agent-aware dialogs, popovers, sheets, menus, and confirmations publish authored
     interaction-layer metadata from app-level composition. Stock primitives remain
     registry-safe and contain no app action ids or voice semantics.
+13. Interactive menu and option rows expose the pointer affordance at the shared
+    primitive layer (`DropdownMenuItem`, checkbox/radio/submenu items, `CommandItem`,
+    `SelectItem`, and `ComboboxItem`). Disabled rows retain their disabled pointer
+    behavior and cannot be activated.
 
 ## Morphy Extension Allowlist
+
 1. CTA-level behavior on top of stock button semantics.
 2. Shared card and surface treatment on top of stock card structure.
 3. Ripple, motion hooks, icon wrappers, and toast helpers.
@@ -54,6 +70,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    continuity; it never owns visual styling or primitive behavior.
 
 ## Import Rules
+
 Use stock shadcn by default for baseline primitives:
 
 ```tsx
@@ -75,6 +92,7 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
 
 Forbidden:
+
 1. Importing moved custom components from `@/components/ui/*` paths that no longer belong to registry ownership.
 2. Editing `components/ui/*` for app-specific behavior.
 3. Creating primitive forks in Morphy that bypass stock components.
@@ -99,12 +117,30 @@ Forbidden:
    authentication settlement, not app z-index or dialog composition.
 
 ## Charts Contract
+
 1. `hushh-webapp/components/ui/chart.tsx` is the canonical chart primitive layer.
 2. Build chart screens with `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, and `ChartLegendContent` from stock chart.
 3. Keep feature chart files focused on data mapping and presentation, not primitive duplication.
 4. Use semantic chart config keys and CSS chart tokens first; avoid ad-hoc per-chart hardcoded palettes.
 
 ## Visual Tokens
+
+Agents home artwork uses `AgentSectionIcon treatment="app"`: one native SVG
+tile with continuous corners and an optically centered glyph. The 40px list and
+68px grid share the same 64-unit vector artwork; gradients have instance-unique
+IDs. Opaque capability colours and white glyphs retain their identity in both
+themes, with only the surrounding elevation adapting. Mail uses a provider-neutral
+envelope. Keep the glyphs in `components/icons/agents/app-icons.tsx` and colours
+in `AGENT_APP_ICON_PALETTE` in `lib/design/home-icon-palette.ts`; embedded raster
+images, emoji, and provider logos are not home-agent artwork.
+
+Share actions use the official Phosphor ShareNetwork shape through
+`AccentedShareNetworkIcon`: the source node follows the active app accent and
+the two destination nodes and links use theme-aware label ink. Profile, row,
+and legacy `Share2` aliases resolve to that same treatment.
+On solid accent buttons, the full glyph uses the button's contrasting ink so
+the source node remains visible.
+
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
@@ -114,10 +150,12 @@ Forbidden:
 5b. Portable PDF artifacts use the Morphy-owned
     `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
     generator only: it reads Foundation tokens from `app/globals.css` and uses
-    a named `technical`, `partner`, or `founder` formatter profile. Light and
+    a named `technical`, `partner`, `founder`, or `executive` formatter profile. Light and
     dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
-    Molten Gold is explicit. Protocol code blocks retain the Sublime Monokai
-    surface in every profile.
+    `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
+    variants. Diagram labels inherit the profile's print-safe type scale, and
+    Mermaid is rendered locally to SVG before PDF generation. Protocol code
+    blocks retain the Sublime Monokai surface in every profile.
 6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`
@@ -125,16 +163,77 @@ Forbidden:
 7. Use shared gutter tokens instead of route-local page padding:
    - `--page-inline-gutter-standard`
    - `--page-surface-overscan`
-8. **Apple design grammar** (adopted principles; enforced by `verify:accent-tokens`):
+8. **Apple design grammar** (adopted principles; enforced by shared primitive tests and `verify:design-system` where applicable):
    - Radius grammar: shapes carry meaning. `--app-radius-pill` = action signal (CTAs, chips, search, toggles); `--app-radius-lg` (18px) = compact utility cards (the shipped `--app-card-radius-*` 20/22/24 contract remains canonical for app cards); `--app-radius-sm` (8px) = compact utility rects. Do not invent radii between the stops in new components.
-   - Press physics: the system-wide active state is the `.press-scale` utility (`--motion-press-scale: 0.95`, transform-only, reduced-motion aware), layered with the md-ripple. Wired into the Morphy Button and all segmented primitives; do not write per-component press styles.
-   - Weight ladder: 300 / 400 / 600 / 700. Weight 500 (`font-medium`) is deliberately absent from `lib/morphy-ux`; labels are 400, active/strong emphasis is 600, weight 300 is a rare opt-in "airy" cue (`.type-lead-airy`).
-   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/300), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
+   - Field geometry: direct-entry controls use `--app-input-radius`, which resolves to the capsule stop `--app-radius-pill`. `Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells use it; compound controls keep only their outer shell rounded. Use `--app-form-field-gap` (label/control), `--app-form-related-gap` (label/related action), and `--app-form-section-gap` (primary/secondary sections) instead of local spacing guesses. Credential fallback groups keep the “Can’t get in?” descriptor on one centered line and all available quiet actions on the next centered row inside a capped `max-w-[21rem]` measure. Separate multiple actions with middle-dot separators; never add a second primary CTA, pill, column, or vertical divider. If only one action is available, keep it as the single centered element without a separator. Use `--app-form-section-gap` for the larger pause after the primary unlock action and `--app-form-related-gap` to keep the descriptor close to its action row. Visible link text stays close to the descriptor while the transparent control retains a 44px hit area; do not add pill padding, `self-start`, or a left-anchored row. Recovery, alternate unlock, and Sign out share the same quiet escape row when present.
+   - Press physics: the shared pressed state is a flat opacity/color change with the md-ripple; no scale, spring or bounce. The compatibility `--motion-press-scale` token is `1`, and `.press-scale` no longer transforms. Use the shared Button/segmented primitives rather than per-component press styles.
+   - Weight ladder: self-hosted Plus Jakarta Sans 400 / 600 / 700. CSS navigation weight 550 resolves to the 600 face; CSS primary-action weight 650 resolves to the 700 face. The airy lead uses regular 400.
+   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/400), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
    - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
    - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
-   - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
+   - Legal note: the product faces are OFL-licensed Plus Jakarta Sans in `public/fonts/PlusJakartaSans`. Emoji and unsupported glyphs use the platform fallback. Never bundle Apple font files.
+
+### Product font map
+
+The careers type hierarchy is the app-wide source for web and native WebView
+content. Use `--font-app-display` and `--font-app-body` for product text, and
+`--font-app-mono` for uppercase metadata and code. The shipped faces are 400,
+600 and 700, in normal and italic styles.
+
+| Placement | CSS weight | Shipped face |
+| --- | ---: | ---: |
+| Hussh wordmark, page H1, section heading | 600 | 600 |
+| Header navigation and agent tabs | 550 | 600 |
+| Highlighted hero phrase | 700 | 700 |
+| Primary CTA and button label | 650 | 700 |
+| Paragraph, card title, FAQ question, job-detail heading, footer copy/link | 400 | 400 |
+| Form label and pay amount | 600 | 600 |
+| Uppercase section label, footer column heading, copyright | 400 system monospace | platform |
+
+Keep the **role** distinction: a section heading is semibold, while a card
+title or FAQ question can be regular even when marked up as a heading. Use the
+semantic roles in `components/app-ui/typography.tsx` rather than applying a
+weight by element name alone. Technical code and third-party email remain in
+their appropriate portable font stacks.
+
+## Typography and CTA contract
+
+This contract is mandatory for One Location, Connect, their sheets, dialogs,
+drawers, empty states, and responsive variants. It standardizes hierarchy and
+action composition without changing the Foundation color system.
+
+1. Use semantic typography roles from `components/app-ui/typography.tsx`.
+   Screen titles, section labels, row labels, helper copy, button labels, compact
+   button labels, and eyebrows must not be recreated with route-local arbitrary
+   font sizes or weights.
+2. Text buttons use exactly three interaction sizes:
+   - `compact`: a 44px target with the compact 15/20/650 label (shipped 700 face). Use for dense
+     row and toolbar actions.
+   - `standard`: a 44px target with the standard button label. Use for ordinary
+     actions, retry controls, secondary actions, and pagination.
+   - `prominent`: a 50px target. Reserve it for the final commitment in a flow,
+     such as Start sharing, Send request, Save, Create, Join, or Check in.
+3. Icon-only actions use `icon-touch` (44px). A visually smaller icon control is
+   allowed only when its invisible hit area remains at least 44 by 44 pixels.
+4. Button labels never wrap. If a label cannot fit, widen the action, stack the
+   group, shorten the copy, or move a third action into a menu.
+5. Use `FlowActionGroup` for two-action and three-action decisions:
+   - phone: full-width stack, secondary first and primary last;
+   - tablet/desktop: content-width row, secondary left and primary right;
+   - narrow sheets and cards may opt into an always-stacked group;
+   - a third low-priority action is tertiary, not a third competing filled CTA.
+6. Selection-driven flows show a `FlowSelectionSummary` immediately above the
+   final action. It states what will be acted on (people, duration, destination,
+   or other committed value) before the prominent CTA becomes the decision.
+7. Disabled primary actions retain their position and label. Put one concise
+   explanation next to the action instead of hiding it or silently changing the
+   hierarchy.
+8. Responsive action groups are authored once. Do not render separate mobile,
+   tablet, and desktop button trees; CSS layout changes the composition while
+   DOM order and semantics remain stable.
 
 ## Guardrails
+
 Use these commands from `hushh-webapp`:
 
 ```bash
@@ -144,12 +243,14 @@ npm run verify:docs
 ```
 
 What they enforce:
+
 1. `components/ui` folder purity and stale-import protection.
 2. Strict registry parity for registry-backed UI files.
 3. Cache mutation coherence hooks.
 4. Documentation/runtime contract parity.
 
 ## Regeneration Workflow
+
 When updating registry-backed components:
 
 ```bash
@@ -157,13 +258,14 @@ npx shadcn@latest add accordion alert-dialog avatar badge breadcrumb button card
 ```
 
 After regeneration:
+
 1. Re-run all verification commands.
 2. Keep Morphy wrappers compositional and API-stable.
 3. Update docs only when rules actually change.
 
 ## Repo-Owned Skills
 
-Project-local UI skills live in `.codex/skills/`:
+Project-local UI skills live in `.agents/skills/`:
 
 1. `frontend`
 2. `frontend-design-system`
@@ -177,12 +279,13 @@ These skills must stay aligned with this document, `frontend-ui-architecture-map
 Morphy UX owns reusable visual primitives. The narrower `morphy-ax` spoke owns pure redacted agent-state derivation and compatibility; see [Morphy Agent Experience](./morphy-agent-experience.md).
 
 ## Settings Surfaces
+
 The Profile page is the canonical settings implementation for the app.
 
 Reference:
 
 1. `hushh-webapp/components/app-ui/settings-ui.tsx`
-2. `hushh-webapp/app/profile/profile-workspace-page.tsx`
+2. `hushh-webapp/components/profile/profile-workspace-page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)
@@ -195,32 +298,43 @@ Body section headings are not page headers. `SectionHeader` and `SettingsGroup` 
 
 Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero or duplicate agent selector. A registry-resolved customer mark may appear as the shared header's right-aligned action only when it identifies the record currently being managed; keep its asset path in the public CRM logo registry, not in route code. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
 
-Finance follows the Profile workspace geometry exactly: `AppPageShell` at the
-`reading` measure and one shared outer gutter. Market, Portfolio, and Analysis
-are query-selected content inside `/one/kai`; they do not get a wider dashboard
-canvas, another fixed header, or a route-local tab bar. The top shell owns the
-single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
+Finance follows the Location agent-workspace geometry: `AppPageShell` at the
+`agent` measure and one shared outer gutter. Market, Portfolio, and Analysis
+are query-selected content inside `/one/kai`; the route body owns one stable
+agent `PageHeader` followed by the registry-backed `TopShellTabs` rail. The
+fixed top shell keeps only navigation, and a tab may own only an assistive
+heading inside its swipe panel.
 
-Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
-feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
-filter; the top mask keeps the shell legible through its visible tab stack and
-uses only a short, eased tail below the underline. The bottom mask uses the
-same short, eased edge treatment and contracts with the scroll-hidden
-navigation slot while retaining the Agent Bar tail. Those edges must remain
-present on mobile and desktop wherever the signed-in top/bottom shell is
-present.
+Persistent top chrome is a plain, solid neutral surface in
+`components/app-ui/ambient-chrome-mask.tsx` that stops at the tab underline
+with no fade band below it. Bottom navigation and the Agent Bar remain separate floating
+controls; no full-width bottom mask fades the page behind them. This applies
+on mobile and desktop.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
-`text-muted-foreground` classes. Lucide icons use the shared
-`--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
-override only when a compact control needs it.
+`text-muted-foreground` classes. Generic icons come from the canonical
+`@/components/icons` Phosphor registry and preserve their native viewBox and
+weight. Use the registry's regular outline weight for capabilities and utility
+icons, without translucent interior shading; do not add per-surface stroke
+overrides. Key aliases share the neutral outline and blue accent pinpoint used
+by password fields.
 
-The top shell’s Finance, Location, Consent Center, and public Explore tab sets
-use equal fixed tracks from the central registry. They remain visible and
-interactive above the ambient mask on every responsive surface; route bodies
-may supply only the paired pager, never another tab row.
+Location, Finance, Consent Center, and RIA route bodies render equal fixed
+tracks from the central registry below their module headers. The fixed top
+shell does not duplicate them; public Explore remains the fixed-shell tab set.
+Every paired pager consumes the same registry definition.
+
+`TopShellTabs` and `SegmentedTabs` keep distinct navigation semantics but share
+one Morphy visual anatomy: a quiet neutral rail, one moving solid selection
+surface, readable active/inactive labels, and the same focus and motion
+grammar. Location is the visual reference for every tab set; route-specific
+underlines, borders, and alternate active pills are prohibited.
+
+Selected labels use `--app-accent` in both light and dark mode, including
+Location, Connect, and Consent Center. Label typography must preserve that
+selected colour rather than override it with the neutral text token. Dense
+four-tab strips keep every label readable at the supported phone widths.
 
 `SwipeViews` (`@/lib/morphy-ux/ui/swipe-views`) is that paired pager and the
 one canonical primitive for any route or panel with more than one
@@ -229,16 +343,16 @@ locally-selectable content view, whether the selection is query-backed
 Detailed split) or purely local state (Marketplace, Profile's PKM Agent Lab).
 It keeps every pane mounted (`aria-hidden`, never unmounted) and reports
 selection in two stages — `onSelectionChange` fires immediately for the
-visible pill/underline, `onSelectionCommit` fires after the drag settles for
+visible selection pill, `onSelectionCommit` fires after the drag settles for
 the URL or state write that should not sit in the pointer/scroll hot path.
-Use `panelInset="page"` when the surrounding shell has cancelled its own
-gutter (Finance/Location's full-bleed layout); use the default
-`panelInset="none"` when the shell already provides normal padding
-(Marketplace, Profile, Analysis, Consent Center). Do not build a new
+Use `panelInset="page"` only when a surrounding layout intentionally cancels
+its own gutter. Use `panelInset="none"` when the shared route shell already
+provides normal padding (Finance, Location, Marketplace, Profile, Analysis,
+and Consent Center). Do not build a new
 swipeable-pane implementation, and do not reach for the stock shadcn
 `components/ui/carousel` for tab content — `SwipeViews` is the only one with
-the tab-underline swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
-that the top shell's pill relies on.
+the tab-selection swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
+that the registered rail's pill relies on.
 
 Motion has one standard content-enter expression across One and every
 specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
@@ -246,10 +360,30 @@ specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
 GSAP route/async-mount hook owns automatic semantic mounts; `.motion-step-enter`
 is the matching declarative utility for controlled component and layout swaps.
 Do not create a second route-transition engine or shorten a component-local
-fallback into a separate motion language. High-churn rails and tables opt out
-of automatic enters and may animate a stable inner layout root only.
+fallback into a separate motion language. High-churn rails, tables and virtual
+lists opt out of automatic enters with `data-no-auto-fade="true"` on their
+owning container and may animate a stable layout root only. A
+virtualizer owns each row's positioning transform; page-enter must never tween
+or clear that transform when scrolling mounts a new row. Verify virtual lists
+with the page-enter observer active, including selection and scroll reversal.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
+
+## Layer Ladder
+
+Every floating primitive in `components/ui` takes its z-index from the
+`--z-*` tokens declared at the top of `app/globals.css`, never from a literal.
+The order is: persistent chrome, then sheets and drawers, then dialogs, then
+the Location onboarding takeover, then the system banner, then the transient
+tier (menus, popovers, selects, comboboxes, tooltips). Transient surfaces
+portal to `<body>`, so the ladder is the only thing that decides whether a
+menu opened inside a sheet is visible; when the dialog tier was lifted above
+sheets and the transient tier was left at its shadcn defaults, every dropdown
+inside the profile pane rendered behind the pane. `__tests__/ui/layer-order.contract.test.ts`
+pins the token order and which primitive consumes which token, and
+`e2e/profile-pane-layer-order.spec.ts` proves the browser stacks them that way
+by opening the Accent picker inside the pane. A surface that must sit above a
+sheet passes a higher token, never a fresh number.
 
 ## Bounded Managers And Decision Sheets
 
@@ -291,3 +425,76 @@ visible range, and current-page status with its page-jump controls. The shared
 bottom ambient material stays inside the measured fixed chrome footprint; its
 blur is clipped by the same edge dissolve as the tint and must never extend over
 the final route component.
+
+
+## Document + PDF Artifact Contract (canonical)
+
+Document generation has **exactly one lane**. `app/globals.css` is the single source of
+truth for tokens; the PDF pipeline reads it rather than restating it, so a token change
+reaches documents without a second edit.
+
+| Concern | Canonical path |
+|---|---|
+| Portable artifact procedure | `.agents/skills/pdf-artifact-generation/SKILL.md` |
+| Codex routing + curation | `.agents/skills/founder-brief-curation/SKILL.md` |
+| Claude discovery bridge | `.claude/skills/pdf-artifact-generation/SKILL.md` |
+| Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
+| Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
+| Design tokens | `hushh-webapp/app/globals.css` |
+| Design system rules | this document |
+
+### The four themes
+
+Two Foundation grounds crossed with two accents. These names are a **published contract** —
+documents already in circulation name them, and the DocuSign document is
+`molten-gold-light` — so they may not be renamed without migrating those call sites.
+
+| Theme | Ground | Accent | Accent source in `globals.css` |
+|---|---|---|---|
+| `light` | light | iOS Blue | `:root` |
+| `dark` | dark | iOS Blue | `:root` + every `.dark` block, merged in order |
+| `molten-gold-light` | light | Molten Gold | `html[data-accent="gold"]` |
+| `molten-gold` | dark | Molten Gold | `html[data-accent="gold"].dark` |
+
+```bash
+cd hushh-webapp
+node scripts/reports/export-markdown-pdf.mjs \
+  --input <doc.md> --output <doc.pdf> \
+  --theme light|dark|molten-gold-light|molten-gold \
+  --profile technical|partner|founder|executive
+```
+
+Guard: `hushh-webapp/__tests__/morphy-ax/pdf-theme-canon.test.ts`. It drives the **real**
+`resolveFormatter`, not a copy — an earlier version reimplemented the resolution logic and
+passed against broken code, which is how the `dark` theme stayed broken through every
+prior run. `scripts/ops/verify_pdf_artifact_contract.py` additionally protects the
+canonical skill and both platform bridges from drifting back into separate procedures.
+
+### Full-bleed executive cover
+
+An executive cover is assigned to the named `pdf-cover` A4 page, which has zero physical
+page margin. The shared exporter keeps ordinary reading margins on all other pages and
+lets CSS, not global browser margin options, own that geometry. A cover must be the first
+semantic block and be immediately followed by `<!-- pdf:page-break -->`; a white perimeter
+or corner bar around its dark ground is a release blocker.
+
+### Monthly executive calendar
+
+Monthly executive reports use the shared `pdf:table=calendar-list` semantic, rendered as a
+source-linked local-date progress list rather than a generic table or dense month grid. It is
+calendar-ready only when every date falls within the stated local IANA timezone/month and nearby
+prose defines the event measures.
+The timezone must be explicit; a PDF artifact must never fall back to UTC or its build machine's
+timezone for calendar labels. Individual delivery reports give each person a dedicated progress
+list; an organisation calendar never substitutes for that evidence. The seven-day
+`pdf:table=calendar` semantic remains available only when its spatial view is materially useful.
+The
+portable collector and monthly cadence live under
+`.agents/skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
+compensation, or individual performance.
+
+### One portable artifact contract
+
+The historical `morphy-pdf` alias is retired. Every coding tool uses
+`.agents/skills/pdf-artifact-generation/` and the same Foundation formatter.
+A host discovery link cannot introduce another renderer, stylesheet or token vocabulary.

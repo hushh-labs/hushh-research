@@ -2,26 +2,33 @@
 
 import * as React from "react";
 
+import { HushhMark } from "./hushh-mark";
 import { cn } from "@/lib/utils";
 
 const BRAND_MARK_SIZE_CLASSES = {
-  sm: "h-[72px] w-[72px] rounded-[20px] text-[30px]",
-  md: "h-24 w-24 rounded-[24px] text-[36px]",
-  lg: "h-[112px] w-[112px] rounded-[28px] text-[42px]",
+  sm: "h-[72px] w-[72px] rounded-[20px]",
+  md: "h-24 w-24 rounded-[24px]",
+  lg: "h-[112px] w-[112px] rounded-[28px]",
+} as const;
+
+const BRAND_MARK_IMAGE_SIZE_CLASSES = {
+  sm: "h-[30px] w-[30px]",
+  md: "h-9 w-9",
+  lg: "h-[42px] w-[42px]",
 } as const;
 
 export type BrandMarkSize = keyof typeof BRAND_MARK_SIZE_CLASSES;
 
 export function BrandMark({
-  label = "🤫",
   size = "md",
   unframed = false,
   className,
+  markClassName,
 }: {
-  label?: string;
   size?: BrandMarkSize;
   unframed?: boolean;
   className?: string;
+  markClassName?: string;
 }) {
   return (
     <div
@@ -35,7 +42,9 @@ export function BrandMark({
         className,
       )}
     >
-      <span className="hushh-brand-mark leading-none">{label}</span>
+      <HushhMark
+        className={cn(BRAND_MARK_IMAGE_SIZE_CLASSES[size], markClassName)}
+      />
     </div>
   );
 }

@@ -1045,7 +1045,7 @@ git commit -m "feat(trusted-connections): register agent_connections A2A special
 - Test: `consent-protocol/tests/test_connections_classifier.py`
 
 **Interfaces:**
-- Consumes: `classify_specialist_domain(message) -> tuple[str, str] | None`; `resolve_delegate_target(message)` (in `api/routes/kai/agent_chat.py`, unchanged — verified via test).
+- Historical note: the lexical classifier and custom delegate target were retired by the AG-UI/ADK cutover; delegation now remains inside One's authored ADK tree.
 - Produces: classifier routes trusted-connection messages to `agent_connections`.
 
 - [ ] **Step 1: Write the failing test**

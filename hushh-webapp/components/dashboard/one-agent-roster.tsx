@@ -2,11 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
+import {
+  CaretRightIcon,
+  GridIcon,
+  ListIcon,
+  SearchIcon,
+} from "@/components/icons/ui";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-
+import { PageTitle } from "@/components/app-ui/typography";
+import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -16,10 +24,12 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
+  isCapabilityOnboarded,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
+import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -38,6 +48,13 @@ type OneAgentMode = {
   href: string;
   icon: OneCapabilityIcon;
   statusTone: CapabilityStatusTone;
+  /**
+   * Computed but not currently rendered -- greyscale-until-onboarded icons
+   * were reverted (icons stay full color regardless of setup state) pending
+   * further product direction. Kept so the icon treatment is a one-line
+   * change to bring back, not a rebuild.
+   */
+  isOnboarded: boolean;
   primaryMetric: {
     value: string;
     label: string;
@@ -49,7 +66,20 @@ type OneAgentMode = {
 
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
-type AgentMetricTone = "default" | "positive" | "warning" | "muted";
+type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
+
+/**
+ * Returns true only when this person is actively sharing their location.
+ * Received grants describe someone else's share and must not light up the
+ * owner's roster entry as if the owner had an active outbound share.
+ */
+export function hasActiveLocationActivity(
+  location: OneLocationState | null | undefined,
+): boolean {
+  return (location?.ownerGrants ?? []).some(
+    (grant) => /^(active|shared|granted)$/i.test(String(grant.status).trim()),
+  );
+}
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
@@ -62,14 +92,14 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "list";
+  if (typeof window === "undefined") return "grid";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "grid" ? "grid" : "list";
+    return persisted === "list" ? "list" : "grid";
   } catch {
-    return "list";
+    return "grid";
   }
 }
 
@@ -166,10 +196,7 @@ export function resolveCachedAgentMetrics(
     metrics.email = { value: String(pendingConsents.length), label };
     metrics.consent = {
       value: String(pendingConsents.length),
-      label:
-        pendingConsents.length === 1
-          ? "request to review"
-          : "requests to review",
+      label: pendingConsents.length === 1 ? "request" : "requests",
     };
   }
 
@@ -177,15 +204,12 @@ export function resolveCachedAgentMetrics(
     CACHE_KEYS.ONE_LOCATION_STATE(userId),
   )?.data;
   if (location) {
-    const liveShares = [
-      ...location.ownerGrants,
-      ...location.receivedGrants,
-    ].filter((grant) =>
-      /active|approved|shared|granted/i.test(String(grant.status)),
+    const liveShares = location.ownerGrants.filter((grant) =>
+      /^(active|shared|granted)$/i.test(String(grant.status).trim()),
     ).length;
     metrics.location = {
       value: String(liveShares),
-      label: liveShares === 1 ? "live share" : "live shares",
+      label: liveShares === 1 ? "live" : "live",
     };
   }
 
@@ -196,7 +220,7 @@ export function resolveCachedAgentMetrics(
   if (attributes !== null) {
     metrics.pkm = {
       value: String(attributes),
-      label: attributes === 1 ? "saved detail" : "saved details",
+      label: attributes === 1 ? "saved" : "saved",
     };
   }
 
@@ -210,7 +234,7 @@ export function resolveCachedAgentMetrics(
   if (connectedSystems !== null) {
     metrics["connected-systems"] = {
       value: String(connectedSystems),
-      label: connectedSystems === 1 ? "connected system" : "connected systems",
+      label: connectedSystems === 1 ? "connected" : "connected",
     };
   }
 
@@ -241,6 +265,14 @@ function useCachedAgentMetrics(
   // projection without introducing a second cache mirror for this list.
   void revision;
   return resolveCachedAgentMetrics(userId);
+}
+
+// The welcome illustration shares this roster's outline treatment.
+function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  return {
+    kind: "custom",
+    component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
+  };
 }
 
 function buildModes(
@@ -295,16 +327,19 @@ function buildModes(
       // Finance remains an exception while its own resolver says setup is
       // actionable: root completion or Skip is not Finance completion.
       href: opensSetup
-        ? buildOneSetupCapabilityRoute(capability.id)
+        ? capability.id === "finance"
+          ? `${buildOneSetupCapabilityRoute(capability.id)}?from=${encodeURIComponent(ROUTES.ONE_HOME)}`
+          : buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
+      isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
       paletteIndex,
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
-  });
+  }).sort(compareOneRosterDisplayOrder);
 }
 
 /**
@@ -321,13 +356,12 @@ function resolvePrimaryMetric({
 }): OneAgentMode["primaryMetric"] {
   if (capabilityId === "consent") {
     if (!status || status.state === "unknown") {
-      return { value: "—", label: "checking requests" };
+      return { value: "—", label: "checking" };
     }
     const pendingConsentCount = status.pendingCount;
     return {
       value: String(pendingConsentCount),
-      label:
-        pendingConsentCount === 1 ? "request to review" : "requests to review",
+      label: pendingConsentCount === 1 ? "request" : "requests",
     };
   }
 
@@ -338,7 +372,7 @@ function resolvePrimaryMetric({
   if (status.pendingCount > 0) {
     return {
       value: String(status.pendingCount),
-      label: status.pendingCount === 1 ? "item to review" : "items to review",
+      label: status.pendingCount === 1 ? "review" : "reviews",
     };
   }
 
@@ -346,7 +380,7 @@ function resolvePrimaryMetric({
     status.state === "completed" || status.state === "skipped" ? 0 : 1;
   return {
     value: String(actionsDue),
-    label: actionsDue === 1 ? "action due" : "actions due",
+    label: actionsDue === 1 ? "action" : "actions",
   };
 }
 
@@ -365,7 +399,7 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   }
 
   if (mode.id === "location") {
-    return isZero ? "muted" : "positive";
+    return isZero ? "muted" : "accent";
   }
 
   if (mode.id === "pkm") {
@@ -384,15 +418,25 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   return mode.statusTone === "muted" ? "muted" : "default";
 }
 
+/**
+ * The count itself is always primary text unless it is zero or unknown.
+ *
+ * A pending count used to paint its numeral orange (`warning` returned
+ * #FF9500), so Advisor's "1 action" showed a gold 1 beside Calendar's and
+ * Wallet's dark ones. Attention is carried by the number being non-zero and by
+ * the row's own status, not by a one-off numeral colour, so `warning` now reads
+ * like `default` and flips to the light token in dark mode.
+ */
 function metricValueClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
-  if (tone === "warning") return "text-[#FF9500]";
+  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#1D1D1F] dark:text-[#F5F5F7]";
 }
 
 function metricLabelClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
+  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
   if (tone === "warning") return "text-[#8E8E93]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#8E8E93]";
@@ -439,6 +483,7 @@ function AgentMetric({
     >
       <span
         data-ui-role="body-strong"
+        data-profile-role="description"
         className={cn(
           "shrink-0 tabular-nums font-semibold tracking-normal",
           isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
@@ -449,6 +494,7 @@ function AgentMetric({
       </span>
       <span
         data-ui-role="trailing-value"
+        data-profile-role="description"
         className={cn(
           "min-w-0 font-normal tracking-normal",
           isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
@@ -475,36 +521,35 @@ function AgentGridItem({
   return (
     <Link
       href={mode.href}
+      data-profile-body-swipe=""
       aria-label={`Open ${mode.title}`}
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        // Reference design: centered card — large pastel icon tile, then a
-        // bold title, then a single-line KPI ("1 action due"). `min-w-0` +
-        // consistent gaps keep every cell's icon/title/KPI on the same
-        // baseline across columns. Colors are unchanged (the tone logic in
-        // AgentMetric still drives them).
-        "group relative flex min-h-[9.5rem] min-w-0 w-full flex-col items-center justify-start gap-2.5 overflow-hidden rounded-[16px] px-2 py-3.5 text-center",
+        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
         className,
       )}
     >
       <AgentSectionIcon
         id={mode.id}
-        icon={mode.icon}
+        icon={rosterIcon(mode)}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
+        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
+        // own comment. Icons stay full color regardless of setup state.
+        isActive
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
-      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-1 text-center">
+      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[16px] font-semibold leading-5 tracking-[-0.01em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[14px] font-normal leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
+          data-profile-role="label"
         >
           {mode.title}
         </span>
@@ -519,45 +564,52 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
       href={mode.href}
+      data-profile-body-swipe=""
       aria-label={`Open ${mode.title}`}
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
+        "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "sm:grid-cols-[40px_minmax(0,1fr)_minmax(160px,210px)_16px]",
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
-          icon={mode.icon}
+          icon={rosterIcon(mode)}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
+          isActive
           size="roster"
           treatment="profile"
           glyphContrast="default"
         />
       </span>
-      <span
-        data-ui-role="row-label"
-        className="ui-text-row-label relative z-10 min-w-0 truncate"
-      >
-        {mode.title}
+      <span className="relative z-10 flex min-w-0 flex-col justify-center">
+        <span
+          data-ui-role="row-label"
+          data-profile-role="label"
+          className="ui-text-row-label min-w-0 truncate"
+        >
+          {mode.title}
+        </span>
+        {/*
+          List view is the compact scan: one label per row. The description
+          stays available as the row's title attribute and in grid view.
+        */}
       </span>
-      <span className="relative z-10 min-w-0">
+      <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
         <AgentMetric mode={mode} />
       </span>
-      <ChevronRight
+      <CaretRightIcon
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC] [stroke-width:1.7]"
+        className="relative z-10 h-4 w-4 text-[#C7C7CC]"
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] dark:bg-white/[0.09] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -575,7 +627,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-11 shrink-0 items-center rounded-[14px] bg-[rgba(120,120,128,.12)] p-0"
+      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -583,13 +635,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-11 w-11 rounded-[14px]",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "grid"
-            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
+            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <Grid2X2 className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
+        <GridIcon className="h-3.5 w-3.5" aria-hidden />
       </ShellActionSurface>
       <ShellActionSurface
         aria-label="Show agent list view"
@@ -597,24 +649,30 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-11 w-11 rounded-[14px]",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "list"
-            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
+            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <List className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
+        <ListIcon className="h-3.5 w-3.5" aria-hidden />
       </ShellActionSurface>
     </div>
   );
 }
 
+/** Search isn't pulling its weight yet at 9 agents -- off for now, easy to flip back on. */
+const SHOW_AGENT_SEARCH = false;
+
 export function OneAgentRoster({
   capabilityStatusById,
   userId,
+  messagesUnreadCount = null,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
+  messagesUnreadCount?: number | null;
+  displayName?: string | null;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
   const setupDismissed = Boolean(
@@ -623,10 +681,20 @@ export function OneAgentRoster({
         PreVaultUserStateService.getCachedBootstrapState(userId)
           ?.setupCompleted === true),
   );
-  const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
+  const modes = buildModes(capabilityStatusById, {
+    ...cachedMetrics,
+    messages: messagesUnreadCount === null
+      ? { value: "—", label: "checking" }
+      : { value: String(messagesUnreadCount), label: messagesUnreadCount === 1 ? "action" : "actions" },
+  }, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!animateViewChange) return;
+    const timeout = window.setTimeout(() => setAnimateViewChange(false), 320);
+    return () => window.clearTimeout(timeout);
+  }, [animateViewChange]);
   const visibleModes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return modes;
@@ -658,51 +726,67 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[900px]"
+      // Opts this roster in to the Profile type scale (app/globals.css).
+      data-profile-type-scale=""
+      // No pb- here. The scroll root already reserves the bottom bars
+      // (app/providers.tsx pads it by --app-scroll-bottom-pad, the measured
+      // --app-bottom-shell-height), and .app-page-shell adds the 24px reading
+      // gap on top. Reserving them a second time is the wide empty band under
+      // the last agent on /one: roughly another 90-115px of scroll that no
+      // content can ever occupy. See components/calendar/calendar-agent-page-layout.ts.
+      className="mx-auto w-full max-w-[720px]"
     >
-      <div className="mb-5 flex items-center justify-between gap-3">
-        {/* Compact, tracked, gray section label per the reference design.
-            Casing stays natural ("Agents (N)"): the design-system guard
-            (verify-apple-hierarchy) requires shared/system UI to preserve
-            natural casing, so no letter-case transform is applied here. */}
-
-        <h2
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <PageTitle
+          as="h1"
           id="one-agents-heading"
-          className="min-w-0 truncate text-[14px] font-bold tracking-[0.02em] text-[#8E8E93]"
+          data-profile-role="header"
+          className="min-w-0 whitespace-nowrap"
         >
           Agents ({modes.length})
-        </h2>
-        <AgentRosterViewToggle value={view} onChange={selectView} />
+        </PageTitle>
+        <div className="flex shrink-0 items-center gap-2">
+          {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
+          <AgentRosterViewToggle value={view} onChange={selectView} />
+        </div>
       </div>
-      <label className="relative mb-4 block">
-        <Search
-          className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground [stroke-width:1.8]"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
-          aria-label="Search agents"
-          data-ui-role="input-text"
-          data-testid="one-agents-search"
-          className="h-[52px] w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[15px] pl-11 pr-4 text-[17px] font-normal leading-[22px] text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/70 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
-        />
-      </label>
+      {SHOW_AGENT_SEARCH ? (
+        <label className="relative mb-3.5 block">
+          <SearchIcon
+            className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93]"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search agents"
+            aria-label="Search agents"
+            data-ui-role="input-text"
+            data-testid="one-agents-search"
+            className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white/95 py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:text-[#F5F5F7]"
+          />
+          <SearchClearButton
+            visible={query.length > 0}
+            label="Clear agent search"
+            onClear={() => setQuery("")}
+            className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
+          />
+        </label>
+      ) : null}
       <div
         key={view}
         data-testid="one-agents-view-content"
-        className={animateViewChange ? "motion-step-enter" : undefined}
+        className={cn(animateViewChange && "motion-step-enter")}
       >
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="rounded-[var(--app-card-radius-standard,24px)] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 p-3.5 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)] sm:p-[18px]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2.5"
+              className="grid w-full grid-cols-[repeat(3,minmax(80px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
@@ -712,7 +796,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="group/agent-list overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />

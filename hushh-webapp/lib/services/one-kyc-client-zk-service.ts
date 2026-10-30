@@ -21,6 +21,7 @@ import {
   type AllocationSlice,
 } from "@/lib/services/one-kyc-financial-consolidation";
 import { bytesToBase64 } from "@/lib/vault/base64";
+import { unwrapExportKeyForConnector } from "@/lib/vault/export-encrypt";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import {
   canonicalConsentExportAad,
@@ -123,13 +124,7 @@ export async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-async function sha256Bytes(value: Uint8Array | ArrayBuffer): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    value instanceof Uint8Array ? toArrayBuffer(value) : value
-  );
-  return new Uint8Array(digest);
-}
+
 
 function normalizeFieldKey(value: unknown): string {
   return String(value || "")
@@ -1192,7 +1187,7 @@ function replySubject(subject: string | null | undefined): string {
 
 function kycX25519UnsupportedError(): Error {
   return new Error(
-    "One Email KYC requires WebCrypto X25519 support. Use iOS 17 or later for direct device testing."
+    "One Mail KYC requires WebCrypto X25519 support. Use iOS 17 or later for direct device testing."
   );
 }
 
@@ -1222,10 +1217,13 @@ async function generateConnectorRecord(): Promise<KycClientConnectorPrivateRecor
   };
 }
 
-function parseStoredConnector(value: unknown): KycClientConnectorPrivateRecord | null {
+function parseStoredConnector(value: unknown, keyId?: string): KycClientConnectorPrivateRecord | null {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  const active = record?.active && typeof record.active === "object"
-    ? (record.active as Record<string, unknown>)
+  const history = record?.key_history && typeof record.key_history === "object" ? record.key_history as Record<string, unknown> : {};
+  const selected = keyId && (record?.active as Record<string, unknown> | undefined)?.connector_key_id !== keyId
+    ? history[keyId] : record?.active;
+  const active = selected && typeof selected === "object"
+    ? (selected as Record<string, unknown>)
     : null;
   if (!active) return null;
   const connector = {
@@ -1238,7 +1236,7 @@ function parseStoredConnector(value: unknown): KycClientConnectorPrivateRecord |
     created_at: String(active.created_at || ""),
   };
   if (
-    connector.connector_key_id &&
+    connector.connector_key_id && (!keyId || connector.connector_key_id === keyId) &&
     connector.connector_public_key &&
     connector.connector_private_key &&
     connector.connector_private_key_format === "pkcs8" &&
@@ -1254,6 +1252,8 @@ export class OneKycClientZkService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
+    /** Exact historical key for a paid export. Never rotates or registers a replacement. */
+    keyId?: string;
   }): Promise<KycClientConnectorPrivateRecord | null> {
     const snapshot = await PkmDomainResourceService.getStaleFirst({
       userId: params.userId,
@@ -1262,7 +1262,7 @@ export class OneKycClientZkService {
       vaultOwnerToken: params.vaultOwnerToken,
       backgroundRefresh: false,
     }).catch(() => null);
-    return parseStoredConnector(snapshot?.data);
+    return parseStoredConnector(snapshot?.data, params.keyId);
   }
 
   static async storeConnector(params: {
@@ -1281,19 +1281,35 @@ export class OneKycClientZkService {
         surface: "web",
         source: "kyc_connector_owner_setup",
       },
-      build: () => ({
-        domainData: {
-          active: params.connector,
-          schema_version: 1,
-          updated_at: new Date().toISOString(),
-        },
-        summary: {
-          connector_key_id: params.connector.connector_key_id,
-          connector_wrapping_alg: params.connector.connector_wrapping_alg,
-          public_key_fingerprint: params.connector.public_key_fingerprint,
-          updated_at: new Date().toISOString(),
-        },
-      }),
+      build: ({ currentDomainData }) => {
+        if (currentDomainData.key_history !== undefined && (!currentDomainData.key_history || typeof currentDomainData.key_history !== "object" || Array.isArray(currentDomainData.key_history)))
+          throw new Error("Connector key history needs recovery review before creating another key.");
+        const history = { ...(currentDomainData.key_history as Record<string, unknown> | undefined) };
+        const previous = parseStoredConnector(currentDomainData);
+        if (currentDomainData.active && !previous) throw new Error("Recover the existing connector record before creating another key.");
+        if (previous) history[previous.connector_key_id] = previous;
+        const sameId = history[params.connector.connector_key_id] as KycClientConnectorPrivateRecord | undefined;
+        if (sameId && (sameId.connector_public_key !== params.connector.connector_public_key || sameId.connector_private_key !== params.connector.connector_private_key || sameId.connector_wrapping_alg !== params.connector.connector_wrapping_alg))
+          throw new Error("Connector key identity changed. Recover the original key before continuing.");
+        history[params.connector.connector_key_id] = params.connector;
+        // Never silently evict the sole recovery copy for an issued artifact.
+        if (Object.keys(history).length > 64) throw new Error("Connector key history needs recovery review before creating another key.");
+        return {
+          domainData: {
+            ...currentDomainData,
+            active: params.connector,
+            key_history: history,
+            schema_version: 2,
+            updated_at: new Date().toISOString(),
+          },
+          summary: {
+            connector_key_id: params.connector.connector_key_id,
+            connector_wrapping_alg: params.connector.connector_wrapping_alg,
+            public_key_fingerprint: params.connector.public_key_fingerprint,
+            updated_at: new Date().toISOString(),
+          },
+        };
+      },
     });
   }
 
@@ -1311,11 +1327,12 @@ export class OneKycClientZkService {
     ]);
     const backendKeyId = backend?.connector?.connector_key_id || null;
     if (stored && (!backendKeyId || backendKeyId === stored.connector_key_id)) {
-      await OneKycService.registerClientConnector({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-        connector: stored,
-      });
+      // The authenticated GET above already confirms the stored connector is
+      // the active backend key. Re-registering the same key on every decrypt
+      // is an unnecessary state-changing request: it adds latency to the
+      // readback path and prevents read-only rehearsals from opening an
+      // otherwise valid encrypted export. Registration remains below for a
+      // missing or rotated backend key.
       return stored;
     }
     const next = await generateConnectorRecord();
@@ -1360,60 +1377,17 @@ export class OneKycClientZkService {
       throw new Error("KYC export ciphertext integrity check failed.");
     }
 
-    const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
-    let sharedSecret: ArrayBuffer;
-    try {
-      const privateKey = await crypto.subtle.importKey(
-        "pkcs8",
-        toArrayBuffer(base64ToBytesCompat(params.connector.connector_private_key)),
-        x25519,
-        false,
-        ["deriveBits"]
-      );
-      const senderPublicKey = await crypto.subtle.importKey(
-        "raw",
-        toArrayBuffer(base64ToBytesCompat(wrapped.sender_public_key)),
-        x25519,
-        false,
-        []
-      );
-      sharedSecret = await crypto.subtle.deriveBits(
-        { name: "X25519", public: senderPublicKey } as unknown as AlgorithmIdentifier,
-        privateKey,
-        256
-      );
-    } catch {
-      throw kycX25519UnsupportedError();
-    }
-    const wrappingKeyBytes = await sha256Bytes(sharedSecret);
-    const wrappingKey = await crypto.subtle.importKey(
-      "raw",
-      toArrayBuffer(wrappingKeyBytes),
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-    const exportKeyBytes = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: toArrayBuffer(base64ToBytesCompat(wrapped.wrapped_key_iv)),
-        additionalData: new TextEncoder().encode(canonicalConsentExportJson(envelope)),
-      },
-      wrappingKey,
-      toArrayBuffer(
-        concatBytes(
-          base64ToBytesCompat(wrapped.wrapped_export_key),
-          base64ToBytesCompat(wrapped.wrapped_key_tag)
-        )
-      )
-    );
-    const exportKey = await crypto.subtle.importKey(
-      "raw",
-      exportKeyBytes,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
+    const exportKeyBytes = await unwrapExportKeyForConnector({
+      bundle: { wrappedExportKey: wrapped.wrapped_export_key, wrappedKeyIv: wrapped.wrapped_key_iv,
+        wrappedKeyTag: wrapped.wrapped_key_tag, senderPublicKey: wrapped.sender_public_key,
+        wrappingAlg, connectorKeyId: wrapped.connector_key_id || params.connector.connector_key_id },
+      connectorPrivateKey: params.connector.connector_private_key,
+      connectorKeyId: params.connector.connector_key_id,
+      additionalData: canonicalConsentExportJson(envelope),
+    });
+    let exportKey: CryptoKey;
+    try { exportKey = await crypto.subtle.importKey("raw", toArrayBuffer(exportKeyBytes), "AES-GCM", false, ["decrypt"]); }
+    finally { exportKeyBytes.fill(0); }
     const plaintext = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",

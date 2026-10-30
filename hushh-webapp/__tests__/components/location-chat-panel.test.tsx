@@ -49,6 +49,7 @@ describe("LocationChatPanel", () => {
     );
     expect(mockChat).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
+      vaultKey: "vault-key-test",
       message: "stop sharing with Mom",
       conversationId: null,
     });

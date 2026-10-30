@@ -21,11 +21,10 @@ Operational matrix for runtime audits without expanding automated test suites.
 | `/api/kai/voice/realtime/session` | `POST` | Realtime voice session contract reachable; response includes client secret plus English transcription model/language/prompt metadata |
 | `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
 | `/api/kai/voice/compose` | `POST` | Post-execution voice composition contract reachable for final spoken reply generation |
-| `/api/kai/plaid/status/{user_id}` | `GET` | Plaid aggregate status and source metadata available |
-| `/api/kai/plaid/oauth/resume` | `POST` | OAuth resume session can mint a fresh Link continuation |
-| `/api/kai/plaid/exchange-public-token` | `POST` | Public-token exchange syncs read-only holdings + transactions |
-| `/api/kai/plaid/refresh` | `POST` | Refresh run queueing works for supported Items |
-| `/api/kai/plaid/webhook` | `POST` | Webhook receiver is reachable for holdings/item health updates |
+| `/api/kai/plaid/vault/link-token` | `POST` | Owner-authorized Link token creation; no webhook is registered |
+| `/api/kai/plaid/vault/exchange` | `POST` | Public-token exchange returns the access token to the device |
+| `/api/kai/plaid/vault/snapshot` | `POST` | Owner-authorized account, holding and transaction snapshot |
+| `/api/kai/plaid/vault/remove` | `POST` | Plaid Item removal is idempotent; caller clears sealed state after success |
 | `/api/kai/portfolio/import/stream` | `POST` | Route exists; protected stream contract available |
 | `/api/kai/portfolio/analyze-losers/stream` | `POST` | Route exists; protected stream contract available |
 | `/api/kai/market/insights/{user_id}` | `GET` | Strict token gate, cache-backed v2 payload |
@@ -38,6 +37,10 @@ Operational matrix for runtime audits without expanding automated test suites.
 
 Use this matrix as a manual verification guide against your local or hosted stack.
 Check OpenAPI for backend route presence, then visit the listed web routes directly in the browser.
+
+The server-backed Plaid route family is a legacy migration surface at the audited branch
+revision. Its source removal and migration 239 remain rollout-dependent; route presence or
+absence does not establish that existing database rows or Plaid Items were cleaned up.
 
 ## Pass Criteria
 

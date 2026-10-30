@@ -17,8 +17,10 @@ def client(monkeypatch):
 
 
 def test_autocomplete_route(client, monkeypatch):
-    async def fake(self, input_text, *, session_token=None):
+    async def fake(self, input_text, *, session_token=None, nearby_only=False, lat=None, lng=None):
         assert input_text == "Starbucks"
+        assert nearby_only is False
+        assert lat is None and lng is None
         return [{"placeId": "p1", "text": "Starbucks"}]
 
     monkeypatch.setattr(gms.GoogleMapsService, "autocomplete", fake)
@@ -76,7 +78,7 @@ def test_reverse_geocode_route(client, monkeypatch):
 
 
 def test_maps_unconfigured_returns_503(client, monkeypatch):
-    async def fake(self, input_text, *, session_token=None):
+    async def fake(self, input_text, *, session_token=None, nearby_only=False, lat=None, lng=None):
         raise gms.GoogleMapsError("no key", status_code=503)
 
     monkeypatch.setattr(gms.GoogleMapsService, "autocomplete", fake)
@@ -122,3 +124,36 @@ def test_private_map_preferences_validate_presence(client, monkeypatch):
     )
     assert res.status_code == 200
     assert res.json()["preferences"]["presenceMode"] == "foreground_private"
+
+
+@pytest.mark.parametrize("category", ["health", "cafes", "other_stays"])
+def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch, category):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", raising=False)
+    requested_category = category
+
+    async def nearby_places(self, *, lat, lng, category):
+        assert (lat, lng) == (12.9716, 77.5946)
+        assert category == requested_category
+        return gms.NearbyPlaceSuggestions(
+            [
+                {
+                    "placeId": "place-a",
+                    "text": "Spot A",
+                    "distanceMeters": 42,
+                }
+            ],
+            incomplete=True,
+        )
+
+    monkeypatch.setattr(gms.GoogleMapsService, "nearby_places", nearby_places)
+    response = client.post(
+        "/api/one/location/maps/nearby-places",
+        json={"lat": 12.9716, "lng": 77.5946, "category": requested_category},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["suggestions"][0]["placeId"] == "place-a"
+    assert response.json()["discoveryIncomplete"] is True

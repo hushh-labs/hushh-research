@@ -1,122 +1,310 @@
 name: Ship iOS to TestFlight
 
-# One-click: cut a Hushh One iOS build from the latest green `main` (the SHA that
-# UAT runs), build the Capacitor app against the UAT backend + UAT Firebase, sign
-# it with Apple-managed signing via an App Store Connect API key, and upload to
-# TestFlight. TestFlight only -- no App Store review, no prod backend/Firebase.
-#
-# Web sibling: .github/workflows/deploy-uat.yml (same SHA -> UAT website).
-# Runbook + secret setup: docs/guides/mobile/ship-ios-testflight.md
+# This workflow creates a normal UAT-backed TestFlight build only. It never
+# creates an App Store version or submits the app for public App Store review.
+# The one valid build is assigned to the configured internal and external
+# TestFlight groups. External availability remains pending until Apple grants
+# TestFlight Beta App Review when that review is required.
 
 on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Exact green main SHA to ship (blank defaults to latest origin/main)"
+        description: Exact green main SHA to ship. Blank selects latest main.
+        required: false
+        type: string
+      marketing_version:
+        description: Optional packaging version (x.y.z); does not change the release source or public App Store version.
         required: false
         type: string
       dry_run:
-        description: "Archive + sign but do NOT upload to TestFlight (isolates signing)"
+        description: Archive, sign, and run all gates without uploading to TestFlight.
+        required: false
+        default: false
+        type: boolean
+      require_hardware:
+        description: Run the optional attached-iPhone capture p95 gate (recommended for voice/device changes).
+        required: false
+        default: false
+        type: boolean
+      run_core_tests:
+        description: Run the focused simulator App Intent/action smoke gate (full AppTests remain in change-aware CI).
         required: false
         default: false
         type: boolean
       notes:
-        description: "Optional note for the run summary (what to test)"
+        description: Optional release note context for the workflow summary.
         required: false
         type: string
 
 permissions:
   contents: read
+  actions: read
   checks: read
+  id-token: write
+
+concurrency:
+  group: ship-ios-testflight
+  cancel-in-progress: false
 
 env:
   GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
+  BACKEND_SERVICE: consent-protocol
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App
   PBXPROJ: hushh-webapp/ios/App/App.xcodeproj/project.pbxproj
-  # cap:build (Next.js static export) is memory-heavy. The macos-15 standard
-  # runner is Apple silicon with limited RAM; if this OOM-kills the build, bump
-  # `runs-on` below to `macos-15-xlarge` (14 GB) and this to 12288.
   NODE_OPTIONS: --max-old-space-size=8192
 
-concurrency:
-  # Serialize dispatches so two runs can't race the same TestFlight build number.
-  group: ship-ios-testflight
-  cancel-in-progress: false
-
 jobs:
-  ship:
-    name: Build & upload iOS (UAT) to TestFlight
-    runs-on: macos-15
-    environment: uat
-    timeout-minutes: 40
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
 
+  preflight:
+    needs: deployment-security
+    name: Resolve green UAT release source
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      deployment: false
+    timeout-minutes: 15
+    outputs:
+      release_sha: ${{ steps.resolve.outputs.sha }}
+      marketing_version: ${{ steps.packaging.outputs.marketing_version }}
     steps:
-      - name: Assert manual dispatch originates from main
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Refuse non-main dispatches
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "main" ]; then
-            echo "Refusing iOS ship from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+          test "$GITHUB_REF_NAME" = "main" || {
+            echo "TestFlight releases must be dispatched from main." >&2
             exit 1
-          fi
+          }
 
-      - name: Checkout code
+      - name: Check out main
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: main
 
-      - name: Authorize dispatching actor (uat surface)
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
-
-      - name: Resolve release SHA
-        id: resolve
-        shell: bash
-        run: |
-          set -euo pipefail
-          REQUESTED="${{ github.event.inputs.sha }}"
-          git fetch --no-tags origin main
-          if [ -z "${REQUESTED}" ]; then
-            SHA="$(git rev-parse origin/main)"
-          else
-            SHA="${REQUESTED}"
-          fi
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "Resolved release SHA: ${SHA}"
-
-      - name: Require SHA is on main and passed the smoke gate
+      - name: Authorize dispatching actor
         shell: bash
         env:
-          REQUIRED_BRANCH: main
-          REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+
+      - name: Resolve exact green release SHA
+        id: resolve
+        shell: bash
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
-          bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve.outputs.sha }}"
+          git fetch --no-tags origin main
+          if [ -n "$REQUESTED_SHA" ]; then
+            SHA="$(git rev-parse "$REQUESTED_SHA^{commit}")"
+          else
+            SHA="$(git rev-parse origin/main)"
+          fi
+          bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Check out the exact release SHA (detached)
+      # The UAT backend provenance check lives here, on ubuntu, rather than in
+      # the macOS ship job: it needs only gcloud, and it is the step that fails
+      # most often, so it must fail before any macOS runner or Xcode setup is
+      # paid for. The check itself is unchanged; its resolver is read from the
+      # exact release SHA, the same file the ship job's checkout used to run.
+      - name: Set up Python for the provenance resolver
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud with workload identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify matching UAT backend revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
+          git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
+          service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format=json > "$service_json"
+          revision="$(python3 "$resolver" \
+            --service-json "$service_json" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          actual_sha="$(gcloud run revisions describe "$revision" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --format='value(metadata.labels.deploy-sha)')"
+          test "$actual_sha" = "$EXPECTED_SHA" || {
+            echo "UAT backend provenance does not match the TestFlight source SHA." >&2
+            exit 1
+          }
+
+      - name: Materialize automatic packaging credentials
+        if: inputs.marketing_version == ''
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyjwt cryptography
+          bash scripts/ci/materialize-ios-asc-key.sh
+      - name: Resolve automatic packaging before allocating macOS
+        id: packaging
+        if: inputs.marketing_version == ''
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Credentials are passed through a protected runner-local file; only
+          # the public marketing version is a job output.
+          git show "$RELEASE_SHA:$PBXPROJ" > "$RUNNER_TEMP/release.pbxproj"
+          version="$(python3 scripts/ci/submit-appstore-version.py --resolve-marketing-version --testflight \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" --pbxproj "$RUNNER_TEMP/release.pbxproj")"
+          echo "marketing_version=$version" >> "$GITHUB_OUTPUT"
+      - name: Remove preflight signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"
+
+  hardware-capture:
+    name: Prove physical iPhone capture gate
+    needs: [preflight, deployment-security]
+    if: ${{ inputs.require_hardware == true }}
+    uses: ./.github/workflows/ios-voice-device.yml
+    with:
+      release_sha: ${{ needs.preflight.outputs.release_sha }}
+      security_attempt: ${{ needs.deployment-security.outputs.attempt }}
+    secrets: inherit
+
+  ship:
+    name: Build and distribute normal UAT TestFlight build
+    needs:
+      - deployment-security
+      - preflight
+      - hardware-capture
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.hardware-capture.result == 'success' || needs.hardware-capture.result == 'skipped') }}
+    runs-on: macos-15
+    concurrency:
+      group: ios-build-and-upload
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
+    timeout-minutes: 90
+    outputs:
+      build_number: ${{ steps.build_number.outputs.next_build }}
+      marketing_version: ${{ steps.identity.outputs.marketing_version }}
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Check out current release authority
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authorize build actor including individual job reruns
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+      - name: Check out exact release SHA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.release_sha }}
+
+      - name: Assert source SHA
         shell: bash
         run: |
           set -euo pipefail
-          git checkout --detach "${{ steps.resolve.outputs.sha }}"
-          git --no-pager log -1 --oneline
+          test "$(git rev-parse HEAD)" = "${{ needs.preflight.outputs.release_sha }}"
+
+      - name: Resolve TestFlight marketing version
+        shell: bash
+        env:
+          REQUESTED_MARKETING_VERSION: ${{ inputs.marketing_version || needs.preflight.outputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import os, pathlib, re, sys
+          requested = os.environ.get('REQUESTED_MARKETING_VERSION', '').strip()
+          source = pathlib.Path(os.environ['PBXPROJ']).read_text()
+          match = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', source)
+          version = requested or (match.group(1).strip() if match else '')
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              sys.exit('Marketing version must have three numeric components.')
+          print(version)
+          PY
+          )"
+          echo "IOS_MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "TestFlight packaging version: $version"
+
+      - name: Assert optional physical evidence agrees with source
+        if: ${{ inputs.require_hardware == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ needs.hardware-capture.outputs.release_sha }}" = "${{ needs.preflight.outputs.release_sha }}"
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          # Xcode 26.3 → iOS 26 SDK + Swift 6.2 (both preinstalled on macos-15).
-          # The app's Sign in with Apple handler switches over iOS-26 additions to
-          # ASAuthorizationError.Code (.preferSignInWithApple,
-          # .deviceNotConfiguredForPasskeyCreation) that Xcode 16.4's iOS 18.5 SDK
-          # does not define. Swift 6.2 (>= 6.1) still resolves the swift-tools:6.1
-          # Package.swift manifests in Firebase/GoogleAppMeasurement 12.11.0.
           xcode-version: "26.3"
 
       - name: Set up Node
@@ -126,146 +314,46 @@ jobs:
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - name: Install web dependencies (must precede SPM resolve)
+      - name: Set up locked consent-protocol runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "true"
+
+      - name: Install web dependencies
         shell: bash
+        run: npm ci --prefix hushh-webapp
+
+      - name: Validate workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          # CapApp-SPM/Package.swift references ../../../node_modules, so the JS
-          # deps must exist before any Swift Package Manager resolution.
-          npm ci --prefix hushh-webapp
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
 
-      - name: Authenticate to Google Cloud (UAT)
+      - name: Authenticate to Google Cloud with workload identity
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
 
-      - name: Set up gcloud
+      - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Materialize UAT frontend contract + native Firebase config
+      - name: Materialize UAT app configuration
         shell: bash
-        run: |
-          set -euo pipefail
+        run: bash scripts/ci/materialize-ios-uat-build-contract.sh
 
-          # Each NEXT_PUBLIC_* value is an individual GCP Secret Manager secret in
-          # hushh-pda-uat (same source of truth deploy-uat.yml / bootstrap_profiles.sh
-          # use). prepare-ios-uat-archive.mjs lets process env override for
-          # APP_RUNTIME_PROFILE and NEXT_PUBLIC_* keys, so we export them here.
-          get() {
-            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
-          }
-          require() {
-            local name="$1" val="$2"
-            if [ -z "$val" ]; then
-              echo "Missing required GCP secret: $name (project ${GCP_PROJECT_ID})" >&2
-              exit 1
-            fi
-          }
-          put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
-
-          BACKEND_URL="$(get BACKEND_URL)"
-          require BACKEND_URL "$BACKEND_URL"
-          APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
-
-          FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
-          FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
-          FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";      require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
-          FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)";     require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
-          FB_SENDER="$(get NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID)"; require NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
-          FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";              require NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
-          FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
-
-          # Optional analytics id (unsuffixed, then legacy suffixes).
-          FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
-          [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT)"
-          [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING)"
-
-          # Maps credentials. The immersive "Your Map" uses the native SDK (iOS
-          # key); the onboarding location picker and LiveMap render Maps JS
-          # inside the WKWebView and read the BROWSER key. Omitting either one
-          # degrades that surface to the iframe embed with no error.
-          MAPS_IOS_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY)"
-          MAPS_BROWSER_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
-
-          # NEXT_PUBLIC_* are public build values (baked into the client bundle),
-          # but keep the API/VAPID keys out of the log for hygiene.
-          echo "::add-mask::$FB_API_KEY"
-          echo "::add-mask::$FB_VAPID"
-          [ -n "$MAPS_IOS_KEY" ] && echo "::add-mask::$MAPS_IOS_KEY"
-          [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
-
-          put APP_RUNTIME_PROFILE "uat"
-          put NEXT_PUBLIC_APP_ENV "uat"
-          put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
-          put NEXT_PUBLIC_APP_URL "$APP_URL"
-          put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
-          put NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
-          put NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
-          put NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
-          put NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
-          put NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
-          put NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
-          put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
-          [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
-          [ -n "$MAPS_IOS_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY "$MAPS_IOS_KEY"
-          [ -n "$MAPS_BROWSER_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY "$MAPS_BROWSER_KEY"
-          put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
-          put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
-          put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
-
-          # Native GoogleService-Info.plist for the iOS target. This is NOT part of
-          # ios:prepare:uat, and sync:native-firebase-configs requires an Android
-          # config we don't have here, so decode the GCP secret straight into place.
-          PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
-          if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
-            echo "Create it from the iOS GoogleService-Info.plist:" >&2
-            echo "  base64 -i GoogleService-Info.plist | gcloud secrets create IOS_GOOGLESERVICE_INFO_PLIST_B64 --data-file=- --project=${GCP_PROJECT_ID}" >&2
-            echo "See docs/guides/mobile/ship-ios-testflight.md." >&2
-            exit 1
-          fi
-          gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" \
-            | openssl base64 -d -A > "$PLIST_DEST"
-          if ! plutil -lint "$PLIST_DEST" >/dev/null 2>&1; then
-            echo "Decoded GoogleService-Info.plist failed plist validation." >&2
-            exit 1
-          fi
-          echo "Native GoogleService-Info.plist materialized (bundle ${IOS_BUNDLE_ID})."
-
-      - name: Decode App Store Connect API key
+      - name: Materialize protected TestFlight configuration
         shell: bash
-        run: |
-          set -euo pipefail
-          # The ASC signing key lives in GCP Secret Manager (hushh-pda-uat), the
-          # same store deploy/README.md designates for native signing assets:
-          #   APPSTORE_CONNECT_API_KEY_P8_B64 / _KEY_ID / _ISSUER_ID.
-          # Nothing App Store-related is stored as a GitHub secret.
-          get() {
-            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
-          }
-          for name in APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID; do
-            if ! gcloud secrets describe "$name" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-              echo "Missing GCP secret $name in ${GCP_PROJECT_ID}." >&2
-              echo "See docs/guides/mobile/ship-ios-testflight.md for setup." >&2
-              exit 1
-            fi
-          done
-          ASC_KEY_ID="$(get APPSTORE_CONNECT_KEY_ID)"
-          ASC_ISSUER_ID="$(get APPSTORE_CONNECT_ISSUER_ID)"
-          echo "::add-mask::${ASC_KEY_ID}"
-          echo "::add-mask::${ASC_ISSUER_ID}"
-          umask 077
-          get APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "${RUNNER_TEMP}/asc.p8"
-          chmod 600 "${RUNNER_TEMP}/asc.p8"
-          if ! grep -q "BEGIN PRIVATE KEY" "${RUNNER_TEMP}/asc.p8"; then
-            echo "Decoded ASC key is not a valid PEM .p8 (check APPSTORE_CONNECT_API_KEY_P8_B64)." >&2
-            exit 1
-          fi
-          # Key id + issuer id are needed by later xcodebuild/resolver steps; they
-          # are masked in logs above.
-          echo "ASC_KEY_ID=${ASC_KEY_ID}" >> "$GITHUB_ENV"
-          echo "ASC_ISSUER_ID=${ASC_ISSUER_ID}" >> "$GITHUB_ENV"
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
 
       - name: Create signing keychain
         shell: bash
@@ -276,46 +364,48 @@ jobs:
           security create-keychain -p "$KC_PW" "$KEYCHAIN"
           security set-keychain-settings -lt 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
-          # Add to the search list and make default so Apple-managed signing can
-          # store the fetched distribution cert + key.
+          # Keep the keychain runner-local; Apple-managed signing can use the
+          # existing distribution certificate without creating another one.
           security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
           security default-keychain -s "$KEYCHAIN"
 
-          # Import distribution certificate if present in GCP Secret Manager
-          DIST_CERT_B64="$(gcloud secrets versions access latest --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
-          if [ -n "$DIST_CERT_B64" ]; then
-            umask 077
-            echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
-            security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
-            rm -f "${RUNNER_TEMP}/dist_cert.p12"
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" >/dev/null 2>&1 || true
-            echo "Distribution certificate imported into signing keychain."
+          DIST_CERT_B64="$(gcloud secrets versions access latest \
+            --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 \
+            --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
+          if [ -z "$DIST_CERT_B64" ]; then
+            echo "Missing APPSTORE_DISTRIBUTION_CERT_P12_B64 in ${GCP_PROJECT_ID}." >&2
+            exit 1
           fi
+          umask 077
+          echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
+          security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
+          rm -f "${RUNNER_TEMP}/dist_cert.p12"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" \
+            >/dev/null 2>&1 || true
+          echo "Distribution certificate imported into signing keychain."
 
-      - name: Prepare iOS project (web build + cap sync, UAT backend)
+      - name: Run local One Voice safety and native contract gates
         shell: bash
         run: |
           set -euo pipefail
-          npm run --prefix hushh-webapp ios:prepare:uat
+          npm run --prefix hushh-webapp verify:one-voice
+          npm run --prefix hushh-webapp verify:capacitor:static
+          npm run --prefix hushh-webapp verify:capacitor:plugins
+          node hushh-webapp/scripts/native/verify-ios-voice-privacy-preflight.mjs
+          python3 scripts/ci/test_distribute_testflight_build.py
+          python3 scripts/ci/test_ios_uat_passkey_config.py
 
-      - name: Resolve next TestFlight build number
-        id: build_number
+      - name: Prepare UAT native project
         shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m venv "${RUNNER_TEMP}/asc-venv"
-          "${RUNNER_TEMP}/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
-          NEXT_BUILD="$("${RUNNER_TEMP}/asc-venv/bin/python" scripts/ci/resolve-ios-build-number.py \
-            --p8-path "${RUNNER_TEMP}/asc.p8" \
-            --key-id "${ASC_KEY_ID}" \
-            --issuer-id "${ASC_ISSUER_ID}" \
-            --bundle-id "${IOS_BUNDLE_ID}" \
-            --pbxproj "${PBXPROJ}")"
-          echo "next_build=${NEXT_BUILD}" >> "$GITHUB_OUTPUT"
-          echo "Next build number: ${NEXT_BUILD}"
+        run: npm run --prefix hushh-webapp ios:prepare:uat
+
+      - name: Verify staged UAT product assets
+        shell: bash
+        run: npm run --prefix hushh-webapp verify:capacitor:product-assets
 
       - name: Cache Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ${{ runner.temp }}/spm
@@ -329,147 +419,306 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
-            -project "${XCODE_PROJECT}" \
-            -scheme "${XCODE_SCHEME}" \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
-      - name: Archive
+      - name: Run core iOS App Intent and action tests
+        id: core_tests
+        if: ${{ inputs.run_core_tests == true }}
         shell: bash
         run: |
           set -euo pipefail
-          set -o pipefail
+          simulator_id="$(python3 -c 'import json, subprocess; payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True)); matches = [device["udid"] for runtime, devices in payload.get("devices", {}).items() if "iOS" in runtime for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; print(matches[0] if matches else ""); raise SystemExit(0 if matches else "No available iPhone Simulator is installed on the release runner.")')"
+          xcodebuild test \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -derivedDataPath "$RUNNER_TEMP/one-voice-simulator-derived-data" \
+            -only-testing:AppTests/OneVoiceInvocationCoordinatorTests/testAppIntentAvailabilityContractsCompileFromTheIOS17DeploymentTarget \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testActionCatalogMatchesGeneratedLocationContractIdentifiers \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapPeopleAndSlotsToCanonicalActions \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapLocationAndCircleMutations \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testAllTenDestinationIntentsRemainNonMutatingAdapters \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Resolve next TestFlight build number
+        id: build_number
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/asc-venv"
+          "$RUNNER_TEMP/asc-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
+          next_build="$("$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/resolve-ios-build-number.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
+            --pbxproj "$PBXPROJ")"
+          echo "next_build=$next_build" >> "$GITHUB_OUTPUT"
+
+      - name: Run TestFlight API unit gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/test_resolve_ios_build_number.py
+          "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/test_wait_for_testflight_build.py
+
+      - name: Create UAT archive
+        shell: bash
+        run: |
+          set -euo pipefail
           xcodebuild \
-            -project "${XCODE_PROJECT}" \
-            -scheme "${XCODE_SCHEME}" \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "${RUNNER_TEMP}/App.xcarchive" \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -derivedDataPath "$RUNNER_TEMP/one-voice-archive-derived-data" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
-            -authenticationKeyID "${ASC_KEY_ID}" \
-            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
-            -skipMacroValidation \
-            -skipPackagePluginValidation \
+            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            MARKETING_VERSION="$IOS_MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
-            archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
+            archive
 
-      - name: Export & upload to TestFlight
+      - name: Verify archived app and extension versions
+        shell: bash
+        env:
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, plistlib, sys
+          app = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app')
+          plists = [app / 'Info.plist', *app.glob('PlugIns/*.appex/Info.plist')]
+          for path in plists:
+              with path.open('rb') as handle:
+                  info = plistlib.load(handle)
+              if (info.get('CFBundleShortVersionString') != os.environ['IOS_MARKETING_VERSION'] or
+                  str(info.get('CFBundleVersion')) != os.environ['EXPECTED_BUILD_NUMBER']):
+                  sys.exit(f'Archive version mismatch: {path.relative_to(app)}')
+          print(f'Verified app and {len(plists) - 1} extension version(s).')
+          PY
+
+      - name: Verify archive assets, privacy, and own symbols
+        shell: bash
+        env:
+          IOS_APP_BUNDLE_PATH: ${{ runner.temp }}/App.xcarchive/Products/Applications/App.app
+        run: |
+          set -euo pipefail
+          npm run --prefix hushh-webapp verify:capacitor:product-assets
+          node hushh-webapp/scripts/native/verify-ios-voice-privacy-preflight.mjs
+          npm run --prefix hushh-webapp ios:verify-archive-symbols \
+            -- "$RUNNER_TEMP/App.xcarchive"
+
+      - name: Export and upload TestFlight build
+        id: upload
         shell: bash
         run: |
           set -euo pipefail
-          set -o pipefail
-          EXPORT_PLIST="hushh-webapp/ios/ExportOptions/AppStoreConnect.plist"
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            # Dry run: archive + sign + export the .ipa locally, but do NOT upload.
-            EXPORT_PLIST="${RUNNER_TEMP}/ExportOptions.dryrun.plist"
-            cp "hushh-webapp/ios/ExportOptions/AppStoreConnect.plist" "$EXPORT_PLIST"
-            /usr/libexec/PlistBuddy -c "Set :destination export" "$EXPORT_PLIST"
-            echo "DRY RUN: exporting signed .ipa without uploading to TestFlight."
-          fi
-          xcodebuild -exportArchive \
-            -archivePath "${RUNNER_TEMP}/App.xcarchive" \
-            -exportOptionsPlist "$EXPORT_PLIST" \
-            -exportPath "${RUNNER_TEMP}/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
-            -authenticationKeyID "${ASC_KEY_ID}" \
-            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
-            2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
+          python3 scripts/ci/export-ios-distribution.py \
+            --archive "$RUNNER_TEMP/App.xcarchive" \
+            --export-path "$RUNNER_TEMP/export" \
+            --options hushh-webapp/ios/ExportOptions/AppStoreConnect.plist \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --dry-run "${{ inputs.dry_run }}"
 
-      - name: Poll App Store Connect build processing status
-        if: github.event.inputs.dry_run != 'true'
-        id: poll_asc
+      - name: Preserve dry-run UAT IPA in private bucket
+        id: private_artifact
+        if: ${{ inputs.dry_run == true }}
         shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
         run: |
           set -euo pipefail
-          "${RUNNER_TEMP}/asc-venv/bin/python" - <<'EOF'
-          import urllib.request, json, time, jwt, os, sys
+          shopt -s nullglob
+          ipa_files=("$RUNNER_TEMP"/export/*.ipa)
+          test "${#ipa_files[@]}" -eq 1 || {
+            echo "Expected exactly one signed UAT IPA." >&2
+            exit 1
+          }
+          python3 scripts/ci/upload-private-native-artifact.py \
+            --file "${ipa_files[0]}" \
+            --source-sha "$RELEASE_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform ios-testflight \
+            --receipt "$RUNNER_TEMP/private-native-artifact-receipt.json"
 
-          p8_path = os.environ["RUNNER_TEMP"] + "/asc.p8"
-          key_id = os.environ["ASC_KEY_ID"]
-          issuer_id = os.environ["ASC_ISSUER_ID"]
-          bundle_id = os.environ.get("IOS_BUNDLE_ID", "com.hushh.app")
-          target_version = "${{ steps.build_number.outputs.next_build }}"
-
-          with open(p8_path, "rb") as f:
-              p8_bytes = f.read()
-
-          def mint_token():
-              now = int(time.time())
-              payload = {"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}
-              headers = {"kid": key_id, "typ": "JWT"}
-              return jwt.encode(payload, p8_bytes, algorithm="ES256", headers=headers)
-
-          token = mint_token()
-          req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}", headers={"Authorization": f"Bearer {token}"})
-          with urllib.request.urlopen(req) as r:
-              app_id = json.loads(r.read())["data"][0]["id"]
-
-          print(f"Polling App Store Connect for Build {target_version} processing status...")
-          success = False
-          for attempt in range(1, 31):
-              token = mint_token()
-              url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&include=buildBetaDetail"
-              req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-              try:
-                  with urllib.request.urlopen(req) as r:
-                      data = json.loads(r.read())
-                  for b in data.get("data", []):
-                      attr = b.get("attributes") or {}
-                      ver = attr.get("version")
-                      state = attr.get("processingState")
-                      enc = attr.get("usesNonExemptEncryption")
-                      if str(ver) == str(target_version):
-                          print(f"Attempt {attempt}: Build {target_version} found! ProcessingState: {state}, EncryptionExempt: {enc == False}")
-                          if state == "VALID":
-                              print(f"==> Build {target_version} processing is VALID and TestFlight distribution is ready!")
-                              success = True
-                              break
-                          elif state in ("FAILED", "INVALID"):
-                              print(f"==> Build {target_version} processing failed on App Store Connect with state: {state}")
-                              sys.exit(1)
-              except Exception as exc:
-                  print(f"Attempt {attempt}: transient error querying ASC API: {exc}")
-              if success:
-                  break
-              time.sleep(15)
-
-          if not success:
-              print(f"==> Warning: Polling timed out before build {target_version} reached VALID state.")
-          EOF
-
-      - name: Upload build artifacts
-        if: always()
+      - name: Upload redacted private IPA receipt
+        if: ${{ inputs.dry_run == true && steps.private_artifact.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ios-testflight-${{ steps.build_number.outputs.next_build }}
-          if-no-files-found: ignore
+          name: hushh-one-ios-uat-private-receipt-${{ needs.preflight.outputs.release_sha }}
+          path: ${{ runner.temp }}/private-native-artifact-receipt.json
           retention-days: 14
-          path: |
-            ${{ runner.temp }}/export/**
-            ${{ runner.temp }}/xcodebuild-archive.log
-            ${{ runner.temp }}/xcodebuild-export.log
-            ${{ runner.temp }}/App.xcarchive/dSYMs/**
+          if-no-files-found: error
 
-      - name: Job summary
+      - name: Preserve uploaded build identity for recovery
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, plistlib
+          archive_info = pathlib.Path(os.environ['RUNNER_TEMP'], 'App.xcarchive/Products/Applications/App.app/Info.plist')
+          with archive_info.open('rb') as handle:
+              version = plistlib.load(handle)['CFBundleShortVersionString']
+          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
+          PY
+
+      - name: Upload recovery receipt before Apple processing
+        if: inputs.dry_run != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-upload-receipt
+          path: ${{ runner.temp }}/testflight-upload-receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Preserve redacted distribution outputs
+        id: identity
+        run: echo "marketing_version=$IOS_MARKETING_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Remove protected runner files
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          rm -f "$RUNNER_TEMP/asc.p8" \
+            "$RUNNER_TEMP/asc-beta-review-contact.json" \
+            "$RUNNER_TEMP/asc-beta-review-notes.txt" \
+            "GoogleService-Info.plist" \
+            "hushh-webapp/.env.native.ios.local"
+
+      - name: Publish TestFlight-only summary
+        if: always()
+        shell: bash
+        env:
+          PRIVATE_ARTIFACT_OUTCOME: ${{ steps.private_artifact.outcome }}
+        run: |
           {
-            echo "## Ship iOS to TestFlight"
-            echo ""
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| SHA | \`${{ steps.resolve.outputs.sha }}\` |"
-            echo "| Version | ${MARKETING:-unknown} |"
-            echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
-            echo "| Bundle | ${IOS_BUNDLE_ID} |"
-            echo "| Backend | UAT (hushh-pda-uat) |"
-            echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }} |"
-            if [ -n "${{ github.event.inputs.notes }}" ]; then
-              echo "| Notes | ${{ github.event.inputs.notes }} |"
-            fi
+            echo "## Normal UAT TestFlight release"
+            echo
+            echo "| Release source | ${{ needs.preflight.outputs.release_sha }} |"
+            echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
+            echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
+            echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Marketing version | ${IOS_MARKETING_VERSION:-unresolved} |"
+            echo "| IPA export / TestFlight upload | ${{ steps.upload.outcome }} |"
+            echo "| Private dry-run UAT IPA | ${PRIVATE_ARTIFACT_OUTCOME:-not requested} (14-day bucket retention; receipt only in Actions) |"
+            echo "| Apple processing | separate Ubuntu distribution job |"
+            echo "| TestFlight distribution | separate Ubuntu distribution job |"
+            echo
+            echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  distribute:
+    name: Process and distribute uploaded TestFlight build
+    needs: [preflight, ship, deployment-security]
+    # Override implicit success(): the optional hardware ancestor may be skipped.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.ship.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      deployment: false
+    timeout-minutes: 35
+    env:
+      IOS_MARKETING_VERSION: ${{ needs.ship.outputs.marketing_version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Authorize distribution actor including individual job reruns
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install pyjwt cryptography
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Materialize protected distribution configuration
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
+
+      - name: Wait for valid TestFlight processing
+        id: processing
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/wait_for_testflight_build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
+            --build-number "${{ needs.ship.outputs.build_number }}" \
+            --timeout-seconds 1200 \
+            --poll-interval-seconds 15 \
+            --output-json "$RUNNER_TEMP/testflight-build.json"
+
+      - name: Attach the same valid build to both TestFlight groups
+        id: distribution
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/distribute-testflight-build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$IOS_MARKETING_VERSION" \
+            --build-number "${{ needs.ship.outputs.build_number }}" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
+            --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
+            --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
+            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
+            --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
+
+      - name: Upload redacted release evidence
+        if: ${{ always() && inputs.dry_run != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-voice-testflight-evidence-${{ needs.preflight.outputs.release_sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/testflight-distribution.json
+
+      - name: Distribution summary
+        if: always()
+        run: |
+          echo "Source: ${{ needs.preflight.outputs.release_sha }}; build: ${{ needs.ship.outputs.build_number }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing: ${{ steps.processing.outcome }}; distribution: ${{ steps.distribution.outcome }}. External Beta App Review may remain pending." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove protected distribution files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"

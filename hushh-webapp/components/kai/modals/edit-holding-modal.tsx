@@ -13,7 +13,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Calendar, Save } from "lucide-react";
+import { Save } from "@/components/icons";
+import type { Holding } from "@/components/kai/types/portfolio";
+import { holdingEditorErrors, isCashEquivalentHolding, withHoldingValues, type HoldingValidationIssue, type HoldingValidationField } from "@/lib/kai/holding-validation";
+import { HoldingAcquisitionDateField } from "@/components/kai/holdings/holding-acquisition-date-field";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -37,23 +41,12 @@ import {
 // TYPES
 // =============================================================================
 
-interface Holding {
-  symbol: string;
-  name: string;
-  quantity: number;
-  price: number;
-  market_value: number;
-  cost_basis?: number;
-  unrealized_gain_loss?: number;
-  unrealized_gain_loss_pct?: number;
-  acquisition_date?: string;
-}
-
 interface EditHoldingModalProps {
   isOpen: boolean;
   onClose: () => void;
   holding: Holding | null;
   onSave: (holding: Holding) => void;
+  validationIssue?: HoldingValidationIssue | null;
 }
 
 type SuggestionField = "symbol" | "name";
@@ -128,8 +121,19 @@ export function EditHoldingModal({
   onClose,
   holding,
   onSave,
+  validationIssue,
 }: EditHoldingModalProps) {
   const maxAcquisitionDate = getLocalDateIso();
+  const formRef = useRef<HTMLDivElement | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ field: HoldingValidationField; attempt: number } | null>(null);
+  const focusField = useCallback((field: HoldingValidationField) => {
+    const input = formRef.current?.querySelector<HTMLInputElement>(`#holding-${field.replaceAll("_", "-")}`);
+    input?.scrollIntoView?.({ block: "center" });
+    input?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    if (isOpen && focusRequest) focusField(focusRequest.field);
+  }, [focusField, focusRequest, isOpen]);
   const symbolInputWrapRef = useRef<HTMLDivElement | null>(null);
   const nameInputWrapRef = useRef<HTMLDivElement | null>(null);
   const [formData, setFormData] = useState<Holding>({
@@ -138,7 +142,7 @@ export function EditHoldingModal({
     quantity: 0,
     price: 0,
     market_value: 0,
-    cost_basis: 0,
+    cost_basis: undefined,
     acquisition_date: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -171,35 +175,21 @@ export function EditHoldingModal({
   useEffect(() => {
     if (holding) {
       setFormData({
+        ...holding,
         symbol: holding.symbol || "",
         name: holding.name || "",
         quantity: holding.quantity || 0,
         price: holding.price || 0,
         market_value: holding.market_value || 0,
-        cost_basis: holding.cost_basis || 0,
+        cost_basis: holding.cost_basis,
         unrealized_gain_loss: holding.unrealized_gain_loss,
         unrealized_gain_loss_pct: holding.unrealized_gain_loss_pct,
         acquisition_date: holding.acquisition_date || "",
       });
-      setErrors({});
+      setErrors(validationIssue ? { [validationIssue.field]: validationIssue.message } : {});
+      setFocusRequest(validationIssue ? { field: validationIssue.field, attempt: 0 } : null);
     }
-  }, [holding]);
-
-  // Update market value when quantity or price changes
-  useEffect(() => {
-    const marketValue = formData.quantity * formData.price;
-    const gainLoss = formData.cost_basis ? marketValue - formData.cost_basis : 0;
-    const gainLossPct = formData.cost_basis && formData.cost_basis > 0 
-      ? (gainLoss / formData.cost_basis) * 100 
-      : 0;
-
-    setFormData(prev => ({
-      ...prev,
-      market_value: marketValue,
-      unrealized_gain_loss: gainLoss,
-      unrealized_gain_loss_pct: gainLossPct,
-    }));
-  }, [formData.quantity, formData.price, formData.cost_basis]);
+  }, [holding, isOpen, validationIssue]);
 
   useEffect(() => {
     const query =
@@ -265,11 +255,11 @@ export function EditHoldingModal({
   }, []);
 
   // Handle input change
-  const handleChange = useCallback((field: keyof Holding, value: string | number) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value,
-    }));
+  const handleChange = useCallback((field: keyof Holding, value: string | number | undefined) => {
+    setFormData(prev => {
+      const next = { ...prev, [field]: value };
+      return ["quantity", "price", "cost_basis", "market_value"].includes(field) ? withHoldingValues(next) : next;
+    });
     // Clear error for this field
     setErrors(prev => {
       const newErrors = { ...prev };
@@ -315,70 +305,19 @@ export function EditHoldingModal({
     setActiveSuggestionField(null);
   }, []);
 
-  // Validate form
-  const validate = useCallback((): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.symbol.trim()) {
-      newErrors.symbol = "Symbol is required";
-    } else if (!/^[A-Z0-9]{1,5}(?:[.-][A-Z0-9]{1,3})?$/.test(formData.symbol.toUpperCase())) {
-      newErrors.symbol = "Invalid symbol format";
-    }
-
-    if (!formData.name.trim()) {
-      newErrors.name = "Name is required";
-    }
-
-    const quantity = Number(formData.quantity);
-    const price = Number(formData.price);
-    const marketValue = quantity * price;
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      newErrors.quantity = "Quantity must be greater than 0";
-    }
-
-    if (!Number.isFinite(price) || price <= 0) {
-      newErrors.price = "Price must be greater than 0";
-    }
-
-    if (!Number.isFinite(marketValue) || marketValue <= 0) {
-      newErrors.market_value = "Market value must be greater than $0.00";
-    }
-
-    if (formData.cost_basis !== undefined && Number(formData.cost_basis) < 0) {
-      newErrors.cost_basis = "Cost basis cannot be negative";
-    }
-
-    const acquisitionDate = String(formData.acquisition_date || "").trim();
-    if (acquisitionDate) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(acquisitionDate)) {
-        newErrors.acquisition_date = "Enter a valid date";
-      } else if (acquisitionDate > maxAcquisitionDate) {
-        newErrors.acquisition_date = "Acquisition date cannot be in the future";
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData, maxAcquisitionDate]);
-
-  // Handle save
   const handleSave = useCallback(() => {
-    if (!validate()) return;
+    const next = withHoldingValues(formData);
+    const newErrors = holdingEditorErrors(next, maxAcquisitionDate);
+    setErrors(newErrors);
+    const field = Object.keys(newErrors)[0] as HoldingValidationField | undefined;
+    if (field) {
+      setFocusRequest(previous => ({ field, attempt: (previous?.attempt ?? 0) + 1 }));
+      return;
+    }
+    onSave({ ...next, symbol: next.symbol.toUpperCase() });
+  }, [formData, maxAcquisitionDate, onSave]);
 
-    onSave({
-      ...formData,
-      symbol: formData.symbol.toUpperCase(),
-    });
-  }, [formData, validate, onSave]);
-
-  const formatAcquisitionDate = useCallback((value?: string) => {
-    if (!value) return "";
-    const [year, month, day] = value.split("-");
-    if (!year || !month || !day) return value;
-    return `${month}/${day}/${year}`;
-  }, []);
-
+  const cashLike = isCashEquivalentHolding(formData);
   const isNewHolding = !holding?.symbol;
 
   return (
@@ -389,7 +328,7 @@ export function EditHoldingModal({
       onOpenChange={(open) => !open && onClose()}
       repositionInputs={false}
     >
-      <DrawerContent>
+      <DrawerContent className={financeStyles.detail} onOpenAutoFocus={event => { if (validationIssue) { event.preventDefault(); focusField(validationIssue.field); } }}>
         <DrawerHeader>
           <DrawerTitle>
             {isNewHolding ? "Add Holding" : "Edit Holding"}
@@ -399,7 +338,7 @@ export function EditHoldingModal({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="px-4 py-2 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div ref={formRef} className="px-4 py-2 space-y-4 max-h-[60vh] overflow-y-auto">
           {/* Symbol */}
           <div>
             <label htmlFor="holding-symbol" className="block text-sm font-medium mb-1">
@@ -408,6 +347,8 @@ export function EditHoldingModal({
             <div ref={symbolInputWrapRef} className="relative">
               <input
                 id="holding-symbol"
+                aria-invalid={Boolean(errors.symbol)}
+                aria-describedby={errors.symbol ? "holding-symbol-error" : undefined}
                 type="text"
                 value={formData.symbol}
                 onChange={(e) => handleChange("symbol", e.target.value.toUpperCase())}
@@ -441,7 +382,7 @@ export function EditHoldingModal({
                         onClick={() => applySuggestion(row)}
                       >
                         <span className="min-w-[72px] font-semibold">{String(row.ticker || "").toUpperCase()}</span>
-                        <span className="truncate text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {row.title || "Unknown company"}
                           {metadata ? ` • ${metadata}` : ""}
                         </span>
@@ -457,7 +398,7 @@ export function EditHoldingModal({
               )}
             </div>
             {errors.symbol && (
-              <p className="text-sm text-red-500 mt-1">{errors.symbol}</p>
+              <p id="holding-symbol-error" className="text-sm text-red-500 mt-1">{errors.symbol}</p>
             )}
           </div>
 
@@ -469,6 +410,8 @@ export function EditHoldingModal({
             <div ref={nameInputWrapRef} className="relative">
               <input
                 id="holding-name"
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? "holding-name-error" : undefined}
                 type="text"
                 value={formData.name}
                 onChange={(e) => handleChange("name", e.target.value)}
@@ -501,7 +444,7 @@ export function EditHoldingModal({
                         onClick={() => applySuggestion(row)}
                       >
                         <span className="min-w-[72px] font-semibold">{String(row.ticker || "").toUpperCase()}</span>
-                        <span className="truncate text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {row.title || "Unknown company"}
                           {metadata ? ` • ${metadata}` : ""}
                         </span>
@@ -517,18 +460,20 @@ export function EditHoldingModal({
               )}
             </div>
             {errors.name && (
-              <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+              <p id="holding-name-error" className="text-sm text-red-500 mt-1">{errors.name}</p>
             )}
           </div>
 
           {/* Quantity & Price Row */}
-          <div className="grid grid-cols-2 gap-4">
+          {!cashLike ? <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="holding-quantity" className="block text-sm font-medium mb-1">
                 Quantity <span className="text-red-500">*</span>
               </label>
 	              <input
                 id="holding-quantity"
+                aria-invalid={Boolean(errors.quantity)}
+                aria-describedby={errors.quantity ? "holding-quantity-error" : undefined}
                 type="number"
                 value={formData.quantity || ""}
                 onChange={(e) => handleChange("quantity", parseFloat(e.target.value) || 0)}
@@ -543,7 +488,7 @@ export function EditHoldingModal({
                 )}
               />
               {errors.quantity && (
-                <p className="text-sm text-red-500 mt-1">{errors.quantity}</p>
+                <p id="holding-quantity-error" className="text-sm text-red-500 mt-1">{errors.quantity}</p>
               )}
             </div>
 
@@ -553,6 +498,8 @@ export function EditHoldingModal({
               </label>
 	              <input
                 id="holding-price"
+                aria-invalid={Boolean(errors.price)}
+                aria-describedby={errors.price ? "holding-price-error" : undefined}
                 type="number"
                 value={formData.price || ""}
                 onChange={(e) => handleChange("price", parseFloat(e.target.value) || 0)}
@@ -567,28 +514,32 @@ export function EditHoldingModal({
                 )}
               />
               {errors.price && (
-                <p className="text-sm text-red-500 mt-1">{errors.price}</p>
+                <p id="holding-price-error" className="text-sm text-red-500 mt-1">{errors.price}</p>
               )}
             </div>
-          </div>
+          </div> : null}
 
-          {/* Market Value (calculated, read-only) */}
+          {/* Cash retains its reported balance; stock value follows shares and price. */}
           <div>
             <label htmlFor="holding-market-value" className="block text-sm text-muted-foreground font-medium mb-1">
-              Market Value (Auto-calculated)
+              {cashLike ? "Cash balance" : "Market Value (Auto-calculated)"}
             </label>
             <input
               id="holding-market-value"
-              type="text"
-              value={`$${formData.market_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              readOnly
+              aria-invalid={Boolean(errors.market_value)}
+              aria-describedby={errors.market_value ? "holding-market-value-error" : undefined}
+              type={cashLike ? "number" : "text"}
+              value={cashLike ? (Number.isFinite(formData.market_value) ? formData.market_value : "") : `$${formData.market_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              onChange={cashLike ? event => handleChange("market_value", Number(event.target.value)) : undefined}
+              step={cashLike ? "0.01" : undefined}
+              readOnly={!cashLike}
               className={cn(
                 "w-full px-4 py-3 h-12 rounded-xl border bg-muted/50 text-muted-foreground font-medium",
                 errors.market_value ? "border-red-500" : "border-border"
               )}
             />
             {errors.market_value && (
-              <p className="text-sm text-red-500 mt-1">{errors.market_value}</p>
+              <p id="holding-market-value-error" className="text-sm text-red-500 mt-1">{errors.market_value}</p>
             )}
           </div>
 
@@ -599,62 +550,27 @@ export function EditHoldingModal({
             </label>
             <input
               id="holding-cost-basis"
+              aria-invalid={Boolean(errors.cost_basis)}
+              aria-describedby={errors.cost_basis ? "holding-cost-basis-error" : undefined}
               type="number"
-              value={formData.cost_basis || ""}
-              onChange={(e) => handleChange("cost_basis", parseFloat(e.target.value) || 0)}
+              value={formData.cost_basis ?? ""}
+              onChange={(e) => handleChange("cost_basis", e.target.value === "" ? undefined : parseFloat(e.target.value))}
               placeholder="0.00"
               min="0"
               step="0.01"
               className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
             />
             {errors.cost_basis && (
-              <p className="text-sm text-red-500 mt-1">{errors.cost_basis}</p>
+              <p id="holding-cost-basis-error" className="text-sm text-red-500 mt-1">{errors.cost_basis}</p>
             )}
           </div>
 
-          {/* Acquisition Date */}
-          <div>
-            <label htmlFor="holding-acquisition-date" className="block text-sm font-medium mb-1">
-              Acquisition Date
-            </label>
-            <div className="relative">
-              {/*
-                Decorative display layer. The REAL date input is the invisible
-                full-size overlay below: iOS WKWebView only opens the native
-                date wheel from a direct user tap ON the date input itself -
-                programmatic click()/focus()/showPicker() on a hidden 1px input
-                are ignored there, which is why this field previously could not
-                be filled on iOS. pointer-events-none keeps every tap landing
-                on the overlay input.
-              */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none flex h-12 w-full items-center rounded-xl border border-border bg-background px-4 pr-12 transition-colors"
-              >
-                <span className={formData.acquisition_date ? "" : "text-muted-foreground"}>
-                  {formatAcquisitionDate(formData.acquisition_date) || "MM/DD/YYYY"}
-                </span>
-              </div>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground"
-              >
-                <Calendar className="h-4 w-4" />
-              </span>
-              <input
-                id="holding-acquisition-date"
-                type="date"
-                value={formData.acquisition_date || ""}
-                onChange={(e) => handleChange("acquisition_date", e.target.value)}
-                max={maxAcquisitionDate}
-                aria-label="Acquisition date"
-                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-              />
-            </div>
-            {errors.acquisition_date && (
-              <p className="text-sm text-red-500 mt-1">{errors.acquisition_date}</p>
-            )}
-          </div>
+          <HoldingAcquisitionDateField
+            value={formData.acquisition_date}
+            max={maxAcquisitionDate}
+            error={errors.acquisition_date}
+            onChange={(value) => handleChange("acquisition_date", value)}
+          />
 
           {/* Gain/Loss Preview */}
           {formData.cost_basis !== undefined && formData.cost_basis > 0 && (

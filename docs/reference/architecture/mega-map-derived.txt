@@ -1,0 +1,73 @@
+THE HUSSH MEGA MAP v2 — derived from the implementation
+========================================================================
+
+AGENTS  20 packages (18 with agent.yaml): 6 wired · 2 no caller · 12 manifest only
+
+  MANIFEST     connected_systems        py=0   importers=0
+  MANIFEST     connections              py=0   importers=0
+  MANIFEST     email                    py=0   importers=0
+  MANIFEST     financial_guard          py=0   importers=0
+  MANIFEST     gmail                    py=0   importers=0
+  WIRED        kai                      py=10  importers=6
+  MANIFEST     kyc                      py=0   importers=0
+  WIRED        location                 py=2   importers=1
+  MANIFEST     memory_intent            py=0   importers=0
+  MANIFEST     memory_merge             py=0   importers=0
+  MANIFEST     memory_segmentation      py=0   importers=0
+  WIRED        nav                      py=0   importers=0  (reached via ask_consent_agent, which routes to Nav's Consent Center)
+  WIRED        onboarding               py=1   importers=1
+  MANIFEST     one                      py=0   importers=0
+  WIRED        orchestrator             py=2   importers=1
+  WIRED        personal_information     py=2   importers=1
+  MANIFEST     pkm_structure            py=0   importers=0
+  NO CALLER    portfolio_import         py=2   importers=0
+  NO CALLER    realtime_bench           py=5   importers=0
+  MANIFEST     summary_reducer          py=0   importers=0
+
+AGENT ONE TOOL SURFACE  12 tools offered at runtime
+  - ask_connected_systems_agent
+  - ask_consent_agent
+  - ask_email_agent
+  - ask_location_agent
+  - continue_app_goal
+  - finance
+  - google_search
+  - list_app_actions
+  - open_screen
+  - resolve_onboarding_goal
+  - run_app_action
+  - start_app_goal
+
+DEPLOY LANES
+  Deploy to Dev            hushh-pda-dev      us-central1    (deploy-dev.yml)
+  Deploy to Production     hushh-pda          us-central1    (deploy-production.yml)
+  Deploy to UAT            hushh-pda-uat      us-central1    (deploy-uat.yml)
+
+CI LANES  advisory, all, governance, integration, mcp-package, protocol, secret, smoke, web-core, web-targeted
+
+OPS SCRIPTS  9
+  - configure_crm_registry.py
+  - crm_registry_e2e_check.py
+  - pod_curl.py
+  - pod_fleet.py
+  - pod_resource_probe.py
+  - provision_partner_developer_app.py
+  - seed_crm_registry_row.py
+  - validate_agent_platform.py
+  - verify_pod_journey.py
+
+DOCUMENTATION FAMILIES
+  ai                     1 pages
+  architecture          24 pages
+  governance             1 pages
+  iam                   11 pages
+  kai                   11 pages
+  mobile                 3 pages
+  one                   10 pages
+  operations            25 pages
+  quality               14 pages
+  streaming              4 pages
+
+------------------------------------------------------------------------
+Every line above was scanned, not asserted. If a fact here is wrong, the
+implementation changed and this map changed with it -- which is the point.

@@ -105,8 +105,8 @@ describe("PhoneVerificationFlow phone input normalization", () => {
   });
 
   it("masks the OTP destination without exposing the country code", () => {
-    expect(maskPhoneNumberForOtp("+918004482372")).toBe("•••••• 2372");
-    expect(maskPhoneNumberForOtp("+16505550101")).toBe("•••••• 0101");
+    expect(maskPhoneNumberForOtp("+918004482372")).toBe("••••••2372");
+    expect(maskPhoneNumberForOtp("+16505550101")).toBe("••••••0101");
   });
 
   it("preserves empty phone input normalization stability", () => {

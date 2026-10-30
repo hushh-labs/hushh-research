@@ -44,9 +44,7 @@ def test_status_user_id_too_long_returns_422():
 
 def test_status_valid_user_id_reaches_handler():
     fake_status = {"connected": True}
-    with patch(
-        "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service",
-    ) as mock_factory:
+    with patch.object(gmail_module, "_service") as mock_factory:
         svc = MagicMock()
         svc.get_status = AsyncMock(return_value=fake_status)
         mock_factory.return_value = svc
@@ -79,9 +77,7 @@ def test_receipts_page_above_cap_returns_422():
 
 def test_receipts_page_at_cap_passes():
     fake_receipts = {"items": [], "total": 0}
-    with patch(
-        "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service",
-    ) as mock_factory:
+    with patch.object(gmail_module, "_service") as mock_factory:
         svc = MagicMock()
         svc.list_receipts = AsyncMock(return_value=fake_receipts)
         mock_factory.return_value = svc

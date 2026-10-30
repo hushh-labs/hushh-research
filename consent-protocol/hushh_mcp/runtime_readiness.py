@@ -8,9 +8,28 @@ the ADK contract the authored One tree requires.
 
 from __future__ import annotations
 
+import os
 from importlib.metadata import PackageNotFoundError, version
 
-PINNED_GOOGLE_ADK_VERSION = "2.4.0"
+PINNED_GOOGLE_ADK_VERSION = "2.9.0"
+
+
+def assert_account_generation_configuration() -> None:
+    """Never activate replacements by disabling an existing identity integration.
+
+    WorkOS captures generation zero and journals identity mutations. The
+    conditional HushhTech exchange still needs its own captured authority.
+    """
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() != "true":
+        return
+    product_enabled = os.getenv("HUSSH_TECH_CLIENT_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if product_enabled:
+        raise RuntimeError("account_generation_identity_integration_not_qualified")
 
 
 def google_adk_version() -> str | None:
@@ -24,9 +43,8 @@ def google_adk_version() -> str | None:
 def assert_pinned_google_adk() -> str:
     """Fail before accepting traffic when the One runtime is incompatible.
 
-    ``AgentTool.propagate_grounding_metadata`` is part of the pinned 2.4
-    contract. A system interpreter with an older package can otherwise start
-    FastAPI and only fail when One is constructed for a real request.
+    A system interpreter with an older package can otherwise start FastAPI and
+    only fail when One is constructed for a real request.
     """
     installed = google_adk_version()
     if installed != PINNED_GOOGLE_ADK_VERSION:

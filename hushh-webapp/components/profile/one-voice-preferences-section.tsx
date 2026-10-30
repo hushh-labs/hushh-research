@@ -1,0 +1,170 @@
+"use client";
+
+/**
+ * The "Talk to One (live)" block at the top of Profile > Preferences > Voice.
+ *
+ * Three rows:
+ * - a read-only status row driven by the server-owned readiness flag
+ *   (`GET /api/one/voice/readiness`); nothing here can turn Live on or off,
+ * - the microphone check (owned by components/one-voice),
+ * - a "Speakerphone-safe mode" switch that forces the half-duplex gate so a
+ *   phone without echo cancellation stops hearing itself. Stored per user in
+ *   the voice preferences namespace (`one_voice_preferences_v1:<uid>:...`).
+ */
+
+import { useVoiceSpeakerphonePreference } from "./use-voice-policy-preferences";
+import {
+  LiveVoiceRowIcon,
+  SpeakerSafeRowIcon,
+  type AgentIconProps,
+} from "@/components/icons/agents";
+
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { VoiceMicrophoneCheck } from "@/components/one-voice/voice-microphone-check";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  useOneVoiceReadiness,
+  type OneVoiceReadiness,
+} from "@/lib/one-voice/readiness";
+
+// --- Speakerphone-safe preference ---------------------------------------------
+//
+// `lib/agent/voice-preferences.ts` sanitises its record to a fixed shape, so
+// this flag lives beside it under the same key prefix instead of inside it.
+// The Live session provider reads it through `readSpeakerphoneSafePreference`
+// and passes it as `forced` to `decideHalfDuplex`.
+
+// Live voice keeps one glyph in both states; when the server has it off the
+// glyph is muted, so the row still reads "not on" before the badge does.
+function LiveVoiceIdleRowIcon(props: AgentIconProps) {
+  return <LiveVoiceRowIcon {...props} color="var(--muted-foreground)" />;
+}
+
+// Compatibility exports retain existing deletion and settings callers.
+export {
+  speakerphoneSafePreferenceKey,
+  readSpeakerphoneSafePreference,
+  writeSpeakerphoneSafePreference,
+  subscribeSpeakerphoneSafePreference,
+  forgetSpeakerphoneSafePreference,
+} from "@/lib/one-voice/speakerphone-preferences";
+
+// --- Live status ----------------------------------------------------------------
+
+export type OneVoiceLiveStatus = "checking" | "ready" | "off" | "unavailable";
+
+/** Fold the readiness record into the three words the row can show. */
+export function describeOneVoiceLiveStatus(readiness: OneVoiceReadiness): {
+  status: OneVoiceLiveStatus;
+  label: string;
+  description: string;
+} {
+  if (readiness.status !== "resolved" && readiness.microphoneOwner === "none") {
+    return { status: "unavailable", label: "Unavailable", description: "Your agent connection could not be verified. Check Hosting and try again." };
+  }
+  if (readiness.status !== "resolved") {
+    return {
+      status: "checking",
+      label: "Checking",
+      description: "Asking the server whether live voice is available.",
+    };
+  }
+  if (readiness.microphoneOwner === "pod_commands") {
+    return { status: "ready", label: "Private commands", description: "Recorded commands use your BYOC pod. Its private connection must be available." };
+  }
+  if (readiness.liveEnabled && readiness.serverStatus === "ready") {
+    return {
+      status: "ready",
+      label: "Ready",
+      description: readiness.model
+        ? `Hold Talk to One to speak with ${readiness.model}.`
+        : "Hold Talk to One to speak.",
+    };
+  }
+  if (readiness.microphoneOwner === "none") {
+    return { status: "unavailable", label: "Unavailable", description: "Voice needs an available agent connection. Check Hosting and try again." };
+  }
+  if (readiness.serverStatus === "disabled") {
+    return {
+      status: "off",
+      label: "Off",
+      description:
+        "Live voice is turned off for this account. Check Hosting for your agent connection.",
+    };
+  }
+  return {
+    status: "unavailable",
+    label: "Unavailable",
+    description:
+      readiness.serverStatus === "provider_unavailable"
+        ? "The voice provider can't be reached right now. Check Hosting for your agent connection."
+        : "Live voice isn't set up on this server yet. Check Hosting for your agent connection.",
+  };
+}
+
+const STATUS_BADGE_VARIANT: Record<
+  OneVoiceLiveStatus,
+  "default" | "secondary" | "outline"
+> = {
+  checking: "outline",
+  ready: "default",
+  off: "secondary",
+  unavailable: "secondary",
+};
+
+export function OneVoicePreferencesSection({
+  userId,
+}: {
+  userId: string | null;
+}) {
+  const readiness = useOneVoiceReadiness();
+  const live = describeOneVoiceLiveStatus(readiness);
+
+  const { value: speakerphoneSafe, change: setSpeakerphoneSafe } = useVoiceSpeakerphonePreference(userId);
+
+  return (
+    <SettingsGroup
+      title="Talk to One (live)"
+      description="A hands-free conversation with One. The server decides whether it's on."
+      testId="one-voice-preferences-section"
+    >
+      <SettingsRow
+        icon={live.status === "ready" ? LiveVoiceRowIcon : LiveVoiceIdleRowIcon}
+        iconTone="capability"
+        title="Live voice"
+        description={live.description}
+        trailing={
+          <Badge
+            variant={STATUS_BADGE_VARIANT[live.status]}
+            data-testid="one-voice-live-status"
+            data-status={live.status}
+          >
+            {live.label}
+          </Badge>
+        }
+        testId="one-voice-live-status-row"
+      />
+      {/* Renders its own row body; the group's dividers and the row padding
+          tokens keep it flush with the SettingsRows around it. */}
+      <VoiceMicrophoneCheck ownerKey={userId} className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]" />
+      <SettingsRow
+        icon={SpeakerSafeRowIcon}
+        iconTone="capability"
+        title="Speakerphone-safe mode"
+        description="Pauses your microphone while One is talking so the speaker can't interrupt itself. Use it on a phone without echo cancellation."
+        trailing={
+          <Switch
+            checked={speakerphoneSafe}
+            disabled={!userId}
+            onCheckedChange={(checked) => {
+              setSpeakerphoneSafe(checked);
+            }}
+            aria-label="Speakerphone-safe mode"
+          />
+        }
+        testId="one-voice-speakerphone-safe-row"
+      />
+    </SettingsGroup>
+  );
+}

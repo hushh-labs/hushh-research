@@ -1,0 +1,11 @@
+.actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.collectionCount { color:var(--app-secondary-label); font-size:13px; line-height:20px; }
+.accessButton { color:var(--app-secondary-label); }
+.addBody { min-height:0; }
+.addFooter { width:100%; }
+.addPanel { font-family:var(--font-app-body); }
+@media(max-width:600px) {
+  .actions { gap:8px; }
+  .accessButton { min-width:44px; padding-inline:12px; }
+  .accessButton>span { display:none; }
+}

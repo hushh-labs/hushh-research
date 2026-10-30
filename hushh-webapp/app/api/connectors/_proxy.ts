@@ -1,0 +1,262 @@
+import { NextRequest } from "next/server";
+
+import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
+import {
+  createUpstreamHeaders,
+  resolveRequestId,
+  withRequestIdJson,
+} from "@/app/api/_utils/request-id";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import { isDocumentCiphertextRequest, proxyDocumentCiphertext } from "./_document-ciphertext-proxy";
+import { isOneCopyContentRequest, proxyOneCopyContent } from "./_one-copy-content-proxy";
+
+const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
+const CONNECTOR_OAUTH_START_TIMEOUT_MS = resolveSlowRequestTimeoutMs(25_000, {
+  developmentFloorMs: 25_000,
+  overrideEnvKey: "HUSHH_CONNECTOR_OAUTH_START_TIMEOUT_MS",
+});
+// Owner-initiated Drive work that runs synchronously in the request: document
+// preparation, and an allowed question's single bounded search (~160 s).
+const LONG_DRIVE_SHARING_POST =
+  /^google_drive\/(?:searches|sharing\/(?:bulk|requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/(?:allow|share)|owner-shares(?:\/[0-9a-f-]{36}\/share)?))$/;
+
+// Streamed document preparation: stage names only (see drive_sharing.py). Its
+// budget sits above the backend's 190 s stream deadline.
+const DRIVE_PREPARE_STREAM =
+  /^google_drive\/sharing\/requests\/[0-9a-f-]{36}\/prepare\/stream$/;
+const DRIVE_PREPARE_STREAM_TIMEOUT_MS = 200_000;
+const DRIVE_SEARCH_STATUS_STREAM =
+  /^google_drive\/searches\/[0-9a-f-]{36}\/stream$/;
+const DRIVE_SEARCH_STATUS_STREAM_TIMEOUT_MS = 60_000;
+// Owner-only, read-only compilation of a bounded Drive note batch. Closing the
+// chat or leaving the page must cancel this work rather than drain it in the background.
+const DRIVE_OWNER_COMPILE_STREAM = "google_drive/sharing/owner/compile/stream";
+const DRIVE_OWNER_COMPILE_STREAM_TIMEOUT_MS = 360_000;
+
+/**
+ * Forward frames while the caller reads, then keep draining the upstream after
+ * the caller goes away. Ending the backend request would drop Cloud Run's CPU
+ * mid-preparation; POST /prepare stays in flight after a closed tab the same way.
+ */
+function keepUpstreamAlive(
+  upstream: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const reader = upstream.getReader();
+  let forwarding = true;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (!forwarding) return;
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch (error) {
+        if (forwarding) controller.error(error);
+      }
+    },
+    cancel() {
+      forwarding = false;
+      void (async () => {
+        try {
+          while (!(await reader.read()).done) {
+            // Discard: nobody is listening, but the backend must finish.
+          }
+        } catch {
+          // Upstream ended or hit its timeout.
+        }
+      })();
+    },
+  });
+}
+
+class McpReviewBodyError extends Error {
+  constructor(readonly status: number) {
+    super("Invalid connector review body");
+  }
+}
+
+async function readMcpReviewBody(request: NextRequest): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new McpReviewBodyError(408)), 5_000);
+  });
+  try {
+    const decoder = new TextDecoder();
+    let bytes = 0,
+      text = "";
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) return text + decoder.decode();
+      bytes += value.byteLength;
+      if (bytes > 64_000) throw new McpReviewBodyError(413);
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+function connectorPath(path: string[]): string {
+  const suffix = path.map((segment) => encodeURIComponent(segment)).join("/");
+  return suffix ? `/api/connectors/${suffix}` : "/api/connectors";
+}
+
+export async function proxyExternalConnectorRequest(
+  request: NextRequest,
+  path: string[],
+): Promise<Response> {
+  const requestId = resolveRequestId(request);
+  const targetUrl = `${getPythonApiUrl()}${connectorPath(path)}${request.nextUrl.search}`;
+  const authHeader = request.headers.get("authorization");
+  const consentHeader = request.headers.get("x-hushh-consent");
+  // The owner's chat key (derived in the browser): connector reviews read the
+  // sealed conversation. Forwarded as-is and never logged.
+  const chatKeyHeader = request.headers.get(ONE_CHAT_KEY_HEADER);
+  const contentType = request.headers.get("content-type") || "";
+  const headers = createUpstreamHeaders(requestId);
+
+  if (authHeader) headers.set("Authorization", authHeader);
+  if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
+  if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
+  const joinedPath = path.join("/");
+  if (isOneCopyContentRequest(request.method, joinedPath)) {
+    return proxyOneCopyContent(request, targetUrl, headers, requestId);
+  }
+  if (isDocumentCiphertextRequest(request.method, joinedPath)) {
+    return proxyDocumentCiphertext(request, targetUrl, headers, requestId);
+  }
+  const isPrepareStream =
+    request.method === "POST" && DRIVE_PREPARE_STREAM.test(joinedPath);
+  const isOwnerCompileStream =
+    request.method === "POST" && joinedPath === DRIVE_OWNER_COMPILE_STREAM;
+  const isSearchStatusStream =
+    request.method === "GET" && DRIVE_SEARCH_STATUS_STREAM.test(joinedPath);
+  const isOAuthStart =
+    request.method === "POST" &&
+    path.length === 4 &&
+    path[1] === "connect" &&
+    path[2] === "oauth" &&
+    path[3] === "start";
+  if (isPrepareStream || isOwnerCompileStream || isSearchStatusStream) headers.set("Accept", "text/event-stream");
+
+  let body: BodyInit | undefined;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    headers.set(
+      "Content-Type",
+      contentType.includes("application/json")
+        ? contentType
+        : "application/json",
+    );
+    const isMcpReview =
+      path[1] === "mcp" &&
+      ((path.length === 3 &&
+        (path[2] === "review" || path[2] === "confirm" || path[2] === "catalog" || path[2] === "verify")) ||
+        (path.length === 4 && path[2] === "oauth" &&
+          ["begin", "complete", "cancel"].includes(path[3] ?? "")));
+    try {
+      body = isMcpReview
+        ? await readMcpReviewBody(request)
+        : await request.text();
+    } catch (error) {
+      return withRequestIdJson(
+        requestId,
+        { error: "Connector request could not be read." },
+        {
+          status: error instanceof McpReviewBodyError ? error.status : 400,
+          headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+        },
+      );
+    }
+  }
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body,
+      // Preparation must finish after a disconnect; a read-only owner
+      // compilation is canceled with its caller to avoid wasted Drive reads.
+      signal: isOwnerCompileStream || isSearchStatusStream
+        ? AbortSignal.any([
+            request.signal,
+            AbortSignal.timeout(isSearchStatusStream
+              ? DRIVE_SEARCH_STATUS_STREAM_TIMEOUT_MS
+              : DRIVE_OWNER_COMPILE_STREAM_TIMEOUT_MS),
+          ])
+        : isOAuthStart
+          ? AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(CONNECTOR_OAUTH_START_TIMEOUT_MS),
+            ])
+        : AbortSignal.timeout(
+            isPrepareStream
+              ? DRIVE_PREPARE_STREAM_TIMEOUT_MS
+              : request.method === "POST" && LONG_DRIVE_SHARING_POST.test(joinedPath)
+                ? 170_000 : CONNECTOR_PROXY_TIMEOUT_MS,
+          ),
+    });
+    // Hand the stream through untouched; JSON errors from the same route
+    // (401/422) keep the buffered path below.
+    if (
+      (isPrepareStream || isOwnerCompileStream || isSearchStatusStream) &&
+      response.body &&
+      response.headers.get("content-type")?.includes("text/event-stream")
+    ) {
+      return new Response(
+        isPrepareStream ? keepUpstreamAlive(response.body) : response.body,
+        {
+          status: response.status,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "private, no-store, no-cache, no-transform",
+            Pragma: "no-cache",
+            Connection: "keep-alive",
+            "Content-Encoding": "none",
+            "X-Accel-Buffering": "no",
+            "x-request-id": requestId,
+          },
+        },
+      );
+    }
+    if (response.status === 204) {
+      return new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache", "X-Request-Id": requestId },
+      });
+    }
+    const payload = await response
+      .json()
+      .catch(async () => ({ detail: await response.text().catch(() => "") }));
+    return withRequestIdJson(requestId, payload, {
+      status: response.status,
+      headers: {
+        "Cache-Control": "no-store", Pragma: "no-cache",
+        ...(/^[a-f0-9]{40}$/.test(process.env.HUSHH_DEPLOY_SHA || "")
+          ? { "x-hushh-deploy-sha": process.env.HUSHH_DEPLOY_SHA! } : {}),
+      },
+    });
+  } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, {
+        status: 499,
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+      });
+    }
+    console.error(`[Connectors API] request_id=${requestId} proxy_error`, {
+      path: connectorPath(path),
+      errorClass: error instanceof Error ? error.name : "unknown",
+    });
+    return withRequestIdJson(
+      requestId,
+      {
+        error: "External connectors temporarily unavailable",
+        message: "The connector service could not be reached right now.",
+      },
+      { status: 502 },
+    );
+  }
+}

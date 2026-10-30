@@ -1,0 +1,59 @@
+{
+  "name": "projects/__PROJECT_ID__/dashboards/hushh-provider-managed",
+  "displayName": "Hushh Provider Availability (Managed)",
+  "labels": {
+    "managed_by": "repo_observability"
+  },
+  "gridLayout": {
+    "columns": 2,
+    "widgets": [
+      {
+        "title": "Provider Request Rate by Response Code",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"aiplatform.googleapis.com/PublisherModel\" AND metric.type=\"aiplatform.googleapis.com/publisher/online_serving/model_invocation_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM",
+                    "groupByFields": [
+                      "metric.label.response_code"
+                    ]
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Provider429/5xx Rate",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"aiplatform.googleapis.com/PublisherModel\" AND metric.type=\"aiplatform.googleapis.com/publisher/online_serving/model_invocation_count\" AND (metric.labels.response_code=\"429\" OR metric.labels.response_code=monitoring.regex.full_match(\"5[0-9][0-9]\"))",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

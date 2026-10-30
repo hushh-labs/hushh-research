@@ -35,6 +35,17 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `../db/verify/verify_iam_schema.py`: IAM schema validation.
 - `../db/verify/verify_vault_schema.py`: vault schema validation.
 - `uat_kai_regression_smoke.py`: UAT-focused Kai smoke coverage for maintainers.
+- `drive_share_notification_worker.py`: finite metadata-only Drive-share push outbox drain;
+  retained as an operator diagnostic. UAT schedules the single bounded Drive work drain instead,
+  after the release gate verifies Firebase configuration, token registration and notification
+  acceptance. It records a dispatch attempt, not user receipt.
+- `../deploy/drive/setup_work_drain_scheduler.sh`: idempotent UAT-only Cloud Scheduler helper
+  for the OIDC-protected bounded sequence: document indexing, review suggestions, permission
+  delivery/reconciliation and metadata-only notifications. It is not an application deployment,
+  does not enable a cohort, and scheduler success is not person or device delivery evidence.
+- `ops/reconcile_google_drive_uat_connector.py`: attested, fixed-policy UAT registry verifier;
+  `--activate` is explicit and cannot accept provider endpoints, scopes, redirects or secrets.
+  It creates no feature cohort and does not enable Drive execution.
 
 ### Inspection and Evaluation
 
@@ -43,7 +54,8 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `audit_active_pkm_shape_readonly.py`: read-only redacted audit for active `pkm_blobs`; uses the env-wired reviewer by default, can resolve reviewer secrets from Secret Manager with `--gcp-secret-project`, decrypts locally in memory, and emits structural painpoints without plaintext values.
 - `eval_pkm_structure_agent.py`: evaluate PKM structure-agent output; use `--enforce-gates` for protocol/prompt hardening so fallback, mutation, domain, fragmentation, finance-contamination, and unresolved-domain drift fail nonzero.
 - `eval_portfolio_stream_quality.py`: evaluate portfolio/stream quality signals.
-- `run_kai_accuracy_suite.py`: maintainer-only Kai quality suite.
+- `run_kai_accuracy_suite.py`: maintainer-only portfolio extraction benchmark and Kai contract suite; its direct-provider benchmark does not exercise migrated analyst/debate/chat runtime paths.
+- `eval_kai_adk_synthetic.py --report <new-path>`: bounded, fixture-only live smoke of migrated analysts, one debate statement, synthesis and chat. Requires Gemini 3.8 on personal54/global, retains model receipts and failures, and refuses to overwrite a report. This is a manual runtime/schema smoke, not financial accuracy or full-route acceptance; CI runs its mocked tests only. For a targeted recheck use `--paths synthesis` and a fresh report path. Multiple selected paths run sequentially with `--interval-seconds 10` by default and stop after the first failure, preserving unattempted paths. A subset pass proves only those selected paths. Provider SDK retries may still occur inside a single path; pacing is not a project-wide quota limiter.
 
 ### Data Imports and Normalization
 
@@ -57,7 +69,13 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `../db/seeds/seed_investors.py`: local/UAT investor seed flow.
 - `reset_dev_user_data.py`: reset a developer/test user state.
 - `reset_finance_root_user.py`: reset the finance-root testing user.
-- `fix_partial_vault_rows.py`: targeted repair for partial vault rows.
+- `fix_partial_vault_rows.py`: inspection-only report for partial vault rows. Its
+  former root-row deletion mode is fail-closed because migration 201 treats a
+  `vault_keys` deletion as irreversible full-account erasure; repair live
+  accounts in place through an approved runbook.
+- `local_sync_email_reviewer_from_kai_user.py`: local reviewer mirroring keeps
+  `actor_profiles` and `vault_keys` roots in place and upserts them. Directly
+  deleting either root would tombstone the reviewer UID after migration 201.
 
 ### Backfills and Cleanup
 

@@ -3,21 +3,14 @@
 import { useMemo } from "react";
 
 import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
-  buildFinancialDomainSummary,
-  getFinancialCompatibilityView,
-  getActiveSource as getStoredActiveSource,
   getActiveStatementSnapshotId,
+  getFinancialCompatibilityView,
   getStatementSnapshotOptions,
-  isPlaidMirrorStale,
-  setActivePlaidSource,
-  setActiveStatementSnapshot,
-  upsertPlaidSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { buildVaultPlaidStatus } from "@/lib/kai/plaid-vault/vault-sync";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   hasPortfolioHoldings,
@@ -29,15 +22,21 @@ import {
   type StatementSnapshotOption,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
-import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 
 const SECURE_RESOURCE_KEY = "kai_financial_resource_v1";
 const REQUEST_LABEL = "kai_financial_resource";
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const inflightNetworkLoads = new Map<string, Promise<KaiFinancialResource | null>>();
+// Bumped by invalidate(); together with the PKM write epoch it marks a read
+// that started before the latest change.
+const invalidationGenerations = new Map<string, number>();
+
+function readGeneration(userId: string): string {
+  return `${currentPkmInvalidationEpoch(userId)}:${invalidationGenerations.get(userId) ?? 0}`;
+}
 
 interface KaiFinancialResourceRequest {
   userId: string;
@@ -171,14 +170,6 @@ function buildResource(params: {
   };
 }
 
-function hasPlaidSource(status: PlaidPortfolioStatusResponse | null): boolean {
-  return (
-    Number(status?.aggregate?.item_count || 0) > 0 ||
-    Number(status?.aggregate?.account_count || 0) > 0 ||
-    hasPortfolioHoldings(status?.aggregate?.portfolio_data)
-  );
-}
-
 function primePortfolioCaches(resource: KaiFinancialResource): void {
   const cache = CacheService.getInstance();
   if (resource.statementPortfolio) {
@@ -218,122 +209,38 @@ async function loadFinancialContext(
   };
 }
 
-async function refreshDerivedMarketCaches(params: KaiFinancialResourceRequest): Promise<void> {
-  CacheSyncService.onPlaidSourceProjected(params.userId);
-  if (!params.vaultKey || !params.vaultOwnerToken) {
-    return;
-  }
-  await UnlockWarmOrchestrator.run({
-    userId: params.userId,
-    vaultKey: params.vaultKey,
-    vaultOwnerToken: params.vaultOwnerToken,
-    routePath:
-      typeof window !== "undefined"
-        ? `${window.location.pathname}${window.location.search}`
-        : undefined,
-  }).catch(() => undefined);
-}
-
 async function loadNetworkResource(
   params: KaiFinancialResourceRequest
 ): Promise<KaiFinancialResource | null> {
-  const loadedPlaidStatus = params.vaultOwnerToken
-    ? await PlaidPortfolioService.getStatus({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch(() => null)
-    : null;
+  // A write that lands while this read is in flight makes its result older
+  // than what is stored; it is still returned, but must not overwrite caches.
+  const startedAt = readGeneration(params.userId);
+  // First-run statement import starts empty; everything else reads memory.
   const canUseSetupEmptyState =
     Boolean(params.skipEmptyFinancialProbe) &&
-    !hasPortfolioHoldings(params.initialStatementPortfolio) &&
-    !hasPlaidSource(loadedPlaidStatus);
+    !hasPortfolioHoldings(params.initialStatementPortfolio);
   const financialContext = canUseSetupEmptyState
-    ? {
-        fullBlob: {},
-        financial: null,
-        expectedDataVersion: undefined,
-      }
+    ? { financial: null }
     : await loadFinancialContext(params);
 
-  let nextFinancial = financialContext.financial;
-  const storedActiveSource =
-    loadedPlaidStatus?.source_preference ?? getStoredActiveSource(nextFinancial);
-  const hasSavedStatementSnapshot = Boolean(getActiveStatementSnapshotId(nextFinancial));
-  const desiredSource: PortfolioSource =
-    storedActiveSource === "plaid" ||
-    (!hasSavedStatementSnapshot &&
-      hasPortfolioHoldings(loadedPlaidStatus?.aggregate?.portfolio_data))
-      ? "plaid"
-      : "statement";
-  const nowIso = new Date().toISOString();
-
-  if (params.vaultKey && params.vaultOwnerToken) {
-    let projectedFinancial = nextFinancial ?? {};
-    let shouldPersist = false;
-
-    if (loadedPlaidStatus?.configured && isPlaidMirrorStale(projectedFinancial, loadedPlaidStatus)) {
-      projectedFinancial = upsertPlaidSource(
-        projectedFinancial,
-        loadedPlaidStatus,
-        desiredSource === "plaid" ? "plaid" : "statement",
-        nowIso
-      );
-      shouldPersist = true;
-    }
-
-    if (desiredSource === "plaid" && getStoredActiveSource(projectedFinancial) !== "plaid") {
-      const plaidActivated = setActivePlaidSource(projectedFinancial, loadedPlaidStatus, nowIso);
-      if (plaidActivated) {
-        projectedFinancial = plaidActivated;
-        shouldPersist = true;
-      }
-    }
-
-    if (desiredSource === "statement" && getStoredActiveSource(projectedFinancial) !== "statement") {
-      const activeSnapshotId = getActiveStatementSnapshotId(projectedFinancial);
-      if (activeSnapshotId) {
-        const statementActivated = setActiveStatementSnapshot(
-          projectedFinancial,
-          activeSnapshotId,
-          nowIso
-        );
-        if (statementActivated) {
-          projectedFinancial = statementActivated;
-          shouldPersist = true;
-        }
-      }
-    }
-
-    if (shouldPersist) {
-      const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId: params.userId,
-        domain: "financial",
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "kai_financial_resource_user_action",
-        },
-        build: () => ({
-          domainData: projectedFinancial,
-          summary: buildFinancialDomainSummary(projectedFinancial),
-        }),
-      });
-      nextFinancial = toFinancialDomain(result.fullBlob.financial) ?? projectedFinancial;
-      await refreshDerivedMarketCaches(params);
-    }
-  }
+  // Plaid connections are sealed in the vault, so memory is the only source
+  // of their status. Refresh on unlock is owned by UnlockWarmOrchestrator.
+  const nextFinancial = financialContext.financial;
+  const effectivePlaidStatus = buildVaultPlaidStatus(nextFinancial, params.userId);
 
   const resource = buildResource({
     userId: params.userId,
     financialDomain: nextFinancial,
-    plaidStatus: loadedPlaidStatus,
+    plaidStatus: effectivePlaidStatus,
     initialStatementPortfolio: params.initialStatementPortfolio,
     cacheTier: "network",
     source: "network",
   });
 
+  if (readGeneration(params.userId) !== startedAt) {
+    logRequest("stale_result_not_cached", { userId: params.userId });
+    return resource;
+  }
   const cache = CacheService.getInstance();
   cache.set(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(params.userId), resource, CACHE_TTL.SESSION);
   primePortfolioCaches(resource);
@@ -372,7 +279,7 @@ export class KaiFinancialResourceService {
     const resource = buildResource({
       userId: params.userId,
       financialDomain: params.financialDomain,
-      plaidStatus: null,
+      plaidStatus: buildVaultPlaidStatus(params.financialDomain, params.userId),
       initialStatementPortfolio: params.initialStatementPortfolio,
       cacheTier: params.cacheTier ?? "memory",
       source: params.source ?? "cache",
@@ -542,6 +449,12 @@ export class KaiFinancialResourceService {
 
   static invalidate(userId: string, options?: { includeDevice?: boolean }): void {
     CacheService.getInstance().invalidate(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
+    invalidationGenerations.set(userId, (invalidationGenerations.get(userId) ?? 0) + 1);
+    // A later refresh must read again rather than join a load that started
+    // before the change.
+    for (const key of inflightNetworkLoads.keys()) {
+      if (key.startsWith(`${userId}:`)) inflightNetworkLoads.delete(key);
+    }
     if (options?.includeDevice) {
       void SecureResourceCacheService.invalidateResource(userId, SECURE_RESOURCE_KEY);
     }

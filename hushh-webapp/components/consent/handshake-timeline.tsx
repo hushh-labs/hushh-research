@@ -18,7 +18,7 @@ import {
   ShieldOff,
   Timer,
   XCircle,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -68,13 +68,16 @@ function actionIcon(action: string) {
 
 function actionLabel(action: string): string {
   const labels: Record<string, string> = {
-    CONSENT_GRANTED: "Consent granted",
-    CONSENT_DENIED: "Consent denied",
-    REVOKED: "Consent revoked",
-    CANCELLED: "Request cancelled",
-    TIMEOUT: "Request timed out",
-    REQUESTED: "Consent requested",
+    CONSENT_GRANTED: "Allowed",
+    CONSENT_DENIED: "Declined",
+    REVOKED: "Stopped sharing",
+    CANCELLED: "Request withdrawn",
+    TIMEOUT: "Request expired",
+    REQUESTED: "Requested",
     INVITE_SENT: "Invite sent",
+    // The requester opened a live grant. An audit row, not a transition; the
+    // fallback would have printed it as "export read".
+    EXPORT_READ: "Opened",
   };
   return labels[action] || action.replace(/_/g, " ").toLowerCase();
 }
@@ -146,7 +149,7 @@ export function HandshakeTimeline({
 
   if (loading) {
     return (
-      <div className={cn("flex items-center justify-center py-8", className)} role="status">
+      <div className={cn("consent-presentation-surface flex items-center justify-center py-8", className)} role="status">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
         <span className="sr-only">Loading timeline...</span>
       </div>
@@ -155,23 +158,23 @@ export function HandshakeTimeline({
 
   if (error) {
     return (
-      <div className={cn("rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive", className)}>
-        {error}
+      <div className={cn("consent-presentation-surface rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive", className)}>
+        <span data-consent-role="status">{error}</span>
       </div>
     );
   }
 
   if (entries.length === 0) {
     return (
-      <div className={cn("px-4 py-6 text-center text-sm text-muted-foreground", className)}>
-        No consent history with {counterpartLabel || "this connection"}.
+      <div className={cn("consent-presentation-surface px-4 py-6 text-center text-sm text-muted-foreground", className)}>
+        <span data-consent-role="body">No consent history with {counterpartLabel || "this connection"}.</span>
       </div>
     );
   }
 
   return (
-    <div className={cn("space-y-0", className)}>
-      <h3 className="mb-3 text-sm font-medium text-foreground">
+    <div className={cn("consent-presentation-surface space-y-0", className)}>
+      <h3 data-consent-role="secondary-heading" className="mb-3 text-sm font-medium text-foreground">
         Consent history{counterpartLabel ? ` with ${counterpartLabel}` : ""}
       </h3>
       <ol className="relative border-l border-border ml-3">
@@ -189,16 +192,16 @@ export function HandshakeTimeline({
             <div className="flex items-start gap-2">
               {actionIcon(entry.action)}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground leading-snug">
+                <p data-consent-role="row-title" className="text-sm font-medium text-foreground leading-snug">
                   {actionLabel(entry.action)}
                 </p>
                 {entry.scope && (
-                  <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground truncate">
                     {entry.scope_description || humanizeConsentScope(entry.scope)}
                   </p>
                 )}
                 {entry.issued_at && (
-                  <p className="mt-0.5 text-xs text-muted-foreground/70">
+                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground/70">
                     {formatTimelineDate(entry.issued_at)}
                   </p>
                 )}

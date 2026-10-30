@@ -7,8 +7,9 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
+from runpy import run_path
 from typing import Any, Iterable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 BACKEND_REQUIRED = (
     "APP_SIGNING_KEY",
@@ -39,9 +40,14 @@ BACKEND_GMAIL_REQUIRED = (
     "GMAIL_OAUTH_TOKEN_KEY",
 )
 
-BACKEND_ONE_EMAIL_SECRET_REQUIRED = (
-    "ONE_EMAIL_WATCH_RENEW_TOKEN",
+BACKEND_CALENDAR_REQUIRED = (
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REDIRECT_URI",
+    "GOOGLE_OAUTH_TOKEN_KEY",
 )
+
+BACKEND_ONE_EMAIL_SECRET_REQUIRED = ("ONE_EMAIL_WATCH_RENEW_TOKEN",)
 
 BACKEND_ONE_EMAIL_RUNTIME_REQUIRED = (
     "ONE_EMAIL_ADDRESS",
@@ -56,14 +62,28 @@ BACKEND_ONE_EMAIL_RUNTIME_REQUIRED = (
     "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED",
 )
 
-BACKEND_VOICE_REQUIRED = (
-    "OPENAI_API_KEY",
-    "VOICE_RUNTIME_CONFIG_JSON",
-)
-
 BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
     "OMNIGATEWAY_CLIENT_ID",
     "OMNIGATEWAY_CLIENT_SECRET",
+    # The external_crm credential profile. Migration 149 forces this profile for
+    # dynamic_registry-mode rows, and its absence is exactly the confirmed
+    # 2026-08-12 UAT 401 (CONNECTED_SYSTEM_MCP_AUTH_FAILED): the deploy attaches
+    # secrets with `append_optional_secret`, which SKIPS a missing one silently,
+    # so without this line an environment can pass every gate and still refuse
+    # every CRM read. Absence must fail loud here instead.
+    #
+    # Carried forward deliberately when this file was taken from `main` on
+    # 2026-09-11 to pick up `--require-calendar`. `main` had dropped these two
+    # while keeping them in `deploy/backend.cloudbuild.yaml`, so the deploy still
+    # attaches them and nothing would have noticed them going missing again.
+    "OMNIGATEWAY_EXT_CRM_CLIENT_ID",
+    "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET",
+)
+
+BACKEND_VOICE_RUNTIME_REQUIRED = (
+    "ONE_VOICE_LIVE_ENABLED",
+    "VERTEX_LIVE_MODEL_ID",
+    "VERTEX_LIVE_LOCATION",
 )
 
 BACKEND_REVIEWER_SMOKE_REQUIRED = (
@@ -77,7 +97,8 @@ BACKEND_PROD_PHONE_TEST_REQUIRED = (
     "HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET",
 )
 
-GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
 
 FRONTEND_REQUIRED = (
     "BACKEND_URL",
@@ -129,7 +150,8 @@ BACKEND_RUNTIME_REQUIRED = (
     "HUSHH_GENAI_AUTH_MODE",
     "GOOGLE_GENAI_USE_VERTEXAI",
     "GOOGLE_CLOUD_PROJECT",
-    "GOOGLE_CLOUD_LOCATION",
+    "GENAI_GOOGLE_CLOUD_PROJECT",
+    # Hosted text locations belong to the packaged managed AI profile.
     "GOOGLE_MAPS_API_KEY",
     "APP_SIGNING_KEY",
     "VAULT_DATA_KEY",
@@ -183,22 +205,50 @@ LEGACY_BACKEND_RUNTIME_COMPONENTS = (
     "PASSKEY_ALLOWED_RP_IDS",
 )
 
-LEGACY_VOICE_RUNTIME_COMPONENTS = (
-    "KAI_VOICE_REALTIME_ENABLED",
-    "KAI_VOICE_V1_ENABLED",
-    "KAI_VOICE_V1_CANARY_PERCENT",
-    "KAI_VOICE_V1_DISABLE_TOOL_EXECUTION",
-    "FORCE_REALTIME_VOICE",
-    "FAIL_FAST_VOICE",
-    "DISABLE_VOICE_FALLBACKS",
-    "OPENAI_VOICE_REALTIME_MODEL",
-    "OPENAI_VOICE_STT_MODELS",
-    "OPENAI_VOICE_INTENT_MODELS",
-    "OPENAI_VOICE_TTS_MODELS",
-    "OPENAI_VOICE_TTS_DEFAULT_VOICE",
-    "OPENAI_VOICE_TTS_FORMAT",
-    "OPENAI_VOICE_TTS_PREFER_QUALITY",
-)
+
+class CloudReadUnavailable(RuntimeError):
+    """Cloud access failed; absence cannot be inferred from this observation."""
+
+
+def _connected_systems_credentials(
+    backend_env: dict[str, Any],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Keep credentials strict unless the selected application forbids CRM.
+
+    Read the candidate's existing product authority, never a separate deploy
+    flag. Explicitly enable the local opt-in when evaluating it: only a runtime
+    that still refuses CRM can omit the isolated external credential pair.
+    Missing/unknown environment or authority retains the full legacy contract.
+    The shared gateway pair remains required in every case.
+    """
+    contract = {"status": "unverified", "external_crm_credentials": "required"}
+    environment = backend_env.get("ENVIRONMENT", {}).get("value")
+    if not isinstance(environment, str) or environment not in {
+        "production",
+        "uat",
+        "development",
+    }:
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    authority = (
+        Path(__file__).resolve().parents[2]
+        / "consent-protocol/hushh_mcp/services/crm_product_availability.py"
+    )
+    try:
+        available = run_path(str(authority))["crm_product_available"](
+            environment=environment, explicit_enabled=True
+        )
+    except Exception:
+        # Do not render application exceptions or use an unknown policy to
+        # excuse missing credentials on a historical or malformed candidate.
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    if available is not False:
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    return BACKEND_CONNECTED_SYSTEMS_REQUIRED[:2], {
+        "status": "disabled_by_application",
+        "environment": environment,
+        "authority": str(authority.relative_to(Path(__file__).resolve().parents[2])),
+        "external_crm_credentials": "not_required",
+    }
 
 
 def _has_secret(project: str, name: str) -> bool:
@@ -211,11 +261,20 @@ def _has_secret(project: str, name: str) -> bool:
         project,
         "--format=value(name)",
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    return result.returncode == 0 and bool(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CloudReadUnavailable("secret_inventory_unverifiable") from exc
+    if result.returncode == 0 and result.stdout.strip():
+        return True
+    if result.returncode != 0 and "NOT_FOUND" in result.stderr:
+        return False
+    # Authentication, permission, transport and malformed-success responses are
+    # unknown, not missing secrets. Never render provider stderr or credentials.
+    raise CloudReadUnavailable("secret_inventory_unverifiable")
 
 
-def _read_secret_value(project: str, name: str) -> str | None:
+def _read_secret_value(project: str, name: str, version: str = "latest") -> str | None:
     """Read a deploy-time value only for an in-memory boolean contract check.
 
     This helper deliberately never renders the returned value. Reports contain
@@ -228,7 +287,7 @@ def _read_secret_value(project: str, name: str) -> str | None:
             "secrets",
             "versions",
             "access",
-            "latest",
+            version,
             "--secret",
             name,
             "--project",
@@ -243,20 +302,15 @@ def _read_secret_value(project: str, name: str) -> str | None:
     return result.stdout.rstrip("\r\n")
 
 
+def _expected_oauth_redirect_uri(
+    app_frontend_origin: str | None, return_path: str
+) -> str | None:
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["expected_oauth_redirect_uri"](app_frontend_origin, return_path)
+
+
 def _expected_gmail_redirect_uri(app_frontend_origin: str | None) -> str | None:
-    parsed = urlsplit((app_frontend_origin or "").strip())
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.path not in {"", "/"}
-    ):
-        return None
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return _expected_oauth_redirect_uri(app_frontend_origin, GMAIL_OAUTH_RETURN_PATH)
 
 
 def _gmail_redirect_contract(project: str) -> dict[str, str]:
@@ -277,7 +331,44 @@ def _gmail_redirect_contract(project: str) -> dict[str, str]:
     }
 
 
-def _domain_runtime_contract(project: str) -> dict[str, str]:
+def _calendar_redirect_contract(project: str) -> dict[str, str]:
+    configured = _read_secret_value(project, "GOOGLE_OAUTH_REDIRECT_URI")
+    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+    expected = _expected_oauth_redirect_uri(frontend_origin, CALENDAR_OAUTH_RETURN_PATH)
+    if configured is None or frontend_origin is None:
+        status = "unavailable"
+    elif expected is None:
+        status = "invalid_frontend_origin"
+    elif configured == expected:
+        status = "valid"
+    else:
+        status = "mismatch"
+    return {
+        "status": status,
+        "expected_from": f"APP_FRONTEND_ORIGIN + {CALENDAR_OAUTH_RETURN_PATH}",
+    }
+
+
+def _read_runtime_value(
+    project: str, env_map: dict[str, dict[str, Any]], key: str
+) -> str | None:
+    """Read only the selected revision's declared source, without fallback."""
+    entry = env_map.get(key, {})
+    if "value" in entry:
+        return str(entry["value"])
+    reference = (entry.get("valueFrom") or {}).get("secretKeyRef")
+    if not isinstance(reference, dict):
+        return None
+    name = str(reference.get("name") or "").strip()
+    version = str(reference.get("key") or "").strip()
+    if not name or not version:
+        return None
+    return _read_secret_value(project, name, version)
+
+
+def _domain_runtime_contract(
+    project: str, env_map: dict[str, dict[str, Any]] | None = None
+) -> dict[str, str]:
     """Validate domain-derived backend config without rendering secret values.
 
     Presence and Cloud Run mount checks cannot prove that the JSON runtime
@@ -285,8 +376,14 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
     public URL/host relationships in-memory and returns status labels.
     """
 
-    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
-    runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
+    if env_map is None:
+        frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+        runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
+    else:
+        frontend_origin = _read_runtime_value(project, env_map, "APP_FRONTEND_ORIGIN")
+        runtime_raw = _read_runtime_value(
+            project, env_map, "BACKEND_RUNTIME_CONFIG_JSON"
+        )
     expected_gmail_redirect = _expected_gmail_redirect_uri(frontend_origin)
     if not frontend_origin or not runtime_raw or not expected_gmail_redirect:
         return {
@@ -296,65 +393,15 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
             "plaid_webhook": "unavailable",
         }
 
-    try:
-        runtime = json.loads(runtime_raw)
-    except json.JSONDecodeError:
-        runtime = None
-    if not isinstance(runtime, dict):
-        return {
-            "status": "invalid_runtime_config",
-            "cors": "invalid_runtime_config",
-            "passkeys": "invalid_runtime_config",
-            "plaid_webhook": "invalid_runtime_config",
-        }
-
-    origin = urlsplit(frontend_origin)
-    host = (origin.hostname or "").lower()
-    if not host:
-        return {
-            "status": "invalid_frontend_origin",
-            "cors": "invalid_frontend_origin",
-            "passkeys": "invalid_frontend_origin",
-            "plaid_webhook": "invalid_frontend_origin",
-        }
-
-    cors_values = {
-        item.strip().rstrip("/")
-        for item in str(runtime.get("cors_allowed_origins") or "").split(",")
-        if item.strip()
-    }
-    expected_origin = frontend_origin.rstrip("/")
-    cors_status = "valid" if expected_origin in cors_values else "mismatch"
-
-    passkey_hosts = {
-        item.strip().lower()
-        for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
-        if item.strip()
-    }
-    passkey_status = "valid" if host in passkey_hosts else "mismatch"
-
-    plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
-    plaid_status = (
-        "valid"
-        if (
-            plaid_url.scheme == origin.scheme
-            and plaid_url.netloc == origin.netloc
-            and plaid_url.path == "/api/kai/plaid/webhook"
-            and not plaid_url.query
-            and not plaid_url.fragment
-        )
-        else "mismatch"
-    )
-    statuses = (cors_status, passkey_status, plaid_status)
-    return {
-        "status": "valid" if all(status == "valid" for status in statuses) else "mismatch",
-        "cors": cors_status,
-        "passkeys": passkey_status,
-        "plaid_webhook": plaid_status,
-    }
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["runtime_domain_contract"](frontend_origin, runtime_raw)
 
 
-def _firebase_project_contract(project: str) -> dict[str, str]:
+def _firebase_project_contract(
+    project: str,
+    *,
+    expected_project: str | None = None,
+) -> dict[str, str]:
     """Prove Firebase Admin and public client configuration target one project.
 
     The Admin credential itself is never rendered. This only compares its
@@ -379,17 +426,30 @@ def _firebase_project_contract(project: str) -> dict[str, str]:
     if not admin_project:
         return {"status": "invalid_credentials", "credentials": "invalid"}
 
-    return {
-        "status": "valid" if admin_project == client_project.strip() else "mismatch",
-        "credentials": "valid" if admin_project == client_project.strip() else "mismatch",
-    }
+    if admin_project != client_project.strip():
+        return {"status": "mismatch", "credentials": "mismatch"}
+
+    expected = str(expected_project or "").strip()
+    if expected and admin_project != expected:
+        return {
+            "status": "unexpected_project",
+            "credentials": "valid",
+            "expected": "mismatch",
+        }
+
+    result = {"status": "valid", "credentials": "valid"}
+    if expected:
+        result["expected"] = "valid"
+    return result
 
 
 def _format_names(names: Iterable[str]) -> str:
     return ", ".join(sorted(names))
 
 
-def _describe_run_service(project: str, region: str, service: str) -> dict[str, Any] | None:
+def _describe_run_service(
+    project: str, region: str, service: str
+) -> dict[str, Any] | None:
     cmd = [
         "gcloud",
         "run",
@@ -402,7 +462,9 @@ def _describe_run_service(project: str, region: str, service: str) -> dict[str, 
         region,
         "--format=json",
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     if result.returncode != 0:
         return None
     try:
@@ -411,7 +473,9 @@ def _describe_run_service(project: str, region: str, service: str) -> dict[str, 
         return None
 
 
-def _describe_run_revision(project: str, region: str, revision: str) -> dict[str, Any] | None:
+def _describe_run_revision(
+    project: str, region: str, revision: str
+) -> dict[str, Any] | None:
     cmd = [
         "gcloud",
         "run",
@@ -424,7 +488,9 @@ def _describe_run_revision(project: str, region: str, revision: str) -> dict[str
         region,
         "--format=json",
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     if result.returncode != 0:
         return None
     try:
@@ -445,11 +511,15 @@ def _active_revision_names(service_json: dict[str, Any] | None) -> list[str]:
             names.append(revision_name)
     if names:
         return names
-    latest = str(service_json.get("status", {}).get("latestReadyRevisionName") or "").strip()
+    latest = str(
+        service_json.get("status", {}).get("latestReadyRevisionName") or ""
+    ).strip()
     return [latest] if latest else []
 
 
-def _container_env_map(service_json: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+def _container_env_map(
+    service_json: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
     if not isinstance(service_json, dict):
         return {}
     # Cloud Run Service objects contain a revision template, while the
@@ -570,8 +640,12 @@ def _classify_runtime_key(
     legacy_component_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     if key not in env_map:
-        matched_legacy_keys = [candidate for candidate in legacy_keys if candidate in env_map]
-        matched_components = [candidate for candidate in legacy_component_keys if candidate in env_map]
+        matched_legacy_keys = [
+            candidate for candidate in legacy_keys if candidate in env_map
+        ]
+        matched_components = [
+            candidate for candidate in legacy_component_keys if candidate in env_map
+        ]
         if matched_legacy_keys or matched_components:
             return {
                 "key": key,
@@ -620,9 +694,7 @@ def _classifications_from_runtime_entries(entries: list[dict[str, Any]]) -> list
     return classifications
 
 
-def _literal_runtime_value(
-    env_map: dict[str, dict[str, Any]], key: str
-) -> str:
+def _literal_runtime_value(env_map: dict[str, dict[str, Any]], key: str) -> str:
     entry = env_map.get(key)
     if not isinstance(entry, dict) or isinstance(entry.get("valueFrom"), dict):
         return ""
@@ -635,22 +707,16 @@ def _one_email_runtime_semantics(
     """Validate public One mailbox routing values without rendering secrets."""
 
     mailbox = _literal_runtime_value(env_map, "ONE_EMAIL_ADDRESS").lower()
-    delegated_user = _literal_runtime_value(
-        env_map, "ONE_EMAIL_DELEGATED_USER"
-    ).lower()
+    delegated_user = _literal_runtime_value(env_map, "ONE_EMAIL_DELEGATED_USER").lower()
     topic = _literal_runtime_value(env_map, "ONE_EMAIL_PUBSUB_TOPIC")
-    audience = urlsplit(
-        _literal_runtime_value(env_map, "ONE_EMAIL_WEBHOOK_AUDIENCE")
-    )
+    audience = urlsplit(_literal_runtime_value(env_map, "ONE_EMAIL_WEBHOOK_AUDIENCE"))
     webhook_service_account = _literal_runtime_value(
         env_map, "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL"
     ).lower()
     checks = {
         "mailbox": mailbox == "one@hushh.ai",
         "delegated_user": delegated_user == "one@hushh.ai",
-        "pubsub_topic": (
-            topic.startswith("projects/") and "/topics/" in topic
-        ),
+        "pubsub_topic": (topic.startswith("projects/") and "/topics/" in topic),
         "webhook_audience": (
             audience.scheme == "https"
             and bool(audience.netloc)
@@ -669,9 +735,7 @@ def _one_email_runtime_semantics(
             env_map, "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED"
         ).lower()
         == "true",
-        "default_scope": _literal_runtime_value(
-            env_map, "ONE_EMAIL_KYC_DEFAULT_SCOPE"
-        )
+        "default_scope": _literal_runtime_value(env_map, "ONE_EMAIL_KYC_DEFAULT_SCOPE")
         == "attr.identity.*",
         "strict_client_zk": _literal_runtime_value(
             env_map, "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED"
@@ -681,8 +745,7 @@ def _one_email_runtime_semantics(
     return {
         "status": "valid" if all(checks.values()) else "mismatch",
         "checks": {
-            key: "valid" if value else "mismatch"
-            for key, value in checks.items()
+            key: "valid" if value else "mismatch" for key, value in checks.items()
         },
     }
 
@@ -705,12 +768,40 @@ def _parity_targets(
     return True, True
 
 
+def _backend_candidate_env(
+    args: argparse.Namespace, checks_backend: bool
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    backend_env, backend_revisions = ({}, [])
+    if checks_backend and args.assert_runtime_env_contract:
+        backend_json = (
+            None
+            if args.backend_revision
+            else _describe_run_service(args.project, args.region, args.backend_service)
+        )
+        backend_env, backend_revisions = _selected_container_env_map(
+            args.project,
+            args.region,
+            args.backend_service,
+            backend_json,
+            args.backend_revision,
+        )
+    return backend_env, backend_revisions
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify required GCP Secret Manager keys for deploy parity."
     )
     parser.add_argument("--project", required=True, help="GCP project id")
-    parser.add_argument("--region", default="us-central1", help="Reserved for parity interface")
+    parser.add_argument(
+        "--expected-firebase-project",
+        help=(
+            "Optional exact public Firebase project id required after Admin/client parity."
+        ),
+    )
+    parser.add_argument(
+        "--region", default="us-central1", help="Reserved for parity interface"
+    )
     parser.add_argument(
         "--backend-service",
         default="consent-protocol",
@@ -750,14 +841,19 @@ def main() -> int:
         help="Also require backend Gmail sync secrets for Gmail parity.",
     )
     parser.add_argument(
-        "--require-one-email",
+        "--require-calendar",
         action="store_true",
-        help="Also require One mailbox/KYC runtime env and secrets.",
+        help="Also require backend Calendar OAuth secrets and callback parity.",
     )
     parser.add_argument(
         "--require-voice",
         action="store_true",
-        help="Also require backend voice runtime secrets for voice parity.",
+        help="Also require Live voice runtime configuration; live acceptance is separate.",
+    )
+    parser.add_argument(
+        "--require-one-email",
+        action="store_true",
+        help="Also require One mailbox/KYC runtime env and secrets.",
     )
     parser.add_argument(
         "--require-connected-systems",
@@ -796,6 +892,13 @@ def main() -> int:
         args.backend_revision, args.frontend_revision
     )
 
+    backend_env, backend_revisions = _backend_candidate_env(args, checks_backend)
+    connected_systems_required, connected_systems_contract = (
+        _connected_systems_credentials(backend_env)
+        if checks_backend and args.require_connected_systems
+        else ((), {"status": "not_checked"})
+    )
+
     required = list(BACKEND_REQUIRED if checks_backend else ())
     if checks_frontend:
         required.extend(FRONTEND_REQUIRED)
@@ -805,12 +908,12 @@ def main() -> int:
         required.extend(BACKEND_MARKET_REQUIRED)
     if checks_backend and args.require_gmail:
         required.extend(BACKEND_GMAIL_REQUIRED)
+    if checks_backend and args.require_calendar:
+        required.extend(BACKEND_CALENDAR_REQUIRED)
     if checks_backend and args.require_one_email:
         required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
-    if checks_backend and args.require_voice:
-        required.extend(BACKEND_VOICE_REQUIRED)
     if checks_backend and args.require_connected_systems:
-        required.extend(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+        required.extend(connected_systems_required)
     if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if checks_backend and args.require_prod_phone_test:
@@ -818,7 +921,25 @@ def main() -> int:
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
-    missing = [name for name in required if not _has_secret(args.project, name)]
+    try:
+        missing = [name for name in required if not _has_secret(args.project, name)]
+    except CloudReadUnavailable:
+        unavailable_report = {
+            "project": args.project,
+            "status": "blocked",
+            "classifications": ["secret_inventory_unverifiable"],
+            "missing_secrets": None,
+        }
+        if args.report_path:
+            report_path = Path(args.report_path)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(unavailable_report, indent=2), encoding="utf-8"
+            )
+        print(
+            "Secret inventory unverifiable: cloud access failed; no missing-secret conclusion is available."
+        )
+        return 1
 
     report: dict[str, Any] = {
         "project": args.project,
@@ -834,13 +955,13 @@ def main() -> int:
             "gmail": list(BACKEND_GMAIL_REQUIRED)
             if checks_backend and args.require_gmail
             else [],
+            "calendar": list(BACKEND_CALENDAR_REQUIRED)
+            if checks_backend and args.require_calendar
+            else [],
             "one_email": list(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
             if checks_backend and args.require_one_email
             else [],
-            "voice": list(BACKEND_VOICE_REQUIRED)
-            if checks_backend and args.require_voice
-            else [],
-            "connected_systems": list(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+            "connected_systems": list(connected_systems_required)
             if checks_backend and args.require_connected_systems
             else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
@@ -855,7 +976,9 @@ def main() -> int:
             "market": list(BACKEND_MARKET_REQUIRED)
             if checks_backend and args.require_market_data
             else [],
-            "native_release": list(NATIVE_RELEASE_REQUIRED) if args.require_native_artifacts else [],
+            "native_release": list(NATIVE_RELEASE_REQUIRED)
+            if args.require_native_artifacts
+            else [],
         },
         "missing_secrets": sorted(missing),
         "classifications": [],
@@ -863,22 +986,23 @@ def main() -> int:
             "frontend": [],
             "backend": [],
             "backend_gmail": [],
+            "backend_calendar": [],
             "backend_one_email": [],
-            "backend_voice": [],
             "backend_reviewer_smoke": [],
         },
         "gmail_redirect_contract": {"status": "not_checked"},
+        "calendar_redirect_contract": {"status": "not_checked"},
         "domain_runtime_contract": {"status": "not_checked"},
         "firebase_project_contract": {"status": "not_checked"},
         "one_email_runtime_semantics": {"status": "not_checked"},
+        "connected_systems_product_contract": connected_systems_contract,
     }
 
     print(f"Project: {args.project}")
     print(f"Parity targets: backend={checks_backend}, frontend={checks_frontend}")
     if checks_backend:
         print(
-            f"Required backend secrets ({len(BACKEND_REQUIRED)}): "
-            f"{_format_names(BACKEND_REQUIRED)}"
+            f"Required backend secrets ({len(BACKEND_REQUIRED)}): {_format_names(BACKEND_REQUIRED)}"
         )
     if checks_backend and args.require_plaid:
         print(
@@ -895,21 +1019,24 @@ def main() -> int:
             "Required Gmail backend secrets "
             f"({len(BACKEND_GMAIL_REQUIRED)}): {_format_names(BACKEND_GMAIL_REQUIRED)}"
         )
+    if checks_backend and args.require_calendar:
+        print(
+            "Required Calendar backend secrets "
+            f"({len(BACKEND_CALENDAR_REQUIRED)}): {_format_names(BACKEND_CALENDAR_REQUIRED)}"
+        )
     if checks_backend and args.require_one_email:
         print(
             "Required One email backend keys "
             f"({len(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}): {_format_names(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}"
         )
-    if checks_backend and args.require_voice:
-        print(
-            "Required voice backend secrets "
-            f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
-        )
     if checks_backend and args.require_connected_systems:
         print(
             "Required Connected Systems backend secrets "
-            f"({len(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}): "
-            f"{_format_names(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}"
+            f"({len(connected_systems_required)}): "
+            f"{_format_names(connected_systems_required)}"
+        )
+        print(
+            f"Connected Systems product contract: {connected_systems_contract['status']}"
         )
     if checks_backend and args.require_reviewer_smoke:
         print(
@@ -943,15 +1070,29 @@ def main() -> int:
         if gmail_redirect_contract["status"] != "valid":
             report["classifications"].append("gmail_oauth_redirect_contract_failed")
 
+    if checks_backend and args.require_calendar:
+        calendar_redirect_contract = _calendar_redirect_contract(args.project)
+        report["calendar_redirect_contract"] = calendar_redirect_contract
+        print(
+            f"Calendar OAuth redirect contract: {calendar_redirect_contract['status']}"
+        )
+        if calendar_redirect_contract["status"] != "valid":
+            report["classifications"].append("calendar_oauth_redirect_contract_failed")
+
     if checks_backend:
-        domain_runtime_contract = _domain_runtime_contract(args.project)
+        domain_runtime_contract = _domain_runtime_contract(
+            args.project, backend_env if args.assert_runtime_env_contract else None
+        )
         report["domain_runtime_contract"] = domain_runtime_contract
         print(f"Domain runtime contract: {domain_runtime_contract['status']}")
         if domain_runtime_contract["status"] != "valid":
             report["classifications"].append("domain_runtime_contract_failed")
 
     if checks_frontend:
-        firebase_project_contract = _firebase_project_contract(args.project)
+        firebase_project_contract = _firebase_project_contract(
+            args.project,
+            expected_project=args.expected_firebase_project,
+        )
         report["firebase_project_contract"] = firebase_project_contract
         print(f"Firebase project contract: {firebase_project_contract['status']}")
         if firebase_project_contract["status"] != "valid":
@@ -963,11 +1104,6 @@ def main() -> int:
             if checks_frontend
             else None
         )
-        backend_json = (
-            _describe_run_service(args.project, args.region, args.backend_service)
-            if checks_backend
-            else None
-        )
         frontend_env, frontend_revisions = ({}, [])
         if checks_frontend:
             frontend_env, frontend_revisions = _selected_container_env_map(
@@ -977,16 +1113,6 @@ def main() -> int:
                 frontend_json,
                 args.frontend_revision,
             )
-        backend_env, backend_revisions = ({}, [])
-        if checks_backend:
-            backend_env, backend_revisions = _selected_container_env_map(
-                args.project,
-                args.region,
-                args.backend_service,
-                backend_json,
-                args.backend_revision,
-            )
-
         frontend_entries = []
         if checks_frontend:
             frontend_entries = [
@@ -1020,29 +1146,33 @@ def main() -> int:
                 )
                 for key in BACKEND_GMAIL_REQUIRED
             ]
+        backend_calendar_entries = []
+        if checks_backend and args.require_calendar:
+            backend_calendar_entries = [
+                _classify_runtime_key(
+                    backend_env,
+                    key,
+                    legacy_keys=LEGACY_BACKEND_RUNTIME_MAP.get(key, tuple()),
+                )
+                for key in BACKEND_CALENDAR_REQUIRED
+            ]
+        backend_voice_entries = []
+        if checks_backend and args.require_voice:
+            backend_voice_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_VOICE_RUNTIME_REQUIRED
+            ]
         backend_one_email_entries = []
         if checks_backend and args.require_one_email:
             backend_one_email_entries = [
                 _classify_runtime_key(backend_env, key)
                 for key in BACKEND_ONE_EMAIL_RUNTIME_REQUIRED
             ]
-        backend_voice_entries = []
-        if checks_backend and args.require_voice:
-            backend_voice_entries = [
-                _classify_runtime_key(
-                    backend_env,
-                    key,
-                    legacy_component_keys=LEGACY_VOICE_RUNTIME_COMPONENTS
-                    if key == "VOICE_RUNTIME_CONFIG_JSON"
-                    else tuple(),
-                )
-                for key in BACKEND_VOICE_REQUIRED
-            ]
         backend_connected_systems_entries = []
         if checks_backend and args.require_connected_systems:
             backend_connected_systems_entries = [
                 _classify_runtime_key(backend_env, key)
-                for key in BACKEND_CONNECTED_SYSTEMS_RUNTIME_REQUIRED
+                for key in connected_systems_required
             ]
         backend_reviewer_smoke_entries = []
         if checks_backend and args.require_reviewer_smoke:
@@ -1054,12 +1184,15 @@ def main() -> int:
         report["runtime_contract"]["frontend"] = frontend_entries
         report["runtime_contract"]["backend"] = backend_entries
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
-        report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
+        report["runtime_contract"]["backend_calendar"] = backend_calendar_entries
         report["runtime_contract"]["backend_voice"] = backend_voice_entries
+        report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
         report["runtime_contract"]["backend_connected_systems"] = (
             backend_connected_systems_entries
         )
-        report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
+        report["runtime_contract"]["backend_reviewer_smoke"] = (
+            backend_reviewer_smoke_entries
+        )
         report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
         report["runtime_contract"]["backend_serving_revisions"] = backend_revisions
 
@@ -1067,36 +1200,60 @@ def main() -> int:
             one_email_runtime_semantics = _one_email_runtime_semantics(backend_env)
             report["one_email_runtime_semantics"] = one_email_runtime_semantics
             print(
-                "One email runtime semantics: "
-                f"{one_email_runtime_semantics['status']}"
+                f"One email runtime semantics: {one_email_runtime_semantics['status']}"
             )
             if one_email_runtime_semantics["status"] != "valid":
-                report["classifications"].append(
-                    "one_email_runtime_semantics_failed"
-                )
+                report["classifications"].append("one_email_runtime_semantics_failed")
 
         runtime_classifications = []
-        runtime_classifications.extend(_classifications_from_runtime_entries(frontend_entries))
-        runtime_classifications.extend(_classifications_from_runtime_entries(backend_entries))
-        runtime_classifications.extend(_classifications_from_runtime_entries(backend_gmail_entries))
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(frontend_entries)
+        )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_entries)
+        )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_gmail_entries)
+        )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_calendar_entries)
+        )
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_one_email_entries)
         )
-        runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_connected_systems_entries)
         )
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
         )
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_voice_entries)
+        )
         report["classifications"].extend(runtime_classifications)
 
         if checks_frontend:
-            print(_render_runtime_summary("Frontend runtime env contract", frontend_entries))
+            print(
+                _render_runtime_summary(
+                    "Frontend runtime env contract", frontend_entries
+                )
+            )
         if checks_backend:
-            print(_render_runtime_summary("Backend runtime env contract", backend_entries))
+            print(
+                _render_runtime_summary("Backend runtime env contract", backend_entries)
+            )
         if checks_backend and args.require_gmail:
-            print(_render_runtime_summary("Backend Gmail runtime env contract", backend_gmail_entries))
+            print(
+                _render_runtime_summary(
+                    "Backend Gmail runtime env contract", backend_gmail_entries
+                )
+            )
+        if checks_backend and args.require_calendar:
+            print(
+                _render_runtime_summary(
+                    "Backend Calendar runtime env contract", backend_calendar_entries
+                )
+            )
         if checks_backend and args.require_one_email:
             print(
                 _render_runtime_summary(
@@ -1104,8 +1261,6 @@ def main() -> int:
                     backend_one_email_entries,
                 )
             )
-        if checks_backend and args.require_voice:
-            print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
         if checks_backend and args.require_connected_systems:
             print(
                 _render_runtime_summary(
@@ -1127,8 +1282,9 @@ def main() -> int:
                 frontend_entries
                 + backend_entries
                 + backend_gmail_entries
-                + backend_one_email_entries
+                + backend_calendar_entries
                 + backend_voice_entries
+                + backend_one_email_entries
                 + backend_connected_systems_entries
                 + backend_reviewer_smoke_entries
             )

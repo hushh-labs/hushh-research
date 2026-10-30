@@ -6,8 +6,8 @@ import com.getcapacitor.PluginCall
 /**
  * BackendUrl
  *
- * Shared backend URL normalization for Android emulator:
- * - host loopback (localhost/127.0.0.1) must be rewritten to 10.0.2.2
+ * Shared backend URL normalization. Emulator builds rewrite host loopback;
+ * physical-device builds explicitly preserve it for ADB reverse forwarding.
  */
 object BackendUrl {
     private val sharedPluginConfigOrder = listOf(
@@ -21,7 +21,9 @@ object BackendUrl {
         "HushhSync"
     )
 
-    fun normalize(raw: String): String {
+    fun normalize(raw: String, localBackendMode: String? = null): String {
+        if (localBackendMode == "adb_reverse") return raw
+
         return when {
             raw.contains("localhost") -> raw.replace("localhost", "10.0.2.2")
             raw.contains("127.0.0.1") -> raw.replace("127.0.0.1", "10.0.2.2")
@@ -47,7 +49,10 @@ object BackendUrl {
         for (candidate in candidates) {
             val value = candidate?.trim()
             if (!value.isNullOrEmpty()) {
-                return normalize(value)
+                return normalize(
+                    value,
+                    bridge.config.getString("plugins.HushhRuntime.androidLocalBackendMode")
+                )
             }
         }
 

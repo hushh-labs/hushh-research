@@ -37,7 +37,6 @@ const mocks = vi.hoisted(() => ({
     setRiaMarketplaceDiscoverability: vi.fn(),
     getCrdScrapeJobStatus: vi.fn(),
   },
-  openKaiCommandBar: vi.fn(),
   draftService: {
     load: vi.fn(),
     save: vi.fn(),
@@ -63,7 +62,6 @@ vi.mock("lucide-react", () => ({
   Briefcase: () => <span />,
   Building2: () => <span />,
   Pencil: () => <span />,
-  Sparkles: () => <span />,
   BarChart3: () => <span />,
   Landmark: () => <span />,
   FileText: () => <span />,
@@ -228,7 +226,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
     <div data-testid="step-services">
       <span data-testid="services-bio">{bio}</span>
       <button data-testid="draft-bio" onClick={onDraftBio}>
-        Ask Kai to draft a bio
+        Ask One to draft a bio
       </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
@@ -242,12 +240,10 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
   OnboardingStepReview: ({
     advisorName,
     onEditSection,
-    onAskKaiUpdateAnything,
     advisoryAccessReady,
   }: {
     advisorName: string;
     onEditSection: (section: string) => void;
-    onAskKaiUpdateAnything: () => void;
     advisoryAccessReady: boolean;
   }) => (
     <div data-testid="step-review">
@@ -264,9 +260,6 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         onClick={() => onEditSection("services")}
       >
         Edit Services
-      </button>
-      <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
       </button>
     </div>
   ),
@@ -302,9 +295,6 @@ vi.mock("@/lib/navigation/profile-routes", () => ({
     panel === "regulatory" ? "/one/profile/regulatory" : "/one/profile",
 }));
 
-vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
-  openKaiCommandBar: mocks.openKaiCommandBar,
-}));
 
 vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
   RiaOnboardingDraftLocalService: mocks.draftService,
@@ -342,6 +332,7 @@ describe("RiaOnboardingPage", () => {
         phoneNumber: "+16505550101",
         getIdToken: vi.fn().mockResolvedValue("token-ria-1"),
       },
+      userId: "user-ria-1",
       phoneNumber: "+16505550101",
     });
     mocks.usePersonaState.mockReturnValue({
@@ -393,7 +384,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("shows sign-in message when no user", async () => {
-    mocks.useAuth.mockReturnValue({ user: null });
+    mocks.useAuth.mockReturnValue({ user: null, userId: null });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
@@ -480,6 +471,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("clears stale regulator fields before applying a fresh verification result", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_number"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_number",
       onboardingType: "individual",
@@ -558,6 +552,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs stale verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_details"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_details",
       onboardingType: "individual",
@@ -625,6 +622,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs conflicting verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -807,9 +805,72 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
-  it("loads existing draft and restores saved step", async () => {
+  it("restores a saved step 2 draft after remount", async () => {
+    let savedDraft: Record<string, unknown> | null = null;
+    mocks.draftService.load.mockImplementation(async () => savedDraft);
+    mocks.draftService.save.mockImplementation(async (_userId, draft) => {
+      savedDraft = draft;
+    });
+
+    const firstRender = render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(savedDraft).toEqual(
+        expect.objectContaining({ currentStepId: "license_number" }),
+      );
+    });
+
+    firstRender.unmount();
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+  });
+
+  it("restores a valid saved later setup step and preserves draft fields", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
+      onboardingType: "firm",
+      licenseNumber: "111222",
+      licenseVerificationStatus: "found",
+      advisorName: "Saved Advisor",
+      verifiedLicensePrefillKey: "auto:111222",
+      servicesOffered: [],
+      feeStructure: [],
+      city: "Austin",
+      pinZip: "78701",
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+    expect(screen.getByTestId("services-city").textContent).toBe("Austin");
+    expect(screen.getByTestId("services-pin-zip").textContent).toBe("78701");
+  });
+
+  it("clamps an invalid persisted later step to the nearest valid prerequisite", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
       onboardingType: "individual",
       licenseNumber: "111222",
       licenseVerificationStatus: "found",
@@ -822,11 +883,13 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
+      expect(screen.getByTestId("step-services")).toBeTruthy();
     });
+    expect(screen.queryByTestId("step-review")).toBeNull();
   });
 
   it("drafts a bio from verified onboarding fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -863,12 +926,12 @@ describe("RiaOnboardingPage", () => {
       );
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Bio drafted",
-      expect.any(Object),
+      "Bio drafted. Review the draft before submitting your profile.",
     );
   });
 
-  it("opens Kai command from the review update action", async () => {
+  it("keeps archived Search off the review step", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -891,18 +954,11 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-review")).toBeTruthy();
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ask-kai-update"));
-    });
-
-    expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
-    expect(mocks.toast.info).toHaveBeenCalledWith(
-      "Kai command opened",
-      expect.any(Object),
-    );
+    expect(screen.queryByTestId("ask-kai-update")).toBeNull();
   });
 
   it("does not force a second live verification after license verification", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -954,6 +1010,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("does not submit onboarding twice while the first request is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -1001,6 +1058,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("turns provider unavailable submit errors into actionable verification copy", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -1032,14 +1090,11 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Live RIA verification is unavailable/i),
+        screen.getByText(/Live advisor verification is unavailable/i),
       ).toBeTruthy();
     });
     expect(mocks.toast.error).toHaveBeenCalledWith(
-      "Could not submit verification",
-      expect.objectContaining({
-        description: expect.stringMatching(/regulator-backed CRD/i),
-      }),
+      expect.stringMatching(/regulator-backed CRD/i),
     );
   });
 
@@ -1075,6 +1130,36 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
     });
+  });
+
+  it("keeps a draft/submitted/rejected advisor in the wizard instead of bouncing to profile", async () => {
+    // Regression: `exists: true` alone used to count as "established" and
+    // send the advisor straight to /ria/profile, even mid-verification. The
+    // Clients page's own gate still blocked them (not verified), so the
+    // "Complete verification" CTA became a dead end -- profile had nothing
+    // for them to finish. Only an actually-verified status may redirect.
+    for (const status of ["draft", "submitted", "rejected"]) {
+      mocks.routerReplace.mockClear();
+      mocks.usePersonaState.mockReturnValue({
+        refresh: mocks.refreshPersonaState,
+        riaCapability: "setup",
+        loading: false,
+        refreshing: false,
+        riaOnboardingStatus: {
+          exists: true,
+          advisory_status: status,
+          verification_status: status,
+        },
+      });
+
+      const { unmount } = render(<RiaOnboardingPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
+      });
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/ria/profile");
+      unmount();
+    }
   });
 
   it("keeps a switch advisor in the wizard when re-verifying via ?edit=license", async () => {
@@ -1128,6 +1213,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("keeps the user on the services step when Continue is pressed with empty required fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -1162,6 +1248,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("completes onboarding and routes to the RIA profile when verification is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",

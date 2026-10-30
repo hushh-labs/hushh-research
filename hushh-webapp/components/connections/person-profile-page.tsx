@@ -1,0 +1,1244 @@
+"use client";
+import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
+
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+
+import {
+  isPeopleGraphChange,
+  VoiceRefreshDeduper,
+} from "@/lib/one-voice/people-voice-refresh";
+import type { ToolResultPublic } from "@/lib/one-voice/protocol";
+import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
+import { ChevronDown, LockKeyhole, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
+import { toast } from "sonner";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import styles from "./person-profile-page.module.css";
+import { Button } from "@/lib/morphy-ux/button";
+import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { usePersonProfilePackets } from "./person-profile-packets";
+import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { RequestScopeButton } from "@/components/consent/request-scope-button";
+import { RequestCardsButton } from "@/components/wallet/request-cards-button";
+import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
+import {
+  SectionCard,
+  StatusPill,
+} from "@/lib/morphy-ux/ui/surface-primitives";
+import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
+import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
+import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
+import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
+import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
+import { joinInformationLabels } from "@/lib/consent/consent-owner-copy";
+import {
+  PersonProfileService,
+  mergePersonScopePage,
+  type PublicPersonProfile,
+  type ViewerPersonProfile,
+  type PersonRelationship,
+  type InformationRequestBundle,
+  type PersonInformationRequestHistory,
+  type PersonRequestHistoryPage,
+} from "@/lib/services/person-profile-service";
+import {
+  resolvePersonRefFromProfilePathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import {
+  DEFAULT_REQUEST_DURATION_HOURS,
+  requestDurationLabel,
+} from "@/lib/agent/action-directive-summary";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+
+function renderCategoryIcon(domain: string) {
+  const presentation = {
+    location: { Icon: MapPin, tone: "blue" },
+    financial: { Icon: CreditCard, tone: "green" },
+    identity: { Icon: UserRound, tone: "purple" },
+    shopping: { Icon: ShoppingBag, tone: "orange" },
+  }[domain.toLowerCase()] ?? { Icon: FolderSimpleIcon, tone: "blue" };
+  const { Icon, tone } = presentation;
+  return <Icon className={styles.categoryIcon} data-tone={tone} color="currentColor" weight="regular" aria-hidden="true" />;
+}
+
+/**
+ * Where a request stands, in the requester's words. Localhost run 4 (S3)
+ * showed the raw "granted" state as a pill and "Tax Record Domain" as a title.
+ */
+const HISTORY_STATUS: Record<string, string> = {
+  pending: "Waiting",
+  granted: "Shared",
+  denied: "Declined",
+  revoked: "Stopped",
+  expired: "Expired",
+  cancelled: "Withdrawn",
+};
+
+function historyStatusLabel(status: string): string {
+  return HISTORY_STATUS[status] ?? "Check status";
+}
+
+function historyItemLabel(label: string | null | undefined): string {
+  return humanSharedLabel(label) ?? "Shared information";
+}
+
+/**
+ * A request's title: what it asked for when known, otherwise how many items.
+ * `itemLabels` is the server's own list of the request's items (deduplicated),
+ * so an older request on a later page still reads "Tax record and Portfolio"
+ * rather than "2 items" (run 4, S3/U3).
+ */
+function historyTitle(
+  labels: Array<string | null | undefined>,
+  itemCount: number,
+  itemLabels: readonly string[] = [],
+): string {
+  if (labels.length === itemCount && itemCount > 0) return joinInformationLabels(labels.map(historyItemLabel), 2);
+  const named = itemLabels.filter((label) => typeof label === "string" && label.trim());
+  if (named.length) return joinInformationLabels(named.map(historyItemLabel), 2);
+  return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+}
+
+function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | "pink" | "lilac" | "amber") {
+  return <PersonProfileTaskContent label={label} Icon={Icon} tone={tone} />;
+}
+
+export function PersonProfilePage(props: Props) {
+  const { user } = useAuth();
+  return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+}
+
+function PersonProfileSession({ personRef, initialProfile }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, userId, loading: authLoading } = useAuth();
+  const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const connectorFeatures = usePersonConnectorFeatures(userId ?? undefined, vaultOwnerToken, isVaultUnlocked);
+  const packetCatalogAvailable = connectorFeatures.availability.status === "ready"
+    && (connectorFeatures.availability.agentPackages || connectorFeatures.availability.periodPackets);
+  const resolvedPersonRef = useMemo(() => {
+    const isNativeIOS =
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+    if (!isNativeIOS) return personRef;
+    return resolvePersonRefFromProfilePathname(pathname) || personRef;
+  }, [pathname, personRef]);
+  const [profileState, setProfileState] = useState<{
+    personRef: string;
+    profile: PublicPersonProfile | null;
+  }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
+  const profile =
+    profileState.personRef === resolvedPersonRef ? profileState.profile
+      : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
+  const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const [publicReloadToken, setPublicReloadToken] = useState(0);
+  const [viewerLoadError, setViewerLoadError] = useState<{
+    personRef: string; viewerUid: string;
+  } | null>(null);
+  const viewerUnavailable = viewerLoadError?.personRef === resolvedPersonRef
+    && viewerLoadError.viewerUid === user?.uid;
+  const [viewerProfileState, setViewerProfileState] = useState<{
+    personRef: string;
+    viewerUid: string | null;
+    profile: ViewerPersonProfile | null;
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, profile: null });
+  const viewerProfile =
+    viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
+      ? viewerProfileState.profile
+      : null;
+  const [displayState, setDisplayState] = useState<typeof viewerProfileState>(viewerProfileState);
+  const displayViewerProfile = viewerProfile ?? (displayState.personRef === resolvedPersonRef && displayState.viewerUid === user?.uid ? displayState.profile : null);
+  const displayRef = useRef(displayViewerProfile);
+  displayRef.current = displayViewerProfile;
+  const [relationshipState, setRelationshipState] = useState<{ personRef: string; viewerUid: string; value: PersonRelationship } | null>(null);
+  const relationshipReadGeneration = useRef(0);
+  // The complete response computes relationship last, after its slower reads.
+  // Use the lightweight projection while waiting, then converge on that full
+  // snapshot so independent response timing cannot split badge and contacts.
+  const relationship = viewerProfile?.relationship ?? (relationshipState?.personRef === resolvedPersonRef && relationshipState.viewerUid === user?.uid
+    ? relationshipState.value : undefined);
+  const canRequest = relationship?.status === "connected";
+  const showRequestActions = !relationship || canRequest;
+  const recentHistoryGroups = useMemo(() => {
+    const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
+    for (const item of displayViewerProfile?.requestHistory ?? []) {
+      const key = item.bundleId || item.requestId;
+      const group = groups.get(key);
+      if (group) group.items.push(item);
+      else groups.set(key, { first: item, items: [item] });
+    }
+    return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
+  }, [displayViewerProfile?.requestHistory]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null]);
+  const [historyState, setHistoryState] = useState<{
+    personRef: string; viewerUid: string; page: number; result: PersonRequestHistoryPage | null; failed: boolean;
+  } | null>(null);
+  const currentHistory = historyState?.personRef === resolvedPersonRef
+    && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const historyGroups = currentHistory?.result?.bundles.map((summary) => {
+    const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
+    return {
+      bundleId: summary.bundleId,
+      first: recent?.first ?? null,
+      items: recent?.items ?? [],
+      itemCount: summary.itemCount,
+      itemLabels: Array.isArray(summary.itemLabels) ? summary.itemLabels : [],
+      purpose: summary.purpose,
+      createdAt: summary.createdAt,
+    };
+  }) ?? recentHistoryGroups.slice((historyPage - 1) * 8, historyPage * 8).map((group) => ({
+    ...group,
+    itemCount: group.items.length,
+    itemLabels: [] as string[],
+    purpose: group.first.purpose,
+    createdAt: group.first.createdAt,
+  }));
+  const visibleHistoryGroups = historyGroups;
+  const visibleHistoryPage = historyPage;
+  const historyPageCount = Math.max(1, Math.ceil(recentHistoryGroups.length / 8));
+  const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [durationHours, setDurationHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
+  const [bundleDetailsState, setBundleDetailsState] = useState<{
+    personRef: string;
+    viewerUid: string | null;
+    details: Record<string, InformationRequestBundle>;
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+  const bundleDetails = bundleDetailsState.personRef === resolvedPersonRef
+    && bundleDetailsState.viewerUid === user?.uid ? bundleDetailsState.details : {};
+  const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  // /connect and the agent's discovery card land here with ?request=1: bring
+  // the requestable catalog into view instead of the identity header.
+  const requestIntent = searchParams?.get("request") === "1";
+  const sharedIntent = searchParams?.get("section") === "shared";
+  const availableSectionRef = useRef<HTMLElement | null>(null);
+  const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const [showUnlockDialog, setShowUnlockDialog] = useState(false);
+  const request = usePersonInformationRequest(resolvedPersonRef);
+  const requesting = request.pending;
+  const requestGeneration = useRef(0);
+  const viewerReadGeneration = useRef(0);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
+  const catalogInFlight = useRef(false);
+  useEffect(() => {
+    requestGeneration.current += 1;
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [resolvedPersonRef, user?.uid, isVaultUnlocked]);
+  const [relationshipBusy, setRelationshipBusy] = useState(false);
+  const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
+    let active = true;
+    setPublicProfileUnavailable(false);
+    void PersonProfileService.getPublic(resolvedPersonRef)
+      .then((value) => {
+        if (active) {
+          setProfileState({ personRef: resolvedPersonRef, profile: value });
+        }
+      })
+      .catch(() => {
+        if (active) setPublicProfileUnavailable(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [resolvedPersonRef, publicReloadToken, initialProfile]);
+
+  const [viewerReloadToken, setViewerReloadToken] = useState(0);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let current = true;
+    const generation = ++relationshipReadGeneration.current;
+    setRelationshipState(null);
+    void user.getIdToken().then((token) => PersonProfileService.getRelationship(resolvedPersonRef, token))
+      .then((value) => { if (current && generation === relationshipReadGeneration.current) setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value }); })
+      .catch(() => { /* The independent full response may still establish eligibility. */ });
+    return () => { current = false; };
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let active = true;
+    const cursor = historyCursors[historyPage - 1];
+    if (historyPage > 1 && !cursor) return;
+    setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: false });
+    void user.getIdToken()
+      .then((idToken) => PersonProfileService.getRequestHistory({
+        personRef: resolvedPersonRef, idToken, cursor: cursor || undefined, limit: 8,
+      }))
+      .then((result) => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result, failed: false });
+      })
+      .catch(() => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: true });
+      });
+    return () => { active = false; };
+  }, [authLoading, resolvedPersonRef, user, historyPage, historyCursors, viewerReloadToken]);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    requestGeneration.current += 1;
+    const generation = ++viewerReadGeneration.current;
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    let active = true;
+    setViewerLoadError(null);
+    void user
+      .getIdToken()
+      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
+      .then((value) => {
+        if (active && generation === viewerReadGeneration.current) {
+          const previous = displayRef.current;
+          const sameCatalog = previous?.personRef === value.personRef && previous.scopeCatalog && value.scopeCatalog
+            && previous.scopeCatalog.catalogRevision === value.scopeCatalog.catalogRevision && !value.scopeCatalog.paginationReset;
+          const retainedTail = sameCatalog ? previous.requestableScopes : [];
+          const scopes = new Map(retainedTail.map((scope) => [scope.scopeRef, scope]));
+          value.requestableScopes.forEach((scope) => scopes.set(scope.scopeRef, scope));
+          const next = { ...value, requestableScopes: [...scopes.values()],
+            ...(sameCatalog && previous.scopeCatalog!.page > value.scopeCatalog!.page
+              ? { scopeCatalog: { ...value.scopeCatalog!, page: previous.scopeCatalog!.page, nextPage: previous.scopeCatalog!.nextPage, hasMore: previous.scopeCatalog!.hasMore } } : {}) };
+          setViewerProfileState({
+            personRef: resolvedPersonRef,
+            viewerUid: user.uid,
+            profile: next,
+          });
+          setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: next });
+          const availableRefs = new Set(next.requestableScopes.map((scope) => scope.scopeRef));
+          setSelectedScopeRefs((selected) => new Set([...selected].filter((ref) => availableRefs.has(ref))));
+        }
+      })
+      .catch(() => {
+        if (active && generation === viewerReadGeneration.current) {
+          setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
+          // Do not present an older eligibility catalog as current authority.
+          setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+
+  // One Voice changed a relationship: re-read this profile's relationship
+  // state from the server rather than trusting the spoken outcome. The two
+  // frames the relay sends for one confirmed action collapse to one reload.
+  const voiceRefreshDedupe = useRef(new VoiceRefreshDeduper());
+  const reloadAfterVoice = useCallback(
+    (tool: string | null, result: ToolResultPublic | null) => {
+      if (!isPeopleGraphChange(tool, result)) return;
+      if (!voiceRefreshDedupe.current.shouldRefresh(result)) return;
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user?.uid
+        ? { ...current, profile: null } : current);
+      setViewerReloadToken((token) => token + 1);
+    },
+    [resolvedPersonRef, user?.uid],
+  );
+  useVoiceToolEffects({
+    onToolResult: (tool, result) => reloadAfterVoice(tool, result),
+    onPendingResolved: (_id, status, result) => {
+      if (status !== "executed") return;
+      reloadAfterVoice(null, result);
+    },
+  });
+
+  useEffect(() => {
+    setSelectedScopeRefs(new Set());
+    setReviewOpen(false);
+    setPurpose("");
+    setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+    setBundleDetailsState({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+    setHistoryPage(1);
+    setHistoryCursors([null]);
+    setHistoryState(null);
+  }, [resolvedPersonRef, user?.uid]);
+
+  useEffect(() => {
+    if (!user || !userId) return;
+    const refresh = () => {
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
+        ? { ...current, profile: null } : current);
+      setViewerReloadToken((value) => value + 1);
+    };
+    const unsubscribe = subscribeToConnectionGraphChanges((event) => {
+      if (event.userId === userId) refresh();
+    });
+    const onPush = (event: Event) => {
+      const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
+      if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
+    };
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      // Pending-count hydration is bookkeeping, not a change to this person's
+      // requestable information. Do not discard an in-progress request for it.
+      // Explicit mutations, reconciliation requests and unknown legacy events
+      // still invalidate the catalog before another request can be submitted.
+      if (!detail?.action && detail?.reconcile !== true
+        && ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"].includes(String(detail?.source || ""))) return;
+      // A changed grant invalidates the reviewed terms immediately, including
+      // while the replacement catalog is still loading.
+      setReviewOpen(false);
+      setSelectedScopeRefs(new Set());
+      setPurpose("");
+      setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
+      refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+    window.addEventListener(FCM_MESSAGE_EVENT, onPush);
+    return () => {
+      unsubscribe();
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+      window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
+    };
+  }, [resolvedPersonRef, user, userId]);
+
+  useEffect(() => {
+    if (!requestIntent || !viewerProfile) return;
+    const node = availableSectionRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [requestIntent, viewerProfile]);
+
+  useEffect(() => {
+    if (!sharedIntent || !viewerProfile) return;
+    const node = sharedSectionRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (!isVaultUnlocked) {
+      setShowUnlockDialog(true);
+    }
+  }, [sharedIntent, viewerProfile, isVaultUnlocked]);
+
+  const allScopes = useMemo(() => displayViewerProfile?.requestableScopes || [], [displayViewerProfile]);
+
+  async function loadMoreScopes() {
+    const catalog = viewerProfile?.scopeCatalog;
+    if (!user || !viewerProfile || !catalog?.nextPage || catalogInFlight.current) return;
+    const generation = requestGeneration.current;
+    const current = viewerProfile;
+    catalogInFlight.current = true;
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const token = await user.getIdToken();
+      const next = await PersonProfileService.getViewer(resolvedPersonRef, token, {
+        page: catalog.nextPage, revision: catalog.catalogRevision,
+      });
+      if (generation !== requestGeneration.current) return;
+      const merged = mergePersonScopePage(current, next);
+      if (next.scopeCatalog?.paginationReset || next.scopeCatalog?.catalogRevision !== catalog.catalogRevision) {
+        setSelectedScopeRefs(new Set());
+        setReviewOpen(false);
+      }
+      setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+    } catch {
+      if (generation === requestGeneration.current) setCatalogError(true);
+    } finally {
+      if (generation === requestGeneration.current) {
+        catalogInFlight.current = false;
+        setCatalogLoading(false);
+      }
+    }
+  }
+
+  const grantedScopeRefs = useMemo(
+    () =>
+      new Set(
+        (viewerProfile?.grants || [])
+          .map((grant) => grant.scopeRef)
+          .filter((ref): ref is string => Boolean(ref)),
+      ),
+    [viewerProfile?.grants],
+  );
+
+  /**
+   * The catalogue in the one shape every scope surface reads.
+   *
+   * The adapter already existed and already took this exact payload type --
+   * `scopeItemsFromRequestable` imports `RequestablePersonScope` from this
+   * page's own service. Search, grouping and the threshold moved with it, which
+   * is why the local copies of all three are gone.
+   */
+  const scopeItems = useMemo(
+    () =>
+      scopeItemsFromRequestable(allScopes).map((item) =>
+        grantedScopeRefs.has(item.id) ? { ...item, disabled: true } : item,
+      ),
+    [allScopes, grantedScopeRefs],
+  );
+
+  const selectedScopes = useMemo(
+    () =>
+      selectedRequestScopes(allScopes, selectedScopeRefs).filter(
+        (scope) => !grantedScopeRefs.has(scope.scopeRef),
+      ),
+    [allScopes, selectedScopeRefs, grantedScopeRefs],
+  );
+
+  const openRequestReview = () => {
+    if (!selectedScopes.length) {
+      toast.error("Choose at least one item before reviewing the request.");
+      return false;
+    }
+    if (!isVaultUnlocked) {
+      toast.error("Unlock your vault before requesting information.");
+      return false;
+    }
+    if (!request.available) {
+      toast.error("Your vault is still getting ready. Try again in a moment.");
+      return false;
+    }
+    setReviewOpen(true);
+    return true;
+  };
+
+  const submitRequest = async () => {
+    if (!viewerProfile) return;
+    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
+    if (sent) {
+      setReviewOpen(false);
+      setSelectedScopeRefs(new Set());
+      setPurpose("");
+      toast.success("Request sent for review");
+      // Refresh failure must not misreport a successful write or invite a duplicate.
+      setHistoryPage(1);
+      setHistoryCursors([null]);
+      setViewerReloadToken((value) => value + 1);
+    }
+  };
+
+  const loadBundleDetails = async (bundleId: string) => {
+    if (!vaultOwnerToken || bundleDetails[bundleId] || loadingBundleId) return;
+    setLoadingBundleId(bundleId);
+    try {
+      const bundle = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
+      if (bundle.personRef !== resolvedPersonRef || bundle.bundleId !== bundleId) {
+        throw new Error("Request details did not match this person.");
+      }
+      setBundleDetailsState((current) => ({
+        personRef: resolvedPersonRef,
+        viewerUid: user?.uid ?? null,
+        details: {
+          ...(current.personRef === resolvedPersonRef && current.viewerUid === user?.uid ? current.details : {}),
+          [bundleId]: bundle,
+        },
+      }));
+    } catch (reason) {
+      toast.error(oneLocationErrorMessage(reason, "Request details are unavailable right now."));
+    } finally {
+      setLoadingBundleId(null);
+    }
+  };
+
+  const updateRelationship = async (action: "connect" | "cancel" | "remove"): Promise<boolean> => {
+    if (!user || !userId || !viewerProfile && action !== "connect") return false;
+    setRelationshipBusy(true);
+    try {
+      const idToken = await user.getIdToken();
+      const relationship =
+        action === "connect"
+          ? await PersonProfileService.connect(resolvedPersonRef, idToken)
+          : action === "cancel"
+            ? await PersonProfileService.cancelConnectionRequest(
+                resolvedPersonRef,
+                idToken,
+              )
+            : await PersonProfileService.removeConnection(
+                resolvedPersonRef,
+                idToken,
+              );
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      catalogInFlight.current = false;
+      setCatalogLoading(false);
+      setCatalogError(false);
+      if (action === "remove") {
+        CacheSyncService.onConnectionGraphMutated(userId);
+      } else {
+        CacheSyncService.onConnectionCapabilityMutated(userId);
+      }
+      setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
+      setViewerProfileState((current) =>
+        current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
+          ? {
+              personRef: resolvedPersonRef,
+              viewerUid: user.uid,
+              profile: {
+                ...current.profile,
+                relationship,
+                ...(relationship.status !== "connected" ? { contactEmail: null, contactPhoneNumber: null } : {}),
+              },
+            }
+          : current,
+      );
+      toast.success(
+        action === "connect"
+          ? "Connection request sent"
+          : action === "cancel"
+            ? "Connection request cancelled"
+            : "Connection removed",
+      );
+      return true;
+    } catch (reason) {
+      toast.error(oneLocationErrorMessage(reason, "Connection could not be updated. Try again."));
+      return false;
+    } finally {
+      setRelationshipBusy(false);
+    }
+  };
+
+  const allGrants = useMemo(() => viewerProfile?.grants || [], [viewerProfile?.grants]);
+
+  // The same secure card as chat and Profile (CONTRACT-2 decision 2). Each
+  // grant opens on this device from the bundle it, or its request history,
+  // is bound to; the card owns opening, locking and ended access.
+  const sharedCardItems = useMemo<SharedWithMeCardItem[]>(() => allGrants.map((grant, index) => {
+    const history = viewerProfile?.requestHistory.find((item) => item.requestId === grant.requestId);
+    const declared = String(history?.sensitivity ?? "").toLowerCase();
+    const iso = (ms: number | null | undefined) =>
+      typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+    return {
+      key: grant.requestId || grant.scopeRef || `shared-${index}`,
+      grantRef: grant.requestId,
+      bundleId: grant.bundleId || history?.bundleId || null,
+      requestId: grant.requestId,
+      label: humanSharedLabel(grant.label) ?? "Shared information",
+      sensitivity: declared === "standard" ? "standard" : declared ? "sensitive" : null,
+      domain: grant.domain,
+      fieldOutline: [],
+      sharedAt: iso(grant.issuedAt),
+      accessEndsAt: iso(grant.expiresAt),
+      purpose: history?.purpose?.trim() || null,
+      status: "granted",
+    };
+  }), [allGrants, viewerProfile?.requestHistory]);
+
+  const cancelInformationRequest = async (bundleId: string) => {
+    if (!user || !userId || !vaultOwnerToken) {
+      toast.error("Unlock your vault to cancel this request.");
+      return;
+    }
+    setCancellingBundleId(bundleId);
+    try {
+      await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
+      CacheSyncService.onConsentMutated(userId);
+      setBundleDetailsState((current) => ({ ...current, details: Object.fromEntries(
+        Object.entries(current.details).filter(([id]) => id !== bundleId),
+      ) }));
+      setViewerReloadToken((value) => value + 1);
+      toast.success("Information request cancelled");
+    } catch (reason) {
+      toast.error(oneLocationErrorMessage(reason, "The request could not be cancelled. Try again."));
+    } finally {
+      setCancellingBundleId(null);
+    }
+  };
+
+  useLocalOnboardingActionHandler("people.profile.connect", async () => ({
+    status: (await updateRelationship("connect")) ? "succeeded" : "failed",
+    summary: "Connection request processing finished.",
+  }), { enabled: viewerProfile?.relationship.status === "none" });
+  useLocalOnboardingActionHandler("people.profile.cancel_connection_request", async () => ({
+    status: (await updateRelationship("cancel")) ? "succeeded" : "failed",
+    summary: "Connection request cancellation finished.",
+  }), { enabled: viewerProfile?.relationship.status === "pending_outgoing" });
+  useLocalOnboardingActionHandler("people.profile.remove_connection", async (_slots, context) => {
+    const displayName = profile?.displayName || "this person";
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
+      return {
+        status: "blocked" as const,
+        summary: `Removing your connection with ${displayName} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "people.profile.remove_connection",
+            slots: {},
+            prompt: `Remove your connection with ${displayName}?`,
+            subject: { name: displayName, detail: null },
+            consequence:
+              "Ends the connection with this person. Existing consent remains governed separately.",
+            confirmLabel: "Remove",
+          },
+        },
+      };
+    }
+    return {
+      status: (await updateRelationship("remove")) ? "succeeded" : "failed",
+      summary: "Connection removal finished.",
+    };
+  }, { enabled: viewerProfile?.relationship.status === "connected" });
+  useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
+    return openRequestReview()
+      ? { status: "succeeded", summary: "Information request review opened." }
+      : { status: "blocked", summary: "The request review is not ready yet." };
+  }, { enabled: Boolean(viewerProfile) });
+  useLocalOnboardingActionHandler("people.profile.manage_consent", async () => {
+    router.push(ROUTES.CONSENTS);
+    return { status: "started", summary: "Opening the Consent Center." };
+  }, { enabled: Boolean(viewerProfile) });
+  const packets = usePersonProfilePackets({ signedIn: Boolean(user), personRef: resolvedPersonRef,
+    ownerName: profile?.displayName || "this person", relationship: relationship?.status,
+    privateCatalog: viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable,
+    connecting: relationshipBusy, onConnect: () => updateRelationship("connect"), onUnlock: () => setShowUnlockDialog(true) });
+
+  const surfaceActions = useMemo(() => {
+    if (!viewerProfile) return [];
+    const actions = [
+      {
+        id: "manage-consent",
+        label: "Manage consent",
+        actionId: "people.profile.manage_consent",
+        purpose: "Review access independently from the social connection.",
+      },
+      {
+        id: "review-information-request",
+        label: "Review information request",
+        actionId: "people.profile.review_information_request",
+        purpose: "Review what you chose before asking for it.",
+      },
+    ];
+    if (viewerProfile.relationship.status === "none") {
+      actions.push({ id: "connect", label: "Connect", actionId: "people.profile.connect", purpose: "Send a separate social connection request." });
+    } else if (viewerProfile.relationship.status === "pending_outgoing") {
+      actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
+    } else if (viewerProfile.relationship.status === "connected") {
+      actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
+      actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
+    }
+    return actions;
+  }, [viewerProfile]);
+
+  usePublishVoiceSurfaceMetadata(
+    viewerProfile
+      ? {
+          screenId: "one_person_profile",
+          title: "Person profile",
+          purpose: "Review a person's relationship, requestable information, shared access, and request history.",
+          primaryEntity: null,
+          spokenSubject: null,
+          sections: [
+            { id: "shared", title: "Shared with you", summary: `${viewerProfile.grants.length} active` },
+            { id: "requestable", title: "Available to request", summary: `${viewerProfile.scopeCatalog?.totalCount ?? viewerProfile.requestableScopes.length} items you can ask for` },
+            { id: "history", title: "Request history", summary: `${historyGroups.length} ${historyGroups.length === 1 ? "request" : "requests"}` },
+          ],
+          actions: surfaceActions,
+          availableActions: surfaceActions.flatMap((action) => action.actionId ? [action.actionId] : []),
+          screenMetadata: {
+            profile_reference_present: true,
+            relationship_state: viewerProfile.relationship.status,
+            selected_scope_count: selectedScopeRefs.size,
+          },
+        }
+      : null,
+    { role: "route", routeKey: "/people/[personRef]" },
+  );
+
+  usePublishVoiceSurfaceMetadata(
+    reviewOpen
+      ? {
+          screenId: "one_person_profile",
+          title: "Review information request",
+          interactionLayer: {
+            schemaVersion: "voice_interaction_layer.v1",
+            id: "person_information_request_review",
+            kind: "information_request_review",
+            modality: "modal",
+            lifecycle: "open",
+            dismissible: true,
+            dismissActionId: null,
+            visibleActionIds: [],
+            visibleControlIds: ["person-profile-request-confirm", "person-profile-request-cancel"],
+            options: [],
+            returnFocusControlId: "person-profile-review-information",
+            blocksUnderlyingActions: true,
+            agentContinuity: "suppressed",
+          },
+        }
+      : null,
+    { role: "interaction_layer", routeKey: "/people/[personRef]" },
+  );
+
+  if (!profile) {
+    return (
+      <AppPageShell width="agent" fitContent>
+        <div
+          className="flex min-h-[50vh] items-center justify-center"
+          data-native-route="native-route-person-profile"
+        >
+          <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
+            {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
+          </p>
+          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
+        </div>
+      </AppPageShell>
+    );
+  }
+
+  return (
+    <AppPageShell width="agent" fitContent>
+      <div className={styles.page} data-native-route="native-route-person-profile">
+        <PersonProfileHero
+          profile={profile}
+          shareOnly={!viewerProfile}
+          status={relationship?.status === "connected" && viewerProfile?.relationship.status === "connected" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ShellActionSurface variant="pill" className={styles.connectionMenu} data-profile-role="action" aria-label="Connected, connection options">
+                  Connected
+                  <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                </ShellActionSurface>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
+                  Remove connection
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : relationship ? (
+            <>
+              <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>
+                {relationship.status === "connected"
+                  ? "Connected"
+                  : relationship.status.startsWith("pending")
+                    ? "Request pending"
+                    : "Not connected"}
+              </StatusPill>
+            </>
+          ) : user ? <span role="status" className="text-sm text-muted-foreground">Checking connection…</span> : null}
+          contacts={<>
+            {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
+            <a href={`mailto:${viewerProfile.contactEmail}`}>
+              <Mail aria-hidden="true" /><span dir="auto">{viewerProfile.contactEmail}</span>
+            </a>
+          ) : null}
+          {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
+            <a href={`tel:${viewerProfile.contactPhoneNumber}`}>
+              <Phone aria-hidden="true" /><span dir="auto">{viewerProfile.contactPhoneNumber}</span>
+            </a>
+          ) : null}
+          </>}
+          primaryActions={<>
+            {viewerProfile ? (
+              <Button type="button" size="compact" variant="blue-gradient" effect="fill" aria-label="Browse available information" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                <FileText className="h-5 w-5" aria-hidden="true" />
+                Browse
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="compact"
+              variant="none"
+              effect="fade"
+              className={styles.share}
+              ref={requestScopeReturnFocusRef}
+              aria-label="Share profile"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href);
+                toast.success("Profile link copied");
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Share2 className="h-5 w-5" aria-hidden="true" />
+                <span>Share</span>
+              </span>
+            </Button>
+          </>}
+          tasks={user ? (
+              <>
+                  <DocumentRequestButton
+                    returnFocusRef={requestScopeReturnFocusRef}
+                    key={`files:${userId}:${resolvedPersonRef}`}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
+                    availability={connectorFeatures.availability}
+                    onAvailabilityRetry={connectorFeatures.retry}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle, label === "Request files" ? "blue" : "pink")}
+                  />
+                {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
+                <RequestScopeButton
+                  key={`question:${userId}:${resolvedPersonRef}`}
+                  personRef={resolvedPersonRef}
+                  personName={profile.displayName || "this person"}
+                  canRequest={canRequest}
+                  showTrigger={showRequestActions}
+                  returnFocusRef={requestScopeReturnFocusRef}
+                  renderTrigger={(label) => actionCardContent(label, ShieldCheck, "lilac")}
+                />
+                  <RequestCardsButton
+                    returnFocusRef={requestScopeReturnFocusRef}
+                    key={`card:${userId}:${resolvedPersonRef}`}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
+                    renderTrigger={(label) => actionCardContent(label, CreditCard, "amber")}
+                  />
+              </>
+            ) : null}
+          footer={<>
+            {viewerProfile ? (
+              <>
+                <Button type="button" size="compact" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
+                  <Settings className="h-5 w-5" aria-hidden="true" />
+                  <span>Manage access</span>
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+                {viewerProfile.relationship.status === "none" ? (
+                  <Button
+                    type="button"
+                    size="compact"
+                    variant="blue-gradient"
+                    effect="fill"
+                    disabled={relationshipBusy}
+                    onClick={() => void updateRelationship("connect")}
+                    data-voice-control-id="person-profile-connect"
+                    className={styles.relationship}
+                  >
+                    Connect
+                  </Button>
+                ) : null}
+                {viewerProfile.relationship.status === "pending_outgoing" ? (
+                  <Button
+                    type="button"
+                    size="compact"
+                    variant="none"
+                    effect="fade"
+                    disabled={relationshipBusy}
+                    onClick={() => void updateRelationship("cancel")}
+                    data-voice-control-id="person-profile-cancel-connection"
+                    className={styles.relationship}
+                  >
+                    Cancel request
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+          </>}
+        />
+
+        {packets.content}
+
+        {!user && !authLoading ? (
+          <SectionCard className={styles.signIn}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="font-semibold">Connect through Hussh</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Sign in to see requestable information and consented access.
+                </p>
+              </div>
+              <Button asChild size="compact" variant="blue-gradient" effect="fill">
+                <Link href="/login">Sign in</Link>
+              </Button>
+            </div>
+          </SectionCard>
+        ) : null}
+
+        {displayViewerProfile && viewerUnavailable ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          <span>Showing saved details. Couldn&rsquo;t refresh.</span>
+          <Button type="button" variant="none" size="compact" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button>
+        </div> : null}
+        {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
+          {["Shared with you", "Available to request", "Request history"].map((label) => <div key={label} className={styles.section}>
+            <h2 className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
+          </div>)}
+        </section> : null}
+        {displayViewerProfile ? (
+          <>
+            <section
+              id="shared-with-you"
+              aria-labelledby="shared-with-you-heading"
+              className={styles.section}
+              ref={sharedSectionRef}
+            >
+              <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
+              <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
+
+              {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
+                <SharedWithYouCard
+                  person={{
+                    personRef: viewerProfile.personRef,
+                    displayName: viewerProfile.displayName,
+                    photoUrl: viewerProfile.photoUrl,
+                  }}
+                  items={sharedCardItems}
+                  variant="profile"
+                />
+              ) : (
+                <PersonProfileEmptyState
+                  icon={<LockKeyhole />}
+                  label="Nothing shared yet"
+                  description="Information this person shares with you appears here."
+                />
+              )}
+            </section>
+
+            <section
+              aria-labelledby="available-to-request"
+              className={`${styles.section} ${styles.available}`}
+              ref={availableSectionRef}
+              data-testid="person-profile-available"
+            >
+              <h2 id="available-to-request" className={styles.heading}>Available to request</h2>
+              {/*
+                One nested list, the same one the Memory route uses.
+
+                This section used to hand-roll its own search, its own domain
+                chips, its own grouping map and its own row, which meant a
+                person met a flat two-level list here and an unbounded drill-in
+                on their own Memory -- the same information, two products. The
+                catalogue is a set of `attr.<domain>.<path...>` references, so
+                it already knew how to nest; the page just threw the path away.
+              */}
+              <fieldset disabled={!viewerProfile} className="min-w-0">
+              <ConsentScopeNestedList
+                items={scopeItems}
+                renderDomainLeading={renderCategoryIcon}
+                searchPlaceholder="Search categories"
+                showDomainFilter
+                categorySelectionInDetail
+                rootLabel="All"
+                emptyText="Nothing available yet."
+                testIdPrefix="person-profile-scope"
+                selection={{
+                  selectedIds: selectedScopeRefs,
+                  grantedIds: grantedScopeRefs,
+                  onToggleMany: (ids, select) =>
+                    setSelectedScopeRefs((current) => toggleRequestScopes(
+                      allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
+                    )),
+                }}
+              />
+              </fieldset>
+              {displayViewerProfile.scopeCatalog?.hasMore ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search covers loaded items.</p>
+                  <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
+                    onClick={() => void loadMoreScopes()}>
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try again" : "Load more"}
+                  </Button>
+                </div>
+              ) : null}
+            </section>
+
+            <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
+              <h2 id="request-history" className={styles.heading}>Request history</h2>
+              {currentHistory?.failed ? (
+                <p role="status" className="text-sm text-muted-foreground">Couldn&rsquo;t load older requests. Showing recent ones.</p>
+              ) : null}
+              {historyGroups.length ? (
+                <SectionCard className={styles.historyGroup}>
+                  <div className="divide-y divide-border/60">
+                    {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, itemLabels, purpose: requestPurpose, createdAt }) => {
+                      const details = bundleDetails[bundleId];
+                      const statusItems = details?.items ?? (items.length === itemCount ? items : []);
+                      const statuses = new Set(statusItems.map((item) => item.status));
+                      const grantedCount = statusItems.filter((item) => item.status === "granted").length;
+                      const statusLabel = !statusItems.length ? "Check status"
+                        : statuses.size === 1 ? historyStatusLabel(statusItems[0]!.status) : `${grantedCount} of ${itemCount} shared`;
+                      const title = historyTitle(
+                        statusItems.length ? statusItems.map((item) => item.label) : first ? [first.label] : [],
+                        itemCount,
+                        itemLabels,
+                      );
+                      return (
+                        <div key={bundleId} className={styles.historyRow}>
+                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
+                          <div className={styles.historyActions}>
+                            <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
+                              {statusLabel}
+                            </StatusPill>
+                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
+                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
+                            ))}
+                            {!details ? (
+                              <Button
+                                type="button"
+                                size="compact"
+                                variant="none"
+                                effect="fade"
+                                disabled={loadingBundleId === bundleId}
+                                onClick={() => void loadBundleDetails(bundleId)}
+                                aria-label={`Details for ${title}`}
+                              >
+                                {loadingBundleId === bundleId ? "Loading…" : "Details"}
+                              </Button>
+                            ) : null}
+                            {statusItems.some((item) => item.status === "pending") ? (
+                              <Button
+                                type="button"
+                                size="compact"
+                                variant="none"
+                                effect="fade"
+                                disabled={cancellingBundleId === bundleId}
+                                onClick={() => void cancelInformationRequest(bundleId)}
+                              >
+                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw request"}
+                              </Button>
+                            ) : null}
+                          </div>
+                          {details ? (
+                            <p className="max-h-40 w-full overflow-y-auto text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
+                              {details.items.map((entry) => `${historyItemLabel(entry.label)} (${historyStatusLabel(entry.status).toLowerCase()})`).join(", ")}
+                              {" · "}
+                              {requestDurationLabel(Math.round(details.durationSeconds / 3600))}
+                              {details.cancelled ? " · withdrawn" : ""}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
+                    <div className={styles.pagination}>
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                      <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
+                        if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
+                        setHistoryPage((page) => page + 1);
+                      }}>Next</Button>
+                    </div>
+                  ) : null}
+                </SectionCard>
+              ) : (
+                <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
+              )}
+            </section>
+            {allScopes.length ? (
+              <div className={styles.review}>
+                <Button
+                  type="button"
+                  size="compact"
+                  variant="blue-gradient"
+                  effect="fill"
+                  disabled={!viewerProfile || !selectedScopes.length}
+                  onClick={openRequestReview}
+                  data-voice-control-id="person-profile-review-information"
+                >
+                  Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        ) : viewerUnavailable && user ? (
+          <SectionCard className={styles.signIn}>
+            <div role="alert" className="flex flex-col items-center justify-center space-y-2">
+              <p className="text-sm font-semibold text-foreground">
+                Couldn&rsquo;t load your connection with {profile.displayName}.
+              </p>
+              <p className="sr-only">
+                Your connection status, what you can request, and anything shared with you will appear here once this loads.
+              </p>
+              <Button
+                type="button"
+                size="compact"
+                variant="none"
+                effect="fade"
+                onClick={() => setViewerReloadToken((token) => token + 1)}
+              >
+                Try again
+              </Button>
+            </div>
+          </SectionCard>
+        ) : null}
+      </div>
+      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent
+          className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
+        >
+          <DialogHeader className="shrink-0 pr-8 text-left">
+            <DialogTitle className="[overflow-wrap:anywhere]">Request information from {profile.displayName}</DialogTitle>
+            <DialogDescription>
+              They&rsquo;ll see what you request, why, and for how long.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
+            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+            {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
+            {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
+              {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
+            </div> : null}
+          </div>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
+            <Button type="button" variant="none" effect="fade" data-consent-quiet-action="true" data-consent-action-context="task" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="blue-gradient"
+              effect="fill"
+              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
+              onClick={() => void submitRequest()}
+              data-voice-control-id="person-profile-request-confirm"
+            >
+              {requesting ? "Sending…" : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={showUnlockDialog}
+          onOpenChange={setShowUnlockDialog}
+          onSuccess={() => setShowUnlockDialog(false)}
+          title="Unlock your vault"
+          description="To view what they shared with you." presentationClassName="consent-presentation-surface"
+        />
+      ) : null}
+    </AppPageShell>
+  );
+}

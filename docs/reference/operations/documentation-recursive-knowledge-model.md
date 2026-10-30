@@ -56,14 +56,14 @@ Do not split a document just because it is long if the topic is genuinely one co
 | `docs/superpowers/` | active agentic plan/spec snapshots only | delete completed artifacts after promotion |
 | `consent-protocol/docs/` | backend/package truth | keep package-local |
 | `hushh-webapp/docs/` | frontend/native package truth | keep package-local |
-| `.codex/skills/` and `.codex/workflows/` | agent operating system | keep procedural, compact, and linked to docs |
+| `.agents/skills/` and `.agents/workflows/` | agent operating system | keep procedural, compact, and linked to docs |
 
 ## Rewrite Sequence
 
 For every recursive pass:
 
-1. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders`.
-2. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates`.
+1. Run `python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders`.
+2. Run `python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates`.
 3. Pick the highest-risk folder or document from evidence, not intuition.
 4. Merge durable facts into the canonical owner.
 5. Replace bloated pages with a short entrypoint and child pages only when a bounded subtopic exists.
@@ -72,19 +72,18 @@ For every recursive pass:
 
 ## Current Recursive Findings
 
-As of this pass, the proven oversized guide candidates are:
-
-- `docs/guides/mobile.md`
-- `docs/guides/one-location-uat-test-plan.md`
-
-Both should become stable entrypoints with phase-specific child pages. This keeps the contributor path readable while preserving mobile parity and One Location UAT detail where it belongs.
+As checked on 2026-09-23, `docs/guides/mobile.md` and
+`docs/guides/one-location-uat-test-plan.md` are entrypoints with child pages in
+`docs/guides/mobile/` and `docs/guides/one-location-uat/`. Keep their links and
+ownership current; use the inventory commands below to identify any new split
+candidate.
 
 ## Verification
 
 ```bash
-python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders
-python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates
+python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders
+python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates
 ./bin/hushh docs verify
-python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
 git diff --check
 ```

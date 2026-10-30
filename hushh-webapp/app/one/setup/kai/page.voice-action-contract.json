@@ -35,7 +35,7 @@
         "target": "kai.setup.answer_horizon"
       },
       "control_ids": ["kai_wizard_investment_horizon"],
-      "state_exposure": ["current wizard step"],
+      "state_exposure": ["selected investment preferences"],
       "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
       "goal": {
         "required_inputs": [
@@ -59,7 +59,7 @@
         "routes": ["/one/setup/finance"],
         "screens": ["one_setup_finance"],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["Investment horizon must already be answered."]
+        "navigation_prerequisites": []
       },
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
@@ -70,7 +70,7 @@
         "target": "kai.setup.answer_drawdown"
       },
       "control_ids": ["kai_wizard_drawdown_response"],
-      "state_exposure": ["current wizard step"],
+      "state_exposure": ["selected investment preferences"],
       "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
       "goal": {
         "required_inputs": [
@@ -94,7 +94,7 @@
         "routes": ["/one/setup/finance"],
         "screens": ["one_setup_finance"],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["Drawdown response must already be answered."]
+        "navigation_prerequisites": []
       },
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
@@ -105,7 +105,7 @@
         "target": "kai.setup.answer_volatility"
       },
       "control_ids": ["kai_wizard_volatility_preference"],
-      "state_exposure": ["current wizard step"],
+      "state_exposure": ["selected investment preferences"],
       "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
       "goal": {
         "required_inputs": [
@@ -122,9 +122,9 @@
     {
       "action_id": "kai.setup.launch_dashboard",
       "label": "Save Finance Preferences",
-      "meaning": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
+      "meaning": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "aliases": ["save finance preferences", "looks good, continue", "finish finance setup"],
-      "search_keywords": ["save", "finance", "preferences", "finish", "persona"],
+      "search_keywords": ["save", "finance", "preferences", "continue", "import"],
       "reachability": {
         "routes": ["/one/setup/finance"],
         "screens": ["one_setup_finance"],
@@ -140,8 +140,9 @@
         "target": "kai.setup.launch_dashboard"
       },
       "control_ids": ["kai_wizard_launch_dashboard"],
-      "state_exposure": ["computed risk profile"],
+      "state_exposure": ["selected investment preferences"],
       "docs_references": ["hushh-webapp/app/one/setup/kai/page.tsx"]
     }
-  ]
+  ],
+  "search": {}
 }

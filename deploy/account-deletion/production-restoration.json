@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "project": "hushh-pda",
+  "region": "us-central1",
+  "sourceSha": "d8a5fa4858741e611d39fd4f1f28b1ab930d057c",
+  "baselineSha": "904fbd215c661dd376a57ff712b11f12b9eec23c",
+  "previousSha": "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc",
+  "providerContractVersion": 2,
+  "authorityPolicySha256": "39ade7f9e38ca0409e2d8c4a2017f5014da41fb7030699aca8863a2c2d29b4ce",
+  "requiredAbsentTables": [
+    "account_phone_transfers",
+    "account_phone_auth_fences",
+    "account_phone_recovery_continuations",
+    "account_device_actions"
+  ],
+  "requiredEmptyTables": [
+    "document_delivery_contracts",
+    "document_delivery_financial_bindings",
+    "document_delivery_cleanup"
+  ],
+  "replacementAccounts": 0,
+  "migrations": "none",
+  "services": [
+    "consent-protocol",
+    "hushh-webapp"
+  ],
+  "previousServices": {
+    "consent-protocol": {
+      "revision": "consent-protocol-00302-fix",
+      "sha": "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc",
+      "image": "gcr.io/hushh-pda/consent-protocol@sha256:35b9f71ad4e71534f325f744c02e4c1c575a03c87fed7cae62acc749a7aa9374",
+      "runtimePrincipal": "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com",
+      "deployRunId": "40286563192"
+    },
+    "hushh-webapp": {
+      "revision": "hushh-webapp-00158-tdv",
+      "sha": "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc",
+      "image": "gcr.io/hushh-pda/hushh-webapp@sha256:1a6833099725d4f1ea125831df03bd2595b61795c7aabea405e2fd949d74f402",
+      "runtimePrincipal": "hushh-webapp-runtime@hushh-pda.iam.gserviceaccount.com",
+      "deployRunId": "40282754754"
+    }
+  }
+}

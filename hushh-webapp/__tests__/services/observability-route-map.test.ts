@@ -42,10 +42,14 @@ function collectAppPageRoutes(dir: string, root: string = dir): string[] {
 
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
-    expect(resolveRouteId("/")).toBe("one_dashboard");
+    expect(resolveRouteId("/")).toBe("chat");
     expect(resolveRouteId("/one")).toBe("one_dashboard");
+    expect(resolveRouteId("/one/messages")).toBe("one_messages");
+    expect(resolveRouteId("/one/todos")).toBe("one_todos");
+    expect(resolveRouteId("/calendar/reschedule?token=private-recipient-token")).toBe("calendar_reschedule");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
+    expect(resolveRouteId("/one/email")).toBe("email_agent");
     expect(resolveRouteId("/one/pkm")).toBe("pkm");
     expect(resolveRouteId("/one/connected-systems")).toBe("connected_systems");
     expect(
@@ -53,6 +57,8 @@ describe("observability route map", () => {
     ).toBe("connected_systems");
     expect(resolveRouteId("/research")).toBe("research");
     expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/manishhussh")).toBe("founder_profile");
+    expect(resolveRouteId("/products/hushh-tech/launch")).toBe("hushh_tech_launch");
     expect(resolveRouteId("/blog")).toBe("blog");
     expect(resolveRouteId("/blog/sample")).toBe("blog_post");
     expect(resolveRouteId("/gmail")).toBe("gmail");
@@ -60,6 +66,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
     expect(resolveRouteId("/one/kai")).toBe("kai_home");
     expect(resolveRouteId("/one/kai/market")).toBe("kai_home");
+    expect(resolveRouteId("/one/kai/portfolio/analysis")).toBe("kai_portfolio_analysis");
     expect(resolveRouteId("/one/kai/news")).toBe("kai_market_news");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe(
@@ -76,12 +83,13 @@ describe("observability route map", () => {
       "marketplace_connection_portfolio",
     );
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
+    expect(resolveRouteId("/one/career")).toBe("one_career");
     expect(resolveRouteId("/register-phone")).toBe("phone_mandate");
     expect(resolveRouteId("/one/profile/regulatory")).toBe(
       "profile_regulatory",
     );
-    expect(resolveRouteId("/one/profile/security/devices")).toBe(
-      "profile_security_devices",
+    expect(resolveRouteId("/one/profile/discovery")).toBe(
+      "profile_discovery",
     );
     expect(resolveRouteId("/one/profile/security/devices/authorize")).toBe(
       "profile_security_device_authorize",
@@ -97,7 +105,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");
     expect(resolveRouteId("/one/location")).toBe("one_location");
     expect(resolveRouteId("/one/location/map")).toBe("one_location_map");
-    expect(resolveRouteId("/one/location/request/sample")).toBe(
+    expect(resolveRouteId("/one/location/view/sample")).toBe(
       "one_location_public_request",
     );
     expect(resolveRouteId("/one/location/invite/sample")).toBe(
@@ -111,10 +119,20 @@ describe("observability route map", () => {
     expect(resolveRouteId("/c/tok_abc123")).toBe("wallet_card_public");
     // Must not swallow an unrelated sibling.
     expect(resolveRouteId("/consents")).toBe("consents");
-    expect(resolveRouteId("/agent")).toBe("agent");
+    expect(resolveRouteId("/agent")).toBe("chat");
+    expect(resolveRouteId("/people/opaque-person-ref")).toBe("person_profile");
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(
       "profile_preferences_gemini",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice")).toBe(
+      "profile_preferences_voice",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice/changelog")).toBe(
+      "profile_preferences_voice",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice/examples")).toBe(
+      "profile_preferences_voice",
     );
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
@@ -130,9 +148,6 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/profile")).toBe("profile_regulatory");
     expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe(
       "kai_plaid_oauth_return",
-    );
-    expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe(
-      "kai_alpaca_oauth_return",
     );
     expect(resolveRouteId("/one/kai/funding-trade")).toBe(
       "kai_dashboard_legacy_redirect",
@@ -150,7 +165,31 @@ describe("observability route map", () => {
     expect(unknownRoutes).toEqual([]);
   });
 
+  it("maps invitation fragments without retaining the claim token", () => {
+    expect(resolveRouteId("/world-model/invite#token=private-claim-token")).toBe(
+      "world_model_invite",
+    );
+  });
+
+  it.each([
+    ["/world-model/invite", "world_model_invite"],
+    ["/one/profile/payouts", "profile_payouts"],
+    ["/one/profile/request-pricing", "profile_request_pricing"],
+  ])("maps %s without retaining return or navigation parameters", (route, routeId) => {
+    expect(resolveRouteId(route)).toBe(routeId);
+    expect(resolveRouteId(`${route}/`)).toBe(routeId);
+    expect(resolveRouteId(`${route}/index.html`)).toBe(routeId);
+    expect(resolveRouteId(`${route}?documentPayouts=done&from=%2Fone%2Ffeed#details`)).toBe(routeId);
+    expect(resolveRouteId(`${route}/unknown`)).toBe("unknown");
+  });
+
   it("normalizes known API endpoint templates", () => {
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/scan")).toBe(
+      "/api/kai/gmail/receipts/scan",
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/detail")).toBe(
+      "/api/kai/gmail/receipts/detail",
+    );
     expect(
       normalizeApiPathToTemplate("/api/kai/market/insights/baseline/user_123"),
     ).toBe("/api/kai/market/insights/baseline/{user_id}");
@@ -163,19 +202,29 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/kai/market/news/user_123")).toBe(
       "/api/kai/market/news/{user_id}",
     );
-    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream")).toBe(
-      "/api/kai/agent/chat/stream",
+    expect(normalizeApiPathToTemplate("/api/one/agent-chat")).toBe(
+      "/api/one/agent-chat",
     );
     expect(
       normalizeApiPathToTemplate(
-        "/api/kai/agent/chat/conversations/user_123?limit=1",
+        "/api/one/agent-chat/conversations/user_123?limit=1",
       ),
-    ).toBe("/api/kai/agent/chat/conversations/{user_id}");
+    ).toBe("/api/one/agent-chat/conversations/{user_id}");
     expect(
       normalizeApiPathToTemplate(
-        "/api/kai/agent/chat/history/conversation_123",
+        "/api/one/agent-chat/history/conversation_123",
       ),
-    ).toBe("/api/kai/agent/chat/history/{conversation_id}");
+    ).toBe("/api/one/agent-chat/history/{conversation_id}");
+    // Queued-message ids and conversation ids never reach telemetry raw.
+    expect(
+      normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/queue/client-msg-1"),
+    ).toBe("/api/one/agent-chat/runs/{conversation_id}/queue/{client_message_id}");
+    expect(
+      normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/queue?ids=a&ids=b"),
+    ).toBe("/api/one/agent-chat/runs/{conversation_id}/queue");
+    expect(normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/stop")).toBe(
+      "/api/one/agent-chat/runs/{conversation_id}/stop",
+    );
     expect(
       normalizeApiPathToTemplate(
         "/api/kai/analyze/run/run_987/stream?cursor=0",
@@ -187,14 +236,6 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/ria/workspace/user_123")).toBe(
       "/api/ria/workspace/{investor_user_id}",
     );
-    expect(
-      normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/create"),
-    ).toBe("/api/kai/plaid/trades/funded/create");
-    expect(
-      normalizeApiPathToTemplate(
-        "/api/kai/plaid/trades/funded/intent_123/refresh",
-      ),
-    ).toBe("/api/kai/plaid/trades/funded/{intent_id}/refresh");
     expect(
       normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing"),
     ).toBe("/api/consent/center");
@@ -238,5 +279,71 @@ describe("observability route map", () => {
   });
   it("preserves fail-closed handling for uppercase route variants", () => {
     expect(resolveRouteId("/KAI/PORTFOLIO")).toBe("unknown");
+  });
+});
+
+/**
+ * The native build sets `trailingSlash: true` (next.config.ts, gated on
+ * isCapacitorBuild), so every iOS and Android route arrives with a trailing
+ * slash. Before these cases, that meant essentially every native screen
+ * reported as "unknown" -- 117 iOS users and 7,504 views in 30 days -- while
+ * the handful of routes matched by a `startsWith(".../")` prefix looked fine,
+ * which is what made it survive so long.
+ */
+describe("route ids from the native (trailing-slash) build", () => {
+  it("resolves every first-party route in its native trailing-slash form", () => {
+    // Derived from the route tree rather than a hand-written list, so a route
+    // added later with a `startsWith(".../")` prefix cannot regress on
+    // iOS/Android unnoticed -- which is exactly how `/ria/clients/` came to
+    // report the per-client workspace id for the clients list screen.
+    const appDir = path.resolve(process.cwd(), "app");
+    for (const route of collectAppPageRoutes(appDir)) {
+      const web = route.replace(/\[[^\]]+\]/g, "sample");
+      const native = web === "/" ? "/" : `${web}/`;
+      expect(resolveRouteId(native)).toBe(resolveRouteId(web));
+      expect(resolveRouteId(native)).not.toBe("unknown");
+    }
+  });
+
+  it("treats a static-export index document as its directory route", () => {
+    expect(resolveRouteId("/one/location/index.html")).toBe(
+      resolveRouteId("/one/location"),
+    );
+    expect(resolveRouteId("/index.html")).toBe(resolveRouteId("/"));
+  });
+
+  it("does not mistake the blog index for a post on native", () => {
+    // "/blog/" previously matched startsWith("/blog/") and reported the index
+    // as a post, so this was wrong rather than merely missing.
+    expect(resolveRouteId("/blog/")).toBe("blog");
+    expect(resolveRouteId("/blog/some-post/")).toBe("blog_post");
+  });
+
+  it("still resolves token routes, which must never fall through", () => {
+    // Falling through logs the raw pathname, and on these routes the pathname
+    // carries the token.
+    expect(resolveRouteId("/one/location/view/abc123/")).toBe(
+      "one_location_public_request",
+    );
+    // The pre-rename path still resolves to the SAME id: it is one screen,
+    // and splitting it would break every dashboard reading this route at the
+    // moment of the rename.
+    expect(resolveRouteId("/one/location/request/abc123/")).toBe(
+      "one_location_public_request",
+    );
+    expect(resolveRouteId("/one/location/invite/abc123/")).toBe(
+      "one_location_circle_invite",
+    );
+    expect(resolveRouteId("/circle/join/")).toBe("one_location_circle_join");
+    expect(resolveRouteId("/c/abc123/")).toBe("wallet_card_public");
+  });
+
+  it("degrades a full href to its route rather than to unknown", () => {
+    expect(resolveRouteId("/one/location?action=share")).toBe("one_location");
+    expect(resolveRouteId("/one/location/#people")).toBe("one_location");
+  });
+
+  it("keeps empty and root pathnames on the dashboard", () => {
+    expect(resolveRouteId("")).toBe(resolveRouteId("/"));
   });
 });

@@ -1,0 +1,153 @@
+"""Requester payment state and Stripe's signed server-to-server settlement callback."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
+
+from api.middleware import require_firebase_auth_read_only
+from hushh_mcp.services.document_delivery.contracts import CheckoutAcceptance, DeliveryError
+from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.pkm_answer_payment_service import (
+    PAYMENT_KIND as PKM_ANSWER_PAYMENT_KIND,
+)
+from hushh_mcp.services.pkm_answer_payment_service import (
+    AnswerPaymentError,
+    PkmAnswerPaymentService,
+)
+from hushh_mcp.services.pkm_packet_order_service import (
+    PAYMENT_KIND as PKM_PACKET_PAYMENT_KIND,
+)
+from hushh_mcp.services.pkm_packet_order_service import (
+    PacketOrderError,
+    PkmPacketOrderService,
+    is_subscription_event,
+    webhook_event_type,
+    webhook_payment_kind,
+)
+
+router = APIRouter(prefix="/api/connectors/google_drive/sharing", tags=["drive-request-payments"])
+webhook_router = APIRouter(prefix="/api/payments/stripe", tags=["payments"])
+
+
+def _service() -> DriveRequestPaymentService:
+    return DriveRequestPaymentService()
+
+
+def _http(error: Exception) -> HTTPException:
+    code = str(error) if isinstance(error, DriveSharingError) else "payment_unavailable"
+    if code in {"request_already_accessible", "package_existing_access_requires_review"}:
+        return HTTPException(
+            status_code=409, detail={"code": code}, headers={"Cache-Control": "no-store"}
+        )
+    known = {
+        "request_unavailable": (404, "This request is unavailable."),
+        "invalid_argument": (422, "Check the request ID."),
+        "payment_not_ready": (409, "Payment is not ready for this request."),
+        "payment_already_paid": (409, "This request has already been paid."),
+        "payment_checkout_expired": (409, "This checkout expired. Refresh the request."),
+        "payment_invalid_signature": (400, "Invalid payment signature."),
+        "payment_invalid_event": (409, "Payment event could not be matched."),
+    }
+    status, detail = known.get(code, (503, "Payment is temporarily unavailable."))
+    return HTTPException(status_code=status, detail=detail, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/requests/{request_id}/payment")
+async def get_drive_request_payment(
+    request_id: UUID,
+    response: Response,
+    requester_user_id: str = Depends(require_firebase_auth_read_only),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _service().get_payment(
+            requester_user_id=requester_user_id, request_id=str(request_id)
+        )
+    except Exception as error:
+        raise _http(error) from None
+
+
+@router.post("/requests/{request_id}/payment/checkout")
+async def create_drive_request_checkout(
+    request_id: UUID,
+    response: Response,
+    requester_user_id: str = Depends(require_firebase_auth_read_only),
+    body: CheckoutAcceptance | None = Body(default=None),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _service().checkout(
+            requester_user_id=requester_user_id,
+            request_id=str(request_id),
+            **({"accepted_contract": body.wire()} if body is not None else {}),
+        )
+    except DeliveryError as error:
+        raise HTTPException(
+            error.status, {"code": error.code}, headers={"Cache-Control": "private, no-store"}
+        ) from None
+    except Exception as error:
+        raise _http(error) from None
+
+
+@webhook_router.post("/webhook")
+async def stripe_drive_request_webhook(
+    request: Request, stripe_signature: str | None = Header(default=None, alias="Stripe-Signature")
+):
+    # Stripe signs the exact bytes; parsing/re-serializing first breaks verification.
+    payload = await request.body()
+    if len(payload) > 128_000:
+        raise HTTPException(status_code=413, detail="Payment event is too large.")
+    # One Stripe endpoint, several kinds of payment. Route on the (unverified)
+    # payment_kind; each handler verifies the signature before acting.
+    #
+    # Every kind MUST have an explicit branch here. The fall-through below
+    # reaches DriveRequestPaymentService.process_webhook, which returns early
+    # for a payment_kind it does not own — so an unregistered kind makes this
+    # endpoint answer Stripe with {"received": true} while never settling the
+    # order. That takes the requester's money and silently delivers nothing.
+    kind = webhook_payment_kind(payload)
+    if kind == PKM_ANSWER_PAYMENT_KIND:
+        try:
+            await PkmAnswerPaymentService().process_webhook(
+                payload=payload, signature=stripe_signature
+            )
+        except AnswerPaymentError as error:
+            code = str(error)
+            status = {
+                "payment_invalid_signature": 400,
+                "payment_invalid_event": 409,
+                "payment_not_ready": 409,
+                "request_unavailable": 404,
+            }.get(code, 503)
+            raise HTTPException(
+                status_code=status,
+                detail="Payment event could not be matched."
+                if status == 409
+                else "Payment is temporarily unavailable.",
+                headers={"Cache-Control": "no-store"},
+            ) from None
+        return {"received": True}
+    if kind in {
+        PKM_PACKET_PAYMENT_KIND,
+        "pkm_credits",
+    } or is_subscription_event(webhook_event_type(payload)):
+        try:
+            await PkmPacketOrderService().process_webhook(
+                payload=payload, signature=stripe_signature
+            )
+        except PacketOrderError as error:
+            status = 400 if error.code == "INVALID_SIGNATURE" else 409
+            if error.code == "PAYMENT_UNAVAILABLE":
+                status = 503
+            raise HTTPException(
+                status_code=status, detail=str(error), headers={"Cache-Control": "no-store"}
+            ) from None
+        return {"received": True}
+    try:
+        await _service().process_webhook(payload=payload, signature=stripe_signature)
+    except Exception as error:
+        raise _http(error) from None
+    return {"received": True}

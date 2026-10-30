@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";

@@ -11,12 +11,14 @@ function sameRef(a: Record<string, unknown>, b: Record<string, unknown>): boolea
 
 export function ClarificationCard({
   prompt,
+  className,
   busy,
   onAnswer,
   onConfirm,
   onCancel,
 }: {
   prompt: ClientPrompt;
+  className?: string;
   busy: boolean;
   onAnswer: (refs: Record<string, unknown>[]) => void;
   onConfirm: (yes: boolean) => void;
@@ -40,7 +42,7 @@ export function ClarificationCard({
   return (
     <div
       data-testid="clarification-card"
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+      className={`${className ?? ""} rounded-2xl border border-primary/20 bg-primary/5 p-4`}
     >
       <p className="text-sm font-medium">{prompt.question}</p>
 
@@ -56,10 +58,22 @@ export function ClarificationCard({
                 disabled={busy}
                 onClick={() => toggle(opt)}
                 className={
+                  // Selection reads as accent everywhere else on this surface
+                  // (the check-in list, the circle pickers, the invite sheet).
+                  // `primary` is a near-black shadcn leftover that sat outside
+                  // the accent family, so a chosen option did not look chosen
+                  // the way a chosen anything else does — and it ignored the
+                  // accent preference the rest of the screen follows.
+                  //
+                  // The accent carries the border and the wash only. At 12px
+                  // the label has to stay `text-foreground` — accent-on-tint
+                  // measures ~3.5:1, under the 4.5:1 this size needs — so
+                  // selection is signalled by the ring and the fill, never by
+                  // dropping the copy to a low-contrast blue.
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors " +
                   (active
-                    ? "border-primary bg-primary/15 text-primary"
-                    : "border-[color:var(--app-card-border-standard)] text-foreground hover:border-primary/40")
+                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-foreground"
+                    : "border-[color:var(--app-card-border-standard)] text-foreground hover:border-[color:var(--app-accent-border)]")
                 }
               >
                 {opt.label}

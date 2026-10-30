@@ -8,8 +8,8 @@
  *   2. Header row  –  actor title · actions
  *   3. Optional route-owned contextual tab row
  *
- * One continuous frosted-glass backdrop + mask-image fade covers the
- * signed-in shell so page content scrolls seamlessly underneath.
+ * One continuous solid top surface (no fade band) covers the signed-in
+ * shell so page content scrolls cleanly underneath.
  *
  * All sizing uses CSS custom properties from globals.css
  * (--top-inset, --top-bar-h, --top-tabs-total, --top-glass-h, etc.)
@@ -17,84 +17,65 @@
  * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
  * evaluates correctly in both environments.
  */
-
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
-  ArrowLeft,
   BriefcaseBusiness,
-  ChartNoAxesCombined,
-  Check,
-  ChevronDown,
-  ChevronRight,
   Code2,
-  Database,
-  FileCheck2,
-  FolderSearch,
-  KeyRound,
+  AccentedKeyIcon,
   LayoutDashboard,
   type LucideIcon,
   Loader2,
-  LogOut,
-  Mail,
-  MoreHorizontal,
-  Shield,
-  Trash2,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
+import {
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
+  APP_MEASURE_STYLES,
 } from "@/components/app-ui/app-page-shell";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { OpenProfileAction } from "@/components/app-ui/open-profile-action";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import {
-  DELETE_ACCOUNT_DIALOG_DESCRIPTION,
-  DELETE_ACCOUNT_DIALOG_TITLE,
-  executeVerifiedAccountDeletion,
-  resolveDeleteAccountAuth,
-} from "@/lib/flows/delete-account";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
-  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
-import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { TopShellRouteModel } from "@/components/app-ui/top-shell-metrics";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
+import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   resolveTopShellBreadcrumb,
+  resolveTopShellTitleSlot,
   type TopShellBreadcrumbConfig,
   type TopShellBreadcrumbItem,
 } from "@/lib/navigation/top-shell-breadcrumbs";
@@ -228,7 +209,7 @@ function normalizeTopBarPathname(pathname: string): string {
 }
 
 function roleSwitcherLabel(activePersona: Persona): string {
-  return activePersona === "ria" ? "RIA" : "Investor";
+  return activePersona === "ria" ? "Advisor" : "Investor";
 }
 
 function roleSwitcherIcon(activePersona: Persona): LucideIcon {
@@ -241,14 +222,14 @@ function resolveCommonRouteBreadcrumb(
 ): TopShellBreadcrumbConfig | null {
   const section = getAgentSection(lastAgentSectionId);
   const backHref = section?.href ?? ROUTES.ONE_HOME;
-  const parentLabel = section?.label ?? "Agents";
+  const parentLabel = section?.label ?? "One";
 
   if (pathname === ROUTES.PROFILE) {
     return {
       backHref,
       width: "profile",
       align: "center",
-      items: [{ label: parentLabel, href: backHref }, { label: "Profile" }],
+      items: [{ label: parentLabel, href: backHref }],
     };
   }
 
@@ -274,7 +255,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) {
     return {
-      label: "Agents",
+      label: "One",
       icon: LayoutDashboard,
       interactive: false as const,
     };
@@ -286,40 +267,9 @@ function getScrolledRouteTitle(pathname: string): {
       interactive: true as const,
     };
   }
-  if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail receipts", icon: Mail, interactive: false as const };
-  }
-  if (pathname === ROUTES.PKM) {
-    return {
-      label: "Memory",
-      icon: FolderSearch,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.CONNECTED_SYSTEMS) {
-    return {
-      label: "Connected Systems",
-      icon: Database,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
-    return {
-      label: "Access & sharing",
-      icon: Shield,
-      interactive: false as const,
-    };
-  }
-  if (pathname === ROUTES.ONE_KYC) {
-    return { label: "KYC", icon: FileCheck2, interactive: false as const };
-  }
-  if (pathname === ROUTES.KAI_ANALYSIS) {
-    return {
-      label: "Analysis",
-      icon: ChartNoAxesCombined,
-      interactive: false as const,
-    };
-  }
+  // Nested routes (Mail, Memory, Connected Systems, Consent Center, KYC, the
+  // Finance tabs) are not listed: they always resolve a breadcrumb trail, and
+  // resolveTopShellTitleSlot keeps that trail in place of any chip.
   return null;
 }
 
@@ -366,12 +316,11 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
 
 /* ── TopShellBreadcrumbTrail ───────────────────────────────────────── */
 /**
- * Renders the resolved breadcrumb items as a compact, tappable trail beside the
- * back arrow once the user is inside an inner/subagent route (e.g.
- * `Kai › Analysis › AAPL run`). Ancestor crumbs navigate back to their level;
- * the last crumb is the current, non-interactive location. The back arrow still
- * owns single-step back; this trail is the multi-level "go back and forth"
- * affordance. Uses currentColor so it tracks the ambient top-surface tone.
+ * Renders immediate context beside the back arrow: at most the parent and the
+ * current, non-interactive page. The parent remains tappable while the back
+ * arrow still owns single-step history navigation. Keeping older ancestors out
+ * of this compact row prevents a deep route from becoming a trail of truncated
+ * fragments. Uses currentColor so it tracks the ambient top-surface tone.
  */
 function TopShellBreadcrumbTrail({
   items,
@@ -387,16 +336,15 @@ function TopShellBreadcrumbTrail({
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
+        const isLocationRoot = item.label === "Location";
         return (
           <span
             key={`${item.label}-${index}`}
             className={cn(
-              "flex min-w-0 items-center gap-1",
-              // The last crumb (current page) keeps its full label; earlier
-              // ancestors are allowed to shrink and truncate so a deep trail
-              // like "Profile > Preferences > Gemini" collapses gracefully on
-              // narrow iOS widths instead of colliding/overflowing the header.
-              isLast ? "shrink-0" : "min-w-0 shrink",
+              "flex items-center gap-1",
+              isLast || isLocationRoot
+                ? "shrink-0 whitespace-nowrap"
+                : "min-w-0 shrink",
             )}
           >
             {index > 0 ? (
@@ -408,7 +356,12 @@ function TopShellBreadcrumbTrail({
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className={cn(
+                  "text-[color:var(--app-secondary-label)] transition-colors hover:text-current",
+                  isLocationRoot
+                    ? "shrink-0 whitespace-nowrap"
+                    : "min-w-0 max-w-[9rem] shrink truncate",
+                )}
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -423,10 +376,11 @@ function TopShellBreadcrumbTrail({
             ) : (
               <span
                 className={cn(
-                  "truncate",
                   isLast
                     ? "min-w-0 shrink-0 font-semibold text-current"
-                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
+                    : isLocationRoot
+                      ? "shrink-0 whitespace-nowrap text-[color:var(--app-secondary-label)]"
+                      : "min-w-0 shrink truncate text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -449,12 +403,19 @@ export interface AppTopShellProps {
 export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
+  const { isAuthenticated, user, userId } = useAuth();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"
@@ -498,9 +459,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // surface must never retrace into the setup funnel. Re-read on every
     // navigation (pathname change) so a freshly-resolved user is honored.
     const setupDismissed = Boolean(
-      user?.uid &&
-      (OneSetupCompletionHintService.isResolved(user.uid) ||
-        PreVaultUserStateService.getCachedBootstrapState(user.uid)
+      userId &&
+      (OneSetupCompletionHintService.isResolved(userId) ||
+        PreVaultUserStateService.getCachedBootstrapState(userId)
           ?.setupCompleted === true),
     );
     return (
@@ -514,7 +475,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     lastAgentSectionId,
     normalizedPathname,
     searchParams,
-    user?.uid,
+    userId,
   ]);
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
@@ -534,6 +495,23 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const tabsOnlyChrome =
     model.mode === "bar-with-tabs" && topChromeFullyCollapsed;
 
+  /**
+   * Whether this screen needs persistent navigation chrome. Setup keeps its
+   * breadcrumb and menu visible even when its back arrow is hidden.
+   *
+   * Read inside the scroll handler, so it is a ref rather than a dependency —
+   * re-subscribing the scroll listener on every breadcrumb change would undo
+   * the measured-scroll-progress state the handler accumulates.
+   */
+  const hasBackControlRef = useRef(false);
+  hasBackControlRef.current = Boolean(
+    (topShellBreadcrumb && !topShellBreadcrumb.hideBack) ||
+    normalizedPathname === ROUTES.ONE_SETUP ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_SETUP}/`),
+  );
+  const isOneDashboardRef = useRef(false);
+  isOneDashboardRef.current = normalizedPathname === ROUTES.ONE_HOME;
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -550,11 +528,55 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let headerRetryCount = 0;
     let lastScrollY: number | null = null;
     let topChromeProgress = 0;
+    let barRow: HTMLElement | null = null;
+    // Last values actually written to <html>. `--top-chrome-collapse-px` feeds
+    // `--top-shell-live-height` / `--top-shell-mask-solid-height`, which route
+    // content consumes for layout — so rewriting it invalidates layout for the
+    // whole document. Re-writing an unchanged value is pure thrash, and this
+    // runs on every scroll frame.
+    let lastWrittenProgress: string | null = null;
+    let lastWrittenCollapsePx: string | null = null;
+    // Per-frame writes go to the elements that read the collapse (the top
+    // shell, the top mask, registered sticky headers), never to <html>: a
+    // custom-property write on the root recomputes style for the whole
+    // document on every scroll frame. <html> receives the settled value once
+    // the scroll has been quiet for a beat, for anything unregistered
+    // (anchor scroll margins, desktop rails).
+    let consumers: HTMLElement[] = [];
+    let rootWriteTimer = 0;
+    const ROOT_SETTLE_MS = 160;
+    const collectConsumers = () => {
+      consumers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-testid="app-top-shell-layout"], .ambient-chrome-mask--top, [data-top-chrome-collapse-consumer]',
+        ),
+      );
+    };
+    const writeCollapse = (target: HTMLElement | CSSStyleDeclaration, progress: string, collapsePx: string) => {
+      const style = target instanceof HTMLElement ? target.style : target;
+      style.setProperty("--top-chrome-progress", progress);
+      style.setProperty("--top-chrome-collapse-px", collapsePx);
+    };
+    const scheduleRootWrite = () => {
+      window.clearTimeout(rootWriteTimer);
+      rootWriteTimer = window.setTimeout(() => {
+        rootWriteTimer = 0;
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          writeCollapse(document.documentElement, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }, ROOT_SETTLE_MS);
+    };
     // Routes with no primary page header (e.g. an immersive full-bleed
     // layout) never satisfy this query, so retrying must stop eventually.
     // 10 tries (~1.5s) is generous for a late-mounting header while still
     // giving up cleanly for routes that will never have one.
     const MAX_HEADER_RETRIES = 10;
+    // Ceiling on how often a DOM mutation may re-measure the chrome. A live map
+    // mutates the DOM every frame, and measuring at that rate is what pinned the
+    // main thread; 250ms keeps reflow-driven title handoff correct at ~1/15th
+    // the cost, and is imperceptible for a change the user did not initiate.
+    const MUTATION_RECHECK_MS = 250;
+    let lastMutationCheckAt = 0;
 
     const updateHeaderVisibility = () => {
       const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
@@ -567,24 +589,50 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
               nextY: scrollY,
             });
       lastScrollY = scrollY;
-      const rowHeight =
-        document
-          .querySelector<HTMLElement>('[data-testid="top-app-bar-row"]')
-          ?.getBoundingClientRect().height ?? 0;
-      const root = document.documentElement;
-      root.style.setProperty(
-        "--top-chrome-progress",
-        String(topChromeProgress),
-      );
-      root.style.setProperty(
-        "--top-chrome-collapse-px",
-        `${Math.max(0, rowHeight * topChromeProgress)}px`,
-      );
+      // A screen that has a back arrow does not collapse its bar.
+      //
+      // The collapse clips this row away: measured on a 393px viewport, the
+      // back control stops being the element under its own coordinates once
+      // progress passes ~0.75, and at full collapse the row is behind
+      // `overflow: hidden` at opacity 0. Reclaiming that strip is a fair
+      // trade against a page title. It is not a fair trade against the only
+      // way off the screen — Location deliberately draws no in-content back
+      // control, so a collapsed bar there leaves nothing to press, which is
+      // exactly how "I keep tapping the top and nothing happens" happened.
+      // Desktop dashboard navigation stays visible when a shorter viewport
+      // needs to scroll. Mobile retains its existing space-saving collapse.
+      if (
+        hasBackControlRef.current ||
+        (isOneDashboardRef.current && window.matchMedia("(min-width: 768px)").matches)
+      ) {
+        topChromeProgress = 0;
+      }
+      if (!barRow?.isConnected) {
+        barRow = document.querySelector<HTMLElement>(
+          '[data-testid="top-app-bar-row"]',
+        );
+      }
+      // Every layout read happens before any write, so a scroll event never
+      // forces a synchronous layout of its own.
+      const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
+      const outOfView = isPrimaryHeaderOutOfView(header);
+      const nextProgress = String(topChromeProgress);
+      const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
+      if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx) {
+        lastWrittenProgress = nextProgress;
+        lastWrittenCollapsePx = nextCollapsePx;
+        if (consumers.length === 0 || consumers.some((element) => !element.isConnected)) {
+          collectConsumers();
+        }
+        for (const element of consumers) {
+          writeCollapse(element, nextProgress, nextCollapsePx);
+        }
+        scheduleRootWrite();
+      }
       const fullyCollapsed = topChromeProgress >= 0.999;
       setTopChromeFullyCollapsed((current) =>
         current === fullyCollapsed ? current : fullyCollapsed,
       );
-      const outOfView = isPrimaryHeaderOutOfView(header);
       setPrimaryHeaderOutOfView((current) =>
         current === outOfView ? current : outOfView,
       );
@@ -601,14 +649,78 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       header = document.querySelector<HTMLElement>(
         '[data-slot="page-header"][data-page-primary="true"]',
       );
+      collectConsumers();
+      // A newly registered consumer must receive the current value at once.
+      if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+        for (const element of consumers) {
+          writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }
       updateHeaderVisibility();
     };
 
+    // Mutation-driven path ONLY. Its single job is to notice a primary page
+    // header that mounted late or was swapped — which is how a query-only flow
+    // switch behaves here: `/one/location?action=…` keeps the pathname, so the
+    // effect never re-runs when PageHeader is replaced by a flow's
+    // TaskFlowHeader.
+    //
+    // This must stay O(1) when nothing relevant changed. It used to run the
+    // full `refreshHeader()` on EVERY mutation under the scroll root, once per
+    // animation frame. On a surface that animates continuously — One Location
+    // with a live map, whose marker glide and Google's own tile/attribution
+    // updates mutate the DOM every frame — that was three document-wide
+    // `querySelector`s and three `getBoundingClientRect()` forced reflows per
+    // frame, each followed by a custom-property write on <html> that
+    // invalidates layout for everything consuming `--top-shell-live-height`.
+    // The main thread never got a clear slot, so a tap on the back arrow sat
+    // queued behind the thrash instead of navigating.
+    //
+    // A swap is recomputed at once. Otherwise content can still reflow the
+    // header out of view with no scroll and no resize, so that keeps being
+    // tracked — at a fixed low rate rather than once per animation frame.
+    // Re-querying is deliberately unbounded: a header appearing is itself a
+    // mutation, and this is the only thing that notices the hub's PageHeader
+    // returning when a flow closes. Because TaskFlowHeader does not mark itself
+    // primary, `header` is legitimately null for the whole life of a flow
+    // screen, so giving up on a retry budget would strand the hub with stale
+    // header tracking on return.
+    // The shell itself is stable, but the route Suspense boundary can replace
+    // its scroll root when the fallback resolves. Watch the stable shell
+    // parent so the scroll listener follows that replacement without making
+    // the Profile/top chrome effect restart for every pathname change.
     const scheduleHeaderRefresh = () => {
       if (refreshFrame !== null) return;
       refreshFrame = window.requestAnimationFrame(() => {
         refreshFrame = null;
-        refreshHeader();
+        const nextScrollRoot = document.querySelector<HTMLElement>(
+          '[data-app-scroll-root="true"]',
+        );
+        if (nextScrollRoot !== scrollRoot) {
+          attach();
+          return;
+        }
+        const previous = header;
+        if (!header?.isConnected) {
+          header = document.querySelector<HTMLElement>(
+            '[data-slot="page-header"][data-page-primary="true"]',
+          );
+        }
+        const now = Date.now();
+        // Recompute on any identity change, including present -> null, so
+        // `primaryHeaderOutOfView` cannot keep asserting a header that a flow
+        // switch just unmounted.
+        if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS) {
+          return;
+        }
+        lastMutationCheckAt = now;
+        collectConsumers();
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          for (const element of consumers) {
+            writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+          }
+        }
+        updateHeaderVisibility();
       });
     };
 
@@ -653,7 +765,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 
       pageObserver?.disconnect();
       pageObserver = new MutationObserver(scheduleHeaderRefresh);
-      pageObserver.observe(scrollRoot ?? document.body, {
+      const observationRoot =
+        document.querySelector<HTMLElement>('[data-app-shell-root="true"]') ??
+        scrollRoot ??
+        document.body;
+      pageObserver.observe(observationRoot, {
         childList: true,
         subtree: true,
       });
@@ -668,19 +784,19 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         window.cancelAnimationFrame(refreshFrame);
       }
       window.clearTimeout(retryTimer);
-      document.documentElement.style.setProperty("--top-chrome-progress", "0");
-      document.documentElement.style.setProperty(
-        "--top-chrome-collapse-px",
-        "0px",
-      );
+      window.clearTimeout(rootWriteTimer);
+      for (const element of consumers) {
+        if (element.isConnected) writeCollapse(element, "0", "0px");
+      }
+      writeCollapse(document.documentElement, "0", "0px");
     };
-  }, [model.mode, pathname]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadVaultAvailability() {
-      if (!isAuthenticated || !user?.uid) {
+      if (!isAuthenticated || !userId) {
         setHasVault(null);
         return;
       }
@@ -693,14 +809,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       // The top app bar mounts on nearly every page, so read the shared
       // vault-presence cache synchronously first to avoid a per-route refetch
       // while locked. Only hit the network on a cold cache.
-      const cachedPresence = VaultService.peekVaultPresence(user.uid);
+      const cachedPresence = VaultService.peekVaultPresence(userId);
       if (cachedPresence !== null) {
         setHasVault(cachedPresence);
         return;
       }
 
       try {
-        const exists = await VaultService.checkVault(user.uid);
+        const exists = await VaultService.checkVault(userId);
         if (!cancelled) {
           setHasVault(exists);
         }
@@ -720,36 +836,28 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, isVaultUnlocked, user?.uid]);
+  }, [isAuthenticated, isVaultUnlocked, userId]);
 
-  const centerTitle = useMemo(
-    () => getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
-    [normalizedPathname, primaryHeaderOutOfView],
+  // A nested route's trail is never replaced by the scroll-collapsed chip; the
+  // chip only fills a bar with no trail. See resolveTopShellTitleSlot.
+  const titleSlot = useMemo(
+    () =>
+      resolveTopShellTitleSlot(
+        topShellBreadcrumb,
+        getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
+      ),
+    [normalizedPathname, primaryHeaderOutOfView, topShellBreadcrumb],
   );
-  const breadcrumbTrailItems = useMemo(() => {
-    const raw = topShellBreadcrumb?.items ?? [];
-    // Defensively drop any crumb whose label is empty/whitespace before the
-    // trail renders. A resolver that spreads a conditional segment
-    // (`...(x ? [{label}] : [])`) can only ever yield real labels today, but
-    // guarding here means a future empty/undefined segment can never surface as
-    // a stray separator pair (the "Finance > , > > preview" artifact) in the
-    // shared chevron trail.
-    const cleaned = raw.filter(
-      (item) => typeof item.label === "string" && item.label.trim().length > 0,
-    );
-    // Inner/"subagent" routes read as "Kai > Analysis", not
-    // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return cleaned.length > 0 && cleaned[0]?.label === "One"
-      ? cleaned.slice(1)
-      : cleaned;
-  }, [topShellBreadcrumb]);
-  const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
+  const centerTitle = titleSlot.kind === "title" ? titleSlot.title : null;
+  const breadcrumbTrailItems = titleSlot.kind === "trail" ? titleSlot.items : [];
+  const hasBreadcrumbTrail = titleSlot.kind === "trail";
   const canShowPersonaSwitcher = useMemo(
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],
   );
   const showVaultUnlockAction =
-    isAuthenticated && hasVault === true && !isVaultUnlocked;
+    isAuthenticated && hasVault === true && !isVaultUnlocked &&
+    normalizedPathname !== ROUTES.CALENDAR && normalizedPathname !== ROUTES.ONE_SETUP_CALENDAR;
   const showOneHomeBrand =
     model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
   const handleTopShellBack = useCallback(() => {
@@ -763,34 +871,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           replace: action.mode === "replace",
           scroll: false,
           source: "tap",
-          transitionMode: "full",
+          transitionMode: action.transitionMode,
+          feedback: "light",
         });
       },
     });
   }, [normalizedPathname, searchParams, topShellBreadcrumb]);
-
-  // The avatar opens Profile from EVERY signed-in screen, so tag the current
-  // route as the `?from` origin. The shared top-bar back control then retraces
-  // to wherever the user opened Profile from instead of always dropping them on
-  // the One dashboard — the profile "back goes to dashboard" glitch. We strip
-  // any inherited `from` (no nesting) and never tag Profile as its own origin.
-  const profileOpenHref = useMemo(() => {
-    const base = normalizeInternalRouteHref(normalizedPathname);
-    if (
-      !base ||
-      base === ROUTES.PROFILE ||
-      base.startsWith(`${ROUTES.PROFILE}/`)
-    ) {
-      return ROUTES.PROFILE;
-    }
-    const query = new URLSearchParams(searchParams?.toString?.() ?? "");
-    query.delete("from");
-    const queryString = query.toString();
-    const origin = queryString ? `${base}?${queryString}` : base;
-    return buildProfileRoute({
-      searchParams: new URLSearchParams({ from: origin }),
-    });
-  }, [normalizedPathname, searchParams]);
 
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -873,11 +959,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     ],
   );
 
+  const nativeRegionRef = useRef<HTMLDivElement>(null);
+  useNativePresentationRegions(nativeRegionRef, !hideChrome);
   if (hideChrome) return null;
 
   return (
     <div
       data-app-top-bar
+      ref={nativeRegionRef}
       data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
@@ -924,12 +1013,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             APP_SHELL_FRAME_CLASSNAME,
             "pointer-events-none relative flex w-full flex-col",
           )}
-          style={{ ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
+          style={topShellBreadcrumb?.width === "profile" ? APP_MEASURE_STYLES.reading : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
         >
           <div
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
+              // Clip only vertically for header collapse. `clip` (unlike `hidden`)
+              // keeps the other axis visible without becoming a scroll
+              // container; where `clip` is unsupported the overflow-hidden
+              // class still applies.
+              overflowX: "visible",
+              overflowY: "clip",
               maxHeight: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
@@ -956,37 +1051,32 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                   style={{
-                    // Collapse the fixed side gutter to the back button's width
-                    // when a breadcrumb trail is showing, so the trail sits
-                    // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail
+                    // Breadcrumbs and One status sit beside the back control or logo.
+                    width: hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "auto"
                       : "var(--top-bar-side-w)",
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                      <ShellActionSurface
-                        variant="icon"
-                        aria-label="Go back"
-                        onClick={handleTopShellBack}
-                        className="!text-[color:var(--app-accent)]"
-                      >
-                        <ArrowLeft className="h-5 w-5" />
-                      </ShellActionSurface>
-                    </div>
+                    // Keep the entire target inside the authored reading frame.
+                    <NativeShellBack
+                      label={topShellBreadcrumb.backLabel ?? "Go back"}
+                      onBack={handleTopShellBack}
+                      owner={userId}
+                      context={`${normalizedPathname}?${searchParams.toString()}`}
+                      eligible={isAuthenticated && isVaultUnlocked && !showVaultUnlockAction}
+                    />
                   ) : showOneHomeBrand ? (
                     <div
                       data-testid="top-app-bar-one-brand"
                       aria-label="One."
                       className="top-shell-ambient-ink pointer-events-none flex h-11 min-w-[92px] items-center justify-start gap-2 overflow-visible text-current"
                     >
-                      <span
+                      <HushhMark
                         aria-hidden
-                        className="hushh-brand-mark flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
-                      >
-                        🤫
-                      </span>
+                        className="h-7 w-7 items-center justify-center overflow-visible"
+                        imageClassName="!h-[23px] !w-[23px]"
+                      />
                       <span
                         aria-hidden
                         className="whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.035em] text-current"
@@ -1010,18 +1100,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   )}
                 </div>
 
-                {/* Title sits in the normal flex flow. The right cluster remains
-                  intentionally compact; `flex-1 min-w-0` lets the title truncate
-                  before it can collide with the account action. */}
+                {/* Shrink the title/status before it can collide with account actions. */}
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions || hasBreadcrumbTrail
+                    showOnboardingActions || hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "justify-start"
                       : "justify-center",
                   )}
                 >
-                  {hasBreadcrumbTrail ? (
+                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
+                    <OneAgentPresence compact />
+                  ) : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
@@ -1048,7 +1138,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                               />
                               <span className="truncate">
                                 {switchingPersona
-                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                  ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
                                   : roleSwitcherLabel(activePersona)}
                               </span>
                               {!switchingPersona && (
@@ -1059,7 +1149,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                       ? "bg-amber-500"
                                       : "bg-emerald-500",
                                   )}
-                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "Advisor" : "Investor"}`}
                                 />
                               )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
@@ -1093,8 +1183,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                 <BriefcaseBusiness className="h-4 w-4 text-current" />
                                 <span>
                                   {riaCapability === "switch"
-                                    ? "RIA"
-                                    : "Set up RIA"}
+                                    ? "Advisor"
+                                    : "Set up Advisor"}
                                 </span>
                               </div>
                               {switchingPersona === "ria" ? (
@@ -1143,7 +1233,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     )}
                   >
                     {!isAuthenticated ? null : showOnboardingActions ? (
-                      <OnboardingRouteActions />
+                      <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
                         {showVaultUnlockAction ? (
@@ -1152,41 +1242,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             aria-label="Unlock vault"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
-                            <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                            <AccentedKeyIcon size={20} className="h-5 w-5" />
                           </ShellActionSurface>
                         ) : null}
 
-                        <ShellActionSurface
-                          variant="icon"
-                          aria-label="Open Profile"
-                          onClick={() =>
-                            requestInternalAppNavigation({
-                              href: profileOpenHref,
-                              scroll: false,
-                              source: "tap",
-                              transitionMode: "full",
-                            })
-                          }
-                          className="p-0"
-                        >
-                          <Avatar className="h-9 w-9">
-                            {effectiveAvatarUrl ? (
-                              <AvatarImage src={effectiveAvatarUrl} alt="" />
-                            ) : null}
-                            <AvatarFallback className="bg-transparent text-current">
-                              {user?.displayName ? (
-                                user.displayName
-                                  .split(" ")
-                                  .map((part) => part[0])
-                                  .join("")
-                                  .slice(0, 2)
-                                  .toUpperCase()
-                              ) : (
-                                <UserRound className="h-5 w-5" />
-                              )}
-                            </AvatarFallback>
-                          </Avatar>
-                        </ShellActionSurface>
+                        <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}
                   </div>
@@ -1217,7 +1277,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         className="sr-only"
       >
         {switchingPersona
-          ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+          ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
           : ""}
       </span>
       {user && hasVault === true ? (
@@ -1235,158 +1295,5 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         />
       ) : null}
     </div>
-  );
-}
-
-/* ── OnboardingRouteActions ────────────────────────────────────────── */
-function OnboardingRouteActions() {
-  const router = useRouter();
-  const { user, signOut } = useAuth();
-  const { vaultOwnerToken } = useVault();
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  async function handleSignOut() {
-    try {
-      await signOut();
-      router.push(ROUTES.HOME);
-    } catch (error) {
-      console.error("[TopAppBar] Failed to sign out:", error);
-      toast.error("Couldn't sign out. Please retry.");
-    }
-  }
-
-  async function requestDeleteAccount() {
-    if (!user?.uid) return;
-
-    try {
-      const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
-        existingVaultOwnerToken: vaultOwnerToken ?? null,
-      });
-
-      if (resolution.kind === "needs_unlock") {
-        setVaultUnlockOpen(true);
-        return;
-      }
-    } catch (error) {
-      console.error("[TopAppBar] Failed to prepare account deletion:", error);
-      morphyToast.error("Failed to delete account. Please try again.");
-      return;
-    }
-
-    setDeleteConfirmOpen(true);
-  }
-
-  async function handleDeleteAccount() {
-    if (!user?.uid) return;
-
-    setIsDeleting(true);
-    try {
-      const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
-        existingVaultOwnerToken: vaultOwnerToken ?? null,
-      });
-
-      if (resolution.kind === "needs_unlock") {
-        setDeleteConfirmOpen(false);
-        setVaultUnlockOpen(true);
-        return;
-      }
-
-      await morphyToast
-        .promise(
-          executeVerifiedAccountDeletion({
-            userId: user.uid,
-            vaultOwnerToken: resolution.token,
-          }),
-          {
-            loading: "Deleting your account...",
-            success: "Account deleted.",
-            error: "Failed to delete account. Please try again.",
-            variant: "destructive",
-          },
-        )
-        .unwrap();
-
-      await signOut({ skipFcmCleanup: true });
-      router.replace(ROUTES.HOME);
-    } catch (error) {
-      console.error("[TopAppBar] Failed to delete account:", error);
-    } finally {
-      setIsDeleting(false);
-      setDeleteConfirmOpen(false);
-    }
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <ShellActionSurface variant="icon" aria-label="Account actions">
-            <MoreHorizontal className="h-5 w-5 text-current" />
-          </ShellActionSurface>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="overflow-hidden rounded-[14px] p-1"
-        >
-          <DropdownMenuItem
-            onClick={() => void handleSignOut()}
-            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
-          >
-            <LogOut className="h-4 w-4 text-current" />
-            Sign out
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-red-600 hover:!text-white hover:[&_svg]:!stroke-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!stroke-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
-          >
-            <Trash2 className="h-4 w-4 text-current" />
-            Delete account
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={vaultUnlockOpen}
-          onOpenChange={setVaultUnlockOpen}
-          title="Unlock Vault to Delete Account"
-          description="Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
-          onSuccess={() => {
-            setVaultUnlockOpen(false);
-            window.setTimeout(() => void requestDeleteAccount(), 300);
-          }}
-        />
-      ) : null}
-
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{DELETE_ACCOUNT_DIALOG_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {DELETE_ACCOUNT_DIALOG_DESCRIPTION}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                if (!isDeleting) void handleDeleteAccount();
-              }}
-              className="bg-red-600 text-white hover:bg-red-700"
-              disabled={isDeleting}
-            >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   );
 }

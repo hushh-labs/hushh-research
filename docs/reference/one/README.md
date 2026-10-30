@@ -13,6 +13,11 @@ flowchart TD
   kai["Kai Runtime Compatibility"]
   ontology["Agent Ontology"]
   feed["Feed Notification Model"]
+  gmail["Owner-Approved Gmail Email"]
+  emailGraph["One Email Knowledge Graph"]
+  calendarGraph["One Calendar Knowledge Graph"]
+  drive["Drive Connection And Sharing"]
+  wallet["Wallet (formerly Cards)"]
 
   root --> voice
   voice --> goal
@@ -22,6 +27,11 @@ flowchart TD
   voice --> kai
   root --> ontology
   root --> feed
+  root --> gmail
+  gmail --> emailGraph
+  root --> calendarGraph
+  root --> drive
+  root --> wallet
 ```
 
 One is the private agent and relationship layer. Current-state One reference
@@ -43,13 +53,30 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
-- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over Vertex, One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
-- [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
+- [referral-backend.md](./referral-backend.md): referral dashboard audit, versioned awards, verified qualification, daily streaks, circle genealogy, reward claims, migrations and verification.
+
+- [lost-vault-account-deletion.md](./lost-vault-account-deletion.md): product promise, locked-vault deletion journey, verification boundary, and UAT acceptance story.
+- [one-live-voice-decision-2026-09.md](./one-live-voice-decision-2026-09.md): why Gemini Live returns on Vertex ADC behind one flag, the premise-verification table, and the governance reconciliation.
+- [one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md): One Live Voice runtime, supported intents, tool contract, consent rules, Vertex ADC setup and model pinning.
+- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current Location command capture, semantic planning, execution, user gates, screen handoff and encrypted restart recovery.
+- [one-goal-framework.md](./one-goal-framework.md): existing goal planning and running for Agent Chat, typed search and UI actions; command routing uses the Location lifecycle.
+- [card-network-brand-inventory.md](./card-network-brand-inventory.md): where every card network mark comes from, the two rendering tiers, and the rules for adding official artwork.
+- [wallet.md](./wallet.md): the Wallet (formerly Cards): reserved `wallet` PKM domain, `agent_wallet`, `/one/wallet`, chat widgets, scopes, flags, and the complete Cards-to-Wallet naming map (the Wallet Profile identity pass is a different feature).
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
-- [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): Connections-owned managed Gemini and Google AI Studio BYOK boundary for typed turns and live voice.
+- [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): managed Gemini command access and the existing request-scoped BYOK boundary for typed turns.
 - [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md): current audit of what One Voice can trigger and where screen/button/action coverage is incomplete.
-- [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): compatibility runtime details for the Kai-era planner, composer, STT/TTS policy, and settlement path beneath the One Voice contract layer.
+- [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): stable Kai-era action identifiers, shared text contracts and explicit Live retirement boundaries.
 - [one-voice-popup-design.md](./one-voice-popup-design.md): the design standard every One Voice pop-up variant holds to: when a card may be raised at all, touch-target and layout rules, Cancel's fixed position, destructive colour treatment, and how to add a variant without inventing a second surface.
 - [../../vision/agent-ontology.md](../../vision/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
+- [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.
+- [one-email-knowledge-graph.md](./one-email-knowledge-graph.md): evidence-backed current Email paths, authority boundaries and failure states, including the read-only receipt cutover.
+- [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice gap, and failure states.
+- [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
+- [protected-document-delivery.md](./protected-document-delivery.md): additive consented One PDF copies, device encryption, exact paid terms, preview/download, activity, scoped revoke, recovery and environment-wide rollout boundaries.
+- [drive-four-group-index.md](./drive-four-group-index.md): the dark four-group Drive organizing aid (three signals fused into one precision-first shelf), its held-out synthetic evidence and limits, and the storage and page plan for slice 3.
+- [drive-public-financial-summary.md](./drive-public-financial-summary.md): default-ON scalar financial summaries with one owner visibility switch, separate discovery and sale counts, and independent connection, purchase and document-access authority.
+- [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.
+
+- [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md): default-on background research after setup and vault unlock, the dedicated `/one/profile/world-model` page, and per-fact Yes / No / Edit / Remove saved to the owner's encrypted Soul.md memory.

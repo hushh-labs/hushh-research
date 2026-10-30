@@ -1,16 +1,29 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { primeCachedGmailReceipts, getCachedGmailReceipts, clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mocks = vi.hoisted(() => ({
   nativePlatform: false,
+  iosPlatform: false,
+  authLoading: false,
+  sessionVerificationRequired: false,
+  issueVaultOwnerToken: vi.fn(),
+  publishIMessageSession: vi.fn(),
+  clearIMessageSession: vi.fn(),
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
   clearAgentPkmContext: vi.fn(),
   clearAgentChatHistoryCache: vi.fn(),
   warmAgentChatHistoryCache: vi.fn(),
+  clearLiveActivity: vi.fn(), renewLiveActivitySession: vi.fn(), renewMarkdownMemorySession: vi.fn(),
   invalidateVaultState: vi.fn(),
   getIdToken: vi.fn(),
   unlockWarmRun: vi.fn(),
+  queueLocationRecipientKeyBootstrap: vi.fn(),
+  ownerId: "vault-owner" as string | null,
   authUser: {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -21,12 +34,13 @@ const mocks = vi.hoisted(() => ({
     displayName: string;
     email: string;
     photoURL: string | null;
+    getIdToken?: (force?: boolean) => Promise<string>;
   } | null,
 }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    getPlatform: () => (mocks.nativePlatform ? "android" : "web"),
+    getPlatform: () => (mocks.iosPlatform ? "ios" : mocks.nativePlatform ? "android" : "web"),
     isNativePlatform: () => mocks.nativePlatform,
   },
   registerPlugin: vi.fn(() => ({})),
@@ -35,35 +49,37 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mocks.authUser,
+    userId: mocks.authUser ? mocks.ownerId : null,
+    loading: mocks.authLoading,
+    sessionVerificationRequired: mocks.sessionVerificationRequired,
   }),
 }));
 
-vi.mock("@/lib/agent/agent-pkm-memory", () => ({
-  clearAgentPkmContext: mocks.clearAgentPkmContext,
-}));
+vi.mock("@/lib/agent/agent-pkm-memory", () => ({ clearAgentPkmContext: mocks.clearAgentPkmContext }));
+vi.mock("@/lib/pkm/markdown-memory", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/pkm/markdown-memory")>()), renewMarkdownMemorySession: mocks.renewMarkdownMemorySession }));
 
 vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   clearAgentChatHistoryCache: mocks.clearAgentChatHistoryCache,
   warmAgentChatHistoryCache: mocks.warmAgentChatHistoryCache,
 }));
 
-vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onVaultStateChanged: vi.fn() },
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
+  clearLiveActivity: mocks.clearLiveActivity, renewLiveActivitySession: mocks.renewLiveActivitySession,
 }));
+
+vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onVaultStateChanged: vi.fn() } }));
 
 vi.mock("@/lib/capacitor", () => ({
   HushhConsent: {
-    clearIMessageSession: vi.fn().mockResolvedValue(undefined),
-    publishIMessageSession: vi.fn().mockResolvedValue(undefined),
+    clearIMessageSession: mocks.clearIMessageSession,
+    publishIMessageSession: mocks.publishIMessageSession,
   },
 }));
 
-vi.mock("@/lib/observability/growth", () => ({
-  trackGrowthFunnelStepCompleted: vi.fn(),
-}));
+vi.mock("@/lib/observability/growth", () => ({ trackGrowthFunnelStepCompleted: vi.fn() }));
 
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdToken: mocks.getIdToken },
+  AuthService: { getIdToken: mocks.getIdToken, getCurrentUser: () => mocks.authUser },
 }));
 
 vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
@@ -74,9 +90,7 @@ vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
 }));
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
-  PersonalKnowledgeModelService: {
-    invalidateSessionStateAfterVaultRekey: vi.fn(),
-  },
+  PersonalKnowledgeModelService: { invalidateSessionStateAfterVaultRekey: vi.fn() },
 }));
 
 vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
@@ -86,12 +100,24 @@ vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
   },
 }));
 
+// Wallet warming is optional background I/O; this suite owns the real
+// ApiService token-revocation boundary and its explicitly controlled responses.
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({
+  loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>"),
+}));
+vi.mock("@/lib/services/wallet-presentation-resource", () => ({
+  WalletPresentationResource: { load: vi.fn().mockResolvedValue({ rows: [] }) },
+}));
+
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: mocks.unlockWarmRun },
+  UnlockWarmOrchestrator: {
+    run: mocks.unlockWarmRun,
+    queueLocationRecipientKeyBootstrap: mocks.queueLocationRecipientKeyBootstrap,
+  },
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
-  VaultService: { invalidateVaultStateCache: mocks.invalidateVaultState },
+  VaultService: { invalidateVaultStateCache: mocks.invalidateVaultState, issueVaultOwnerToken: mocks.issueVaultOwnerToken },
 }));
 
 vi.mock("@/lib/kai/kai-financial-resource", () => ({
@@ -110,30 +136,28 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 
 import { VaultProvider, useVault } from "@/lib/vault/vault-context";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { AUTH_SESSION_INVALIDATED_EVENT } from "@/lib/auth/session-invalidation";
+import { ApiService } from "@/lib/services/api-service";
 
 const NOW = 1_800_000_000_000;
+let currentVault: ReturnType<typeof useVault>;
 
 function VaultHarness() {
   const vault = useVault();
+  useEffect(() => { currentVault = vault; }, [vault]);
   return (
     <div>
-      <span data-testid="vault-status">
-        {vault.isVaultUnlocked ? "unlocked" : "locked"}
-      </span>
+      <span data-testid="vault-status">{vault.isVaultUnlocked ? "unlocked" : "locked"}</span>
       <span data-testid="vault-token">{vault.vaultOwnerToken ?? "none"}</span>
       <span data-testid="vault-key">{vault.vaultKey ?? "none"}</span>
-      <button
-        type="button"
-        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 1_000)}
-      >
-        Unlock short-lived
-      </button>
-      <button
-        type="button"
-        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 60_000)}
-      >
-        Unlock valid
-      </button>
+      <span data-testid="owner-token-status">{vault.ownerTokenStatus}</span>
+      <button onClick={() => void vault.retryOwnerTokenRenewal()}>Renew</button>
+      <button onClick={vault.lockVault}>Lock</button>
+      <button onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 600_000)}>Unlock long-lived</button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 1_000)}>Unlock short-lived</button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 60_000)}>Unlock valid</button>
+      <button type="button" onClick={() => vault.unlockVault("vault-key", "kai-token", NOW + 60_000)}>Unlock refreshed token</button>
+      <button type="button" onClick={() => vault.unlockVault("other-key", "vault-token", NOW + 60_000)}>Unlock other key</button>
     </div>
   );
 }
@@ -159,11 +183,19 @@ beforeEach(() => {
   mocks.getIdToken.mockResolvedValue("firebase-token");
   mocks.unlockWarmRun.mockResolvedValue(undefined);
   mocks.nativePlatform = false;
+  mocks.iosPlatform = false;
+  mocks.authLoading = false;
+  mocks.sessionVerificationRequired = false;
+  mocks.issueVaultOwnerToken.mockRejectedValue(new Error("offline"));
+  mocks.publishIMessageSession.mockResolvedValue({ published: true });
+  mocks.clearIMessageSession.mockResolvedValue({ cleared: true, sessionGeneration: 1 });
+  mocks.ownerId = "vault-owner";
   mocks.authUser = {
     uid: "vault-owner",
     displayName: "Vault Owner",
     email: "owner@example.test",
     photoURL: null,
+    getIdToken: mocks.getIdToken,
   };
   vi.spyOn(Date, "now").mockReturnValue(NOW);
   appInteractionCoordinator.handleLifecycle("active");
@@ -176,6 +208,384 @@ afterEach(() => {
 });
 
 describe("VaultProvider app-resume expiry recovery", () => {
+  it("keeps replacement-owner custody separate from the unchanged Firebase UID", async () => {
+    mocks.ownerId = "acct_" + "1".repeat(32);
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe("vault-token");
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "owner-revoked", userId: "vault-owner" } })));
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "owner-revoked", userId: mocks.ownerId } })));
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+  });
+
+  it("keeps the activity journal and memory.md sync across a same-owner, same-key re-unlock (Kai's token refresh), never across a key change", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    const unlockedEpoch = snapshotVaultSessionEpoch();
+    mocks.renewLiveActivitySession.mockClear(); mocks.renewMarkdownMemorySession.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock refreshed token" }));
+    expect(snapshotVaultSessionEpoch()).not.toBe(unlockedEpoch);
+    expect(mocks.renewLiveActivitySession).toHaveBeenCalledWith({ userId: "vault-owner", previousEpoch: unlockedEpoch, vaultKey: "vault-key" });
+    expect(mocks.renewMarkdownMemorySession).toHaveBeenCalledWith(expect.objectContaining({ userId: "vault-owner", previousEpoch: unlockedEpoch, vaultKey: "vault-key", vaultOwnerToken: "kai-token" }));
+    expect(mocks.clearLiveActivity).not.toHaveBeenCalled();
+    mocks.renewLiveActivitySession.mockClear(); mocks.renewMarkdownMemorySession.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock other key" }));
+    expect(mocks.renewLiveActivitySession).not.toHaveBeenCalled();
+    expect(mocks.renewMarkdownMemorySession).not.toHaveBeenCalled();
+  });
+
+  it("renews authority before expiry without another local unlock", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    setVisibility("visible");
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.ownerTokenStatus).toBe("valid");
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenLastCalledWith({ userId: "vault-owner", vaultOwnerToken: "renewed-token", vaultKey: "vault-key" });
+    expect(mocks.renewLiveActivitySession).toHaveBeenCalledWith(expect.objectContaining({ userId: "vault-owner", vaultKey: "vault-key" }));
+    expect(mocks.clearLiveActivity).not.toHaveBeenCalled();
+  });
+
+  it("repairs receiving while Chat stays visible after the fast retry window and stops on lock", async () => {
+    vi.useFakeTimers();
+    setVisibility("visible");
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    mocks.queueLocationRecipientKeyBootstrap.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledExactlyOnceWith({
+      userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(1);
+  });
+
+  // Timers count awake time only: after overnight sleep the renewal timer has
+  // not fired although the wall clock is hours past expiry. Resume must renew.
+  it("renews on resume when device sleep left the renewal timer behind the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 8 * 3_600_000 + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    vi.setSystemTime(NOW + 8 * 3_600_000);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+    setVisibility("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+  });
+
+  it("never returns an expired token even before a lifecycle render", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+  });
+
+  it("rejects an older server's unacknowledged renewal result", async () => {
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "unvalidated-result", expiresAt: NOW + 86_400_000, scope: "vault.owner" });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.ownerTokenStatus).toBe("unavailable");
+  });
+
+  it("locks on a terminal renewal rejection without retrying initial issuance", async () => {
+    mocks.issueVaultOwnerToken.mockRejectedValue({ code: "AUTH_VAULT_OWNER_INVALID" });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(1);
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token");
+  });
+
+  it("retains the local key through a temporary renewal failure", async () => {
+    mocks.issueVaultOwnerToken.mockRejectedValue({ code: "AUTH_ACCOUNT_STATUS_UNAVAILABLE" });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(currentVault.ownerTokenStatus).toBe("unavailable");
+  });
+
+  // Founder rule: inactivity alone never asks for the passphrase again. There
+  // is no idle lock; the 24-hour owner token renews silently for as long as the
+  // runtime lives. Any lock timer shorter than a week fails this test.
+  it("keeps the vault unlocked through a week of inactivity", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    let renewals = 0;
+    mocks.issueVaultOwnerToken.mockImplementation(async () => ({
+      token: `renewed-token-${++renewals}`,
+      expiresAt: Date.now() + 86_400_000,
+      scope: "vault.owner",
+      renewalValidated: true,
+    }));
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+    for (let hour = 0; hour < 7 * 24; hour += 1) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+    }
+    expect(renewals).toBeGreaterThanOrEqual(7);
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe(`renewed-token-${renewals}`);
+    expect(currentVault.ownerTokenStatus).toBe("valid");
+  });
+
+  // A sleeping laptop or a dead network is not a reason to lock. Renewal keeps
+  // retrying through Firebase and backend outages that outlast the token, and
+  // authority comes back without another unlock once the network does.
+  it("never locks while renewal fails offline, and renews once the network returns", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    const invalidations = vi.fn();
+    window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, invalidations);
+    try {
+      mocks.getIdToken.mockRejectedValue(Object.assign(
+        new Error("Firebase: Error (auth/network-request-failed)."),
+        { code: "auth/network-request-failed" },
+      ));
+      mocks.issueVaultOwnerToken.mockRejectedValue(new TypeError("Failed to fetch"));
+      renderVault();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock long-lived" }));
+      for (let hour = 0; hour < 13; hour += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      }
+      mocks.getIdToken.mockResolvedValue("firebase-token");
+      for (let hour = 0; hour < 13; hour += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      }
+      // After 26 h of failures the loop is still alive at its 30 s cadence.
+      const attemptsBefore = mocks.issueVaultOwnerToken.mock.calls.length;
+      for (let step = 0; step < 5; step += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      }
+      expect(mocks.issueVaultOwnerToken.mock.calls.length - attemptsBefore).toBe(5);
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(currentVault.getVaultOwnerToken()).toBeNull();
+      expect(currentVault.ownerTokenStatus).toBe("unavailable");
+
+      mocks.issueVaultOwnerToken.mockResolvedValue({
+        token: "renewed-token", expiresAt: Date.now() + 86_400_000, scope: "vault.owner", renewalValidated: true,
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+      expect(currentVault.ownerTokenStatus).toBe("valid");
+      expect(invalidations).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(AUTH_SESSION_INVALIDATED_EVENT, invalidations);
+    }
+  });
+
+  // The retry loop is bounded by custody: once the vault locks, failed-renewal
+  // history must not keep calling the token endpoint for a session that ended.
+  it.each([
+    ["an explicit lock request", () => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "VAULT_OWNER token revoked" },
+    }))],
+    ["terminal session invalidation", () => window.dispatchEvent(new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+      detail: { code: "session_invalid", path: "test", userId: "vault-owner" },
+    }))],
+  ])("stops retrying renewal after %s", async (_label, lock) => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(2);
+    act(lock);
+    expect(currentVault.getVaultKey()).toBeNull();
+    for (let step = 0; step < 10; step += 1) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    }
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("renews an expired token after an ambiguous native invalid-owner lock request", async () => {
+    let finish!: (value: { token: string; expiresAt: number; scope: string; renewalValidated: boolean }) => void;
+    mocks.issueVaultOwnerToken.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    act(() => {
+      window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+        detail: { reason: "AUTH_VAULT_OWNER_INVALID", path: "/api/kai/analyze/stream" },
+      }));
+    });
+    await waitFor(() => expect(mocks.issueVaultOwnerToken).toHaveBeenCalledWith("vault-owner", "firebase-token", "vault-token"));
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(currentVault.ownerTokenStatus).toBe("renewing");
+    await act(async () => { finish({ token: "renewed-token", expiresAt: NOW + 86_400_000, scope: "vault.owner", renewalValidated: true }); });
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+  });
+
+  it("clears the key when expired-token recovery confirms revoked lineage", async () => {
+    mocks.issueVaultOwnerToken.mockRejectedValue({ code: "AUTH_VAULT_OWNER_INVALID" });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+        detail: { reason: "AUTH_VAULT_OWNER_INVALID", path: "/api/kai/analyze/stream" },
+      }));
+    });
+    expect(mocks.issueVaultOwnerToken).toHaveBeenCalledTimes(1);
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+  });
+
+  it("keeps explicit owner revocation destructive even after expiry", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked" } })));
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+  });
+
+  it("does not let a delayed revoke response for account A lock account B", () => {
+    mocks.authUser = {
+      uid: "account-b",
+      displayName: "Account B",
+      email: "b@example.test",
+      photoURL: null,
+    };
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked", userId: "account-a" } })));
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
+    expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
+  });
+
+  it("still locks an explicit revoke scoped to the currently signed-in account", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", { detail: { reason: "VAULT_OWNER token revoked", userId: "vault-owner" } })));
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+  });
+
+  it("ignores a pre-renewal API failure but honors a current-token revocation", async () => {
+    let finishRequest!: (response: Response) => void;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(new Promise((resolve) => { finishRequest = resolve; }));
+    mocks.issueVaultOwnerToken.mockResolvedValue({ token: "renewed-token", expiresAt: NOW + 86_400_000, scope: "vault.owner", renewalValidated: true });
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    const oldRequest = ApiService.apiFetch("/api/one/location/state", {
+      headers: { Authorization: "Bearer HCT:old-owner-token" },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 60_001);
+    await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+    await act(async () => {
+      finishRequest(Response.json({ code: "AUTH_VAULT_OWNER_INVALID" }, { status: 403 }));
+      await oldRequest;
+    });
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe("renewed-token");
+    fetchMock.mockResolvedValueOnce(Response.json({ code: "AUTH_VAULT_OWNER_INVALID" }, { status: 403 }));
+    await act(async () => { await ApiService.apiFetch("/api/one/location/state", {
+      headers: { Authorization: "Bearer HCT:renewed-owner-token" },
+    }); });
+    expect(currentVault.getVaultKey()).toBeNull();
+  });
+
+  it("rejects late renewal and stale unlock callbacks after an explicit lock", async () => {
+    let resolveRenewal!: (value: { token: string; expiresAt: number; scope: string }) => void;
+    mocks.issueVaultOwnerToken.mockReturnValue(new Promise((resolve) => { resolveRenewal = resolve; }));
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    const staleUnlock = currentVault.unlockVault;
+    await act(async () => { void currentVault.retryOwnerTokenRenewal(); });
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+    await act(async () => { resolveRenewal({ token: "late-token", expiresAt: NOW + 86_400_000, scope: "vault.owner" }); });
+    expect(staleUnlock("late-key", "late-token", NOW + 86_400_000)).toBe(false);
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+  });
+
+  it.each(["sessionVerificationRequired", "authLoading"] as const)(
+    "withdraws token access while %s and restores it without another unlock",
+    async (gate) => {
+      const storageWrites = vi.spyOn(Storage.prototype, "setItem");
+      const view = renderVault();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+      // A detached capture retains this callback; it must read the provider's
+      // current readiness rather than its originating component's snapshot.
+      const getToken = currentVault.getVaultOwnerToken;
+      expect(getToken()).toBe("vault-token");
+      mocks[gate] = true;
+      view.rerender(<VaultProvider><VaultHarness /></VaultProvider>);
+      await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+      expect(getToken()).toBeNull();
+      expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+
+      mocks[gate] = false;
+      view.rerender(<VaultProvider><VaultHarness /></VaultProvider>);
+      expect(getToken()).toBe("vault-token");
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(storageWrites.mock.calls.some(([, value]) => value.includes("vault-key"))).toBe(false);
+    },
+  );
+
+  it("drops late iMessage publication when the local session locks", async () => {
+    mocks.iosPlatform = true;
+    let resolveToken!: (value: string) => void;
+    mocks.getIdToken.mockReturnValue(new Promise<string>((resolve) => { resolveToken = resolve; }));
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+    await act(async () => { resolveToken("firebase-token"); });
+    expect(mocks.publishIMessageSession).not.toHaveBeenCalled();
+    expect(mocks.clearIMessageSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires a new unlock after the provider runtime is replaced", () => {
+    const view = renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    view.unmount();
+    renderVault();
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.isVaultUnlocked).toBe(false);
+  });
+
   it("starts protected Agent Chat warming before optional Firebase token resolution", async () => {
     vi.useFakeTimers();
     let resolveIdToken: ((token: string) => void) | null = null;
@@ -195,31 +605,55 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(mocks.warmAgentChatHistoryCache).toHaveBeenCalledWith({
       userId: "vault-owner",
       vaultOwnerToken: "vault-token",
+      vaultKey: "vault-key",
     });
     expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
+    expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledWith({
+      userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+    });
 
     resolveIdToken?.("firebase-token");
   });
 
-  it("relocks and clears memory-only credentials when an expired token resumes on web", async () => {
+  it("prepares receiving on setup-route unlock and retries on reconnect without Location onboarding", () => {
+    const originalPath = window.location.pathname;
+    window.history.replaceState(null, "", "/one/setup");
+    try {
+      renderVault();
+      expect(mocks.queueLocationRecipientKeyBootstrap).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledExactlyOnceWith({
+        userId: "vault-owner", vaultOwnerToken: "vault-token", vaultKey: "vault-key",
+      });
+      expect(mocks.unlockWarmRun).not.toHaveBeenCalled();
+      setVisibility("visible");
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+      act(() => window.dispatchEvent(new Event("online")));
+      expect(mocks.queueLocationRecipientKeyBootstrap).toHaveBeenCalledTimes(2);
+    } finally {
+      window.history.replaceState(null, "", originalPath);
+    }
+  });
+
+  it("retains the local unlock but withdraws authority when the token expires", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
-    vi.spyOn(Date, "now").mockReturnValue(NOW + 2_000);
-    act(() => {
-      appInteractionCoordinator.handleLifecycle("background");
-      appInteractionCoordinator.handleLifecycle("active");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("vault-status").textContent).toBe("locked");
-    });
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
-    expect(screen.getByTestId("vault-key").textContent).toBe("none");
-    expect(mocks.invalidateVaultState).toHaveBeenCalled();
-    expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
-    expect(mocks.clearAgentChatHistoryCache).toHaveBeenCalledWith("vault-owner");
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+    expect(screen.getByTestId("vault-key").textContent).toBe("vault-key");
+    expect(mocks.clearAgentPkmContext).not.toHaveBeenCalled();
   });
 
   it("keeps a still-valid token unlocked when the web app resumes", () => {
@@ -236,13 +670,16 @@ describe("VaultProvider app-resume expiry recovery", () => {
   });
 
   it("relocks and clears credentials when API validation requests a vault lock", async () => {
+    const item = { id: 1, source_id: "synthetic-source", source_kind: "gmail_live" as const, gmail_message_id: "synthetic-message" };
+    for (const userId of ["vault-owner", "other-owner"]) primeCachedGmailReceipts({ userId, accountKey: "synthetic-account",
+      response: { items: [item], page: 1, per_page: 6, total: 1, has_more: false } });
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
     act(() => {
       window.dispatchEvent(
         new CustomEvent("vault-lock-requested", {
-          detail: { reason: "Token validation failed." },
+          detail: { reason: "Token validation failed.", path: "/api/one/location/state" },
         }),
       );
     });
@@ -253,9 +690,70 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
+    expect(mocks.clearLiveActivity).toHaveBeenCalledWith();
+    expect(getCachedGmailReceipts("vault-owner", "synthetic-account")).toBeNull();
+    expect(getCachedGmailReceipts("other-owner", "synthetic-account")?.items).toHaveLength(1);
+    clearCachedGmailReceipts("other-owner");
   });
 
-  it("relocks only when the shared native lifecycle becomes active", async () => {
+  it("immediately clears the matching Vault on uncertain account deletion", async () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    const session = useOneConversationSession.getState();
+    session.ensureComposerDraft("vault-owner");
+    const context = useOneConversationSession.getState().composerDraft!.context;
+    session.updateComposerDraft("vault-owner", context, draft => ({ ...draft, input: "Synthetic unsent draft" }));
+    expect(useOneConversationSession.getState().composerDraft?.input).toBe("Synthetic unsent draft");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          detail: {
+            code: "account_deletion_uncertain",
+            path: "account_delete_uncertain_unverified",
+            userId: "vault-owner",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+    });
+    expect(screen.getByTestId("vault-token").textContent).toBe("none");
+    expect(screen.getByTestId("vault-key").textContent).toBe("none");
+    expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
+    expect(useOneConversationSession.getState().composerDraft).toBeNull();
+  });
+
+  it("does not let a delayed account-A terminal event lock account B", () => {
+    mocks.authUser = {
+      uid: "account-b",
+      displayName: "Account B",
+      email: "b@example.test",
+      photoURL: null,
+    };
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          detail: {
+            code: "account_not_found",
+            path: "delayed_account_a_request",
+            userId: "account-a",
+          },
+        }),
+      );
+    });
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
+    expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
+  });
+
+  it("retains the key but hides expired authority when native becomes active", async () => {
     mocks.nativePlatform = true;
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
@@ -266,8 +764,9 @@ describe("VaultProvider app-resume expiry recovery", () => {
 
     act(() => appInteractionCoordinator.handleLifecycle("active"));
     await waitFor(() => {
-      expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+      expect(screen.getByTestId("vault-token").textContent).toBe("none");
     });
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
   });
 
   it("fails closed and clears memory credentials when the authenticated UID changes", async () => {
@@ -275,6 +774,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
+    mocks.ownerId = "different-user";
     mocks.authUser = {
       uid: "different-user",
       displayName: "Different User",

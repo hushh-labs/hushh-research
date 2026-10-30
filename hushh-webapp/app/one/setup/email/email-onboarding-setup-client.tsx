@@ -9,16 +9,14 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import {
-  SettingsGroup,
-  SettingsRow,
-} from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   SetupCapabilityLoading,
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -32,78 +30,74 @@ import { AccountService } from "@/lib/services/account-service";
 
 type PreferenceLoadState = "loading" | "ready" | "error";
 
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const [enabled, setEnabled] = useState(false);
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
   const [saving, setSaving] = useState(false);
-  const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
-  const [checkingIdentity, setCheckingIdentity] = useState(true);
+  const [identityStatus, setIdentityStatus] = useState<{
+    ownerId: string; vaultKey: string | null; complete: boolean; checking: boolean;
+  } | null>(null);
+  const identityStatusCurrent = identityStatus?.ownerId === userId && identityStatus?.vaultKey === vaultKey;
+  const identityPrefaceComplete = identityStatusCurrent && identityStatus?.complete;
+  const checkingIdentity = Boolean(userId && vaultKey && vaultOwnerToken &&
+    (!identityStatusCurrent || identityStatus?.checking));
 
-  // Synchronously check local draft or asynchronously load from PKM identity domain
+  // The intake marker belongs to Soul's private envelope, not its Markdown.
   useEffect(() => {
-    if (!user?.uid) {
-      setCheckingIdentity(false);
-      return;
-    }
-    if (KycIdentityProfileDraftService.hasPending(user.uid)) {
-      setIdentityPrefaceComplete(true);
-      setCheckingIdentity(false);
-      return;
-    }
-    if (!vaultKey || !vaultOwnerToken) {
-      setCheckingIdentity(false);
-      return;
-    }
+    if (!userId || !vaultKey || !vaultOwnerToken) return;
 
     let cancelled = false;
+    const setResult = (complete: boolean, checking: boolean) => {
+      if (!cancelled) setIdentityStatus({ ownerId: userId, vaultKey, complete, checking });
+    };
+    setResult(false, true);
     void (async () => {
       try {
-        const snapshot = await PkmDomainResourceService.getStaleFirst({
-          userId: user.uid,
-          domain: "identity",
+        const completed = await KycIdentityProfilePkmService.hasCompletedIntake({
+          userId,
           vaultKey,
           vaultOwnerToken,
         });
-        const profile = snapshot?.data?.identity_profile as any;
-        if (!cancelled && profile?.about_me?.trim()) {
-          setIdentityPrefaceComplete(true);
-        }
+        setResult(completed, false);
       } catch (err) {
-        console.warn("[EmailOnboardingSetupClient] Failed to load existing identity profile:", err);
-      } finally {
-        if (!cancelled) {
-          setCheckingIdentity(false);
-        }
+        console.warn(
+          "[EmailOnboardingSetupClient] Failed to load existing identity profile:",
+          err,
+        );
+        // A failed protected read must not be interpreted as an incomplete KYC flow.
+        setResult(true, false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [user, vaultKey, vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
   const loadPreference = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user || !userId) return;
     setLoadState("loading");
     try {
       const idToken = await user.getIdToken();
-      const value = await loadEmailDraftingEnabled({ userId: user.uid, idToken });
+      const value = await loadEmailDraftingEnabled({
+        userId,
+        idToken,
+      });
       setEnabled(value);
       setLoadState("ready");
     } catch {
       setEnabled(false);
       setLoadState("error");
-      toast.error("KYC preference could not be loaded. Please try again.");
+      toast.error("Couldn't load this setting. Try again.");
     }
-  }, [user]);
+  }, [user, userId]);
 
   useEffect(() => {
-    if (!user?.uid) {
+    if (!user || !userId) {
       setEnabled(false);
       setLoadState("loading");
       return;
@@ -113,7 +107,10 @@ export function EmailOnboardingSetupClient() {
       setLoadState("loading");
       try {
         const idToken = await user.getIdToken();
-        const value = await loadEmailDraftingEnabled({ userId: user.uid, idToken });
+        const value = await loadEmailDraftingEnabled({
+          userId,
+          idToken,
+        });
         if (!cancelled) {
           setEnabled(value);
           setLoadState("ready");
@@ -122,14 +119,14 @@ export function EmailOnboardingSetupClient() {
         if (!cancelled) {
           setEnabled(false);
           setLoadState("error");
-          toast.error("KYC preference could not be loaded. Please try again.");
+          toast.error("Couldn't load this setting. Try again.");
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, userId]);
 
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "email",
@@ -139,34 +136,36 @@ export function EmailOnboardingSetupClient() {
     skipActionId: "setup.skip_email",
   });
 
-  const persistPreference = useCallback(async (checked: boolean) => {
-    const previous = enabled;
-    if (!user?.uid || loadState !== "ready") return;
+  const persistPreference = useCallback(
+    async (checked: boolean) => {
+      const previous = enabled;
+      if (!user || !userId || loadState !== "ready") return;
 
-    setEnabled(checked);
-    setSaving(true);
-    try {
-      if (checked && vaultKey && vaultOwnerToken) {
-        await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        if (isApplePrivateRelayEmail(user.email)) {
-          const aliases = await AccountService.listEmailAliases(vaultOwnerToken);
-          const verifiedSender = aliases.aliases.some(
-            (alias) =>
-              alias.verification_status === "verified" &&
-              !isApplePrivateRelayEmail(alias.email),
-          );
-          if (!verifiedSender) {
-            throw new Error("A verified non-relay sender is required.");
+      setEnabled(checked);
+      setSaving(true);
+      try {
+        if (checked && vaultKey && vaultOwnerToken) {
+          await OneKycClientZkService.ensureConnector({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+          });
+          if (isApplePrivateRelayEmail(user.email)) {
+            const aliases =
+              await AccountService.listEmailAliases(vaultOwnerToken);
+            const verifiedSender = aliases.aliases.some(
+              (alias) =>
+                alias.verification_status === "verified" &&
+                !isApplePrivateRelayEmail(alias.email),
+            );
+            if (!verifiedSender) {
+              throw new Error("A verified non-relay sender is required.");
+            }
           }
         }
-      }
-      const idToken = await user.getIdToken();
+        const idToken = await user.getIdToken();
       const saved = await saveEmailDraftingEnabled({
-        userId: user.uid,
+        userId,
         idToken,
         enabled: checked,
       });
@@ -177,49 +176,73 @@ export function EmailOnboardingSetupClient() {
       setEnabled(previous);
       toast.error(
         error instanceof Error && error.message.includes("non-relay")
-          ? "Verify a non-relay sending address before enabling KYC."
-          : "KYC preference could not be saved. Please try again.",
+          ? "Verify a non-relay sending address first."
+          : "Couldn't save this setting. Try again.",
       );
     } finally {
       setSaving(false);
     }
-  }, [enabled, loadState, user, vaultKey, vaultOwnerToken]);
+  }, [enabled, loadState, user, userId, vaultKey, vaultOwnerToken]);
 
   const handleToggle = useCallback(
     (checked: boolean) => {
-      if (!user?.uid || loadState !== "ready" || saving) return;
+      if (!userId || loadState !== "ready" || saving) return;
       void persistPreference(checked);
     },
-    [loadState, persistPreference, saving, user?.uid],
+    [loadState, persistPreference, saving, userId],
   );
 
-  if (!user || checkingIdentity) {
-    return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  if (!user || !userId || checkingIdentity) {
+    return <SetupCapabilityLoading label="One moment…" />;
   }
 
   if (!identityPrefaceComplete) {
-    return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
+    return (
+      <CapabilityVaultPrerequisite
+        capabilityLabel="KYC"
+        routeKey="/one/setup/email"
+      >
+        <KycIdentityPreface
+          key={userId}
+          onComplete={() => setIdentityStatus({ ownerId: userId, vaultKey, complete: true, checking: false })}
+        />
+      </CapabilityVaultPrerequisite>
+    );
   }
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  if (!coordinator.isReady) return <SetupCapabilityLoading label="One moment…" />;
 
   return (
     <AppPageShell
       as="main"
       width="reading"
-      className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+      headerContentSpacing="compact"
+      className="pb-[calc(var(--app-bottom-inset)+1rem)]"
+      nativeTest={{
+        routeId: "/one/setup/email",
+        marker: "native-route-one-setup-email",
+        authState: "authenticated",
+        dataState:
+          loadState === "loading"
+            ? "loading"
+            : loadState === "error"
+              ? "unavailable-valid"
+              : "loaded",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="KYC"
-          description={`Requests must come from ${user?.email || "your verified email"}.`}
+          // Matches the setup row. "KYC" is an abbreviation nobody meets for
+          // the first time and understands; it stays in the code and the id.
+          title="Identity checks"
+          description={`Requests must come from ${user?.email || "your verified mail"}.`}
           accent="neutral"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <SettingsGroup
           title="Response preparation"
-          description="This is off by default. When enabled, One recognizes requests sent from your verified email to one@hushh.ai. You still approve every response before it is sent."
+          description="One finds requests. You approve every reply."
           separatorInset
         >
           <SettingsRow
@@ -231,14 +254,14 @@ export function EmailOnboardingSetupClient() {
                   ? "Enabled for one@hushh.ai"
                   : isApplePrivateRelayEmail(user?.email)
                     ? "Private Relay needs a verified non-relay sending address"
-                    : "No email requests will trigger One"
+                    : "No mail requests will trigger One"
             }
             trailing={
               <Switch
                 checked={enabled}
                 onCheckedChange={handleToggle}
                 disabled={saving || loadState !== "ready"}
-                aria-label="Prepare KYC responses automatically"
+                aria-label="Prepare replies automatically"
                 data-voice-control-id="one-setup-email-drafting-toggle"
               />
             }

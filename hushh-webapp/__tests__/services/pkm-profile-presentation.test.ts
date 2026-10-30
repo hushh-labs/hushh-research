@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ProfileMemoryOperations } from "@/components/profile/profile-memory-operations";
 
 import {
   buildPkmDomainPresentation,
@@ -21,6 +22,35 @@ const domain = {
 };
 
 describe("pkm profile presentation", () => {
+  it("rejects superseded/dismissed previews and serializes whole-domain writes for the current owner", () => {
+    let ownerCurrent = true;
+    const operations = new ProfileMemoryOperations(() => ownerCurrent);
+    operations.activate();
+    const first = operations.beginPreview();
+    const second = operations.beginPreview();
+    expect(operations.acceptsPreview(first)).toBe(false);
+    expect(operations.acceptsPreview(second)).toBe(true);
+    operations.cancelPreview();
+    expect(operations.acceptsPreview(second)).toBe(false);
+    const oldRead = operations.beginRead("metadata");
+    const latestRead = operations.beginRead("metadata");
+    expect(oldRead.current()).toBe(false);
+    expect(latestRead.current()).toBe(true);
+    const write = operations.beginWrite("financial")!;
+    expect(write.current()).toBe(true);
+    expect(operations.beginWrite("financial")).toBeNull();
+    const independent = operations.beginWrite("location")!;
+    expect(independent.current()).toBe(true);
+    ownerCurrent = false;
+    expect(latestRead.current()).toBe(false);
+    expect(write.current()).toBe(false);
+    expect(operations.beginWrite("identity")).toBeNull();
+    operations.retire(); operations.activate(); ownerCurrent = true;
+    const replacement = operations.beginWrite("financial")!;
+    write.finish(); // A late completion cannot release the replacement lock.
+    expect(operations.beginWrite("financial")).toBeNull();
+    expect(replacement.current()).toBe(true);
+  });
   it("hides only authoritatively empty Memory domains and preserves unknown legacy state", () => {
     expect(
       isConsumerBrowsablePkmDomain({
@@ -338,7 +368,7 @@ describe("pkm profile presentation", () => {
       activeGrants: [],
     });
 
-    expect(fromGmail.sourceLabels).toEqual(["From Gmail"]);
+    expect(fromGmail.sourceLabels).toEqual(["From Mail"]);
     expect(withoutSource.sourceLabels).toEqual([]);
   });
 

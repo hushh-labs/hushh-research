@@ -13,7 +13,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 
 function KaiImportPageContent() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [initialized, setInitialized] = useState(false);
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -33,14 +33,14 @@ function KaiImportPageContent() {
     return () => reset();
   }, [authLoading, completeStep, initialized, registerSteps, reset, user]);
 
-  if (authLoading || !user) {
+  if (authLoading || !user || !userId) {
     return null;
   }
 
   return (
     <FullscreenFlowShell
       as="div"
-      width="expanded"
+      width="agent"
       className="relative"
     >
       <NativeTestBeacon
@@ -50,7 +50,7 @@ function KaiImportPageContent() {
         dataState="loaded"
       />
       <KaiFlow
-        userId={user.uid}
+        userId={userId}
         mode="import"
         vaultOwnerToken={vaultOwnerToken ?? ""}
       />

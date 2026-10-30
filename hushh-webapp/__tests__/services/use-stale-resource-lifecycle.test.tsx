@@ -32,6 +32,139 @@ function getCache() {
 // ---------------------------------------------------------------------------
 
 describe("useStaleResource lifecycle", () => {
+  it("shares one total deadline across an invalidated read and its follow-up", async () => {
+    vi.useFakeTimers();
+    try {
+      let version = 0;
+      let finish!: (value: string) => void;
+      const load = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
+      const { result } = renderHook(() => useStaleResource({ cacheKey: "bounded-reconciliation", load,
+        getRequestVersion: () => version, requestBudgetMs: 30_000, cacheTtlMs: 60_000 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); version++; finish("obsolete"); });
+      expect(load).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+      expect(result.current.loading).toBe(false);
+      expect(result.current.error).toBe("Request timed out.");
+      await act(async () => { finish("late"); });
+      expect(getCache().peek("bounded-reconciliation")).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("never starts an old-session reconciliation after an owner purge", async () => {
+    let version = 0;
+    let currentSession = true;
+    let complete!: (value: string) => void;
+    const load = vi.fn(() => new Promise<string>((resolve) => { complete = resolve; }));
+    const first = renderHook(() => useStaleResource({ cacheKey: "purged-feed", load,
+      requestScope: "old-owner", getRequestVersion: () => version,
+      isRequestCurrent: () => currentSession,
+    }));
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    act(() => { currentSession = false; version++; getCache().clear(); });
+    first.unmount();
+    await act(async () => complete("old-result"));
+    expect(load).toHaveBeenCalledOnce();
+    expect(getCache().peek("purged-feed")).toBeNull();
+  });
+  it("reconciles an update during a cold read once without publishing the obsolete return", async () => {
+    let version = 0;
+    const completions: Array<(value: string) => void> = [];
+    const load = vi.fn(() => new Promise<string>((resolve) => completions.push(resolve)));
+    const { result } = renderHook(() => useStaleResource({
+      cacheKey: "cold-update", load, getRequestVersion: () => version,
+    }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    let refresh!: Promise<string | null>;
+    act(() => {
+      version++;
+      // No cache entry exists yet; invalidation alone emits no cache event.
+      getCache().invalidate("cold-update");
+      refresh = result.current.refresh({ force: true });
+      void result.current.refresh({ force: true });
+    });
+    await act(async () => completions[0]("before-update"));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await act(async () => { completions[1]("after-update"); await refresh; });
+    expect(result.current.data).toBe("after-update");
+    expect(result.current.loading).toBe(false);
+    expect(load).toHaveBeenLastCalledWith({ force: true });
+  });
+
+  it("shares a valid slow read across a same-session remount", async () => {
+    let complete!: (value: string) => void;
+    const load = vi.fn(() => new Promise<string>((resolve) => { complete = resolve; }));
+    const options = { cacheKey: "slow-remount", requestScope: "same-session", load,
+      getRequestVersion: () => 0 };
+    const first = renderHook(() => useStaleResource(options));
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    first.unmount();
+    const second = renderHook(() => useStaleResource(options));
+    expect(second.result.current.loading).toBe(true);
+    await act(async () => complete("valid-backend-response"));
+    await waitFor(() => expect(second.result.current.data).toBe("valid-backend-response"));
+    expect(second.result.current.error).toBeNull();
+    expect(load).toHaveBeenCalledOnce();
+    second.unmount();
+  });
+
+  it("retains saved information when the post-update reconciliation fails and permits retry", async () => {
+    getCache().set("update-retry", "saved");
+    let version = 0;
+    let complete!: (value: string) => void;
+    const load = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { complete = resolve; }))
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValueOnce("recovered");
+    const { result } = renderHook(() => useStaleResource({
+      cacheKey: "update-retry", retainOnInvalidate: true, load,
+      getRequestVersion: () => version,
+    }));
+    let refresh!: Promise<string | null>;
+    act(() => { refresh = result.current.refresh({ force: true }); });
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+    act(() => { version++; getCache().invalidate("update-retry"); });
+    await act(async () => { complete("obsolete"); await refresh; });
+    expect(result.current.data).toBe("saved");
+    expect(result.current.error).toBe("Temporarily unavailable");
+    await act(async () => { await result.current.refresh({ force: true }); });
+    expect(result.current.data).toBe("recovered");
+    expect(result.current.error).toBeNull();
+  });
+  it("does not join an obsolete lifecycle-bound request when a surface remounts", async () => {
+    let rejectOld!: (error: Error) => void;
+    const oldLoad = vi.fn(
+      () =>
+        new Promise<string>((_, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    const first = renderHook(() =>
+      useStaleResource({
+        cacheKey: "remount-key",
+        requestScope: "mount-one",
+        load: oldLoad,
+      }),
+    );
+    await waitFor(() => expect(oldLoad).toHaveBeenCalledOnce());
+    first.unmount();
+    const freshLoad = vi.fn(async () => "current");
+    const second = renderHook(() =>
+      useStaleResource({
+        cacheKey: "remount-key",
+        requestScope: "mount-two",
+        load: freshLoad,
+      }),
+    );
+    await waitFor(() => expect(second.result.current.data).toBe("current"));
+    await act(async () =>
+      rejectOld(new DOMException("Obsolete", "AbortError")),
+    );
+    expect(second.result.current.error).toBeNull();
+    expect(freshLoad).toHaveBeenCalledOnce();
+    second.unmount();
+  });
   beforeEach(() => {
     getCache().clear();
     vi.clearAllMocks();
@@ -341,5 +474,55 @@ describe("useStaleResource lifecycle", () => {
       expect(result.current.error).toBeNull();
     });
     expect(result.current.data).toEqual({ recovered: true });
+  });
+
+  it("never lets a late response from a previous cache key overwrite the active resource", async () => {
+    let resolveFirst!: (value: string) => void;
+    let resolveSecond!: (value: string) => void;
+    const load = vi.fn(
+      (cacheKey: string) =>
+        new Promise<string>((resolve) => {
+          if (cacheKey === "feed:user-a") resolveFirst = resolve;
+          else resolveSecond = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ cacheKey }) =>
+        useStaleResource({
+          cacheKey,
+          enabled: true,
+          load: () => load(cacheKey),
+        }),
+      { initialProps: { cacheKey: "feed:user-a" } },
+    );
+
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-a"));
+
+    rerender({ cacheKey: "feed:user-b" });
+
+    // The previous user's value is never exposed while the new request starts.
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-b"));
+
+    await act(async () => {
+      getCache().set("feed:user-b", "user-b-data");
+      resolveSecond("user-b-data");
+    });
+    await waitFor(() => expect(result.current.data).toBe("user-b-data"));
+
+    // The first request settles last. It may still populate its own keyed cache,
+    // but it must not mutate the active hook state or its loading lifecycle.
+    await act(async () => {
+      getCache().set("feed:user-a", "user-a-data");
+      resolveFirst("user-a-data");
+    });
+
+    expect(result.current.data).toBe("user-b-data");
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 });

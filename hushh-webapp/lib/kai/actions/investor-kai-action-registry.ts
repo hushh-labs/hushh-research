@@ -1,0 +1,396 @@
+import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
+import type { Persona } from "@/lib/services/ria-service";
+import type { VoiceToolCall } from "@/lib/kai/actions/voice-types";
+import liveTools from "@/contracts/kai/one-voice-live-tools.v1.json";
+import {
+  getKaiActionById,
+  getKaiActionByVoiceToolCall,
+  listKaiActions,
+  listKaiActionsForSurface,
+  type KaiActionDefinition,
+  type KaiActionDelegateAgentId,
+  type KaiActionExecutionPolicy,
+  type KaiActionExecutionTarget,
+  type KaiActionRiskLevel,
+  type KaiActionSpeakerPersona,
+  type KaiActionWorkflow,
+} from "@/lib/kai/actions/kai-action-gateway";
+
+export type InvestorKaiTriggerType = "voice" | "tap" | "keyboard" | "programmatic";
+export type InvestorKaiRiskLevel = KaiActionRiskLevel;
+export type InvestorKaiExecutionPolicy = KaiActionExecutionPolicy;
+export type InvestorKaiScreenScope = string;
+export type InvestorKaiGuardId = string;
+export type InvestorKaiBackendEffect = {
+  api: string;
+  effect: string;
+};
+
+export type InvestorKaiActionWiring =
+  | {
+      status: "wired";
+      handler: "executeKaiCommand" | "dispatchVoiceToolCall" | "oneVoiceRuntime" | "router.push" | "executeAgentGatewayAction.localHandler";
+      binding:
+        | { kind: "server_voice_tool"; toolName: string; actionId: string }
+        | {
+            kind: "kai_command";
+            command: KaiCommandAction;
+            params?: {
+              tab?: string;
+              focus?: "active";
+              requiresSymbol?: boolean;
+            };
+          }
+        | {
+            kind: "voice_tool";
+            toolName: VoiceToolCall["tool_name"];
+            params?: Record<string, unknown>;
+          }
+        | {
+            kind: "route";
+            href: string;
+            params?: Record<string, unknown>;
+          }
+        | {
+            kind: "local_handler";
+            actionId: string;
+            params?: Record<string, unknown>;
+          };
+    }
+  | {
+      status: "unwired";
+      reason: string;
+      /** Descriptive only; execution remains blocked while status is unwired. */
+      intendedHandler?: string;
+    }
+  | {
+      status: "dead";
+      reason: string;
+      legacyHandler?: "executeKaiCommand" | "dispatchVoiceToolCall";
+    };
+
+export type InvestorKaiActionDefinition = {
+  id: string;
+  surfaceId: string;
+  label: string;
+  aliases: readonly string[];
+  searchKeywords: readonly string[];
+  meaning: string;
+  speakerPersona: KaiActionSpeakerPersona;
+  delegateAgentId: KaiActionDelegateAgentId | null;
+  scope: {
+    routes: readonly string[];
+    screens: readonly InvestorKaiScreenScope[];
+    hiddenNavigable: boolean;
+    navigationPrerequisites: readonly string[];
+    activePersonas: readonly Persona[];
+    requiresPersonaSwitchConfirmation: boolean;
+  };
+  trigger: {
+    primary: InvestorKaiTriggerType;
+    supported: readonly InvestorKaiTriggerType[];
+  };
+  guards: ReadonlyArray<{
+    id: InvestorKaiGuardId;
+    description: string;
+  }>;
+  expectedEffects: {
+    stateChanges: readonly string[];
+    backendEffects: readonly InvestorKaiBackendEffect[];
+  };
+  risk: {
+    level: InvestorKaiRiskLevel;
+    executionPolicy: InvestorKaiExecutionPolicy;
+  };
+  wiring: InvestorKaiActionWiring;
+  workflow: KaiActionWorkflow;
+  controlIds: readonly string[];
+  stateExposure: readonly string[];
+  mapReferences: readonly string[];
+};
+
+const DEFAULT_TRIGGER: InvestorKaiActionDefinition["trigger"] = {
+  primary: "voice",
+  supported: ["voice", "tap", "keyboard", "programmatic"],
+};
+
+const KNOWN_KAI_COMMANDS: readonly KaiCommandAction[] = [
+  "analyze",
+  "import",
+  "consent",
+  "profile",
+  "history",
+  "dashboard",
+  "home",
+];
+
+const KNOWN_VOICE_TOOLS: readonly VoiceToolCall["tool_name"][] = [
+  "execute_kai_command",
+  "navigate_back",
+  "resume_active_analysis",
+  "cancel_active_analysis",
+  "clarify",
+  "switch_persona",
+  "capture_pkm_memory",
+  "specialist_chat.turn",
+];
+
+function describeGuard(guardId: string): string {
+  switch (guardId) {
+    case "auth_signed_in":
+      return "User must be signed in.";
+    case "vault_unlocked":
+      return "Vault must be unlocked.";
+    case "portfolio_required":
+      return "Portfolio information must already exist.";
+    case "analysis_idle_required":
+      return "Analysis must be idle first.";
+    case "active_analysis_required":
+      return "An active analysis must already exist.";
+    case "explicit_user_confirmation":
+      return "Explicit confirmation is required.";
+    case "manual_user_execution":
+      return "User must complete this action manually.";
+    case "gmail_configured":
+      return "Mail configuration must be available.";
+    case "gmail_connected":
+      return "Mail must already be connected.";
+    case "ria_persona_available":
+      return "RIA workspace must be available for this account.";
+    default:
+      return guardId.replaceAll("_", " ");
+  }
+}
+
+function toWiring(actionId: string, executionTarget: KaiActionExecutionTarget): InvestorKaiActionWiring {
+  if (executionTarget.status === "unwired") {
+    return {
+      status: "unwired",
+      reason: executionTarget.reason,
+      intendedHandler: executionTarget.intended_handler || undefined,
+    };
+  }
+
+  if (executionTarget.path === "kai_command") {
+    return {
+      status: "wired",
+      handler: "executeKaiCommand",
+      binding: {
+        kind: "kai_command",
+        command: executionTarget.target as KaiCommandAction,
+        params: executionTarget.params
+          ? {
+              tab:
+                typeof executionTarget.params.tab === "string"
+                  ? executionTarget.params.tab
+                  : undefined,
+              focus:
+                executionTarget.params.focus === "active"
+                  ? executionTarget.params.focus
+                  : undefined,
+              requiresSymbol:
+                typeof executionTarget.params.requires_symbol === "boolean"
+                  ? executionTarget.params.requires_symbol
+                  : undefined,
+            }
+          : undefined,
+      },
+    };
+  }
+
+  if (executionTarget.path === "voice_tool") {
+    const serverTool = liveTools.tools.find(
+      (tool) =>
+        tool.gateway_action_id === actionId &&
+        (tool.name === executionTarget.target || tool.gateway_action_id === executionTarget.target)
+    );
+    if (serverTool) return {
+      status: "wired",
+      handler: "oneVoiceRuntime",
+      binding: { kind: "server_voice_tool", toolName: serverTool.name, actionId: serverTool.gateway_action_id },
+    };
+    return {
+      status: "wired",
+      handler: "dispatchVoiceToolCall",
+      binding: {
+        kind: "voice_tool",
+        toolName: executionTarget.target as VoiceToolCall["tool_name"],
+        params: executionTarget.params ? { ...executionTarget.params } : undefined,
+      },
+    };
+  }
+
+  // "control" (a UI control the person taps directly -- a menu item, a
+  // segmented toggle -- rather than a named route or local_handler
+  // function) dispatches through the exact same resolveLocalOnboardingHandler
+  // registry as local_handler at the point of execution
+  // (agent-action-runtime.ts's executeAgentGatewayAction falls through to it
+  // for any path that isn't explicitly "route"), so it's represented the
+  // same way here. Left unbranched before #6122, "control" actions fell into
+  // the route fallback below and were reported unresolvable -- target here
+  // is a control id ("ria_clients_view_switch"), never a route href.
+  if (executionTarget.path === "local_handler" || executionTarget.path === "control") {
+    return {
+      status: "wired",
+      handler: "executeAgentGatewayAction.localHandler",
+      binding: {
+        kind: "local_handler",
+        actionId: executionTarget.target,
+        params: executionTarget.params ? { ...executionTarget.params } : undefined,
+      },
+    };
+  }
+
+  return {
+    status: "wired",
+    handler: "router.push",
+    binding: {
+      kind: "route",
+      href: executionTarget.target,
+      params: executionTarget.params ? { ...executionTarget.params } : undefined,
+    },
+  };
+}
+
+function toRegistryAction(action: KaiActionDefinition): InvestorKaiActionDefinition {
+  return {
+    id: action.action_id,
+    surfaceId: action.surface_id,
+    label: action.label,
+    aliases: action.aliases,
+    searchKeywords: action.search_keywords,
+    meaning: action.meaning,
+    speakerPersona: action.speaker_persona,
+    delegateAgentId: action.delegate_agent_id,
+    scope: {
+      routes: action.reachability.routes,
+      screens: action.reachability.screens,
+      hiddenNavigable: action.reachability.hidden_navigable,
+      navigationPrerequisites: action.reachability.navigation_prerequisites,
+      activePersonas: action.reachability.active_personas,
+      requiresPersonaSwitchConfirmation:
+        action.reachability.requires_persona_switch_confirmation,
+    },
+    trigger: action.trigger || DEFAULT_TRIGGER,
+    guards: action.guard_ids.map((guardId) => ({
+      id: guardId,
+      description: describeGuard(guardId),
+    })),
+    expectedEffects: {
+      stateChanges: action.expected_effects.state_changes,
+      backendEffects: action.expected_effects.backend_effects,
+    },
+    risk: {
+      level: action.risk_level,
+      executionPolicy: action.execution_policy,
+    },
+    wiring: toWiring(action.action_id, action.execution_target),
+    workflow: action.workflow,
+    controlIds: action.control_ids,
+    stateExposure: action.state_exposure,
+    mapReferences: action.docs_references,
+  };
+}
+
+export const INVESTOR_KAI_ACTION_REGISTRY: readonly InvestorKaiActionDefinition[] = listKaiActions()
+  .map((action) => toRegistryAction(action));
+
+export type InvestorKaiActionId = string;
+
+const ACTIONS_BY_ID = new Map(
+  INVESTOR_KAI_ACTION_REGISTRY.map((action) => [action.id, action] as const)
+);
+
+const ACTIONS_BY_KAI_COMMAND = new Map<KaiCommandAction, InvestorKaiActionDefinition>(
+  INVESTOR_KAI_ACTION_REGISTRY.flatMap((action) => {
+    if (action.wiring.status !== "wired" || action.wiring.binding.kind !== "kai_command") {
+      return [];
+    }
+    return [[action.wiring.binding.command, action] as const];
+  })
+);
+
+export function getInvestorKaiActionById(
+  id: InvestorKaiActionId | string
+): InvestorKaiActionDefinition | null {
+  return ACTIONS_BY_ID.get(id) || null;
+}
+
+export function getInvestorKaiActionByKaiCommand(
+  command: KaiCommandAction
+): InvestorKaiActionDefinition | null {
+  return ACTIONS_BY_KAI_COMMAND.get(command) || null;
+}
+
+export function getInvestorKaiActionByVoiceToolCall(
+  toolCall: VoiceToolCall
+): InvestorKaiActionDefinition | null {
+  const action = getKaiActionByVoiceToolCall(toolCall);
+  return action ? toRegistryAction(action) : null;
+}
+
+export function resolveInvestorKaiActionWiring(action: InvestorKaiActionDefinition): {
+  resolvable: boolean;
+  reason: string;
+} {
+  if (action.wiring.status !== "wired") {
+    return {
+      resolvable: false,
+      reason: action.wiring.reason,
+    };
+  }
+
+  const binding = action.wiring.binding;
+  if (binding.kind === "kai_command") {
+    return {
+      resolvable: KNOWN_KAI_COMMANDS.includes(binding.command),
+      reason: KNOWN_KAI_COMMANDS.includes(binding.command)
+        ? "resolved via executeKaiCommand"
+        : "unknown kai command binding",
+    };
+  }
+
+  if (binding.kind === "voice_tool") {
+    return {
+      resolvable: KNOWN_VOICE_TOOLS.includes(binding.toolName),
+      reason: KNOWN_VOICE_TOOLS.includes(binding.toolName)
+        ? "resolved via dispatchVoiceToolCall"
+        : "unknown voice tool binding",
+    };
+  }
+
+  if (binding.kind === "local_handler") {
+    return {
+      resolvable: binding.actionId.length > 0,
+      reason: binding.actionId.length > 0
+        ? "resolved via executeAgentGatewayAction.localHandler"
+        : "missing local handler action id",
+    };
+  }
+
+  if (binding.kind === "server_voice_tool") {
+    const found = liveTools.tools.some((tool) => tool.name === binding.toolName && tool.gateway_action_id === binding.actionId);
+    return { resolvable: found, reason: found ? "resolved via One Voice server tool registry" : "missing server voice tool" };
+  }
+
+  return {
+    resolvable: binding.href.startsWith("/"),
+    reason: binding.href.startsWith("/") ? "resolved via router.push" : "invalid route href",
+  };
+}
+
+export function listInvestorKaiActionsForSurface(input: {
+  screen?: string | null;
+  href?: string | null;
+  pathname?: string | null;
+}): readonly InvestorKaiActionDefinition[] {
+  return listKaiActionsForSurface(input).map((action) => toRegistryAction(action));
+}
+
+export function listInvestorKaiActions(): readonly InvestorKaiActionDefinition[] {
+  return INVESTOR_KAI_ACTION_REGISTRY;
+}
+
+export function getInvestorKaiSourceAction(actionId: string): KaiActionDefinition | null {
+  return getKaiActionById(actionId);
+}

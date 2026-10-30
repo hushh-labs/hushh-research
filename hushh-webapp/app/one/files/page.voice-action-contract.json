@@ -1,0 +1,65 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_files",
+  "surface_title": "Files",
+  "docs_references": [
+    "docs/reference/operations/private-files-library.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/files"
+      ],
+      "screens": [
+        "one_files"
+      ],
+      "hidden_navigable": false,
+      "navigation_prerequisites": [
+        "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.one_files",
+      "label": "Open Files",
+      "meaning": "Navigates to the owner's private Files workspace. Setup and consent are verified by the workspace; navigation does not authorize library operations.",
+      "aliases": [
+        "open my files",
+        "go to files",
+        "show my file library"
+      ],
+      "search_keywords": [
+        "files",
+        "folders",
+        "private file library"
+      ],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/files"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "goal": {
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open the Files workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/files",
+              "screen": "one_files"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "search": {}
+}

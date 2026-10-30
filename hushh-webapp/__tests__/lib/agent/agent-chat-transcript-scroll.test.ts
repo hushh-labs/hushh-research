@@ -1,0 +1,235 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  countUnseenTranscriptMessages,
+  formatTranscriptMessageCount,
+  findPendingAssistantTurn,
+  measureTranscriptReveal,
+  prepareSeenTranscriptMessages,
+  transcriptFollowsLatest,
+  transcriptRevealScrollTop,
+  type TranscriptFollowState,
+  type TranscriptRevealGeometry,
+} from "@/lib/agent/agent-chat-transcript-scroll";
+
+/**
+ * Founder report (2026-09-27): after sending a long prompt, the view stopped
+ * at the end of the person's own message and "One is preparing your response"
+ * sat below the fold. The composer overlays the transcript's reserved bottom
+ * band; the old `scrollIntoView({ block: "end" })` aligned rows with the
+ * bottom of the scrollport, which is inside that band.
+ *
+ * Geometry for these cases: an 800 px transcript (viewport y 0..800) whose
+ * composer covers y 640..800, scrolled to 1000 of a 3000 px history.
+ */
+function geometry(element: { top: number; bottom: number }): TranscriptRevealGeometry {
+  return {
+    scrollTop: 1_000,
+    scrollHeight: 3_000,
+    clientHeight: 800,
+    viewportTop: 0,
+    visibleBottom: 640,
+    elementTop: element.top,
+    elementBottom: element.bottom,
+  };
+}
+
+describe("transcriptRevealScrollTop", () => {
+  it("lifts the pending turn above the composer, not merely into the scrollport", () => {
+    // The pending row sits at y 900..960: below the fold entirely.
+    const top = transcriptRevealScrollTop(geometry({ top: 900, bottom: 960 }));
+    // Its bottom lands 16 px above the composer's top edge (640 - 16 = 624).
+    expect(960 - (top - 1_000)).toBe(624);
+
+    // Negative control: aligning with the scrollport's bottom (the old
+    // block:"end") leaves the row under the composer band (y 640..800).
+    const scrollportAligned = 1_000 + (960 - 800);
+    const rowBottomThen = 960 - (scrollportAligned - 1_000);
+    expect(rowBottomThen).toBeGreaterThan(640);
+  });
+
+  it("does not move a row that is already visible above the composer", () => {
+    expect(transcriptRevealScrollTop(geometry({ top: 300, bottom: 360 }))).toBe(1_000);
+  });
+
+  it("recognizes the latest end as seen above the composer despite reserved bottom space", () => {
+    const endAboveComposer: TranscriptRevealGeometry = {
+      scrollTop: 2_100,
+      scrollHeight: 3_000,
+      clientHeight: 800,
+      viewportTop: 0,
+      visibleBottom: 640,
+      elementTop: 620,
+      elementBottom: 620,
+    };
+    // Raw distance is larger than the old 96 px cutoff, although the end is visible.
+    expect(endAboveComposer.scrollHeight - endAboveComposer.clientHeight - endAboveComposer.scrollTop)
+      .toBe(100);
+    expect(transcriptRevealScrollTop(endAboveComposer)).toBe(2_100);
+  });
+
+  it("shows the start of a row taller than the visible band", () => {
+    const top = transcriptRevealScrollTop(geometry({ top: 700, bottom: 1_700 }));
+    expect(700 - (top - 1_000)).toBe(16);
+  });
+
+  it("never scrolls past the end of the history", () => {
+    expect(transcriptRevealScrollTop(geometry({ top: 5_000, bottom: 5_060 }))).toBe(2_200);
+  });
+});
+
+/**
+ * Localhost run 2026-09-28 (screenshot 09, 393x852): the continuation reply was
+ * revealed with its end at y 693, 16 px above the composer at 708. The reserved
+ * padding is taller than the composer band, so that position is 86 px short of
+ * the scroll bottom, and every later token of One's answer was treated as the
+ * reader being away from the bottom: its last lines and actions grew under the
+ * composer and bottom bar.
+ */
+describe("transcriptFollowsLatest", () => {
+  const revealed: TranscriptFollowState = {
+    userScrolled: false, submittedTurn: false, programmatic: false, scrollTop: 1_200,
+    stuckToEnd: true, distanceFromBottom: 86, endBelowBand: 0,
+  };
+  /** The gate before the fix: the raw scroll bottom with a 48 px slack. */
+  const oldGate = (state: TranscriptFollowState) => !state.userScrolled
+    && (state.submittedTurn || state.programmatic || state.scrollTop <= 2 || state.distanceFromBottom <= 48);
+
+  it("keeps following an answer that grows after it was revealed above the composer", () => {
+    const grown = { ...revealed, distanceFromBottom: 86 + 60, endBelowBand: 60 };
+    expect(transcriptFollowsLatest(grown)).toBe(true);
+    // Not stuck (a fresh effect), the end a few lines below the composer: still the end.
+    expect(transcriptFollowsLatest({ ...grown, stuckToEnd: false, endBelowBand: 30 })).toBe(true);
+  });
+
+  it("negative control: the old raw-bottom gate stops following after the first reveal", () => {
+    expect(oldGate({ ...revealed, distanceFromBottom: 86 + 60, endBelowBand: 60 })).toBe(false);
+  });
+
+  it("never pulls a reader who scrolled away, or who is reading older history", () => {
+    expect(transcriptFollowsLatest({ ...revealed, userScrolled: true, endBelowBand: 10 })).toBe(false);
+    expect(transcriptFollowsLatest({ ...revealed, stuckToEnd: false, distanceFromBottom: 1_000, endBelowBand: 914 }))
+      .toBe(false);
+  });
+});
+
+describe("findPendingAssistantTurn", () => {
+  it("reveals above the visible dock even when its form is hidden, clamping to the transcript", () => {
+    const transcript = document.createElement("div");
+    const row = document.createElement("div");
+    const dock = document.createElement("div");
+    const hiddenForm = document.createElement("div");
+    const rect = (top: number, bottom: number) => ({ top, bottom, height: bottom - top } as DOMRect);
+    vi.spyOn(transcript, "getBoundingClientRect").mockReturnValue(rect(100, 800));
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(rect(620, 680));
+    vi.spyOn(hiddenForm, "getBoundingClientRect").mockReturnValue(rect(0, 0));
+    const bounds = vi.spyOn(dock, "getBoundingClientRect").mockReturnValue(rect(500, 800));
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(500);
+    // Negative control: the old hidden-form measurement misses the voice panel.
+    expect(measureTranscriptReveal(transcript, row, hiddenForm).visibleBottom).toBe(800);
+    // UIKit can move at equal height while the retained DOM seat stays put.
+    const nativeFrame = { getBoundingClientRect: () => rect(440, 492) };
+    expect(measureTranscriptReveal(transcript, row, nativeFrame).visibleBottom).toBe(440);
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(500);
+    bounds.mockReturnValue(rect(50, 800));
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(100);
+  });
+  it("targets the newest assistant row that is still streaming", () => {
+    const transcript = document.createElement("div");
+    transcript.innerHTML = `
+      <div data-message-role="user" data-message-status="done" id="prompt"></div>
+      <div data-message-role="assistant" data-message-status="done" id="older"></div>
+      <div data-message-role="user" id="long-prompt"></div>
+      <div data-message-role="assistant" data-message-status="streaming" id="pending"></div>`;
+    expect(findPendingAssistantTurn(transcript)?.id).toBe("pending");
+
+    transcript.querySelector("#pending")!.setAttribute("data-message-status", "done");
+    expect(findPendingAssistantTurn(transcript)).toBeNull();
+  });
+});
+
+describe("chat workspace send path", () => {
+  const source = readFileSync(
+    join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
+    "utf8",
+  );
+
+  it("marks the submitted turn for Enter and for the Send button alike", () => {
+    // The Send button calls submitComposerText directly; the marking used to
+    // live only in the form's submit handler, so a click never scrolled.
+    const submit = source.slice(
+      source.indexOf("const submitComposerText = async"),
+      source.indexOf("const handleSubmit = async"),
+    );
+    expect(submit).toContain("scrollToSubmittedTurnRef.current = true;");
+    const handler = source.slice(
+      source.indexOf("const handleSubmit = async"),
+      source.indexOf("const handleComposerPaste = "),
+    );
+    expect(handler).not.toContain("scrollToSubmittedTurnRef");
+  });
+
+  it("scrolls to the pending turn, measured against the composer", () => {
+    expect(source).toContain(
+      "(submittedTurn ? findPendingAssistantTurn(transcript) : null) ?? messagesEnd",
+    );
+    expect(source).toContain(
+      "measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current)",
+    );
+    expect(source).not.toMatch(/messagesEnd\.scrollIntoView\(/);
+    // The follow gate is measured against the composer and sticky once followed.
+    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current)");
+    expect(source).toContain("const shouldFollowTranscript = transcriptFollowsLatest({");
+    expect(source).not.toContain("oneScrollTopRef.current <= 2 || distanceFromBottom <= 48");
+  });
+
+  it("uses the composer-aware transcript end before counting messages below", () => {
+    expect(source).toContain("measureTranscriptReveal(transcript, end, overlay)");
+    expect(source).toContain("if (endTargetTop <= transcript.scrollTop + 4)");
+  });
+});
+
+describe("unseen transcript messages", () => {
+  it("clears reached messages without counting them again when scrolling back", () => {
+    const seen = new Set<string>();
+    const rows = [1, 2, 3].map(id => ({ id: String(id), top: (id - 1) * 100, bottom: id * 100 }));
+    expect(countUnseenTranscriptMessages(rows, -50, seen)).toBe(3);
+    expect(countUnseenTranscriptMessages(rows, 201, seen)).toBe(1);
+    expect(countUnseenTranscriptMessages(rows, 300, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages(rows, 50, seen)).toBe(0);
+    // Negative control: the old geometry-only counter reintroduces seen rows.
+    expect(rows.filter(row => row.bottom > 54)).toHaveLength(3);
+    expect(countUnseenTranscriptMessages([...rows, { id: "new", top: 300, bottom: 400 }], 50, seen)).toBe(1);
+  });
+  it("does not count a seen streaming row again when its content grows", () => {
+    const seen = new Set<string>();
+    expect(countUnseenTranscriptMessages([{ id: "reply", top: 150, bottom: 200 }], 200, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages([{ id: "reply", top: 150, bottom: 500 }], 200, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages([{ id: "other", top: 250, bottom: 500 }], 200, new Set())).toBe(1);
+  });
+  it("acknowledges a tall message when visible, but not one covered by the composer", () => {
+    const seen = new Set<string>();
+    expect(countUnseenTranscriptMessages([
+      { id: "tall", top: 100, bottom: 900 },
+      { id: "covered", top: 640, bottom: 700 },
+    ], 640, seen)).toBe(1);
+    expect(seen.has("tall")).toBe(true);
+    expect(seen.has("covered")).toBe(false);
+  });
+  it("preserves a draft's first ID but isolates other conversations and owner sessions", () => {
+    const draft = { scope: "owner:epoch-1", conversationId: null, ids: new Set(["seen"]) };
+    const assigned = prepareSeenTranscriptMessages(draft, draft.scope, "chat-a");
+    expect(assigned.ids).toBe(draft.ids);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, "chat-a").ids.has("seen")).toBe(true);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, "chat-b").ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, null).ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, "other-owner:epoch-1", "chat-a").ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, "owner:epoch-2", "chat-a").ids.size).toBe(0);
+  });
+  it("caps the visible count after 99", () => {
+    expect([1, 3, 99, 100, 120].map(formatTranscriptMessageCount)).toEqual(["1", "3", "99", "99+", "99+"]);
+  });
+});

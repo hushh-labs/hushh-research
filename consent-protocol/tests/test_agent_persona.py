@@ -34,7 +34,10 @@ def test_voice_boundary_present_in_every_tier():
         assert "Never claim access to raw vault data" in text
         assert "public/app knowledge fetches" in text
         assert "never save inferred memory directly" in text
-        assert "Kai is the specialist contract" in text
+        # The finance boundary is stated without naming the internal runtime:
+        # "Kai" is not a name a person reads (docs/vision/agent-ontology.md).
+        assert "you speak as One over the finance specialist contract" in text
+        assert "Kai" not in text
 
 
 def test_persona_lens_reflected():
@@ -90,7 +93,7 @@ def test_kai_finance_context_does_not_categorically_refuse_stock_analysis():
         portfolio_ready=True,
     )
     text = compose_voice_instructions(ctx)
-    assert "Kai finance capability is in scope" in text
+    assert "Finance capability is in scope" in text
     assert "Do not say you are unable to provide stock analysis" in text
     assert "analysis.start" in text
     assert "vault/cache posture is ready" in text
@@ -110,7 +113,7 @@ def test_non_kai_finance_question_routes_to_kai_without_blanket_refusal():
     )
     text = compose_voice_instructions(ctx)
     assert "do not issue a blanket refusal" in text
-    assert "route them to the governed Kai analysis or portfolio surface" in text
+    assert "route them to the governed analysis or portfolio surface" in text
     assert "vault is not ready" in text
 
 

@@ -1,0 +1,87 @@
+{
+  "kind": "unapplied_source_migration_relocation",
+  "source_revision": "05e5fcd17b05d8c81e5e30948547135217724d05",
+  "main_revision": "c8faf48dd668b7d51b587ac07a1a7e5328a3742c",
+  "active_head": 355,
+  "source_manifest_sha256": "1c3cc2117361815c07cdf0196ceb1de6c505bcdeb27fe1d95cc567f1179b6238",
+  "relocations": [
+    {
+      "archived": "342_vault_environment_enrollment.sql",
+      "active": "349_vault_environment_enrollment.sql",
+      "sha256": "9f1fe45a135fe21b591288e6101bd8731d853a51f856d9bc96c4267d617785aa"
+    },
+    {
+      "archived": "rollback/342_vault_environment_enrollment.rollback.sql",
+      "active": "rollback/349_vault_environment_enrollment.rollback.sql",
+      "sha256": "2cf4895d3c3562e7e52f9741bbc5c0c968fd61fb832695f29398118becdd2130"
+    },
+    {
+      "archived": "343_consumer_scope_commerce.sql",
+      "active": "350_consumer_scope_commerce.sql",
+      "sha256": "153b30ae338b61fac9e9db361dd2eb5b6c5e73bef53a11c7ede3e917e980cb05"
+    },
+    {
+      "archived": "rollback/343_consumer_scope_commerce.rollback.sql",
+      "active": "rollback/350_consumer_scope_commerce.rollback.sql",
+      "sha256": "69961cc7573cdb22bac6258335e5aae05ae4df75c3448e9243947d4fd20dead6"
+    },
+    {
+      "archived": "344_one_shared_hosting_choice.sql",
+      "active": "351_one_shared_hosting_choice.sql",
+      "sha256": "1c92b4957ba8b8684e09c5e0d36fca1c6635f94a7e51184024c5e21bbac8e1d6"
+    },
+    {
+      "archived": "rollback/344_one_shared_hosting_choice.rollback.sql",
+      "active": "rollback/351_one_shared_hosting_choice.rollback.sql",
+      "sha256": "6f5bee22d11d452ce5dc607cb2a01c219977a54e8729bde92f8a61c94b3ed115"
+    },
+    {
+      "archived": "345_public_profile_bridge.sql",
+      "active": "352_public_profile_bridge.sql",
+      "sha256": "495609d6e515da292a5ec52915ceb7ec090b474a9b28edfcfa6a3c4230120db4"
+    },
+    {
+      "archived": "rollback/345_public_profile_bridge.rollback.sql",
+      "active": "rollback/352_public_profile_bridge.rollback.sql",
+      "sha256": "0e61c43e175ed02765491f7bd0c4350b49ca644fd5359b5ba860b8652b6a76fd"
+    },
+    {
+      "archived": "346_one_placement_reader_foundation.sql",
+      "active": "353_one_placement_reader_foundation.sql",
+      "sha256": "aad7ce3d059077339eaa5630bf7a916f7fb4460336142c31aac967a00e6f3d6b"
+    },
+    {
+      "archived": "rollback/346_one_placement_reader_foundation.rollback.sql",
+      "active": "rollback/353_one_placement_reader_foundation.rollback.sql",
+      "sha256": "74d0bb3284087d333d46f9d6436634ad665d270d8986d8764228d60b78675ecf"
+    },
+    {
+      "archived": "347_one_legacy_shared_continuity.sql",
+      "active": "354_one_legacy_shared_continuity.sql",
+      "sha256": "5ef3f5d680e8c9ed07ca96d967be09eea2b6d33410cb0162574ee00d0f26f5f8"
+    },
+    {
+      "archived": "rollback/347_one_legacy_shared_continuity.rollback.sql",
+      "active": "rollback/354_one_legacy_shared_continuity.rollback.sql",
+      "sha256": "74d0bb3284087d333d46f9d6436634ad665d270d8986d8764228d60b78675ecf"
+    },
+    {
+      "archived": "348_stripe_payout_source_binding.sql",
+      "active": "355_stripe_payout_source_binding.sql",
+      "sha256": "7b0d595ee29b15f854647c23b82ec5b59f0a3a60903bae4afdf947db3d3e33d0"
+    },
+    {
+      "archived": "rollback/348_stripe_payout_source_binding.rollback.sql",
+      "active": "rollback/355_stripe_payout_source_binding.rollback.sql",
+      "sha256": "f7f259688b66bac11654aaf573c56d522bd51ebdb6458c1f8918a8da7b994f55"
+    }
+  ],
+  "duplicate_pwm_owner": {
+    "archived": "335_pwm_provider_budget.sql",
+    "active": "340_pwm_provider_budget.sql",
+    "forward_and_rollback_byte_equivalent": true
+  },
+  "database_mutations": false,
+  "existing_preservation_receipts_unchanged": true,
+  "release_and_database_preservation_acceptance": "required_before_deployment"
+}

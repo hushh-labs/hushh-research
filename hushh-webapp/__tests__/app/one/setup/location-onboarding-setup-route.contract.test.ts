@@ -28,6 +28,49 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
+  it("keeps the terminal completion action independent of device permission", () => {
+    const contract = JSON.parse(read("app/one/setup/location/page.voice-action-contract.json"));
+    const intro = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location_intro");
+    const legacy = contract.actions.find((action: { action_id: string }) => action.action_id === "setup.finish_location");
+    expect(intro.command?.permission).toBeUndefined();
+    expect(intro.control_ids).toContain("one-setup-location-intro-terminal");
+    expect(legacy.command.permission).toBe("location");
+    expect(read("app/one/setup/location/location-onboarding-setup-client.tsx")).toContain('finishActionId: "setup.finish_location_intro"');
+    expect(read("app/one/location/page.tsx")).toContain('completeControlId={mode === "setup" ? "one-setup-location-intro-terminal" : undefined}');
+  });
+
+  it("keeps One Voice readiness from replacing the canonical onboarding tree", () => {
+    const adapter = read(
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
+    );
+
+    // Live readiness owns the global microphone/publisher runtime. It must not
+    // choose a second presentation here: root setup is pre-vault, while the
+    // server-progress LocationSetupFlow requires a vault owner token.
+    expect(adapter).toContain('<OneLocationAgentPage mode="setup"');
+    expect(adapter.match(/<OneLocationAgentPage/g)).toHaveLength(1);
+    expect(adapter).not.toContain("useOneVoiceLiveEnabled");
+    expect(adapter).not.toContain("LocationSetupFlow");
+    expect(adapter).not.toContain("next/dynamic");
+    expect(adapter).not.toMatch(/if\s*\(\s*live\s*\)/);
+  });
+
+  it("keeps setup paired with the established Location workspace", () => {
+    const locationPage = read("app/one/location/page.tsx");
+
+    // The migration-223 setup-progress UI is owned by the separate,
+    // non-routed LocationArea experiment. The customer-facing workspace and
+    // its setup route must stay on the same established One Location tree so
+    // one cannot declare the other incomplete after settlement.
+    expect(locationPage).toContain(
+      "return <OneLocationAgentPage {...props} />;",
+    );
+    expect(locationPage).not.toContain("LocationAreaSwitch");
+    expect(locationPage).not.toContain(
+      '@/components/location/location-area',
+    );
+  });
+
   it("keeps Location setup vault-free until the root setup completion", () => {
     const locationPage = read("app/one/location/page.tsx");
 
@@ -35,14 +78,10 @@ describe("Location setup route contract", () => {
     expect(locationPage).toContain(
       'Boolean(auth.userId && (mode === "setup" || vaultOwnerToken))',
     );
-    expect(locationPage).toContain(
-      "onLocationReady={promptSaveLocationDuringOnboarding}",
-    );
+    expect(locationPage).not.toContain("onLocationReady=");
+    expect(locationPage).not.toContain("onRequestLocation=");
     expect(locationPage).toContain(
       "PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input)",
-    );
-    expect(locationPage).toContain(
-      "deferredUntilVault={!vaultKey || !vaultOwnerToken}",
     );
     expect(locationPage).toContain(
       "vaultOwnerToken ? reverseGeocodeForSavedLocation : undefined",
@@ -65,14 +104,19 @@ describe("Location setup route contract", () => {
     );
     expect(coordinator).toContain("resolveCompletedSetupCapabilityEntry({");
     expect(coordinator).toContain('completedEntry.kind === "acknowledge"');
-    expect(coordinator).toContain("setConfirmedCompletionKey(`${userId}:${capabilityId}`)");
+    expect(coordinator).toContain(
+      "setConfirmedCompletionKey(`${userId}:${capabilityId}`)",
+    );
     expect(coordinator).toContain(
       "enabled && routeReady && !settlementBlocked && !isAlreadyComplete",
     );
     expect(adapter).toContain("if (coordinator.isAlreadyComplete)");
-    expect(adapter).toContain("<LocationOnboardingCompletedScreen");
+    expect(adapter).toContain("<LocationSetupReturn");
+    expect(adapter).not.toContain("<LocationOnboardingCompletedScreen");
+    expect(adapter).not.toContain("<CapabilityCinematicIntroGate");
+    expect(adapter).not.toContain("<LocationPermissionPrimerGate");
     expect(adapter.indexOf("if (coordinator.isAlreadyComplete)")).toBeLessThan(
-      adapter.indexOf("<CapabilityCinematicIntroGate"),
+      adapter.indexOf("<OneLocationAgentPage"),
     );
   });
 });

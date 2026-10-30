@@ -8,6 +8,31 @@ backend_cloudbuild="$REPO_ROOT/deploy/backend.cloudbuild.yaml"
 frontend_cloudbuild="$REPO_ROOT/deploy/frontend.cloudbuild.yaml"
 ria_proxy_route="$REPO_ROOT/hushh-webapp/app/api/ria/[...path]/route.ts"
 
+# The fixed preview selects its secret namespace through the reviewed Cloud
+# Build substitution. Shared deployment keeps the empty-prefix default. Require
+# the exact source secret in either authored form; arbitrary prefixes fail.
+has_frontend_secret_binding() {
+  local plain="$1=$2:latest"
+  local selected="$1="'${_SECRET_PREFIX}'"$2:latest"
+  grep -Fq "$plain" "$frontend_cloudbuild" || grep -Fq "$selected" "$frontend_cloudbuild"
+}
+
+# Cloud Build rejects a template that references an undeclared substitution,
+# even when that setting is optional and the deploy workflow leaves it empty.
+python3 - "$backend_cloudbuild" "$frontend_cloudbuild" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+for name in sys.argv[1:]:
+    source = Path(name).read_text(encoding="utf-8")
+    referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", source))
+    declared = set(re.findall(r"^  (_[A-Z0-9_]+):", source, re.MULTILINE))
+    missing = sorted(referenced - declared)
+    if missing:
+        raise SystemExit(f"{name}: undeclared Cloud Build substitutions: {', '.join(missing)}")
+PY
+
 if grep -q 'consent-protocol-rpphvsc3tq-uc.a.run.app' "$backend_helper"; then
   echo "❌ backend route helper still hardcodes a production backend fallback."
   exit 1
@@ -18,13 +43,49 @@ if ! grep -q 'do not guess a backend origin' "$backend_helper"; then
   exit 1
 fi
 
-if ! grep -q 'BACKEND_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
+if ! has_frontend_secret_binding BACKEND_URL BACKEND_URL; then
   echo "❌ frontend Cloud Run deploy must inject BACKEND_URL at runtime."
   exit 1
 fi
 
-if ! grep -q 'DEVELOPER_API_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
+if ! has_frontend_secret_binding DEVELOPER_API_URL BACKEND_URL; then
   echo "❌ frontend Cloud Run deploy must inject DEVELOPER_API_URL at runtime."
+  exit 1
+fi
+
+# The Docker Cloud Builder image does not ship gcloud. Google Contacts client
+# resolution must stay in a Cloud SDK step and pass only the public client id to
+# the Docker step through Cloud Build's ephemeral workspace.
+google_contacts_lookup_step="$(
+  awk '
+    /name: "gcr.io\/google.com\/cloudsdktool\/cloud-sdk"/ { current_step = "cloud-sdk" }
+    /name: "gcr.io\/cloud-builders\/docker"/ { current_step = "docker" }
+    /gcloud secrets versions access latest/ {
+      print current_step
+      exit
+    }
+  ' "$frontend_cloudbuild"
+)"
+if [ "$google_contacts_lookup_step" != "cloud-sdk" ]; then
+  echo "❌ Google Contacts Secret Manager lookup must run in a Cloud SDK step, not the Docker builder."
+  exit 1
+fi
+
+if grep -q "NOT_FOUND|not found" "$frontend_cloudbuild"; then
+  echo "❌ Google Contacts secret handling must not treat generic 'not found' text as a Secret Manager NOT_FOUND status."
+  exit 1
+fi
+
+google_contacts_artifact_refs="$(
+  grep -c '/workspace/.google-contacts-client-id' "$frontend_cloudbuild" || true
+)"
+if [ "$google_contacts_artifact_refs" -lt 2 ]; then
+  echo "❌ Google Contacts client resolution must hand off through the ephemeral Cloud Build workspace."
+  exit 1
+fi
+
+if ! grep -q -- '--build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=' "$frontend_cloudbuild"; then
+  echo "❌ frontend Cloud Build must pass NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID to the web image."
   exit 1
 fi
 
@@ -33,7 +94,7 @@ for association_secret in \
   NEXT_PUBLIC_IOS_BUNDLE_ID \
   NEXT_PUBLIC_ANDROID_APP_ID \
   ANDROID_SHA256_CERT_FINGERPRINTS; do
-  if ! grep -q "${association_secret}=${association_secret}:latest" "$frontend_cloudbuild"; then
+  if ! has_frontend_secret_binding "$association_secret" "$association_secret"; then
     echo "❌ frontend Cloud Run deploy must inject ${association_secret} for native passkey association."
     exit 1
   fi
@@ -50,14 +111,97 @@ if ! grep -q 'https://one.hushh.ai/.well-known/assetlinks.json' "$android_string
   exit 1
 fi
 
+# Universal Link / App Link claim. The block above proves passkey association
+# and stops one assertion short of link routing, which is a different
+# delegation. Both halves must exist on both platforms or an OAuth return opens
+# a browser instead of the app -- and it fails silently: an unclaimed domain
+# produces no error, the OS simply declines to hand the URL over. That is how
+# the Plaid return shipped broken. This runs unconditionally, unlike the
+# path-filtered web packs, so it holds for every change.
+aasa_route="$REPO_ROOT/hushh-webapp/app/.well-known/apple-app-site-association/route.ts"
+assetlinks_route="$REPO_ROOT/hushh-webapp/app/.well-known/assetlinks.json/route.ts"
+for entitlements in \
+  "$REPO_ROOT/hushh-webapp/ios/App/App/App.entitlements" \
+  "$REPO_ROOT/hushh-webapp/ios/App/App/AppRelease.entitlements"; do
+  if ! grep -q 'applinks:one.hushh.ai' "$entitlements"; then
+    echo "❌ $(basename "$entitlements") must declare applinks:one.hushh.ai; webcredentials alone does not route links."
+    exit 1
+  fi
+done
+if ! grep -q 'UNIVERSAL_LINK_PATHS' "$aasa_route"; then
+  echo "❌ The served apple-app-site-association must publish a non-empty applinks details block."
+  exit 1
+fi
+if ! grep -q 'delegate_permission/common.handle_all_urls' "$assetlinks_route"; then
+  echo "❌ assetlinks.json must delegate handle_all_urls, or Android can never verify the autoVerify filter."
+  exit 1
+fi
+if ! grep -q 'android:autoVerify="true"' "$android_manifest"; then
+  echo "❌ Android manifest must declare an autoVerify https intent filter for the OAuth returns."
+  exit 1
+fi
+
 if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; then
   echo "❌ frontend Cloud Run deploy must inject NEXT_PUBLIC_APP_ENV at runtime."
   exit 1
 fi
 
+if ! grep -q -- '--build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must derive the passkey RP ID from the active frontend origin."
+  exit 1
+fi
+
+if grep -q '^  _PASSKEY_RP_ID:' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must not use a shared passkey RP substitution."
+  exit 1
+fi
+
+if ! grep -q 'hushh-webapp/lib/vault/passkey-domain-aliases.json' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must validate the environment-scoped passkey domain catalog."
+  exit 1
+fi
+if ! grep -q 'hostname not in aliases.get(environment, \[\])' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must reject hosts outside the deployment environment."
+  exit 1
+fi
+
+# Legacy RP compatibility is authored in the catalog consumed above, not in
+# removed Cloud Build shell branches. Check that source without weakening
+# either legacy compatibility or environment isolation.
+python3 - "$REPO_ROOT/hushh-webapp/lib/vault/passkey-domain-aliases.json" <<'PY_LEGACY_RP'
+import json
+import sys
+from pathlib import Path
+
+aliases = json.loads(Path(sys.argv[1]).read_text())
+required = {"uat": "uat.one.hushh.ai", "production": "one.hushh.ai"}
+for environment, legacy in required.items():
+    if legacy not in aliases.get(environment, []):
+        raise SystemExit("Passkey domain catalog must retain environment-scoped legacy app domains")
+seen = set()
+for hosts in aliases.values():
+    if not isinstance(hosts, list) or any(not isinstance(host, str) for host in hosts):
+        raise SystemExit("Passkey domain catalog must contain hostname lists")
+    if seen.intersection(hosts):
+        raise SystemExit("Passkey domain catalog must not share hosts across environments")
+    seen.update(hosts)
+PY_LEGACY_RP
+
+if ! grep -q 'APP_FRONTEND_ORIGIN_VAL' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must source the frontend origin from Secret Manager."
+  exit 1
+fi
+
 frontend_timeout_seconds="$(
-  grep -Eo -- '--timeout=[0-9]+' "$frontend_cloudbuild" | head -n 1 | cut -d= -f2
+  grep -Eo -- '--timeout=[0-9]+' "$frontend_cloudbuild" | head -n 1 | cut -d= -f2 || true
 )"
+if [ -z "$frontend_timeout_seconds" ] && grep -q -- '--timeout=${_CLOUD_RUN_TIMEOUT_SECONDS}' "$frontend_cloudbuild"; then
+  frontend_timeout_seconds="$(
+    grep -E '^[[:space:]]*_CLOUD_RUN_TIMEOUT_SECONDS:' "$frontend_cloudbuild" |
+      head -n 1 |
+      sed -E 's/.*"([0-9]+)".*/\1/'
+  )"
+fi
 if [ -z "$frontend_timeout_seconds" ]; then
   echo "❌ frontend Cloud Run deploy must declare an explicit request timeout."
   exit 1
@@ -130,5 +274,61 @@ if [ "$((provider_timeout_seconds * 1000))" -ge "$onboarding_proxy_timeout_ms" ]
   echo "❌ RIA onboarding provider timeout must stay below the frontend proxy timeout."
   exit 1
 fi
+
+# --- Location map demo fixture -------------------------------------------
+#
+# `?demo=people` renders fifty fabricated people on the location map. It is an
+# operator preview, and in a product whose entire promise is that the map shows
+# only people who chose to share with you, showing it to a real user is the
+# worst bug the surface has.
+#
+# The client gate (`lib/testing/location-map-demo.ts`) is an explicit opt-in
+# rather than `APP_ENV !== "production"`, because the App Store and Play Store
+# binaries are stamped `NEXT_PUBLIC_APP_ENV=uat` — an environment-shaped check
+# reads every store install as non-production. An opt-in is only as good as the
+# plumbing that carries it, so assert the whole chain here: a build arg that is
+# declared but never passed leaves the flag permanently false and the preview
+# silently gone, and a production lane that passes `true` is the incident.
+webapp_dockerfile="$REPO_ROOT/hushh-webapp/Dockerfile"
+
+if ! grep -q '^ARG NEXT_PUBLIC_LOCATION_MAP_DEMO$' "$webapp_dockerfile"; then
+  echo "❌ webapp Dockerfile must declare the NEXT_PUBLIC_LOCATION_MAP_DEMO build arg."
+  exit 1
+fi
+
+if ! grep -q '^ENV NEXT_PUBLIC_LOCATION_MAP_DEMO=\$NEXT_PUBLIC_LOCATION_MAP_DEMO$' "$webapp_dockerfile"; then
+  echo "❌ webapp Dockerfile must promote NEXT_PUBLIC_LOCATION_MAP_DEMO into the build env."
+  exit 1
+fi
+
+if ! grep -q -- '--build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO}' "$frontend_cloudbuild"; then
+  echo "❌ frontend Cloud Build must pass NEXT_PUBLIC_LOCATION_MAP_DEMO from the _LOCATION_MAP_DEMO substitution."
+  exit 1
+fi
+
+location_map_demo_default="$(
+  grep -E '^[[:space:]]*_LOCATION_MAP_DEMO:' "$frontend_cloudbuild" |
+    head -n 1 |
+    sed -E 's/.*"([^"]*)".*/\1/'
+)"
+if [ "$location_map_demo_default" != "false" ]; then
+  echo "❌ _LOCATION_MAP_DEMO must default to \"false\" so a lane has to opt in deliberately."
+  exit 1
+fi
+
+# No deploy lane may enable the fixture. Guarding production alone was not
+# enough: UAT shipped `_LOCATION_MAP_DEMO=true`, and UAT is not a private
+# sandbox — it is the frontend every reviewer, tester, and demo audience sees,
+# and the backend the store builds point at. Fifty fabricated people on a map
+# whose entire promise is "only the people who chose to share with you appear
+# here" is the same incident wherever it lands, so the ban is lane-wide and a
+# lane that genuinely wants the fixture has to say so outside CI.
+for workflow in "$REPO_ROOT"/.github/workflows/*.yml; do
+  if grep -q '_LOCATION_MAP_DEMO=true' "$workflow"; then
+    echo "❌ $(basename "$workflow") enables the fabricated-people map fixture (_LOCATION_MAP_DEMO=true)."
+    echo "   No deploy lane may ship it. Real users cannot tell a fixture from a person."
+    exit 1
+  fi
+done
 
 echo "✅ Runtime contract check passed."

@@ -1,0 +1,198 @@
+{
+  "schema_version": "one.first_tool_evals.v1",
+  "generated_at": "2026-09-23T19:03:43.993695+00:00",
+  "model": "gemini-3.8-flash",
+  "label": "production",
+  "git_sha": "dffec8382a83a6dcc27f17f357740467720a966e",
+  "instruction_source": "production_runtime_instruction",
+  "instruction_sha256": "15521f7606cd392ab5002601e750dae91a41907f6a3535ff408148c100440ef2",
+  "instruction_chars": 45474,
+  "reps": 1,
+  "thinking_level": "low",
+  "measurement_complete": true,
+  "roster_tools": [
+    "google_search",
+    "open_screen",
+    "resolve_onboarding_goal",
+    "run_app_action",
+    "report_no_app_action",
+    "propose_app_action",
+    "start_app_goal",
+    "continue_app_goal",
+    "list_app_actions",
+    "open_gmail_email_draft",
+    "finance",
+    "wallet",
+    "ask_email_agent",
+    "ask_documents_agent",
+    "ask_location_agent",
+    "ask_memory_agent",
+    "ask_consent_agent",
+    "list_my_location_circles",
+    "get_location_circle_members",
+    "list_my_location_shares",
+    "list_location_shared_with_me",
+    "list_pending_location_requests",
+    "list_my_outgoing_location_requests",
+    "list_my_connections",
+    "add_to_pkm",
+    "read_my_pkm_domain_summary",
+    "read_my_profile_status",
+    "discover_person_information",
+    "list_information_shared_with_me",
+    "list_available_models",
+    "list_active_grants",
+    "list_my_outgoing_information_requests",
+    "list_pending_information_requests",
+    "propose_information_request",
+    "set_preferred_model",
+    "list_pending_connection_requests",
+    "get_current_time",
+    "calendar_summary",
+    "calendar_events",
+    "calendar_availability",
+    "calendar_free_slots",
+    "propose_calendar_event",
+    "propose_calendar_reschedule",
+    "propose_calendar_cancellation",
+    "discover_google_drive_tools",
+    "read_google_drive"
+  ],
+  "gates": {
+    "min_overall_rate": 0.9,
+    "min_family_rate": {
+      "drive": 1.0,
+      "general": 0.8,
+      "consent": 1.0,
+      "delegation": 1.0
+    },
+    "breaches": [],
+    "passed": true
+  },
+  "overall": {
+    "cases": 5,
+    "hits": 5,
+    "rate": 1.0
+  },
+  "families": {
+    "consent": {
+      "cases": 2,
+      "hits": 2,
+      "misses": [],
+      "rate": 1.0
+    },
+    "delegation": {
+      "cases": 1,
+      "hits": 1,
+      "misses": [],
+      "rate": 1.0
+    },
+    "drive": {
+      "cases": 1,
+      "hits": 1,
+      "misses": [],
+      "rate": 1.0
+    },
+    "general": {
+      "cases": 1,
+      "hits": 1,
+      "misses": [],
+      "rate": 1.0
+    }
+  },
+  "latency_ms": {
+    "semantics": "probe_wall_time_including_retries_excluding_harness_pacing_v1",
+    "count": 5,
+    "p50": 1810.6,
+    "p95": 58704.4
+  },
+  "cases": [
+    {
+      "id": "consent.fields_in_professional",
+      "family": "consent",
+      "prompt": "what professional information can I ask Dev for",
+      "expected": [
+        "discover_person_information"
+      ],
+      "got_by_rep": [
+        "discover_person_information"
+      ],
+      "latency_ms_by_rep": [
+        3375.4
+      ],
+      "hit": true,
+      "status": "completed",
+      "infrastructure_failure": null
+    },
+    {
+      "id": "consent.granted_readback",
+      "family": "consent",
+      "prompt": "Dev approved my information request; can I see it here now",
+      "expected": [
+        "list_information_shared_with_me"
+      ],
+      "got_by_rep": [
+        "list_information_shared_with_me"
+      ],
+      "latency_ms_by_rep": [
+        72536.6
+      ],
+      "hit": true,
+      "status": "completed",
+      "infrastructure_failure": null
+    },
+    {
+      "id": "general.your_name",
+      "family": "general",
+      "prompt": "what's your name",
+      "expected": [
+        "no_tool"
+      ],
+      "got_by_rep": [
+        null
+      ],
+      "latency_ms_by_rep": [
+        1810.6
+      ],
+      "hit": true,
+      "status": "completed",
+      "infrastructure_failure": null
+    },
+    {
+      "id": "delegation.remove_trusted_person",
+      "family": "delegation",
+      "prompt": "remove Bob from my trusted people",
+      "expected": [
+        "ask_consent_agent"
+      ],
+      "got_by_rep": [
+        "ask_consent_agent"
+      ],
+      "latency_ms_by_rep": [
+        1674.6
+      ],
+      "hit": true,
+      "status": "completed",
+      "infrastructure_failure": null
+    },
+    {
+      "id": "drive.email_selected_file",
+      "family": "drive",
+      "prompt": "email the Q3 planning notes file from my Drive to dev@example.invalid",
+      "expected": [
+        "discover_google_drive_tools",
+        "read_google_drive"
+      ],
+      "got_by_rep": [
+        "discover_google_drive_tools"
+      ],
+      "latency_ms_by_rep": [
+        1526.2
+      ],
+      "hit": true,
+      "status": "completed",
+      "infrastructure_failure": null
+    }
+  ],
+  "stopped_after_infrastructure_failure": null
+}

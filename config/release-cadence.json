@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "testflight_every": 2,
+  "production_every": 4,
+  "monitor_issue_assignee": "ankitkumarsingh1702",
+  "state_branch": "automation/release-cadence-state",
+  "submit_for_review": true,
+  "release_after_approval": true,
+  "production_baseline_run_id": 40098547368,
+  "retired": true
+}

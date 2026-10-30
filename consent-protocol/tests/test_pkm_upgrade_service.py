@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -12,6 +14,10 @@ from hushh_mcp.services.domain_contracts import (
     current_domain_contract_version,
 )
 from hushh_mcp.services.pkm_upgrade_service import PkmUpgradeService
+
+# A financial manifest whose reserved-branch relocation already ran. Without it
+# a current client is offered the relocation, which these tests are not about.
+_RELOCATED = {"reserved_branch_migration_version": 1}
 
 
 class _FakePkmService:
@@ -46,6 +52,9 @@ class _FakePkmService:
     async def get_domain_manifest(self, user_id: str, domain: str):
         return self._manifest
 
+    async def get_domain_manifests(self, user_id: str, domains: list[str], *, raise_on_error=False):
+        return {domain: self._manifest for domain in domains if self._manifest is not None}
+
     async def get_domain_snapshot(self, user_id: str, domain: str):
         return {"ciphertext": "blob"} if self._has_blob else None
 
@@ -74,6 +83,32 @@ class _FakePkmService:
 
     def upsert(self, *_args, **_kwargs):
         return self
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["_list_runs", "_list_steps", "build_status"])
+async def test_upgrade_metadata_reads_leave_the_event_loop_responsive(method):
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPkmService(_FakePkmService):
+        def execute(self):
+            started.set()
+            release.wait(timeout=1)
+            return super().execute()
+
+    service = PkmUpgradeService()
+    service._pkm_service = BlockingPkmService()
+    service._pkm_service._index.available_domains = []
+    query = asyncio.create_task(getattr(service, method)("synthetic-owner"))
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        # This coroutine must progress while SQL is still waiting. An async
+        # function that executes synchronous SQL inline freezes it instead.
+        assert not query.done()
+    finally:
+        release.set()
+        await query
 
 
 def test_v7_commit_policy_is_fail_closed_by_default(monkeypatch):
@@ -153,7 +188,8 @@ async def test_build_status_prefers_known_summary_versions_when_present():
                 "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
                 "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             }
-        }
+        },
+        manifest={"summary_projection": _RELOCATED},
     )
 
     async def _no_runs(_user_id: str):
@@ -165,6 +201,119 @@ async def test_build_status_prefers_known_summary_versions_when_present():
 
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
+async def test_only_a_current_client_is_offered_the_reserved_branch_relocation():
+    """An old build's upgrade is a copy that never stamps the marker.
+
+    Offered the relocation, it would rerun a no-op upgrade on every entry. A
+    current client is offered it until the marker is recorded, and the domain
+    version never moves, so an old build is never told to update the app.
+    """
+
+    def _status_service(marker: int | None) -> PkmUpgradeService:
+        service = PkmUpgradeService()
+        current: dict = {
+            "domain_contract_version": current_domain_contract_version("financial"),
+            "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+            "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+            "path_count": 1,
+        }
+        if marker is not None:
+            current["reserved_branch_migration_version"] = marker
+        service._pkm_service = _FakePkmService(
+            manifest={**current, "paths": [{"json_path": "profile"}], "summary_projection": current}
+        )
+
+        async def _no_runs(_user_id: str):
+            return None
+
+        service._get_latest_run = _no_runs  # type: ignore[method-assign]
+        return service
+
+    unmigrated = _status_service(None)
+    current = await unmigrated.build_status("user_123")
+    assert current["upgrade_status"] == "ready"
+    step = current["upgradable_domains"][0]
+    assert step["domain"] == "financial"
+    assert step["target_domain_contract_version"] == step["current_domain_contract_version"] == 4
+    legacy = await unmigrated.build_status("user_123", legacy_client=True)
+    assert legacy["upgrade_status"] == "current"
+    assert legacy["upgradable_domains"] == []
+
+    migrated = await _status_service(1).build_status("user_123")
+    assert migrated["upgrade_status"] == "current"
+    assert migrated["unsupported_domains"] == []
+
+
+@pytest.mark.asyncio
+async def test_build_status_reuses_metadata_manifest_headers():
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+
+    async def _unexpected_manifest_read(_user_id: str, _domain: str):
+        raise AssertionError("metadata headers should avoid per-domain manifest reads")
+
+    async def _no_runs(_user_id: str):
+        return None
+
+    service._pkm_service.get_domain_manifest = _unexpected_manifest_read
+    service._get_latest_run = _no_runs  # type: ignore[method-assign]
+
+    status = await service.build_status(
+        "user_123",
+        index=service._pkm_service._index,
+        manifest_headers=[
+            {
+                "domain": "financial",
+                "path_count": 1,
+                "domain_contract_version": current_domain_contract_version("financial"),
+                "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+                "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+                "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+                "summary_projection": _RELOCATED,
+            }
+        ],
+    )
+
+    assert status["upgrade_status"] == "current"
+    assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
+async def test_standalone_status_batches_manifests_including_missing_domains():
+    from unittest.mock import AsyncMock
+
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+    service._pkm_service._index.available_domains = ["financial", "professional", "preferences"]
+    service._pkm_service.get_domain_manifest = AsyncMock(side_effect=AssertionError("N+1 read"))
+    batch = AsyncMock(return_value={"financial": {"summary_projection": _RELOCATED}})
+    service._pkm_service.get_domain_manifests = batch
+    service._get_latest_run = AsyncMock(return_value=None)
+    status = await service.build_status("synthetic-owner")
+    batch.assert_awaited_once_with(
+        "synthetic-owner", ["financial", "professional", "preferences"], raise_on_error=True
+    )
+    service._pkm_service.get_domain_manifest.assert_not_awaited()
+    assert {row["domain"] for row in status["upgradable_domains"]} == {
+        "financial",
+        "professional",
+        "preferences",
+    }
+
+
+@pytest.mark.asyncio
+async def test_status_does_not_treat_unavailable_manifest_batch_as_absent():
+    from unittest.mock import AsyncMock
+
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+    service._pkm_service.get_domain_manifests = AsyncMock(side_effect=RuntimeError("unavailable"))
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await service.build_status("synthetic-owner")
 
 
 @pytest.mark.asyncio
@@ -184,6 +333,7 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
             "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
             "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgraded_at": "2026-03-29T12:00:00Z",
+            "summary_projection": _RELOCATED,
         },
     )
 
@@ -217,6 +367,7 @@ async def test_build_status_reads_contract_versions_from_manifest_summary_projec
             "summary_projection": {
                 "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
                 "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+                **_RELOCATED,
             },
         },
     )
@@ -293,6 +444,7 @@ async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
             "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
             "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgraded_at": last_manifest_upgrade,
+            "summary_projection": _RELOCATED,
         },
         model_version=2,
         last_upgraded_at=None,

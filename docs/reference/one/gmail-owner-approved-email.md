@@ -1,0 +1,128 @@
+# Owner-Approved Gmail Email
+
+One's Gmail Email Agent uses the existing receipts connector and its
+`kai_gmail_connections` credential row. It is a personal-Gmail capability for
+receipt/inbox context and owner-approved mail delivery; it is not the
+`one@hushh.ai` KYC mailbox workflow.
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  owner["Owner"]
+  vault["Private vault\ncurrent VAULT_OWNER"]
+  gmail["Canonical Gmail connection\nkai_gmail_connections"]
+  agent["One private agent\neditable Email Draft card"]
+  review["Owner-reviewed draft\nshort-lived HMAC action"]
+  send["Send email click"]
+  api["Gmail API\nusers.messages.send as me"]
+
+  owner --> vault
+  owner --> gmail
+  gmail --> agent
+  vault --> agent
+  agent --> review --> send --> api
+```
+
+## Connection and onboarding
+
+- `/one/setup/gmail` preserves the Gmail cinematic introduction, then requires
+  the Gmail vault prerequisite before the setup workspace mounts.
+- `/one/gmail` requires the same prerequisite before the workspace mounts.
+  A vault key and `VAULT_OWNER` token are process-memory-only. Reloading or a
+  cold OAuth return therefore requires a fresh vault unlock; the existing
+  same-window popup flow preserves the already open session naturally.
+- `/one/email` is a compact handoff surface. A disconnected account is sent to
+  `/one/gmail`; a connected account opens One with an empty composer, awaiting
+  the owner's request.
+- The initial Gmail OAuth request asks for `gmail.readonly` and `gmail.send`
+  together, so reading and owner-approved delivery are ready after one sign-in.
+  Gmail draft saving and mailbox changes still ask for `gmail.compose` and
+  `gmail.modify` in their own reviewed paths.
+  The redirect is environment-derived and must exactly equal
+  `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` in the Google OAuth
+  client for each environment.
+- A legacy read-only connection remains usable for bounded reads and can be
+  repaired by reconnecting once. The legacy server receipt sync is disabled
+  during its storage cutover; existing receipt rows remain readable.
+
+Provider `gmail.send` allows the delivery boundary to prepare an owner-reviewed
+message after the initial Gmail grant. It never lets One or a chat message send
+mail directly: every email still requires a visible editable draft, review,
+and the owner's final **Send email** click or the distinct reviewed One Voice
+confirmation. Disconnect clears the canonical connection and attempts Google
+token revocation.
+
+## Delivery contract
+
+When a person explicitly asks One to write, draft, or send a personal Gmail
+email, One opens an in-memory editable card containing To, Cc, Bcc, Subject,
+and Message. There is no composer mail shortcut. If the vault is not unlocked,
+the existing vault dialog opens instead.
+
+Asking to share the owner's saved details with an email address follows this
+same drafting path, not a request for another person's information. A supplied
+address is used directly; no platform connection is required. For a named
+circle member, One reads the owner's current active connections and fills the
+unambiguous actual email into the visible draft. Ambiguous people or unavailable
+addresses need clarification, never a guessed or masked recipient. Requested
+facts come only from the supplied Soul.md. Partial recipient/subject prefills
+survive automatic body completion. This never sends mail or creates a consent
+grant; the owner reviews the visible draft and taps Send.
+
+1. One’s explicit request opens the draft and sends only that instruction to
+   `POST /api/one/email/draft`, which returns structured draft fields and
+   `missing_details`. It cannot send mail and is not persisted as agent-chat
+   history, a workflow record, or PKM.
+2. The owner’s single explicit **Send** click immediately closes the card and
+   prepares then sends the exact reviewed snapshot. Every field edit changes
+   that snapshot. `POST /api/one/email/prepare` creates a ten-minute HMAC
+   action, and `POST /api/one/email/send` atomically claims it once. A selected
+   personal Gmail information request uses these same routes with only its
+   opaque workflow reference; the server derives the recipient, subject, and
+   original-thread headers rather than trusting the browser draft envelope. A
+   One Voice reply to an email One showed does the same with an opaque
+   `source_mail_ref` (the two references are mutually exclusive): the server
+   re-reads the original message's routing headers with the read grant on every
+   prepare and send, derives `Reply-To`/`From`, the `Re:` subject and the
+   `threadId`/`In-Reply-To`/`References` binding, and uses only the reviewed
+   body from the browser. A reply cannot carry an attachment, and a send whose
+   returned thread differs from the original is `outcome_unknown`, never sent.
+3. The server constructs RFC MIME itself and calls Gmail
+   `users.messages.send` as `me`. The message always includes plain text and,
+   when the owner used formatting, a restricted sanitized HTML alternative for
+   headings, emphasis, lists, and safe links. No caller-provided From address,
+   OAuth token, or raw MIME message is accepted.
+
+The visible draft and the expandable in-session Email activity item retain the
+original request, reviewed envelope, and delivery state in their actual chat
+turn order. That context is session-only and never becomes durable chat
+history, a workflow record, or PKM.
+
+Every delivery endpoint requires both the Firebase identity and a current
+`X-Hushh-Consent` `VAULT_OWNER` token for the same user. The server stores only
+short-lived action metadata: IDs, owner ID, envelope/idempotency HMACs,
+recipient count, lifecycle timestamps/state, Gmail message/thread IDs, and a
+safe error code. It never persists recipients, subject, body, OAuth tokens,
+vault credentials, or PKM values. Provider timeouts or a response without a
+Gmail message ID become `outcome_unknown`; the owner is told to check Sent Mail
+and the action is not blindly retried.
+The owner- and vault-authorized `GET /api/one/email/send/status/{action_id}`
+returns only the action ID, state and unknown-outcome flag. The same authorized
+`POST /api/one/email/send/status/{action_id}` also settles an immediate send
+that has remained `sending` for five minutes to non-retryable
+`outcome_unknown`; it never calls Gmail or repeats a send. The browser uses
+this reconciliation path when recovering a lost response. The browser may keep
+opaque pending action IDs in owner-scoped session storage to recover a lost
+response after reload; it never keeps an envelope or credential there.
+
+## Explicit boundaries
+
+- `GmailReceiptsService` remains the sole Gmail OAuth, encrypted-token, and
+  receipt/inbox connector authority.
+- `api/routes/one/gmail_delivery.py` and `gmail_delivery_service.py` are the
+  approval-gated personal-Gmail delivery operon.
+- `api/routes/one/email.py`, `one_email_kyc_service.py`, `/one/setup/email`,
+  and `one@hushh.ai` remain the separate One Email KYC platform-mailbox flow.
+- `google_connection_service.py`, `EmailChatService`, and the read-only Gmail
+  specialist do not send personal Gmail on behalf of the owner.

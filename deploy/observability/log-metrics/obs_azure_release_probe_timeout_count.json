@@ -1,0 +1,5 @@
+{
+  "name": "obs_azure_release_probe_timeout_count",
+  "description": "Count of terminal provider timeouts from UAT Azure PWM candidate readiness jobs; stage records do not count",
+  "filter": "resource.type=\"cloud_run_job\" AND resource.labels.project_id=\"__PROJECT_ID__\" AND resource.labels.location=\"us-central1\" AND resource.labels.job_name=~\"^azure-pwm-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\" AND jsonPayload.azure_pwm_runtime_probe_result=\"failed\" AND jsonPayload.classification=\"provider_unavailable\" AND (jsonPayload.error_type=\"TimeoutError\" OR jsonPayload.error_type=\"APITimeoutError\")"
+}

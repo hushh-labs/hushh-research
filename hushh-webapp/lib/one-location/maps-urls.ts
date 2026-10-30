@@ -55,3 +55,25 @@ export function googleMapsDirectionsEmbedUrl(
   const daddr = encodeURIComponent(placeQuery(destination));
   return `https://www.google.com/maps?saddr=${saddr}&daddr=${daddr}&output=embed`;
 }
+
+/**
+ * Google's own review composer, for one place.
+ *
+ * Google has never shipped a write API for consumer reviews: the Places API is
+ * read-only on them, and the Business Profile API only lets a business owner
+ * reply on its own listing. This URL is the whole sanctioned integration. It
+ * opens Google's composer — the Maps app on a phone, a web page otherwise —
+ * where the person types and submits under their own Google account. Nothing
+ * can be prefilled, which is why the copy beside the button has to say so.
+ *
+ * The query key is lowercase `placeid`. `placeId` silently lands on Google's
+ * generic search page instead of the composer, so it is exactly the sort of
+ * thing that gets "tidied" in review — hence the test that pins it.
+ */
+export function googleWriteReviewUrl(
+  placeId: string | null | undefined,
+): string | null {
+  const normalized = String(placeId ?? "").trim();
+  if (!normalized) return null;
+  return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(normalized)}`;
+}

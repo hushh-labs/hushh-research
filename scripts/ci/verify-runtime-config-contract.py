@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWED_LEGACY_PATHS = {
     # The safe-changes ledger documents legacy keys as named traps (R4, R11).
-    ".claude/skills/safe-changes/SKILL.md",
+    "docs/reference/operations/safe-changes-history.md",
     "scripts/ci/verify-runtime-config-contract.py",
     "scripts/env/bootstrap_profiles.sh",
     "scripts/ops/verify-env-secrets-parity.py",
@@ -48,6 +49,7 @@ FORBIDDEN_NAMES = (
     "OPENAI_VOICE_TTS_DEFAULT_VOICE",
     "OPENAI_VOICE_TTS_FORMAT",
     "OPENAI_VOICE_TTS_PREFER_QUALITY",
+    "VOICE_RUNTIME_CONFIG_JSON",
 )
 
 CANONICAL_HIGH_RISK_KEYS = (
@@ -57,9 +59,9 @@ CANONICAL_HIGH_RISK_KEYS = (
     "FIREBASE_ADMIN_CREDENTIALS_JSON",
     "FIREBASE_SERVICE_ACCOUNT_JSON",
     "GMAIL_OAUTH_TOKEN_KEY",
+    "GOOGLE_OAUTH_TOKEN_KEY",
     "PLAID_ACCESS_TOKEN_KEY",
     "BACKEND_RUNTIME_CONFIG_JSON",
-    "VOICE_RUNTIME_CONFIG_JSON",
 )
 
 FORBIDDEN_CANONICAL_SURFACE_NAMES = (
@@ -115,8 +117,75 @@ def _has_direct_env_read(line: str) -> bool:
     )
 
 
+MANAGED_AI_KEYS = {
+    "GENAI_GOOGLE_CLOUD_PROJECT",
+    "HUSSH_GEMINI_TEXT_MODEL",
+    "HUSHH_VERTEX_LOCATIONS",
+    "VERTEX_LIVE_MODEL_ID",
+    "VERTEX_LIVE_LOCATION",
+    "HUSHH_ONE_CHAT_VERTEX_PROJECT",
+    "HUSHH_ONE_VOICE_VERTEX_PROJECT",
+    "PWM_TAVILY_API_KEY",
+}
+
+
+def managed_ai_env_violations(source: str) -> list[int]:
+    """Resolve constant aliases as well as literal reads through env/helper calls."""
+    tree = ast.parse(source)
+    environment_objects = {"os.environ"}
+    readers = {"os.getenv", "_clean", "_clean_env"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "os":
+                    name = alias.asname or alias.name
+                    environment_objects.add(f"{name}.environ")
+                    readers.add(f"{name}.getenv")
+        if isinstance(node, ast.ImportFrom) and node.module == "os":
+            for alias in node.names:
+                if alias.name == "getenv":
+                    readers.add(alias.asname or alias.name)
+                if alias.name == "environ":
+                    environment_objects.add(alias.asname or alias.name)
+    readers.update(f"{name}.get" for name in environment_objects)
+    aliases = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    aliases[target.id] = node.value.value
+
+    def key(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id)
+        return None
+
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and node.args:
+            name = ast.unparse(node.func)
+            if name in readers and key(node.args[0]) in MANAGED_AI_KEYS:
+                violations.append(node.lineno)
+        if (
+            isinstance(node, ast.Subscript)
+            and ast.unparse(node.value) in environment_objects
+            and key(node.slice) in MANAGED_AI_KEYS
+        ):
+            violations.append(node.lineno)
+    return sorted(set(violations))
+
+
 def main() -> int:
-    patterns = {name: _pattern(name) for name in (*FORBIDDEN_NAMES, *FORBIDDEN_CANONICAL_SURFACE_NAMES)}
+    patterns = {
+        name: _pattern(name)
+        for name in (*FORBIDDEN_NAMES, *FORBIDDEN_CANONICAL_SURFACE_NAMES)
+    }
     violations: list[str] = []
     canonical_patterns = {name: _pattern(name) for name in CANONICAL_HIGH_RISK_KEYS}
 
@@ -124,31 +193,46 @@ def main() -> int:
         relative = path.relative_to(REPO_ROOT).as_posix()
         if relative in ALLOWED_LEGACY_PATHS:
             continue
-        if not path.exists():
+        if not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
+        if (
+            relative.endswith(".py")
+            and _is_runtime_source(relative)
+            and relative not in ALLOWED_CANONICAL_RUNTIME_READ_PATHS
+        ):
+            for line_no in managed_ai_env_violations(text):
+                violations.append(
+                    f"{relative}:{line_no}: managed AI settings must use runtime_settings"
+                )
+        # Every match requires this exact literal; retain the original regexes,
+        # boundaries and diagnostic order while avoiding absent keys per line.
+        file_patterns = {name: pattern for name, pattern in patterns.items() if name in text}
+        file_canonical_patterns = {
+            name: pattern for name, pattern in canonical_patterns.items() if name in text
+        }
         for line_no, line in enumerate(text.splitlines(), start=1):
-            for name, pattern in patterns.items():
+            for name, pattern in file_patterns.items():
                 if pattern.search(line):
-                    violations.append(f"{relative}:{line_no}: legacy runtime key '{name}'")
+                    violations.append(
+                        f"{relative}:{line_no}: legacy runtime key '{name}'"
+                    )
             if (
                 _is_runtime_source(relative)
                 and relative not in ALLOWED_CANONICAL_RUNTIME_READ_PATHS
                 and _has_direct_env_read(line)
             ):
-                for name, pattern in canonical_patterns.items():
+                for name, pattern in file_canonical_patterns.items():
                     if pattern.search(line):
                         violations.append(
                             f"{relative}:{line_no}: direct runtime env read for canonical key '{name}'"
                         )
 
     if violations:
-        sys.stderr.write(
-            "Runtime config contract violations detected:\n"
-        )
+        sys.stderr.write("Runtime config contract violations detected:\n")
         for item in violations:
             sys.stderr.write(f"  {item}\n")
         return 1

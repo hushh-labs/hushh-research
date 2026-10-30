@@ -16,6 +16,9 @@
 
 "use client";
 
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
+
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -24,11 +27,9 @@ import {
   RefreshCw,
   Loader2,
   Building2,
-  TrendingUp,
-  TrendingDown,
   PieChart,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -67,6 +68,7 @@ import {
   CardTitle,
 } from "@/lib/morphy-ux/card";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
+import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { toInvestorMessage } from "@/lib/copy/investor-language";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
@@ -75,7 +77,14 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  computeStatementImportId,
+  upsertStatementSnapshot,
+} from "@/lib/kai/brokerage/statement-import-identity";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
 
 
@@ -187,6 +196,7 @@ export interface PortfolioData {
   realized_gain_loss?: RealizedGainLoss;
   transactions?: Array<Record<string, unknown>>;
   activity_and_transactions?: Array<Record<string, unknown>>;
+  historical_values?: Array<Record<string, unknown>>;
   cash_flow?: Record<string, unknown>;
   cash_management?: Record<string, unknown>;
   projections_and_mrd?: Record<string, unknown>;
@@ -257,16 +267,6 @@ function formatCurrency(value: number | undefined | null): string {
   }).format(value);
 }
 
-function formatCurrencyCompact(value: number | undefined | null): string {
-  if (value === undefined || value === null) return "$0";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function _formatPercent(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0.00%";
   const sign = value >= 0 ? "+" : "";
@@ -313,21 +313,6 @@ function deriveRiskBucket(holdings: Holding[]): string {
   if (topHoldingPct > 30) return "aggressive";
   if (topHoldingPct > 15) return "moderate";
   return "conservative";
-}
-
-function isCashEquivalentHolding(holding: Holding): boolean {
-  const symbol = String(holding.symbol || "").trim().toUpperCase();
-  if (["CASH", "MMF", "SWEEP", "QACDS"].includes(symbol)) return true;
-  const assetType = String(holding.asset_type || "").trim().toLowerCase();
-  const name = String(holding.name || "").trim().toLowerCase();
-  return (
-    assetType.includes("cash") ||
-    assetType.includes("money market") ||
-    assetType.includes("sweep") ||
-    name.includes("cash") ||
-    name.includes("money market") ||
-    name.includes("sweep")
-  );
 }
 
 function getPositionSide(holding: Holding): "long" | "short" | "liability" {
@@ -424,44 +409,6 @@ function isAuthFailureMessage(message: string): boolean {
     lower.includes("forbidden") ||
     lower.includes("vault owner token")
   );
-}
-
-function parsePositiveTimeoutMs(raw: string | undefined, fallbackMs: number): number {
-  if (typeof raw !== "string") return fallbackMs;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackMs;
-  return Math.round(parsed);
-}
-
-const SAVE_STEP_TIMEOUT_MS = parsePositiveTimeoutMs(
-  process.env.NEXT_PUBLIC_KAI_SAVE_STEP_TIMEOUT_MS,
-  90_000
-);
-
-async function runSaveStepWithTimeout<T>(
-  stepLabel: string,
-  task: Promise<T>,
-  timeoutMs: number = SAVE_STEP_TIMEOUT_MS
-): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-      reject(
-        new Error(
-          `${stepLabel} is taking longer than expected (${timeoutSeconds}s). Please retry.`
-        )
-      );
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([task, timeoutPromise]);
-  } finally {
-    if (timeoutHandle !== null) {
-      clearTimeout(timeoutHandle);
-    }
-  }
 }
 
 function normalizeHoldingForStorage(holding: Holding): Holding {
@@ -689,11 +636,8 @@ function isCashLikeHolding(holding: Holding): boolean {
 }
 
 function deriveCashFromHoldings(holdings: Holding[]): number | undefined {
-  const total = holdings.reduce((sum, holding) => {
-    if (!isCashLikeHolding(holding)) return sum;
-    return sum + (toFiniteNumber(holding.market_value) ?? 0);
-  }, 0);
-  return total > 0 ? total : undefined;
+  const cash = holdings.filter(isCashLikeHolding);
+  return cash.length ? cash.reduce((sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0), 0) : undefined;
 }
 
 function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation {
@@ -828,6 +772,7 @@ export function PortfolioReviewView({
   const saveInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
+  const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
   const [holdingsTab, setHoldingsTab] = useState<"all" | "analyze" | "non-analyze" | "cash">(
     "all"
@@ -967,12 +912,13 @@ export function PortfolioReviewView({
   );
 
   const liveCashBalance = useMemo(() => {
+    const holdingsCash = deriveCashFromHoldings(activeHoldings);
+    if (hasUnsavedChanges && holdingsCash !== undefined) return holdingsCash;
     // Prefer statement/account summary cash when present.
     // Holdings-derived cash is only a fallback for sparse parses.
     if (reportedCashBalance !== undefined) return reportedCashBalance;
-    const holdingsCash = deriveCashFromHoldings(activeHoldings);
     return holdingsCash ?? 0;
-  }, [activeHoldings, reportedCashBalance]);
+  }, [activeHoldings, hasUnsavedChanges, reportedCashBalance]);
 
   const totalValue = useMemo(() => {
     const holdingsTotal = activeHoldings.reduce(
@@ -1043,6 +989,7 @@ export function PortfolioReviewView({
         toast.info("Restore this holding before editing.");
         return;
       }
+      setHoldingValidationIssue(null);
       setEditingHolding({ ...row, pending_delete: false });
       setEditingHoldingIndex(index);
     },
@@ -1050,6 +997,7 @@ export function PortfolioReviewView({
   );
 
   const closeHoldingModal = useCallback(() => {
+    setHoldingValidationIssue(null);
     setEditingHolding(null);
     setEditingHoldingIndex(-1);
   }, []);
@@ -1061,17 +1009,8 @@ export function PortfolioReviewView({
       const marketValue = Number(updatedHolding.market_value);
       const isAddingNewHolding = editingHoldingIndex < 0;
 
-      if (
-        !Number.isFinite(quantity) ||
-        !Number.isFinite(price) ||
-        !Number.isFinite(marketValue) ||
-        quantity <= 0 ||
-        price <= 0 ||
-        marketValue <= 0
-      ) {
-        toast.error("Quantity, price, and market value must all be greater than 0.");
-        return;
-      }
+      const issue = holdingValueIssue(updatedHolding);
+      if (issue) { setHoldingValidationIssue(issue); return; }
 
       const normalizedHolding: Holding = {
         ...updatedHolding,
@@ -1197,7 +1136,7 @@ export function PortfolioReviewView({
                 <p className={cn("font-semibold", deleted && "line-through")}>
                   {holding.symbol || "—"}
                 </p>
-                <Badge variant="outline" className={cn("h-5 px-1.5 text-[10px] uppercase", sideClass)}>
+                <Badge variant="outline" className={cn("h-5 px-1.5 text-xs uppercase", sideClass)}>
                   {side}
                 </Badge>
               </div>
@@ -1316,24 +1255,11 @@ export function PortfolioReviewView({
     }
     if (!userId) return;
 
-    const invalidHolding = activeHoldings.find((holding) => {
-      const isCashLike = Boolean(holding.is_cash_equivalent) || isCashEquivalentHolding(holding);
-      const quantity = Number(holding.quantity);
-      const price = Number(holding.price);
-      const marketValue = Number(holding.market_value);
-      if (!Number.isFinite(marketValue) || Math.abs(marketValue) <= 0) return true;
-      if (isCashLike) return false;
-      return (
-        !Number.isFinite(quantity) ||
-        Math.abs(quantity) <= 0 ||
-        !Number.isFinite(price) ||
-        price <= 0
-      );
-    });
-    if (invalidHolding) {
-      toast.error(
-        `Holding ${invalidHolding.symbol || invalidHolding.name || "entry"} has invalid values. Quantity must be non-zero, price must be positive, and market value must be non-zero.`
-      );
+    const invalid = findHoldingValidationIssue(holdings);
+    if (invalid) {
+      setHoldingValidationIssue(invalid.issue);
+      setEditingHolding({ ...invalid.holding, pending_delete: false });
+      setEditingHoldingIndex(invalid.index);
       return;
     }
 
@@ -1341,7 +1267,9 @@ export function PortfolioReviewView({
       const stagedPayload: PortfolioData = {
         ...initialData,
         account_info: accountInfo,
-        account_summary: accountSummary,
+        account_summary: hasUnsavedChanges ? { ...accountSummary, ending_value: totalValue, cash_balance: liveCashBalance } : accountSummary,
+        total_value: totalValue,
+        cash_balance: liveCashBalance,
         asset_allocation: assetAllocation,
         holdings: consolidateHoldingsBySymbol(
           activeHoldings.map((holding) => normalizeHoldingForStorage(holding)) as unknown as Record<
@@ -1356,13 +1284,20 @@ export function PortfolioReviewView({
       saveInFlightRef.current = true;
       setIsSaving(true);
       try {
-        await onStageForFinish(stagedPayload);
+        await runKaiStepWithTimeout(
+          "Staging portfolio for setup",
+          Promise.resolve().then(() => onStageForFinish(stagedPayload)),
+        );
         baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
         if (isMountedRef.current) {
           setHasUnsavedChanges(false);
         }
         toast.success("Portfolio saved. It will be protected when you finish setup.");
-        await Promise.resolve(onStageComplete?.());
+        await runKaiStepWithTimeout(
+          "Completing portfolio setup",
+          Promise.resolve().then(() => onStageComplete?.()),
+          KAI_AUXILIARY_STEP_TIMEOUT_MS,
+        );
       } catch (error) {
         console.error("[PortfolioReview] Failed to stage setup portfolio:", error);
         toast.error("We could not save your portfolio for setup. Try again.");
@@ -1391,8 +1326,12 @@ export function PortfolioReviewView({
     // If vault existence isn't resolved yet, resolve it on-demand so copy/flow is correct.
     let resolvedHasVault = hasVault;
     if (resolvedHasVault === null) {
+      // Hold the in-flight claim across this await: a second tap (or the
+      // vault continuation) arriving now would otherwise pass the guard above
+      // and commit the same statement a second time.
+      saveInFlightRef.current = true;
       try {
-        resolvedHasVault = await runSaveStepWithTimeout(
+        resolvedHasVault = await runKaiStepWithTimeout(
           "Vault availability check",
           VaultService.checkVault(userId)
         );
@@ -1403,6 +1342,8 @@ export function PortfolioReviewView({
           error
         );
         resolvedHasVault = null;
+      } finally {
+        saveInFlightRef.current = false;
       }
     }
 
@@ -1427,7 +1368,7 @@ export function PortfolioReviewView({
       let resolvedVaultOwnerToken = effectiveVaultOwnerToken;
       if (!resolvedVaultOwnerToken) {
         const tokenResolveStartedAt = nowMs();
-        resolvedVaultOwnerToken = await runSaveStepWithTimeout(
+        resolvedVaultOwnerToken = await runKaiStepWithTimeout(
           "Vault access verification",
           resolveVaultOwnerTokenForSave(false)
         );
@@ -1464,6 +1405,7 @@ export function PortfolioReviewView({
         account_summary: accountSummary,
         asset_allocation: assetAllocation,
         holdings: consolidatedActiveHoldings,
+        historical_values: initialData.historical_values,
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
         cash_balance: toFiniteNumber(initialData.cash_balance),
@@ -1494,7 +1436,7 @@ export function PortfolioReviewView({
       const blobLoadStartedAt = nowMs();
       const {
         domainData: existingFinancialRaw,
-      } = await runSaveStepWithTimeout(
+      } = await runKaiStepWithTimeout(
         "Vault portfolio load",
         PkmDomainResourceService.prepareDomainWriteContext({
           userId,
@@ -1527,10 +1469,7 @@ export function PortfolioReviewView({
           ? (existingDocsValue as Record<string, unknown>)
           : {};
       const existingDocs = { ...existingDocsSource };
-      const existingStatementsValue = existingDocs.statements;
-      const existingStatements = Array.isArray(existingStatementsValue)
-        ? [...existingStatementsValue]
-        : [];
+      const existingStatements = existingDocs.statements;
 
       const statementTotalValue =
         toFiniteNumber(initialData.total_value) ??
@@ -1539,9 +1478,9 @@ export function PortfolioReviewView({
           ? holdingsTotal +
             (holdingsIncludeCash ? 0 : parsedCashBalance ?? derivedCashBalance ?? 0)
           : undefined);
-      const resolvedCashBalance = parsedCashBalance ?? derivedCashBalance;
+      const resolvedCashBalance = hasUnsavedChanges ? liveCashBalance : parsedCashBalance ?? derivedCashBalance;
       const resolvedTotalValue =
-        statementTotalValue ??
+        (hasUnsavedChanges ? totalValue : statementTotalValue) ??
         (holdingsTotal > 0
           ? holdingsTotal + (holdingsIncludeCash ? 0 : resolvedCashBalance ?? 0)
           : undefined) ??
@@ -1586,6 +1525,7 @@ export function PortfolioReviewView({
       } satisfies RealizedGainLoss) as RealizedGainLoss;
 
       const portfolioToSave: PortfolioData = {
+        historical_values: initialData.historical_values,
         account_info: hasRecordValues(normalizedAccountInfo as Record<string, unknown>)
           ? normalizedAccountInfo
           : undefined,
@@ -1615,7 +1555,10 @@ export function PortfolioReviewView({
         },
       };
 
-      const snapshotId = `stmt_${Date.now()}`;
+      // Content-derived, so re-saving this statement replaces its snapshot.
+      const snapshotId = await computeStatementImportId(
+        portfolioToSave as unknown as Record<string, unknown>
+      );
       const statementAccountSummary = compactRecord({
         ...parsedAccountSummary,
         ending_value: statementTotalValue ?? parsedAccountSummary.ending_value,
@@ -1666,11 +1609,9 @@ export function PortfolioReviewView({
           fallback_merge_applied: false,
         },
       };
-      existingStatements.unshift(snapshot);
-
       const nextDocsDomain = {
         schema_version: 1,
-        statements: existingStatements.slice(0, 25),
+        statements: upsertStatementSnapshot(existingStatements, snapshot),
         domain_intent: {
           primary: "financial",
           secondary: "documents",
@@ -1833,7 +1774,7 @@ export function PortfolioReviewView({
 
       let financialResult;
       try {
-        financialResult = await runSaveStepWithTimeout(
+        financialResult = await runKaiStepWithTimeout(
           "Vault portfolio save",
           storeMergedDomain(resolvedVaultOwnerToken)
         );
@@ -1848,7 +1789,7 @@ export function PortfolioReviewView({
             throw storeError;
           }
           resolvedVaultOwnerToken = refreshedToken;
-          financialResult = await runSaveStepWithTimeout(
+          financialResult = await runKaiStepWithTimeout(
             "Vault portfolio save",
             storeMergedDomain(refreshedToken)
           );
@@ -1865,19 +1806,17 @@ export function PortfolioReviewView({
               "Vault changed on another device. Refresh and save again."
           );
         }
-        throw new Error("Backend returned failure on store");
-      }
-
-      await PlaidPortfolioService.setActiveSource({
-        userId,
-        activeSource: "statement",
-        vaultOwnerToken: resolvedVaultOwnerToken,
-      }).catch((sourcePreferenceError) => {
-        console.warn(
-          "[PortfolioReview] Saved statement portfolio but could not update active source preference:",
-          sourcePreferenceError
+        // saveMergedDomain already resolves a specific, user-appropriate
+        // message for every non-conflict failure it can produce (upgrade
+        // required, sharing impact changed, vault not unlocked, or its own
+        // generic "couldn't save" fallback) -- discarding it here and
+        // always throwing the same opaque string is what turned a real,
+        // diagnosable backend failure into an unexplained "Backend returned
+        // failure on store" report.
+        throw new Error(
+          financialResult.message || "Backend returned failure on store"
         );
-      });
+      }
 
       const postSaveSyncStartedAt = nowMs();
       // 5. Prime/invalidate deterministic cache entries for all financial reads.
@@ -1933,13 +1872,20 @@ export function PortfolioReviewView({
       if (isMountedRef.current) {
         setHasUnsavedChanges(false);
       }
-      await runSaveStepWithTimeout(
+      void runKaiStepWithTimeout(
         "Finalizing save",
-        Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
-          console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
-        }),
-        20_000
-      );
+        Promise.resolve()
+          .then(() => onSaveComplete(savePayload))
+          .catch((saveCompleteError) => {
+            console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+          }),
+        KAI_AUXILIARY_STEP_TIMEOUT_MS,
+      ).catch((saveCompleteError) => {
+        console.warn(
+          "[PortfolioReview] Save finalization exceeded its deadline:",
+          saveCompleteError,
+        );
+      });
       logSavePhase("post-save sync", postSaveSyncStartedAt);
       logSavePhase("total", saveStartedAt);
     } catch (error) {
@@ -1987,10 +1933,10 @@ export function PortfolioReviewView({
   }, [confirmDiscardChanges, onReimport]);
 
   return (
-    <div className={cn("relative w-full", className)}>
+    <div className={cn(financeStyles.detail, "relative w-full", className)}>
 
 
-      <div className="w-full space-y-8 pb-6 pt-4 transition-all duration-500 ease-in-out md:pt-6">
+      <div className="w-full space-y-5 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
 
 
 
@@ -2026,86 +1972,16 @@ export function PortfolioReviewView({
 
 
 
-      <div className="xl:grid xl:grid-cols-12 xl:items-start xl:gap-10">
+      <div className="md:grid md:grid-cols-12 md:items-start md:gap-5">
         {/* Left Column / Mobile Top: Summary & Info */}
-        <div className="space-y-8 xl:col-span-5">
-          {/* Summary Card - Redesigned for bigger numbers */}
-          <MorphyCard variant="none" preset="surface-feature" className="overflow-hidden">
-            <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/20" />
-            <CardContent className="relative pt-8 px-6 pb-8 space-y-8">
-
-              <div className="text-center">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
-                  Total Portfolio Value
-                </p>
-                <p className="max-w-full px-2 text-[28px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent sm:text-[32px]">
-                  <span title={formatCurrency(totalValue)}>{formatCurrencyCompact(totalValue)}</span>
-                </p>
-
-                {totalUnrealizedGainLoss !== 0 && (
-                  <div className="flex justify-center mt-3">
-                    <Badge
-                      className={cn(
-                        "font-bold py-1 px-3",
-                        totalUnrealizedGainLoss >= 0
-                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                          : "bg-red-500/10 text-red-500 border-red-500/20"
-                      )}
-                    >
-                      {totalUnrealizedGainLoss >= 0 ? (
-                        <Icon icon={TrendingUp} size={12} className="mr-1.5" aria-hidden="true" />
-                      ) : (
-                        <Icon icon={TrendingDown} size={12} className="mr-1.5" aria-hidden="true" />
-                      )}
-                      <span title={formatCurrency(totalUnrealizedGainLoss)}>
-                        {formatCurrencyCompact(totalUnrealizedGainLoss)} unrealized
-                      </span>
-                    </Badge>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 pt-6 border-t border-primary/10">
-                <div className="min-w-0 text-center sm:text-left sm:pl-4">
-                  <p className="text-[1.35rem] font-medium sm:text-[1.5rem]">{activeHoldings.length}</p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
-                </div>
-                <div className="min-w-0 flex flex-col items-center justify-center">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "font-semibold text-[10px] uppercase tracking-widest px-2",
-                      riskBucket === "aggressive"
-                        ? "app-critical-badge"
-                        : riskBucket === "moderate"
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    )}
-                  >
-                    {riskBucket}
-                  </Badge>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-2">Portfolio Risk</p>
-                </div>
-                <div className="min-w-0 text-center sm:text-right sm:pr-4">
-                  <p
-                    className={cn(
-                      "max-w-full text-[20px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap sm:text-[22px]",
-                      liveCashBalance < 0
-                        ? "text-red-500 dark:text-red-400"
-                        : "text-foreground"
-                    )}
-                  >
-                    <span title={formatCurrency(liveCashBalance)}>
-                      {formatCurrencyCompact(liveCashBalance)}
-                    </span>
-                  </p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cash</p>
-                </div>
-              </div>
-
-            </CardContent>
-          </MorphyCard>
-
+        <div className="space-y-5 md:col-span-5">
+          <PortfolioReviewSummary
+            totalValue={totalValue}
+            unrealizedGainLoss={totalUnrealizedGainLoss}
+            holdingCount={activeHoldings.length}
+            riskBucket={riskBucket}
+            cashBalance={liveCashBalance}
+          />
 
       {/* Account & Meta Accordions */}
       <Accordion type="multiple" defaultValue={["account", "income"]} className="w-full space-y-4">
@@ -2114,7 +1990,7 @@ export function PortfolioReviewView({
           value="account"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-          <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+          <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
             <div className="flex items-center gap-2">
@@ -2123,7 +1999,7 @@ export function PortfolioReviewView({
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
               <div>
                 <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
                 <Input
@@ -2198,7 +2074,7 @@ export function PortfolioReviewView({
           value="allocation"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-            <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
               <div className="flex items-center gap-2">
@@ -2287,7 +2163,7 @@ export function PortfolioReviewView({
           value="income"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-            <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
               <div className="flex items-center gap-2">
@@ -2327,12 +2203,12 @@ export function PortfolioReviewView({
         </div>
 
         {/* Right Column / Mobile Bottom: Holdings */}
-        <div className="mt-8 xl:col-span-7 xl:mt-0">
-          <MorphyCard variant="none" preset="surface" className="h-full">
+        <div className="mt-8 md:col-span-7 xl:mt-0 min-w-0 max-w-full">
+          <MorphyCard variant="none" preset="surface" className="h-full min-w-0 max-w-full overflow-hidden">
             <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-[15px] font-medium uppercase tracking-[0.14em] text-foreground">
+                  <CardTitle className="text-sm font-semibold tracking-normal text-foreground">
                     Holdings ({holdings.length})
                     {pendingDeleteCount > 0 ? (
                       <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
@@ -2353,7 +2229,7 @@ export function PortfolioReviewView({
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-4 px-6 pb-6 pt-6">
+            <CardContent className="space-y-4 px-6 pb-6 pt-6 min-w-0 max-w-full overflow-hidden">
               <div className="rounded-[var(--app-card-radius-compact)] border border-transparent bg-[var(--app-card-surface-compact)] px-3 py-2.5 text-xs text-muted-foreground shadow-[var(--shadow-xs)]">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Current State</span>
@@ -2455,47 +2331,53 @@ export function PortfolioReviewView({
                   />
                 </TabsContent>
               </Tabs>
-
-              <div className="pt-2">
-                <MorphyButton
-                  variant="blue-gradient"
-                  effect="fade"
-                  fullWidth
-                  onClick={() => {
-                    createdVaultCopyRef.current = hasVault === false;
-                    void handleSave();
-                  }}
-                  disabled={isBusySaving || activeHoldings.length === 0}
-                  className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
-                >
-                  {isBusySaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
-                  )}
-                  {isBusySaving
-                    ? hasVault === false
-                      ? "Creating Vault and saving portfolio..."
-                      : isSaving
-                        ? "Securing portfolio in Vault..."
-                        : "Saving portfolio in background..."
-                    : onStageForFinish && !effectiveVaultKey
-                      ? "Save portfolio"
-                    : hasVault === false
-                    ? "Create Vault"
-                    : "Save to Vault"}
-                </MorphyButton>
-              </div>
             </CardContent>
           </MorphyCard>
         </div>
       </div>
       </div>
 
+      {/* Keep the save action outside the card's overflow container so it can
+          stick above the measured Talk to One/navigation stack while reviewing. */}
+      <div
+        data-portfolio-review-save
+        className="sticky bottom-[calc(var(--app-sticky-bottom-offset,0px)+0.75rem)] z-20 px-6 pt-3"
+      >
+        <MorphyButton
+          variant="none"
+          effect="fade"
+          className="app-button-black"
+          fullWidth
+          onClick={() => {
+            createdVaultCopyRef.current = hasVault === false;
+            void handleSave();
+          }}
+          disabled={isBusySaving || activeHoldings.length === 0}
+        >
+          {isBusySaving ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
+          )}
+          {isBusySaving
+            ? hasVault === false
+              ? "Creating Vault and saving portfolio..."
+              : isSaving
+                ? "Securing portfolio in Vault..."
+                : "Saving portfolio in background..."
+            : onStageForFinish && !effectiveVaultKey
+              ? "Save portfolio"
+            : hasVault === false
+            ? "Create Vault"
+            : "Save to Vault"}
+        </MorphyButton>
+      </div>
+
       <EditHoldingModal
         isOpen={Boolean(editingHolding)}
         onClose={closeHoldingModal}
         holding={editingHolding}
+        validationIssue={holdingValidationIssue}
         onSave={handleSaveHolding}
       />
 

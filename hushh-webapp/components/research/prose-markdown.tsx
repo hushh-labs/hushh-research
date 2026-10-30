@@ -99,8 +99,8 @@ export function ProseMarkdown({
             </pre>
           ),
           table: ({ children }) => (
-            <div className="my-5 overflow-x-auto rounded-[var(--app-card-radius-feature)] border border-border/60">
-              <table className="w-full border-collapse text-sm">{children}</table>
+            <div data-no-route-swipe data-swipe-views-horizontal-scroll className="my-5 max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--app-card-radius-feature)] border border-border/60 [-webkit-overflow-scrolling:touch]">
+              <table className="w-full min-w-max border-collapse text-sm">{children}</table>
             </div>
           ),
           thead: ({ children }) => (

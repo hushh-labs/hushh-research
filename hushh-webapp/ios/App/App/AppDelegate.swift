@@ -6,6 +6,9 @@ import FirebaseMessaging
 import GoogleSignIn
 import UserNotifications
 import AVFoundation
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -15,13 +18,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentDenyAction = "CONSENT_DENY"
     private static let emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"
     private static let emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"
-    private static let emergencySmsProfile = "one_location_sms_emergency"
     private static let emergencySmsSound = "one_location_sms_alarm.wav"
 
     var window: UIWindow?
     private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+#if canImport(AppIntents)
+        if #available(iOS 16.0, *) {
+            HusshOneAppShortcuts.updateAppShortcutParameters()
+        }
+#endif
         // Ensure Firebase is initialized once for native plugins and auth flows.
         // `FirebaseApp.app()` logs an error when no default app exists, even
         // when that is the normal first-launch state. Inspect the registry so
@@ -37,11 +44,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
+        AppLifecycleHandlers.install()
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
+        requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 
-        // Configure the delegate so notification presentation and tap handling work
-        // after the app explicitly requests permission from the notification init flow.
-        UNUserNotificationCenter.current().delegate = self
         prepareEmergencySmsSound()
         registerNotificationCategories()
         Messaging.messaging().delegate = self
@@ -75,6 +81,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        if ["location_share_revoked", "location_share_expired"].contains(userInfo["type"] as? String ?? ""),
+           let user = userInfo["user_id"] as? String, let grant = userInfo["grant_id"] as? String,
+           ChatPreviewKeys.recipientKey(userInfo) != nil {
+            try? SmsAlarmLedger.markEnded(user: user, grant: grant)
+        }
+        if ["direct_message_read", "location_circle_chat_read"].contains(userInfo["type"] as? String ?? "") {
+            let bridgeCompletion: (UIBackgroundFetchResult) -> Void = { _ in }
+            NotificationCenter.default.post(name: Notification.Name("didReceiveRemoteNotification"), object: bridgeCompletion, userInfo: userInfo)
+            _ = HushhNotificationsPlugin.handleReadSync(userInfo) { completionHandler(.newData) }
+            return
+        }
         NotificationCenter.default.post(
             name: Notification.Name("didReceiveRemoteNotification"),
             object: completionHandler,
@@ -86,87 +103,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         completionHandler(.newData)
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {
-        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
-        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
-    }
+    // Active/background transitions are observed by AppLifecycleHandlers
+    // through the UIApplication notifications (installed in
+    // didFinishLaunching), so they behave the same under the scene lifecycle,
+    // where UIKit no longer calls the app delegate's transition methods.
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-        logNotificationSettings(context: "applicationDidBecomeActive")
-    }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+    /// Called by AppLifecycleHandlers on activation.
+    func logNotificationSettingsOnActivation() {
+        logNotificationSettings(context: "didBecomeActive")
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Handle Google Sign-In URL callback
-        if GIDSignIn.sharedInstance.handle(url) {
-            return true
-        }
-        
-        // Called when the app was launched with a url. Feel free to add additional processing here,
-        // but if you want the App API to support tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        AppLifecycleHandlers.open(url: url, legacyOptions: options)
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Called when the app was launched with an activity, including Universal Links.
-        // Feel free to add additional processing here, but if you want the App API to support
-        // tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        AppLifecycleHandlers.continueActivity(userActivity)
     }
 
-}
-
-// MARK: - UNUserNotificationCenterDelegate
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Handle foreground notifications (app is open)
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        print(
-            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
-        )
-        let profile = String(
-            describing: notification.request.content.userInfo["notification_profile"] ?? ""
-        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if profile == Self.emergencySmsProfile {
-            // The shared Capacitor UI renders the assertive red emergency card and
-            // plays its three-pulse alarm. Suppress the duplicate iOS foreground
-            // banner/sound while retaining the badge; background delivery still
-            // uses the APNs category and generated custom sound.
-            completionHandler([.badge])
-            return
-        }
-        // Present as a real system notification even while the app is active.
-        completionHandler([.banner, .list, .sound, .badge])
-    }
-    
-    // Handle notification taps
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        print("👆 [AppDelegate] Notification action performed: \(response.actionIdentifier)")
-
-        print("📦 [AppDelegate] Notification response received")
-        logNotificationSettings(context: "didReceiveNotificationResponse")
-        
-        // The Capacitor FCM plugin will handle the navigation
-        // via the notificationActionPerformed listener
-        
-        completionHandler()
-    }
 }
 
 // MARK: - MessagingDelegate
@@ -182,6 +136,20 @@ extension AppDelegate: MessagingDelegate {
 }
 
 private extension AppDelegate {
+    /// Physical-device CI uses this DEBUG-only launch argument to surface the
+    /// normal iOS microphone prompt before the benchmark. It has no release
+    /// behavior, does not persist audio, and does not bypass user consent.
+    func requestVoiceDeviceTestMicrophonePermissionIfNeeded() {
+#if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-HUSSHVoiceDevicePermissionBootstrap") else {
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        guard session.recordPermission == .undetermined else { return }
+        session.requestRecordPermission { _ in }
+#endif
+    }
+
     func registerNotificationCategories() {
         let reviewAction = UNNotificationAction(
             identifier: Self.consentReviewAction,
@@ -225,6 +193,13 @@ private extension AppDelegate {
     }
 
     func prepareEmergencySmsSound() {
+        // The short file is the APNs alert sound. The longer siren is used only by
+        // the background hand-off notifications; iOS plays at most 30 s of either.
+        writeEmergencySiren(named: Self.emergencySmsSound, duration: 0.94)
+        writeEmergencySiren(named: EmergencySmsCueHandoff.sound, duration: EmergencySmsCueHandoff.soundSeconds)
+    }
+
+    func writeEmergencySiren(named name: String, duration: Double) {
         do {
             let fileManager = FileManager.default
             guard let libraryDirectory = fileManager.urls(
@@ -241,13 +216,12 @@ private extension AppDelegate {
                 at: soundsDirectory,
                 withIntermediateDirectories: true
             )
-            let soundURL = soundsDirectory.appendingPathComponent(Self.emergencySmsSound)
+            let soundURL = soundsDirectory.appendingPathComponent(name)
             if fileManager.fileExists(atPath: soundURL.path) {
                 return
             }
 
             let sampleRate = 44_100.0
-            let duration = 0.94
             guard
                 let format = AVAudioFormat(
                     commonFormat: .pcmFormatInt16,
@@ -287,7 +261,7 @@ private extension AppDelegate {
                 interleaved: false
             )
             try audioFile.write(from: buffer)
-            print("✅ [AppDelegate] Emergency SMS notification sound ready")
+            print("✅ [AppDelegate] Emergency SMS notification sound ready: \(name)")
         } catch {
             print("⚠️ [AppDelegate] Emergency SMS sound setup failed: \(error.localizedDescription)")
         }

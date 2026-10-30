@@ -3,7 +3,14 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { absoluteUrl, PUBLIC_CANONICAL_PATHS, isIndexablePath, isProductionIndexing } from "./lib/seo/site";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
+import { resolveProfileRouteState } from "./lib/navigation/profile-routes";
+import { commerceReturnAttempt } from "./lib/services/scope-commerce-return";
+import {
+  LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
+  PUBLIC_LOCATION_VIEW_PREFIX,
+} from "./lib/one-location/public-invite-url";
 
 // Routes that don't require authentication (VaultLockGuard handles protected routes)
 const PUBLIC_ROUTES = [
@@ -16,10 +23,19 @@ const PUBLIC_ROUTES = [
 
 // API routes are handled separately
 const API_PREFIX = "/api";
-const LEGACY_PROFILE_ROOT = "/profile";
 const LEGACY_CONNECT_ROOT = "/connect";
+const DIRECT_PROFILE_ROUTES = new Set([
+  ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
+  ROUTES.ONE_PROFILE_DISCOVERY,
+  ROUTES.PROFILE_CONNECTORS,
+  ROUTES.PROFILE_HOSTING,
+  ROUTES.PROFILE_SOFTWARE_UPDATES,
+  ROUTES.PROFILE_WORLD_MODEL,
+]);
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
+  "/chat": ROUTES.HOME,
+  [ROUTES.LEGACY_AGENT]: ROUTES.HOME,
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_ONE_KAI_MARKET]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_KAI_ANALYSIS]: ROUTES.KAI_ANALYSIS,
@@ -34,14 +50,13 @@ const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   [ROUTES.LEGACY_KAI_OPTIMIZE_COMPAT]: ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_PORTFOLIO]: ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN]: ROUTES.KAI_PLAID_OAUTH_RETURN,
-  [ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN]: ROUTES.KAI_ALPACA_OAUTH_RETURN,
   "/kai/dashboard": ROUTES.KAI_DASHBOARD,
   "/kai/dashboard/analysis": ROUTES.KAI_ANALYSIS,
   "/one/kai/portfolio": ROUTES.KAI_PORTFOLIO,
   "/one/kai/analysis": ROUTES.KAI_ANALYSIS,
 };
 
-export function proxy(request: NextRequest) {
+function routeRequest(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
@@ -58,7 +73,13 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
-  const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
+  // Next can receive a trailing-slash variant before its own canonicalization
+  // runs. Keep the retired Agent entrypoint compatible in both forms so it
+  // never falls through to a missing page.
+  const legacyRedirectPath = pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
+  const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[legacyRedirectPath];
   if (legacyRedirectTarget) {
     const url = request.nextUrl.clone();
     const [targetPath, targetSearch] = legacyRedirectTarget.split("?");
@@ -74,9 +95,49 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (
+    (pathname === "/one/profile" ||
+      pathname === "/profile" ||
+      pathname.startsWith("/one/profile/") ||
+      pathname.startsWith("/profile/")) &&
+    !DIRECT_PROFILE_ROUTES.has(legacyRedirectPath) &&
+    !commerceReturnAttempt(pathname + request.nextUrl.search) &&
+    !pathname.includes("oauth/return") &&
+    !(pathname.replace(/\/$/, "") === ROUTES.PROFILE_WORLD_MODEL &&
+      request.nextUrl.searchParams.has("claim"))
+  ) {
+    const rawSubpath = pathname
+      .replace(/^\/one\/profile\/?/, "")
+      .replace(/^\/profile\/?/, "");
+    const url = request.nextUrl.clone();
+    url.pathname = ROUTES.ONE_HOME;
+    url.searchParams.set("profile_pane", "1");
+    if (rawSubpath) {
+      // Path suffixes are not pane identifiers (for example kai-preferences
+      // and support-routing). Reuse the authored route mapping used by Back.
+      const state = resolveProfileRouteState(`${ROUTES.PROFILE}/${rawSubpath}`, url.searchParams);
+      url.searchParams.delete("profile_panel");
+      url.searchParams.delete("profile_detail");
+      if (state.panel) url.searchParams.set("profile_panel", state.panel);
+      if (state.detail) url.searchParams.set("profile_detail", state.detail);
+    }
+    // Connectors names its detail in the query (`?connector=google_drive`);
+    // carry it into the pane's detail instead of leaving a stray parameter.
+    if (rawSubpath === "connectors") {
+      url.searchParams.delete("connector");
+    }
+    return NextResponse.redirect(url);
+  }
+
   for (const [legacyRoot, canonicalRoot] of [
-    [LEGACY_PROFILE_ROOT, ROUTES.PROFILE],
     [LEGACY_CONNECT_ROOT, ROUTES.CONNECT],
+    // Public live-location links. The page moved to `/view` because "request"
+    // described the submission form this route used to be, not the location it
+    // shows — but the old path is already inside messages that were sent, so it
+    // redirects rather than 404s. Deliberately a redirect and not a rewrite:
+    // the recipient should SEE the honest path once they arrive, which is the
+    // whole reason for the rename.
+    [LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX, PUBLIC_LOCATION_VIEW_PREFIX],
   ] as const) {
     if (pathname !== legacyRoot && !pathname.startsWith(`${legacyRoot}/`)) {
       continue;
@@ -120,6 +181,21 @@ export function proxy(request: NextRequest) {
   // =========================================================================
 
   return NextResponse.next();
+}
+
+/** Indexing protection supplements, and never replaces, auth/vault checks. */
+export function proxy(request: NextRequest) {
+  const response = routeRequest(request);
+  if (!isProductionIndexing() || !isIndexablePath(request.nextUrl.pathname)) {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  } else {
+    const path = request.nextUrl.pathname;
+    const tab = request.nextUrl.searchParams.get("tab");
+    const canonicalPath = path === "/welcome" && ["research", "blog", "developers"].includes(tab || "")
+      ? `/welcome?tab=${tab}` : PUBLIC_CANONICAL_PATHS[path] ?? path;
+    response.headers.set("Link", `<${absoluteUrl(canonicalPath)}>; rel="canonical"`);
+  }
+  return response;
 }
 
 export const config = {

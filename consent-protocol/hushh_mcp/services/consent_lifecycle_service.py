@@ -1,0 +1,427 @@
+"""Consent lifecycle transitions shared by the REST routes and One's backend-direct actions.
+
+Deny, revoke, and the pending-incoming projection used to live only inside
+``api/routes/consent.py``. The One agent can now run the same transitions from
+chat, and a second copy of a ledger write is how two surfaces drift apart, so
+the route bodies moved here and both callers use exactly this code. Approval
+deliberately has no counterpart here: the plaintext export is built under the
+vault key in the owner's browser, so approval stays a tap on that device.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Awaitable, Callable, MutableMapping
+
+from hushh_mcp.consent import token as consent_token
+from hushh_mcp.consent.scope_labels import human_scope_label
+from hushh_mcp.consent.segment_labels import humanize_path
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.consent_center_service import (
+    ConsentCenterService,
+    requester_identity_metadata,
+)
+from hushh_mcp.services.consent_db import ConsentDBService
+
+logger = logging.getLogger(__name__)
+
+
+class ConsentLifecycleError(RuntimeError):
+    """A consumer-safe failure: ``message`` may be spoken or shown verbatim."""
+
+    def __init__(self, code: str, message: str, *, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
+async def owned_consent_identifiers(user_id: str) -> list[str]:
+    """Every account identifier the ledger may have written this owner's rows under."""
+    try:
+        identifiers = await ActorIdentityService().list_account_identifiers(user_id)
+    except Exception as exc:  # noqa: BLE001 - identifier expansion is best effort
+        logger.debug(
+            "consent.identifier_expansion_skipped user_id=%s error=%s",
+            user_id,
+            exc,
+        )
+        identifiers = []
+    return identifiers or [user_id]
+
+
+def identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_identifiers = [
+        str(item or "").strip() for item in identifiers if str(item or "").strip()
+    ]
+    if set(normalized_identifiers) <= {normalized_user_id}:
+        return {}
+    return {"user_ids": normalized_identifiers}
+
+
+def _labels_sentence(labels: list[str]) -> str:
+    """ "Food preferences", "Food preferences and Events", "A, B and 2 more"."""
+    unique = list(dict.fromkeys(label for label in labels if label))
+    if len(unique) <= 2:
+        return " and ".join(unique)
+    return f"{unique[0]}, {unique[1]} and {len(unique) - 2} more"
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+class ConsentLifecycleService:
+    def __init__(
+        self,
+        consent_db: ConsentDBService | None = None,
+        center: ConsentCenterService | None = None,
+        identifiers_resolver: Callable[[str], Awaitable[list[str]]] | None = None,
+    ) -> None:
+        # The route hands in its own service instances so its test doubles and
+        # per-request patches keep applying; chat callers take the defaults.
+        self._db = consent_db or ConsentDBService()
+        self._center = center
+        self._owned_identifiers = identifiers_resolver or owned_consent_identifiers
+
+    def _center_service(self) -> ConsentCenterService:
+        if self._center is None:
+            self._center = ConsentCenterService()
+        return self._center
+
+    async def list_pending_incoming(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Requests waiting on this owner, projected to labels only.
+
+        Never carries a raw ``attr.*`` scope, an internal token id, or a
+        requester user id: the model reads this and says it out loud.
+        """
+        center = await self._center_service().list_center(
+            user_id,
+            actor="investor",
+            surface="pending",
+            mode="consents",
+            limit=max(1, min(int(limit or 20), 100)),
+        )
+        entries: list[dict[str, Any]] = []
+        for key in ("items", "entries", "results"):
+            candidate = center.get(key) if isinstance(center, dict) else None
+            if isinstance(candidate, list):
+                entries = [item for item in candidate if isinstance(item, dict)]
+                break
+        return [self._pending_projection(entry) for entry in entries]
+
+    @staticmethod
+    def _pending_projection(entry: dict[str, Any]) -> dict[str, Any]:
+        """One waiting request as the model may say it, with the ids the app opens.
+
+        A person-to-person request is one Consent Center group whose ``id`` is
+        ``bundle:<uuid>`` and whose ``request_id`` is empty. That group id is
+        not a ledger request id, so the owner's chat looked it up, found
+        nothing (``consent.pending_lookup found=0``, localhost run 4, O4) and
+        showed no card while One said one was on screen. The item request ids
+        of the group are what the app can open, so those are returned.
+        """
+        raw_metadata = entry.get("metadata")
+        metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+        items = entry.get("bundle_items")
+        if isinstance(items, list):
+            waiting = [
+                item for item in items if isinstance(item, dict) and item.get("status") == "pending"
+            ]
+            request_ids = [_clean(item.get("request_id")) for item in waiting]
+            request_ids = [request_id for request_id in request_ids if request_id]
+            labels = [_clean(item.get("label")) for item in waiting if _clean(item.get("label"))]
+            description = _labels_sentence(labels) or _clean(entry.get("reason"))
+        else:
+            request_id = _clean(entry.get("request_id") or entry.get("id"))
+            request_ids = [request_id] if request_id and ":" not in request_id else []
+            description = _clean(entry.get("scope_description") or entry.get("reason"))
+        return {
+            "requestId": request_ids[0] if request_ids else "",
+            "requestIds": request_ids,
+            "requesterLabel": _clean(entry.get("counterpart_label")) or "Someone",
+            "requesterType": _clean(entry.get("counterpart_type")) or "unknown",
+            "description": description or "some of your information",
+            "reason": _clean(entry.get("reason")) or None,
+            "bundleLabel": _clean(metadata.get("bundle_label")) or None,
+            "bundleScopeCount": metadata.get("bundle_scope_count"),
+            "issuedAt": entry.get("issued_at"),
+            "expiresAt": entry.get("poll_timeout_at") or entry.get("expires_at"),
+        }
+
+    async def list_active_grants(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Grants this owner has given that are still live, projected to labels.
+
+        The mirror of ``list_pending_incoming`` for the other end of the
+        lifecycle, and it exists because revoking was unreachable without it:
+        ``revoke_active_grant`` matches on a scope or a request id, and until
+        this method there was no tool that could tell anyone what either of
+        those were. An action whose target can never be named is not a
+        capability, it is a dead branch that reads like one.
+
+        Same projection discipline as ``_pending_projection``, for the same
+        reason: the model reads this and says it out loud, so it never carries
+        a raw ``attr.*`` scope, a token id, or a counterpart user id. The
+        caller pairs each row with an opaque handle and resolves that handle
+        server-side, exactly as ``propose_information_request`` does.
+        """
+        active = await self._db.get_active_tokens(user_id)
+        internal = await self._db.get_active_internal_tokens(user_id)
+        rows = [*internal, *active]
+        rows.sort(key=lambda row: row.get("issued_at") or 0, reverse=True)
+        return [self._grant_projection(row) for row in rows[: max(1, min(int(limit or 20), 100))]]
+
+    @staticmethod
+    def _grant_projection(row: dict[str, Any]) -> dict[str, Any]:
+        """One active grant as the model may repeat it: who, what, until when.
+
+        ``scope`` and ``requestId`` are returned because the CALLER needs them
+        to build its opaque handle; the caller is responsible for stripping
+        them before anything reaches the model. Keeping the projection honest
+        about what it holds is better than a second projection that silently
+        drops the two fields the revoke path cannot work without.
+        """
+        scope = _clean(row.get("scope"))
+        raw_metadata = row.get("metadata")
+        metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+        # ``attr.`` is the storage prefix, not a word anybody says. Dropping it
+        # is the difference between "Attr Professional Employment" and
+        # "Professional Employment".
+        # An ``attr.*`` scope gets the one human name every other surface uses
+        # ("Food preferences"), not its humanized storage path.
+        readable = (
+            human_scope_label(scope, _clean(metadata.get("human_label")) or None)
+            if scope.startswith("attr.")
+            else humanize_path(scope)
+        )
+        return {
+            "scope": scope,
+            "requestId": _clean(row.get("request_id")) or None,
+            "label": readable or "some of your information",
+            "holderLabel": _clean(metadata.get("counterpart_label"))
+            or _clean(row.get("developer"))
+            or "someone",
+            "issuedAt": row.get("issued_at"),
+            "expiresAt": row.get("expires_at"),
+        }
+
+    async def deny_pending_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+        """Write CONSENT_DENIED for one of this owner's pending requests."""
+        request_id = _clean(request_id)
+        if not request_id:
+            raise ConsentLifecycleError("CONSENT_REQUEST_ID_REQUIRED", "Say which request to deny.")
+        owned = await self._owned_identifiers(user_id)
+        pending = await self._db.get_pending_by_request_id(
+            user_id, request_id, **identifier_filter_kwargs(user_id, owned)
+        )
+        if not pending:
+            raise ConsentLifecycleError(
+                "CONSENT_REQUEST_NOT_FOUND",
+                "That request is not waiting on you anymore.",
+                status_code=404,
+            )
+        subject_user_id = _clean(pending.get("user_id")) or user_id
+        metadata = pending.get("metadata") if isinstance(pending.get("metadata"), dict) else {}
+        developer_label = metadata.get("developer_app_display_name") or pending["developer"]
+        # A denial written without the bundle id falls out of its group in the
+        # owner's history and reads as a stray decision on nothing in particular;
+        # one without the requester identity headlines that group with the raw
+        # principal id. Both come from the pending row, so both travel.
+        bundle_id = _clean(metadata.get("bundle_id"))
+        denied_metadata = {
+            **requester_identity_metadata(metadata),
+            **({"bundle_id": bundle_id} if bundle_id else {}),
+            "decision_owner_uid": user_id,
+            "owner_decision": "deny",
+        }
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch,
+            record_owner_decision,
+        )
+
+        value_epoch = await capture_value_epoch(user_id)
+        await self._db.insert_event(
+            user_id=subject_user_id,
+            agent_id=pending["developer"],
+            scope=pending["scope"],
+            action="CONSENT_DENIED",
+            request_id=request_id,
+            metadata=denied_metadata or None,
+        )
+        await record_owner_decision(
+            user_id=user_id, request_id=request_id, generation=value_epoch, decision="deny"
+        )
+        logger.info("consent.denied_event_saved")
+        return {"status": "denied", "message": f"Consent denied to {developer_label}"}
+
+    async def revoke_active_grant(
+        self,
+        user_id: str,
+        *,
+        scope: str | None = None,
+        request_id: str | None = None,
+        export_cache: MutableMapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Revoke one active grant, matched by scope and/or the request it came from.
+
+        Byte-for-byte the REST behavior: the live token joins the in-memory
+        revocation set, its export is deleted, and a REVOKED event linked to
+        the original request is written. ``export_cache`` is the route's
+        process-local export map so a revoke from chat clears it too.
+        """
+        scope = _clean(scope) or None
+        request_id = _clean(request_id) or None
+        if not scope and not request_id:
+            raise ConsentLifecycleError(
+                "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
+            )
+        owned = await self._owned_identifiers(user_id)
+        active_tokens = await self._db.get_active_tokens(
+            user_id, **identifier_filter_kwargs(user_id, owned)
+        )
+        internal_tokens = await self._db.get_active_internal_tokens(user_id)
+        all_active_tokens = [*internal_tokens, *active_tokens]
+        logger.info("consent.revoke_active_token_count=%s", len(all_active_tokens))
+
+        token_to_revoke = None
+        for token in all_active_tokens:
+            if scope and token.get("scope") != scope:
+                continue
+            if request_id and token.get("request_id") != request_id:
+                continue
+            token_to_revoke = token
+            break
+        if not token_to_revoke:
+            raise ConsentLifecycleError(
+                "CONSENT_GRANT_NOT_FOUND",
+                "No active consent found for the requested grant"
+                if request_id
+                else "No active consent found for the requested scope",
+                status_code=404,
+            )
+        return await self._revoke_token_row(
+            user_id, token_to_revoke, scope=scope, export_cache=export_cache
+        )
+
+    async def revoke_all_active_grants(
+        self,
+        user_id: str,
+        *,
+        export_cache: MutableMapping[str, Any] | None = None,
+    ) -> int:
+        return await _revoke_owner_grants(
+            self._db,
+            user_id,
+            identifiers_resolver=self._owned_identifiers,
+            export_cache=export_cache,
+        )
+
+    async def _revoke_token_row(
+        self,
+        user_id: str,
+        token_to_revoke: dict[str, Any],
+        *,
+        scope: str | None,
+        export_cache: MutableMapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        return await _revoke_grant_row(
+            self._db,
+            user_id,
+            token_to_revoke,
+            scope=scope,
+            export_cache=export_cache,
+        )
+
+
+async def _revoke_owner_grants(
+    db: ConsentDBService,
+    user_id: str,
+    *,
+    identifiers_resolver: Callable[[str], Awaitable[list[str]]],
+    export_cache: MutableMapping[str, Any] | None,
+) -> int:
+    """Revoke every live grant this owner holds, one row at a time.
+
+    Paid terms end through canonical consent/accounting first, including
+    reserved and pre-activation terms absent from active-token discovery.
+    Free and internal grants retain their per-token path. Returns how many
+    terms/grants ended. This never erases funds or refunds the owner's buys.
+    """
+    from hushh_mcp.consent.paid_admission import end_owner_paid_purchases
+
+    revoked = await end_owner_paid_purchases(user_id)
+    owned = await identifiers_resolver(user_id)
+    active_tokens = await db.get_active_tokens(user_id, **identifier_filter_kwargs(user_id, owned))
+    internal_tokens = await db.get_active_internal_tokens(user_id)
+    for token in [*internal_tokens, *active_tokens]:
+        await _revoke_grant_row(db, user_id, token, scope=None, export_cache=export_cache)
+        revoked += 1
+    return revoked
+
+
+async def _revoke_grant_row(
+    db: ConsentDBService,
+    user_id: str,
+    token_to_revoke: dict[str, Any],
+    *,
+    scope: str | None,
+    export_cache: MutableMapping[str, Any] | None,
+) -> dict[str, Any]:
+    resolved_scope = _clean(token_to_revoke.get("scope")) or scope or ""
+    from hushh_mcp.consent.paid_admission import _metadata, end_paid_purchase, is_paid_grant
+
+    paid_metadata = _metadata(token_to_revoke.get("metadata"))
+    paid = is_paid_grant(paid_metadata)
+    if paid:
+        await end_paid_purchase(
+            user_id, str(paid_metadata.get("commerce_purchase_id") or ""), as_owner=True
+        )
+
+    original_token = token_to_revoke.get("token_id")
+    if original_token and not str(original_token).startswith("REVOKED_"):
+        consent_token.revoke_token(original_token)
+        await db.delete_consent_export(original_token)
+        if export_cache is not None and original_token in export_cache:
+            del export_cache[original_token]
+
+    if paid:
+        return {
+            "status": "revoked",
+            "message": f"Consent for {resolved_scope} has been revoked",
+            "lockVault": False,
+            "scope": resolved_scope,
+            "agentId": token_to_revoke.get("agent_id")
+            or token_to_revoke.get("developer")
+            or "Unknown",
+        }
+    revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{resolved_scope}"
+    agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
+    subject_user_id = _clean(token_to_revoke.get("user_id")) or user_id
+    metadata = token_to_revoke.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    bundle_id = _clean(metadata.get("bundle_id"))
+    revoked_metadata = {
+        **requester_identity_metadata(metadata),
+        **({"bundle_id": bundle_id} if bundle_id else {}),
+    }
+    await db.insert_event(
+        user_id=subject_user_id,
+        agent_id=agent_id,
+        scope=resolved_scope,
+        action="REVOKED",
+        token_id=revoke_token_id,
+        request_id=token_to_revoke.get("request_id"),
+        scope_description="Vault owner session" if agent_id == "self" else None,
+        metadata=revoked_metadata or None,
+    )
+    logger.info("consent.revoked_event_saved scope=%s", resolved_scope)
+    is_vault_owner = resolved_scope in ("vault.owner", "VAULT_OWNER")
+    return {
+        "status": "revoked",
+        "message": f"Consent for {resolved_scope} has been revoked",
+        "lockVault": is_vault_owner,
+        "scope": resolved_scope,
+        "agentId": agent_id,
+    }

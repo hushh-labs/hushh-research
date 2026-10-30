@@ -1,5 +1,7 @@
+import base64
 import json
 import re
+import threading
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -20,6 +22,186 @@ def _unwrap(value):
     return value.value if isinstance(value, JsonParam) else value
 
 
+@pytest.mark.asyncio
+async def test_wallet_commit_seals_source_without_destabilizing_retries(monkeypatch):
+    from hushh_mcp.services.pkm_mutation_contracts import PkmMutationPlanV2
+    from hushh_mcp.services.wallet_card_access_projection import (
+        PROJECTION_KEY,
+        WalletCardSourceCipher,
+    )
+
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(bytes(range(32))).decode()
+    )
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "true")
+    service = PersonalKnowledgeModelService()
+    service._db = _StubDb()
+    service._domain_registry = _StubDomainRegistry()
+    monkeypatch.setattr(
+        service, "_continuous_refresh_tokens_for_domain_write", AsyncMock(return_value=[])
+    )
+    card_id = "card_11111111-1111-4111-8111-111111111111"
+    summary = {
+        "card_count": 1,
+        "cards": [
+            {
+                "card_id": card_id,
+                "brand": "visa",
+                "last4": "0042",
+                "expiry_month": 4,
+                "expiry_year": 2030,
+                "issuing_region": "US",
+            }
+        ],
+    }
+    manifest = service._normalize_manifest_payload(
+        user_id="user-wallet",
+        domain="wallet",
+        payload={
+            "manifest_version": 1,
+            "summary_projection": {**summary, PROJECTION_KEY: {"cards": [{"forged": True}]}},
+            "paths": [{"json_path": "cards", "path_type": "array"}],
+        },
+        structure_decision={
+            "action": "create_domain",
+            "target_domain": "wallet",
+            "json_paths": ["cards"],
+        },
+        upgrade_commit=False,
+    )
+    assert (
+        "cards" not in manifest.summary_projection
+        and PROJECTION_KEY not in manifest.summary_projection
+    )
+    plan = PkmMutationPlanV2.model_validate(
+        _confirmed_create_plan(user_id="user-wallet", domain="wallet", scope="cards")
+    )
+
+    async def commit(raw_summary):
+        result = await service._commit_confirmed_domain_mutation_v2(
+            user_id="user-wallet",
+            domain="wallet",
+            normalized_segments={
+                "root": {
+                    "ciphertext": "opaque-client-ciphertext",
+                    "iv": "opaque-client-iv",
+                    "tag": "opaque-client-tag",
+                    "algorithm": "AES-256-GCM",
+                }
+            },
+            normalized_manifest=manifest,
+            normalized_mutation_plan=plan,
+            upgrade_claim=None,
+            preservation_receipt=None,
+            summary=raw_summary,
+            write_projections=None,
+            current_version=0,
+            prior_manifest=None,
+            legacy_blob_present=False,
+        )
+        assert result["success"] is True
+        call = service._db.rpc_calls[-1]
+        assert call["function_name"] == "commit_pkm_domain_mutation_v4"
+        return call["params"]
+
+    first, second = await commit(summary), await commit(summary)
+    projection = first["p_manifest_row"]["summary_projection"][PROJECTION_KEY]
+    retry = second["p_manifest_row"]["summary_projection"][PROJECTION_KEY]
+    assert projection["cardIds"] == [card_id]
+    sealed = projection["cards"][0]
+    assert set(sealed) == {"cardId", "content_ciphertext", "content_iv", "content_algorithm"}
+    assert sealed["content_iv"] != retry["cards"][0]["content_iv"]
+    assert json.loads(
+        WalletCardSourceCipher().open(
+            {**sealed, "id": card_id, "conversation_id": "", "sender_user_id": "user-wallet"}
+        )
+    ) == {
+        "brand": "visa",
+        "last4": "0042",
+        "expiryMonth": 4,
+        "expiryYear": 2030,
+        "issuingRegion": "US",
+    }
+    assert (
+        "cards" not in first["p_summary_patch"] and PROJECTION_KEY not in first["p_summary_patch"]
+    )
+    assert PROJECTION_KEY not in json.dumps(_unwrap(first["p_event_rows"]))
+    assert first["p_request_fingerprint"] == second["p_request_fingerprint"]
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "false")
+    disabled = await commit(summary)
+    assert disabled["p_manifest_row"]["summary_projection"][PROJECTION_KEY]["cards"] == []
+    assert disabled["p_request_fingerprint"] == first["p_request_fingerprint"]
+    changed = await commit({**summary, "cards": [{**summary["cards"][0], "last4": "1111"}]})
+    assert changed["p_request_fingerprint"] != first["p_request_fingerprint"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "employment.entities._entities.summary",
+        "employment.observations._items",
+        "employment._private.summary",
+    ],
+)
+def test_manifest_write_preserves_path_grammar_and_private_markers(path):
+    assert PersonalKnowledgeModelService._normalize_manifest_path(path) == path
+
+
+def test_manifest_round_trip_preserves_selected_collection_path_and_excludes_private():
+    service = PersonalKnowledgeModelService()
+    selected = "employment.entities._entities.summary"
+    private = "employment._private.summary"
+    manifest = service._normalize_manifest_payload(
+        "synthetic-owner",
+        "professional",
+        {
+            "manifest_version": 1,
+            "top_level_scope_paths": ["employment"],
+            "externalizable_paths": [selected, private],
+            "paths": [
+                {"json_path": path, "path_type": "leaf", "exposure_eligibility": True}
+                for path in [selected, private]
+            ],
+        },
+        {"json_paths": [selected, private]},
+    )
+    assert manifest.externalizable_paths == [selected]
+    assert {path.json_path: path.exposure_eligibility for path in manifest.paths} == {
+        selected: True,
+        private: False,
+    }
+
+
+def test_only_an_upgrade_commit_sets_the_reserved_branch_marker_and_writes_keep_it():
+    """The relocation marker is server-owned.
+
+    An ordinary write cannot set or clear it (it keeps the prior manifest's), and
+    an upgrade-claim commit records it. Without the carry-forward every ordinary
+    write would drop it and re-schedule the upgrade.
+    """
+    service = PersonalKnowledgeModelService()
+    marker = "reserved_branch_migration_version"
+
+    def normalize(projection: dict, *, prior: dict | None, upgrade: bool | None):
+        manifest = service._normalize_manifest_payload(
+            "synthetic-owner",
+            "financial",
+            {"manifest_version": 2, "summary_projection": projection, "paths": []},
+            {},
+            prior,
+            upgrade_commit=upgrade,
+        )
+        return manifest.summary_projection.get(marker)
+
+    migrated = {"summary_projection": {marker: 1}}
+    assert normalize({marker: 1}, prior=None, upgrade=True) == 1
+    assert normalize({}, prior=migrated, upgrade=False) == 1
+    assert normalize({marker: 7}, prior=None, upgrade=False) is None
+    assert normalize({}, prior=migrated, upgrade=True) == 1
+    # Re-normalizing a stored manifest (no write) keeps what it holds.
+    assert normalize({marker: 1}, prior=None, upgrade=None) == 1
+
+
 def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
     payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
 
@@ -34,6 +216,27 @@ def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
         PersonalKnowledgeModelService._unwrap_rpc_payload(db, "get_pkm_domain_snapshot_v1")
         == payload
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lazy", [False, True])
+async def test_rpc_invocation_and_lazy_execution_do_not_block_api_loop(lazy):
+    loop_thread = threading.get_ident()
+    response = SimpleNamespace(data=[{"synthetic": True}])
+    executions = []
+
+    def execute():
+        executions.append(threading.get_ident())
+        return response
+
+    def rpc(_name, _params):
+        executions.append(threading.get_ident())
+        return SimpleNamespace(execute=execute) if lazy else response
+
+    service = PersonalKnowledgeModelService()
+    service._db = SimpleNamespace(rpc=rpc)
+    assert await service._run_rpc("synthetic_function", {}) is response
+    assert executions and all(thread != loop_thread for thread in executions)
 
 
 def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
@@ -147,6 +350,13 @@ class _StubDbTable:
         self.filters.append((column, value))
         return self
 
+    def in_(self, column, values):
+        self.filters.append((column, set(values)))
+        return self
+
+    def order(self, _column):
+        return self
+
     def limit(self, _count):
         return self
 
@@ -168,7 +378,10 @@ class _StubDbTable:
             return SimpleNamespace(data=[{}], error=None)
         filtered = self.rows
         for column, value in self.filters:
-            filtered = [row for row in filtered if row.get(column) == value]
+            if isinstance(value, set):
+                filtered = [row for row in filtered if row.get(column) in value]
+            else:
+                filtered = [row for row in filtered if row.get(column) == value]
         return SimpleNamespace(data=filtered, error=None)
 
 
@@ -306,6 +519,11 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     rpc_call = service._db.rpc_calls[0]
     assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v4"
     params = rpc_call["params"]
+    assert all(
+        event["metadata"]["provenance"]["authorization_mode"] == "owner_confirmed"
+        for event in _unwrap(params["p_event_rows"])
+        if event["operation_type"] == "content_write"
+    )
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_manifest_row"])
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_summary_patch"])
     assert "PRIVATE USER SENTENCE" not in json.dumps(_unwrap(params["p_event_rows"]))
@@ -661,29 +879,27 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
 
 
 @pytest.mark.asyncio
-async def test_source_library_mutation_has_no_external_sharing_impact(monkeypatch):
-    service = PersonalKnowledgeModelService()
-
+async def test_private_mutations_have_no_external_sharing_impact(monkeypatch):
     class _UnexpectedConsentDBService:
         def __init__(self):
-            raise AssertionError("private Source Library mutations must not inspect grants")
+            raise AssertionError("private mutations must not inspect external grants")
 
     monkeypatch.setattr(consent_db_module, "ConsentDBService", _UnexpectedConsentDBService)
-
-    impact = await service.get_mutation_sharing_impact(
-        user_id="user-source",
-        domain="source_library",
-        scope_path="knowledge",
-    )
-
-    assert impact == {
-        "active_recipient_count": 0,
-        "recipient_labels": [],
-        "enters_next_export_revision": False,
-        "summary": "No active recipients are affected.",
-        "affected_grant_ids": [],
-        "affected_export_ids": [],
-    }
+    for domain, scope_path in (
+        ("source_library", "knowledge"),
+        ("runtime_secrets", "connectors"),
+    ):
+        impact = await PersonalKnowledgeModelService().get_mutation_sharing_impact(
+            user_id="user-private", domain=domain, scope_path=scope_path
+        )
+        assert impact == {
+            "active_recipient_count": 0,
+            "recipient_labels": [],
+            "enters_next_export_revision": False,
+            "summary": "No active recipients are affected.",
+            "affected_grant_ids": [],
+            "affected_export_ids": [],
+        }
 
 
 @pytest.mark.asyncio
@@ -1002,6 +1218,109 @@ async def test_get_user_metadata_compacts_domain_available_scopes(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_user_metadata_reuses_resolved_index(monkeypatch):
+    service = PersonalKnowledgeModelService()
+    resolve_mock = AsyncMock(side_effect=AssertionError("index must not be resolved twice"))
+    monkeypatch.setattr(service, "resolve_metadata_index", resolve_mock)
+
+    class _FakeScopeGenerator:
+        async def get_available_scope_entries(self, user_id: str):
+            assert user_id == "user-1"
+            return []
+
+    service._scope_generator = _FakeScopeGenerator()
+    resolved_index = PersonalKnowledgeModelIndex(
+        user_id="user-1",
+        available_domains=["professional"],
+        domain_summaries={"professional": {"item_count": 1}},
+        total_attributes=1,
+    )
+
+    metadata = await service.get_user_metadata(
+        "user-1",
+        resolved_index=resolved_index,
+    )
+
+    assert metadata.domains[0].domain_key == "professional"
+    resolve_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_domain_manifests_batches_paths_and_scope_registry_reads():
+    service = PersonalKnowledgeModelService()
+    db = _StubDb()
+    db.tables["pkm_manifests"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "manifest_version": 2,
+            "top_level_scope_paths": ["profile"],
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "manifest_version": 3,
+            "top_level_scope_paths": ["portfolio"],
+        },
+    ]
+    db.tables["pkm_manifest_paths"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "json_path": "profile.title",
+            "exposure_eligibility": True,
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "json_path": "portfolio.risk",
+            "exposure_eligibility": True,
+        },
+    ]
+    db.tables["pkm_scope_registry"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "scope_handle": "professional-profile",
+            "scope_label": "Profile",
+            "summary_projection": {"top_level_scope_path": "profile"},
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "scope_handle": "financial-portfolio",
+            "scope_label": "Portfolio",
+            "summary_projection": {"top_level_scope_path": "portfolio"},
+        },
+    ]
+    service._db = db
+
+    manifests = await service.get_domain_manifests(
+        "user-1",
+        ["professional", "financial", "professional"],
+    )
+
+    assert sorted(manifests) == ["financial", "professional"]
+    assert manifests["professional"]["paths"][0]["json_path"] == "profile.title"
+    assert manifests["financial"]["scope_registry"][0]["scope_handle"] == "financial-portfolio"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", ["pkm_manifests", "pkm_manifest_paths", "pkm_scope_registry"])
+async def test_manifest_batch_strict_reads_keep_unavailable_distinct_from_absent(table):
+    service = PersonalKnowledgeModelService()
+    service._db = _StubDb()
+    assert (
+        await service.get_domain_manifests("synthetic-owner", ["professional"], raise_on_error=True)
+        == {}
+    )
+    service._db.tables[table].execute = lambda: (_ for _ in ()).throw(RuntimeError("unavailable"))
+    assert await service.get_domain_manifests("synthetic-owner", ["professional"]) == {}
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await service.get_domain_manifests("synthetic-owner", ["professional"], raise_on_error=True)
+
+
+@pytest.mark.asyncio
 async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monkeypatch):
     service = PersonalKnowledgeModelService()
 
@@ -1134,3 +1453,50 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "manifest_version": 7,
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_atomic_receipt_fingerprint_ignores_attempt_clock_but_binds_ciphertext():
+    from copy import deepcopy
+    from datetime import timedelta
+
+    from hushh_mcp.services.personal_knowledge_model_service import PkmMutationPlanV2
+
+    service = PersonalKnowledgeModelService()
+    service._continuous_refresh_tokens_for_domain_write = AsyncMock(return_value=[])
+    service._run_rpc = AsyncMock(return_value=SimpleNamespace(data=[{"success": True}]))
+    manifest = service._normalize_manifest_payload(
+        "owner-fixture",
+        "professional",
+        {"manifest_version": 1},
+        {"action": "create_domain", "target_domain": "professional"},
+    )
+    plan = PkmMutationPlanV2.model_validate(
+        _confirmed_create_plan(user_id="owner-fixture", domain="professional")
+    )
+    args = dict(
+        user_id="owner-fixture",
+        domain="professional",
+        normalized_segments={
+            "root": {"ciphertext": "YQ==", "iv": "aXY=", "tag": "dGFn", "algorithm": "aes-256-gcm"}
+        },
+        normalized_manifest=manifest,
+        normalized_mutation_plan=plan,
+        upgrade_claim=None,
+        preservation_receipt=None,
+        summary={},
+        write_projections=None,
+        current_version=0,
+        prior_manifest=None,
+        legacy_blob_present=False,
+    )
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    first = service._run_rpc.await_args.args[1]["p_request_fingerprint"]
+    manifest.last_content_at += timedelta(seconds=1)
+    manifest.last_structured_at += timedelta(seconds=1)
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] == first
+    changed = deepcopy(args)
+    changed["normalized_segments"]["root"]["ciphertext"] = "Yg=="
+    await service._commit_confirmed_domain_mutation_v2(**changed)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] != first

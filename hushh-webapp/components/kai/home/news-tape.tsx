@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink } from "@/components/icons";
 
 import { Badge } from "@/components/ui/badge";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";

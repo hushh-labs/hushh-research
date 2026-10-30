@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Lock, ShieldCheck, Database } from "lucide-react";
+import { Loader2, Lock, ShieldCheck, Database } from "@/components/icons";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { VaultService } from "@/lib/services/vault-service";
@@ -30,29 +30,43 @@ export function VaultStatusInline({
    */
   mode?: "informational" | "blocking";
 }) {
-  const { user } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      setHasVault(false);
+    if (!userId) {
+      // Auth restoration is not proof that the account has no vault.
+      setHasVault(null);
+      setCheckFailed(false);
       return;
     }
     let isMounted = true;
-    VaultService.checkVault(user.uid).then((exists) => {
-      if (isMounted) setHasVault(exists);
-    });
+    setCheckFailed(false);
+    VaultService.checkVault(userId)
+      .then((exists) => {
+        if (isMounted) setHasVault(exists);
+      })
+      .catch((error) => {
+        // A read that threw is not an answer of "no". Without this the promise
+        // rejected unhandled and `hasVault` stayed null for good, so the
+        // component sat on its unknown branch with nothing to say why.
+        console.warn("[VaultStatusInline] Could not check lock state:", error);
+        if (isMounted) setCheckFailed(true);
+      });
     return () => {
       isMounted = false;
     };
-  }, [user]);
+  }, [authLoading, userId]);
 
   const availability = resolveVaultAvailabilityState({
     hasVault,
     isVaultUnlocked,
     vaultKey,
     vaultOwnerToken,
+    authLoading: authLoading || !user,
+    presenceFailed: checkFailed,
   });
 
   if (availability.canMutateSecureData) {
@@ -64,7 +78,7 @@ export function VaultStatusInline({
         )}
       >
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        Vault ready
+        Unlocked
       </p>
     );
   }
@@ -79,7 +93,7 @@ export function VaultStatusInline({
         )}
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
-        Vault locked, unlock to continue
+        Locked, unlock to continue
       </p>
     );
   }
@@ -94,7 +108,40 @@ export function VaultStatusInline({
         )}
       >
         <Database className="h-3.5 w-3.5 shrink-0" />
-        Vault setup required
+        Lock required
+      </p>
+    );
+  }
+
+  // A read that failed used to fall through to the spinner below and stay
+  // there. Name the fault instead: an endless "Checking…" is indistinguishable
+  // from a slow network, and the person has no way to know to try again.
+  if (availability.vaultCheckFailed) {
+    return (
+      <p
+        className={cn(
+          "type-footnote flex items-center gap-1.5 text-muted-foreground",
+          mode === "blocking" && "text-amber-700 dark:text-amber-400",
+          className,
+        )}
+      >
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t check your lock
+      </p>
+    );
+  }
+
+  if (availability.vaultCheckFailed) {
+    return (
+      <p
+        className={cn(
+          "type-footnote flex items-center gap-1.5 text-muted-foreground",
+          mode === "blocking" && "text-amber-700 dark:text-amber-400",
+          className,
+        )}
+      >
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t check vault status
       </p>
     );
   }
@@ -107,7 +154,7 @@ export function VaultStatusInline({
       )}
     >
       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-      Checking vault status…
+      Checking…
     </p>
   );
 }

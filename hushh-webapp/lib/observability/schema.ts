@@ -1,18 +1,21 @@
-import type {
-  EventPayloadWithContextFor,
-  ObservabilityEventName,
-  PrimitiveEventValue,
-} from "@/lib/observability/events";
+import { type EventPayloadWithContextFor, type ObservabilityEventName, type PrimitiveEventValue } from "@/lib/observability/events";
+import { GOVERNED_ACTIONS_BY_EVENT, GOVERNED_RESULTS_BY_EVENT, GOVERNED_VALUES_BY_EVENT, isGovernedLongString, isInvalidGovernedEnum } from "./governed-values";
 
 const BASE_ALLOWED_KEYS = [
   "env",
   "platform",
   "event_category",
   "app_version",
+  "app_build",
   "route_id",
 ] as const;
 
 const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
+  one_memory_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_wallet_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_calendar_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_kyc_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_crm_action: [...BASE_ALLOWED_KEYS, "action", "result"],
   page_view: [...BASE_ALLOWED_KEYS, "nav_type"],
   auth_started: [...BASE_ALLOWED_KEYS, "action"],
   auth_succeeded: [...BASE_ALLOWED_KEYS, "action", "result"],
@@ -43,7 +46,12 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   analysis_stream_terminal_decision: [...BASE_ALLOWED_KEYS, "result"],
   analysis_stream_aborted: [...BASE_ALLOWED_KEYS, "result", "reason"],
   analysis_stream_error: [...BASE_ALLOWED_KEYS, "result", "error_class"],
-  consent_pending_loaded: [...BASE_ALLOWED_KEYS, "result"],
+  consent_pending_loaded: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "pending_count_bucket",
+    "load_surface",
+  ],
   consent_action_submitted: [...BASE_ALLOWED_KEYS, "action", "result"],
   consent_action_result: [...BASE_ALLOWED_KEYS, "action", "result", "status_bucket"],
   phone_verification_started: [...BASE_ALLOWED_KEYS, "action", "result"],
@@ -57,6 +65,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   ria_workspace_opened: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   mcp_ria_read_tool_called: [...BASE_ALLOWED_KEYS, "action", "result"],
   profile_method_switch_result: [...BASE_ALLOWED_KEYS, "result"],
+  vault_unlock_result: [...BASE_ALLOWED_KEYS, "method", "result", "error_class"],
   account_delete_requested: [...BASE_ALLOWED_KEYS, "result"],
   account_delete_completed: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   account_reset_requested: [...BASE_ALLOWED_KEYS, "result"],
@@ -75,6 +84,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "auth_method",
     "portfolio_source",
     "workspace_source",
+    "invite_source",
     "app_version",
   ],
   investor_activation_completed: [
@@ -92,6 +102,75 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "auth_method",
     "workspace_source",
     "app_version",
+  ],
+  one_location_activation_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "journey",
+    "activation_path",
+    "entry_surface",
+    "auth_method",
+    "invite_source",
+    "recipient_count_bucket",
+    "share_duration_bucket",
+    "app_version",
+  ],
+  one_location_setup_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+    "settlement_retries",
+  ],
+  one_location_check_in_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+    "selected_count",
+    "success_count",
+    "failure_count",
+    "circle_targeted",
+  ],
+  one_location_check_out_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+  ],
+  one_location_visit_rated: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+    "stars",
+    "has_note",
+    "has_place_id",
+  ],
+  one_location_review_handoff_opened: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "destination",
+  ],
+  one_location_circle_created: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+    "circle_kind",
+  ],
+  one_location_journey_action: [
+    ...BASE_ALLOWED_KEYS,
+    "action",
+    "result",
+    "entry_surface",
+    "target_type",
+    "circle_kind",
+    "count_bucket",
+  ],
+  one_location_sos_triggered: [
+    ...BASE_ALLOWED_KEYS,
+    "route_id",
+    "result",
+    "selected_count",
+    "reached_count",
+    "unreachable_count",
+    "emailed_count",
+    "has_note",
   ],
   api_request_completed: [
     ...BASE_ALLOWED_KEYS,
@@ -176,6 +255,15 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "failed_count_bucket",
     "has_active_recipients",
   ],
+  live_memory_source_verified: [
+    ...BASE_ALLOWED_KEYS,
+    "kind",
+    "outcome",
+    "lag_bucket",
+    "pending_bucket",
+    "retry_bucket",
+  ],
+  live_activity_consolidation_completed: [...BASE_ALLOWED_KEYS, "outcome", "saved_bucket"],
   one_location_foreground_retry: [
     ...BASE_ALLOWED_KEYS,
     "operation",
@@ -195,6 +283,16 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "failure_count",
     "duration_bucket",
     "review_required",
+  ],
+  one_location_onboarding_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "exited_via",
+    "code_shared",
+    "code_copied",
+    "screens_seen",
+    "contacts_matched",
+    "contacts_added",
   ],
   one_location_contact_signal_synced: [
     ...BASE_ALLOWED_KEYS,
@@ -280,6 +378,8 @@ function looksSensitiveValue(value: PrimitiveEventValue): boolean {
 
 export interface EventValidationResult {
   ok: boolean;
+  /** Invalid governed action/result values, or a closed-set value outside its set, make the whole event unsafe to emit. */
+  fatal: boolean;
   sanitized: Record<string, PrimitiveEventValue>;
   droppedKeys: string[];
 }
@@ -288,11 +388,32 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   eventName: T,
   payload: EventPayloadWithContextFor<T>
 ): EventValidationResult {
+  const rawPayload = payload as unknown as Record<string, unknown>;
   const allowed = new Set(EVENT_ALLOWED_KEYS[eventName]);
   const sanitized: Record<string, PrimitiveEventValue> = {};
   const droppedKeys: string[] = [];
+  let fatal = false;
 
-  for (const [key, value] of Object.entries(payload as unknown as Record<string, unknown>)) {
+  // Governed actions/results are required dimensions, not optional metadata.
+  // Validate presence before iterating: omitted and explicitly undefined keys
+  // would otherwise never reach the enum validator below.
+  const requiredGovernedKeys = [
+    ...(GOVERNED_ACTIONS_BY_EVENT[eventName] ? ["action"] : []),
+    ...(GOVERNED_RESULTS_BY_EVENT[eventName] ? ["result"] : []),
+    ...(GOVERNED_VALUES_BY_EVENT[eventName]?.keys() ?? []),
+  ];
+  for (const key of requiredGovernedKeys) {
+    if (typeof rawPayload[key] !== "string") {
+      fatal = true;
+      droppedKeys.push(key);
+    }
+  }
+
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (key === "app_build" && (typeof value !== "string" || !/^\d{1,12}$/.test(value))) {
+      droppedKeys.push(key);
+      continue;
+    }
     if (!allowed.has(key)) {
       droppedKeys.push(key);
       continue;
@@ -304,11 +425,17 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
     }
 
     if (!isPrimitiveValue(value)) {
-      droppedKeys.push(key);
+      if (!droppedKeys.includes(key)) droppedKeys.push(key);
       continue;
     }
 
-    if (looksSensitiveValue(value)) {
+    if (isInvalidGovernedEnum(eventName, key, value)) {
+      droppedKeys.push(key);
+      fatal = true;
+      continue;
+    }
+
+    if (looksSensitiveValue(value) && !isGovernedLongString(eventName, key, value)) {
       droppedKeys.push(key);
       continue;
     }
@@ -318,6 +445,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
 
   return {
     ok: droppedKeys.length === 0,
+    fatal,
     sanitized,
     droppedKeys,
   };

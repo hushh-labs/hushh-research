@@ -140,6 +140,12 @@ export function getPythonApiUrl(): string {
   });
 }
 
+/** Server-only backend fetch for page loaders and route handlers. */
+export function fetchPythonApi(path: string, init?: RequestInit): Promise<Response> {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return fetch(`${getPythonApiUrl()}${normalizedPath}`, init);
+}
+
 export function getDeveloperApiUrl(): string {
   return requireBackendOrigin({
     label: "developer backend origin",

@@ -1,0 +1,607 @@
+// @vitest-environment jsdom
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { contactSyncResult as result } from "@/__tests__/fixtures/contact-sync-results";
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+describe("ContactSyncResultsSheet", () => {
+  it("uses the Location onboarding measure for its decision CTAs", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result()}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const proceed = screen.getByRole("link", {
+      name: "Proceed to connections",
+    });
+    const invite = screen.getByRole("button", { name: "Invite contacts" });
+    for (const action of [proceed, invite]) {
+      expect(action).toHaveClass(
+        "h-[50px]",
+        "min-h-[50px]",
+        "w-full",
+        "max-w-[244px]",
+      );
+    }
+    expect(proceed.parentElement).toHaveClass("justify-center");
+  });
+
+  it("keeps the launcher inert, traps focus, and still dismisses with Escape", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <>
+        <button>Launch contacts</button>
+        <ContactSyncResultsSheet
+          open
+          onOpenChange={onOpenChange}
+          result={result()}
+          syncing={false}
+          onSyncAgain={vi.fn()}
+          onInvite={vi.fn()}
+          onRequestConnection={vi.fn()}
+        />
+      </>,
+    );
+    const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+    const header = sheet.querySelector('[data-slot="sheet-header"]');
+    expect(header).toHaveClass("pr-14");
+    expect(screen.getByText("Only eligible Hushh accounts are shown.")).toHaveClass(
+      "line-clamp-1",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Launch contacts" }),
+    ).toBeNull();
+    const launcher = screen.getByRole("button", {
+      name: "Launch contacts",
+      hidden: true,
+    });
+    await act(async () => {
+      launcher.focus();
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).toContainElement(document.activeElement as HTMLElement);
+    expect(document.body).toHaveStyle({ pointerEvents: "none" });
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it.each([false, true])(
+    "uses a blocking blurred overlay with takeover=%s",
+    (takeover) => {
+      render(
+        <ContactSyncResultsSheet
+          open
+          takeover={takeover}
+          onOpenChange={vi.fn()}
+          result={result()}
+          syncing={false}
+          onSyncAgain={vi.fn()}
+          onInvite={vi.fn()}
+          onRequestConnection={vi.fn()}
+        />,
+      );
+
+      const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+      const overlay = document.querySelector('[data-slot="sheet-overlay"]');
+      expect(overlay).toHaveClass("[backdrop-filter:var(--app-scrim-filter)]");
+      if (takeover) {
+        expect(sheet).toHaveClass("z-[9101]");
+        expect(overlay).toHaveClass("z-[9100]");
+      } else {
+        // The normal surface uses the shared stack (the --z-* ladder), but it
+        // is still modal: while results are open the Connect/Location page
+        // behind them is blurred, inaccessible and cannot receive pointer input.
+        expect(sheet).toHaveClass("z-(--z-sheet)");
+        expect(overlay).toHaveClass("z-(--z-sheet-overlay)");
+        expect(document.body).toHaveStyle({ pointerEvents: "none" });
+      }
+    },
+  );
+
+  it("renders large matched sets progressively without making any identity unreachable", () => {
+    const matches = Array.from({ length: 205 }, (_, index) => ({
+      lookupId: `lookup_${index + 1}`,
+      userId: `user_${index + 1}`,
+      displayName: `Matched Person ${index + 1}`,
+      photoUrl: null,
+      outcome: "already_connected" as const,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches,
+          matchedUserIds: matches.map((match) => match.userId),
+          matchedContactCount: 205,
+          alreadyConnectedCount: 205,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Matched Person 100")).toBeInTheDocument();
+    expect(screen.queryByText("Matched Person 101")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 100 of 205 matched people")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more (100)" }));
+    expect(screen.getByText("Matched Person 200")).toBeInTheDocument();
+    expect(screen.queryByText("Matched Person 201")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more (5)" }));
+    expect(screen.getByText("Matched Person 205")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show more/ })).toBeNull();
+  });
+
+  it("redacts contact-only matched names without changing the request target", async () => {
+    const requestConnection = vi.fn().mockResolvedValue(undefined);
+    const matches = ["member@example.test", "98******10"].map((displayName, index) => ({
+      lookupId: `lookup_private_${index}`,
+      userId: `user_private_${index}`,
+      displayName,
+      photoUrl: null,
+      outcome: "request_required" as const,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches,
+          matchedUserIds: matches.map((match) => match.userId),
+          matchedContactCount: 2,
+          requestRequiredCount: 2,
+          autoConnectedCount: 0,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={requestConnection}
+      />,
+    );
+
+    expect(screen.queryByText("member@example.test")).toBeNull();
+    expect(screen.queryByText("98******10")).toBeNull();
+    const requests = screen.getAllByRole("button", { name: "Send a connection request to Hussh member" });
+    expect(requests).toHaveLength(2);
+    fireEvent.click(requests[1]!);
+    await waitFor(() => expect(requestConnection).toHaveBeenCalledWith("user_private_1"));
+    expect(await screen.findByText("Request sent")).toBeVisible();
+  });
+
+  it("lists matched identities but keeps unmatched contacts aggregate-only", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result()}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Asha Rao")).toBeInTheDocument();
+    expect(screen.getByText("1199")).toBeInTheDocument();
+    expect(
+      screen.getByText("Only eligible Hushh accounts are shown."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/raw phone numbers/i)).toBeNull();
+    expect(screen.getByText("No match")).toBeInTheDocument();
+    expect(screen.queryByText("Not on Hushh")).toBeNull();
+    expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
+  });
+
+  it("explains directory eligibility and protected opt-outs when no account can be listed", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [],
+          matchedUserIds: [],
+          matchedContactCount: 0,
+          autoConnectedCount: 0,
+          inviteCandidateCount: 1200,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/exact verified phone match.*Connect directory/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Explicit opt-outs and previous disconnects/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps newly connected, existing, and suppressed identities distinct", () => {
+    const identities = [
+      ["new", "Asha Rao", "auto_connected"],
+      ["existing", "Meena Shah", "already_connected"],
+      ["removed", "Ravi Kumar", "suppressed"],
+    ] as const;
+    const matches = identities.map(([userId, displayName, outcome]) => ({
+      lookupId: `lookup_${userId}`,
+      userId,
+      displayName,
+      photoUrl: null,
+      outcome,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({ matches, alreadyConnectedCount: 1, suppressedCount: 1 })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      const row = within(screen.getByText(name).closest("li")!);
+      expect(row.getByText(status)).toBeInTheDocument();
+      expect(row.queryByRole("button", { name: /request/i })).toBeNull();
+    }
+  });
+
+  it.each([
+    {
+      limited: true,
+      sourcePlatform: "ios" as const,
+      recoveryLabel: "Sync again",
+    },
+    {
+      limited: true,
+      sourcePlatform: "web" as const,
+      recoveryLabel: "Check more",
+    },
+    {
+      truncated: true,
+      sourcePlatform: "google" as const,
+      recoveryLabel: "Choose Google account",
+    },
+  ])(
+    "explains a partial $sourcePlatform read with recovery and a way to continue",
+    (partial) => {
+      const onSyncAgain = vi.fn();
+      const onOpenChange = vi.fn();
+      const props = {
+        open: true,
+        onOpenChange,
+        result: result({
+          limited: partial.limited ?? false,
+          truncated: partial.truncated ?? false,
+          sourcePlatform: partial.sourcePlatform,
+          partial: true,
+        }),
+        syncing: false,
+        onSyncAgain,
+        onInvite: vi.fn(),
+        onRequestConnection: vi.fn(),
+      };
+      const view = render(<ContactSyncResultsSheet {...props} />);
+
+      expect(
+        screen.getByText("Only part of your contact list was checked."),
+      ).toBeInTheDocument();
+      const recovery = screen.getByRole("button", {
+        name: partial.recoveryLabel,
+      });
+      fireEvent.click(recovery);
+      expect(onSyncAgain).toHaveBeenCalledTimes(1);
+      const proceed = screen.getByRole("link", {
+        name: "Proceed to connections",
+      });
+      expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+      proceed.addEventListener("click", (event) => event.preventDefault(), {
+        once: true,
+      });
+      fireEvent.click(proceed);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      view.rerender(<ContactSyncResultsSheet {...props} syncing />);
+      expect(
+        screen.getByRole("link", { name: "Proceed to connections" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: partial.recoveryLabel }),
+      ).toBeDisabled();
+    },
+  );
+
+  it("wraps long matched identities instead of clipping them", () => {
+    const longName =
+      "Wilhelmina Featherstonehaugh-Rajendran International Household";
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [
+            {
+              lookupId: "lookup_long",
+              userId: "user_long",
+              displayName: longName,
+              photoUrl: null,
+              outcome: "request_required",
+            },
+          ],
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const identity = screen.getByText(longName);
+    expect(identity.className).toContain("break-words");
+    expect(identity.className).not.toContain("truncate");
+    expect(identity.textContent).toBe(longName);
+  });
+
+  it("separates outcome-unknown contacts from unmatched invite candidates", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          checkedContactCount: 1000,
+          unmatchedContactCount: 999,
+          inviteCandidateCount: 999,
+          unknownContactCount: 200,
+          mutationOutcomeUnknown: true,
+          partial: true,
+          partialFailureMessage:
+            "A sync request may have completed even though its response was lost.",
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/200 contacts need confirmation/i)).toBeInTheDocument();
+    expect(screen.getByText(/not counted as unmatched or inviteable/i)).toBeInTheDocument();
+  });
+
+  it("uses the same connections destination for bounded and ambiguous results", () => {
+    const view = render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          lookupLimitExceeded: true,
+          lookupLimitedContactCount: 2,
+          uncheckedContactCount: 2,
+          partial: true,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+    expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
+
+    view.rerender(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          lookupLimitExceeded: true,
+          lookupLimitedContactCount: 2,
+          unknownContactCount: 1,
+          mutationOutcomeUnknown: true,
+          partialFailureMessage: "The response was lost.",
+          partial: true,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
+
+    view.rerender(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          lookupLimitExceeded: true,
+          lookupLimitedContactCount: 2,
+          uncheckedContactCount: 3,
+          partial: true,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Proceed to connections" }),
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows connected provenance and no request action for auto-connected rows", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [
+            {
+              lookupId: "lookup_1",
+              userId: "user_1",
+              displayName: "Asha Rao",
+              photoUrl: null,
+              outcome: "auto_connected",
+            },
+          ],
+          autoConnectedCount: 1,
+          requestRequiredCount: 0,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const contactBadge = screen.getByLabelText("Connected from your contacts");
+    expect(contactBadge.closest('[data-slot="avatar"]')).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /send a connection request/i }))
+      .not.toBeInTheDocument();
+  });
+
+  it("explains a bounded matched result even when no contact becomes unchecked", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          lookupLimitExceeded: true,
+          lookupLimitedContactCount: 0,
+          partial: true,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Additional numbers were outside the limit/i),
+    ).toBeInTheDocument();
+  });
+
+  it("counts matched people consistently with the list and omits the own-number notice", () => {
+    const matches = Array.from({ length: 9 }, (_, index) => ({
+      lookupId: `lookup_${index + 1}`,
+      userId: `user_${index + 1}`,
+      displayName: `Matched person ${index + 1}`,
+      photoUrl: null,
+      outcome: index < 6 ? "already_connected" as const : "request_required" as const,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          sourcePlatform: "ios",
+          matches,
+          matchedUserIds: matches.map((match) => match.userId),
+          // Two address-book entries resolve to the same account; the own
+          // card is excluded before matching and must not create a tenth row.
+          checkedContactCount: 42,
+          matchedContactCount: 10,
+          unmatchedContactCount: 32,
+          excludedSelfContactCount: 1,
+          autoConnectedCount: 0,
+          alreadyConnectedCount: 6,
+          requestRequiredCount: 3,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Matched").parentElement).toHaveTextContent("9Matched");
+    expect(screen.getByText("Connected").parentElement).toHaveTextContent("6Connected");
+    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("button", { name: /send a connection request to/i })).toHaveLength(3);
+    expect(screen.queryByText(/containing your own number/i)).not.toBeInTheDocument();
+  });
+
+  it("resets progressive rendering when a fresh result arrives", async () => {
+    const matches = Array.from({ length: 150 }, (_, index) => ({
+      lookupId: `lookup_${index + 1}`,
+      userId: `user_${index + 1}`,
+      displayName: `First Sync ${index + 1}`,
+      photoUrl: null,
+      outcome: "already_connected" as const,
+    }));
+    const view = render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({ matches, matchedUserIds: matches.map((row) => row.userId) })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show more (50)" }));
+    expect(screen.getByText("First Sync 150")).toBeInTheDocument();
+
+    const freshMatches = matches.map((match, index) => ({
+      ...match,
+      displayName: `Fresh Sync ${index + 1}`,
+    }));
+    view.rerender(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: freshMatches,
+          matchedUserIds: freshMatches.map((row) => row.userId),
+          completedBatchCount: 2,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Fresh Sync 101")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Showing 100 of 150 matched people")).toBeInTheDocument();
+  });
+});

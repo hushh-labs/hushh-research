@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 import {
   appInteractionCoordinator,
   type InteractionIntentSource,
@@ -45,10 +46,10 @@ import {
  */
 
 // Kept in sync with the route-transition motion tokens in globals.css
-// (--motion-route-exit-duration / --motion-route-enter-duration). Longer,
-// gentler beats so navigation glides instead of feeling abrupt.
-const EXIT_MS = 300;
-const ENTER_MS = 360;
+// (--motion-route-exit-duration / --motion-route-enter-duration). The complete
+// route envelope is capped at 150ms with no transition delay.
+const EXIT_MS = 60;
+const ENTER_MS = 90;
 const MAX_PENDING_MS = 9_000;
 
 type RouteTransitionState = "idle" | "pending" | "entering";
@@ -60,6 +61,7 @@ type RouteTransitionState = "idle" | "pending" | "entering";
 let clearTimer: number | null = null;
 let maxPendingTimer: number | null = null;
 let commitTimer: number | null = null;
+let enterFrame: number | null = null;
 let activeRouteIntentId: string | null = null;
 
 // True while an explicitly coordinated navigation is committing. The History
@@ -79,14 +81,18 @@ function clearRouteTimers() {
   if (clearTimer) window.clearTimeout(clearTimer);
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (commitTimer) window.clearTimeout(commitTimer);
+  if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
   clearTimer = null;
   maxPendingTimer = null;
   commitTimer = null;
+  enterFrame = null;
 }
 
 function playEnter() {
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (clearTimer) window.clearTimeout(clearTimer);
+  if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
+  enterFrame = null;
   maxPendingTimer = null;
   setRouteState("entering");
   clearTimer = window.setTimeout(() => setRouteState("idle"), ENTER_MS);
@@ -106,6 +112,7 @@ export function beginRouteTransition(
   navigate: () => void,
   source: InteractionIntentSource = "programmatic",
   transitionMode: NavigationTransitionMode = "full",
+  feedback?: "selection" | "light",
 ): void {
   if (typeof window === "undefined") {
     navigate();
@@ -116,13 +123,34 @@ export function beginRouteTransition(
     source,
     transitionMode,
     start: (intent) => {
+      const commit = () => {
+        if (feedback && (source === "tap" || source === "native_back" || source === "search") &&
+            new URL(targetHref, window.location.href).href !== window.location.href) appHaptic(feedback, intent.id);
+        navigate();
+      };
       activeRouteIntentId = intent.id;
       clearRouteTimers();
-      if (transitionMode === "contextual" || reducedMotion()) {
+      // A target on the current pathname (the active bottom-nav tab tapped
+      // again, a query-only rewrite) is not a route switch: the pathname
+      // effect that owns the enter beat never fires, so a `pending` exit
+      // would hold the shell at opacity 0 until the 9s safety net. The
+      // History-API path already treats same-pathname writes as shallow
+      // (transitionTargetForHistory); this is the same rule for
+      // programmatic navigation.
+      if (
+        transitionMode === "contextual" ||
+        reducedMotion() ||
+        isCurrentPathname(targetHref)
+      ) {
+        // clearRouteTimers() above has just removed whatever would have
+        // restored a `pending` exit left latched by an interrupted full
+        // navigation. A contextual commit is instantaneous, so nothing may
+        // stay faded out — `pending` holds the entire app shell at opacity 0.
+        setRouteState("idle");
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
-          navigate();
+          commit();
         } finally {
           Promise.resolve().then(() => {
             transitionInFlight = false;
@@ -151,7 +179,7 @@ export function beginRouteTransition(
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
-          navigate();
+          commit();
         } finally {
           Promise.resolve().then(() => {
             transitionInFlight = false;
@@ -193,6 +221,33 @@ let originalReplaceState: History["replaceState"] | null = null;
  * they are in-place updates and animating them looks abnormal/janky. Those pass
  * straight through to the original history method.
  */
+/**
+ * A route pathname with the trailing slash dropped. The native export is
+ * built with `trailingSlash: true`, so on the phone the page's pathname is
+ * `/one/connect/` while every href in the app is `/one/connect`; compared
+ * byte for byte, the active tab tapped again read as a route switch, the
+ * shell went to its exit state, the destination never changed, the enter
+ * beat never fired, and the screen stayed blank until the 9 s safety net
+ * (bug log B51, the white screen on re-tapping Connect).
+ */
+function routePathname(pathname: string): string {
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
+/** True when `href` resolves to the pathname already on screen. */
+export function isCurrentPathname(href: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      routePathname(new URL(href, window.location.href).pathname) ===
+      routePathname(window.location.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function transitionTargetForHistory(
   url: string | URL | null | undefined,
 ): string | null {
@@ -208,8 +263,9 @@ function transitionTargetForHistory(
   if (resolved.origin !== window.location.origin) return null;
 
   // Only a pathname change is a route switch. Query-only / hash-only / no-op
-  // writes stay shallow and instant.
-  if (resolved.pathname === window.location.pathname) {
+  // writes stay shallow and instant (trailing slash ignored: the native
+  // export carries one, the app's hrefs do not).
+  if (routePathname(resolved.pathname) === routePathname(window.location.pathname)) {
     return null;
   }
 
@@ -308,6 +364,7 @@ export function useRouteTransition() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const mounted = useRef(false);
+  const previousPathname = useRef(pathname);
   const routeKey = searchParams.size
     ? `${pathname}?${searchParams.toString()}`
     : pathname;
@@ -369,6 +426,8 @@ export function useRouteTransition() {
   //   • browser back/forward + reduced-motion-skipped nav: state is "idle"; we
   //     still reveal the incoming frame.
   useEffect(() => {
+    const pathnameChanged = previousPathname.current !== pathname;
+    previousPathname.current = pathname;
     if (!mounted.current) {
       mounted.current = true;
       return;
@@ -376,39 +435,66 @@ export function useRouteTransition() {
     const activeIntent = appInteractionCoordinator
       .getSnapshot()
       .find((intent) => intent.id === activeRouteIntentId);
-    const activeTarget = activeIntent?.target
-      ? new URL(activeIntent.target, window.location.origin)
-      : null;
-    const targetRouteKey = activeTarget
-      ? `${activeTarget.pathname}${activeTarget.search}`
-      : null;
     const isContextualIntent = activeIntent?.transitionMode === "contextual";
 
+    /**
+     * Settle the navigation that has already handed its href to the router.
+     *
+     * A resolved route key reaching this effect IS the app reporting that it
+     * moved, and that is the only authority worth trusting. Settlement used to
+     * require the route key to string-match the intent's target, which it
+     * routinely does not: a target is hand-built ("/one/location?view=links")
+     * while the key is re-serialised from Next's parsed params, and Location's
+     * own effects rewrite the query as the hub mounts. Every mismatch left the
+     * navigation active forever, and an active navigation swallows the next
+     * tap to the same place.
+     *
+     * Only a committed navigation settles. One still waiting out its exit beat
+     * has a commit timer pending that checks it is still current, so retiring
+     * it here would drop the navigation entirely.
+     */
+    const settleCommittedIntent = (reason: string) => {
+      if (!activeRouteIntentId) return;
+      if (activeIntent?.status !== "committing") return;
+      appInteractionCoordinator.settleNavigation(activeRouteIntentId, reason);
+      activeRouteIntentId = null;
+    };
+
     if (isContextualIntent) {
-      if (targetRouteKey === routeKey && activeRouteIntentId) {
-        appInteractionCoordinator.settleNavigation(
-          activeRouteIntentId,
-          "contextual_route_key_settled",
-        );
-        activeRouteIntentId = null;
+      settleCommittedIntent("contextual_route_key_settled");
+      // A contextual commit plays no enter beat, but it must never inherit a
+      // `pending` exit from an interrupted full navigation and leave the shell
+      // invisible.
+      if (document.documentElement.dataset.routeTransition === "pending") {
+        clearRouteTimers();
+        setRouteState("idle");
       }
       return;
     }
 
     if (reducedMotion()) {
-      if (activeRouteIntentId && targetRouteKey === routeKey) {
-        appInteractionCoordinator.settleNavigation(
-          activeRouteIntentId,
-          "route_key_settled",
-        );
-        activeRouteIntentId = null;
-      }
+      settleCommittedIntent("route_key_settled");
+      setRouteState("idle");
       return;
     }
-    playEnter();
-    if (activeRouteIntentId && targetRouteKey === routeKey) {
-      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "route_key_settled");
-      activeRouteIntentId = null;
+    if (pathnameChanged) {
+      if (document.documentElement.dataset.routeTransition === "pending") {
+        // The incoming page's first style, layout and paint is the heaviest
+        // frame of a tab switch (40 to 55 ms on a phone). Let it happen while
+        // the shell is still held at opacity 0 by the exit, then start the
+        // fade two frames later on a page that is already laid out, so that
+        // frame never lands inside the animation.
+        if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
+        enterFrame = window.requestAnimationFrame(() => {
+          enterFrame = window.requestAnimationFrame(() => {
+            enterFrame = null;
+            playEnter();
+          });
+        });
+      } else {
+        playEnter();
+      }
     }
+    settleCommittedIntent("route_key_settled");
   }, [pathname, routeKey]);
 }

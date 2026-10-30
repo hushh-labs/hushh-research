@@ -16,8 +16,8 @@ import { useVault } from "@/lib/vault/vault-context";
 
 export default function ConnectedSystemsPage() {
   const router = useRouter();
-  const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { user, userId } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
   const selectedSystemId = String(searchParams.get("system") || "").trim();
@@ -63,8 +63,7 @@ export default function ConnectedSystemsPage() {
       />
       <AppPageContentRegion>
         <ConnectedSystemsPanel
-          cacheUserId={user?.uid}
-          vaultKey={vaultKey}
+          cacheUserId={userId}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="list"
@@ -77,7 +76,7 @@ export default function ConnectedSystemsPage() {
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Set up your private vault"
-          description="Set up or open your private vault to inspect CRM records and approve Connected Systems actions."
+          description="Open your vault to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

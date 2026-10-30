@@ -2,11 +2,13 @@
 """Resolve the next iOS TestFlight build number (CFBundleVersion).
 
 The one-click TestFlight pipeline needs a build number that is strictly greater
-than both:
+than all three:
 
   * the highest build already known to App Store Connect for this marketing
     version train (so TestFlight accepts the upload -- it rejects duplicate or
     lower CFBundleVersion values within a CFBundleShortVersionString), and
+  * the highest retained ``buildUploads`` record, including failed or awaiting
+    uploads that no longer appear in the normal ``builds`` collection, and
   * the ``CURRENT_PROJECT_VERSION`` committed in ``project.pbxproj`` (which is
     frequently stale relative to what has actually shipped to TestFlight).
 
@@ -167,6 +169,46 @@ def latest_build_number(token: str, app_id: str, marketing_version: str | None =
     return highest
 
 
+def latest_upload_number(token: str, app_id: str) -> int:
+    """Highest iOS CFBundleVersion retained in ASC build-upload history.
+
+    Rejected uploads can disappear from ``/v1/builds`` while their upload
+    records remain addressable. Reusing that number makes the release verifier
+    match stale state, so allocate above both resource families.
+    """
+    query = urllib.parse.urlencode(
+        {
+            "filter[platform]": "IOS",
+            "fields[buildUploads]": "cfBundleVersion",
+            "limit": "200",
+        }
+    )
+    url = f"{ASC_API_ROOT}/v1/apps/{app_id}/buildUploads?{query}"
+    highest = 0
+    seen = 0
+    while url:
+        payload = asc_get(url, token)
+        for upload in payload.get("data", []):
+            seen += 1
+            raw = (upload.get("attributes") or {}).get("cfBundleVersion")
+            try:
+                highest = max(highest, int(str(raw).strip()))
+            except (TypeError, ValueError):
+                continue
+        url = (payload.get("links") or {}).get("next")
+    log(
+        f"App Store Connect: inspected {seen} retained iOS upload(s); "
+        f"highest CFBundleVersion = {highest}"
+    )
+    return highest
+
+
+def resolve_next_build_number(
+    pbx_current: int, asc_build_latest: int, asc_upload_latest: int
+) -> int:
+    return max(pbx_current, asc_build_latest, asc_upload_latest) + 1
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -226,13 +268,15 @@ def main(argv: list[str]) -> int:
 
     token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
     app_id = resolve_app_id(token, args.bundle_id)
-    asc_latest = latest_build_number(token, app_id, marketing_version)
-
-    floor = max(asc_latest, pbx_current)
-    next_build = floor + 1
+    asc_build_latest = latest_build_number(token, app_id, marketing_version)
+    asc_upload_latest = latest_upload_number(token, app_id)
+    next_build = resolve_next_build_number(
+        pbx_current, asc_build_latest, asc_upload_latest
+    )
     log(
         f"pbxproj CURRENT_PROJECT_VERSION = {pbx_current}; "
-        f"ASC latest = {asc_latest}; next build = {next_build}"
+        f"ASC build latest = {asc_build_latest}; "
+        f"ASC upload latest = {asc_upload_latest}; next build = {next_build}"
     )
     print(next_build)
     return 0

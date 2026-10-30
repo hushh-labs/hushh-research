@@ -1,3 +1,5 @@
+import pytest
+
 from api.utils.fcm_messages import build_push_message
 
 
@@ -52,6 +54,7 @@ class _MessagingStub:
             content_available=None,
             category=None,
             thread_id=None,
+            mutable_content=None,
         ):
             self.alert = alert
             self.sound = sound
@@ -59,11 +62,12 @@ class _MessagingStub:
             self.content_available = content_available
             self.category = category
             self.thread_id = thread_id
+            self.mutable_content = mutable_content
 
     class APNSPayload:
-        def __init__(self, aps=None, custom_data=None):
+        def __init__(self, aps=None, custom_data=None, **kwargs):
             self.aps = aps
-            self.custom_data = custom_data
+            self.custom_data = {**(custom_data or {}), **kwargs}
 
     class APNSConfig:
         def __init__(self, headers=None, payload=None):
@@ -81,6 +85,7 @@ class _MessagingStub:
             priority=None,
             visibility=None,
             vibrate_timings_millis=None,
+            sound=None,
         ):
             self.title = title
             self.body = body
@@ -90,11 +95,13 @@ class _MessagingStub:
             self.priority = priority
             self.visibility = visibility
             self.vibrate_timings_millis = vibrate_timings_millis
+            self.sound = sound
 
     class AndroidConfig:
-        def __init__(self, priority=None, notification=None):
+        def __init__(self, priority=None, notification=None, ttl=None):
             self.priority = priority
             self.notification = notification
+            self.ttl = ttl
 
     class Message:
         def __init__(
@@ -222,10 +229,80 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     )
 
     assert android.notification.body == body
+    assert android.android.priority == "high"
+    assert android.android.notification.channel_id == "hushh_activity_alerts_v1"
+    assert android.android.notification.sound == "default"
+    assert android.android.notification.priority == "high"
     assert web.notification.body == body
     assert web.webpush.notification.body == body
     assert ios.notification.body == body
     assert ios.apns.payload.aps.alert.body == body
+    assert ios.apns.payload.aps.sound == "default"
+
+
+def test_connection_request_identity_reaches_every_platform() -> None:
+    """The requester's name and the review-sheet link must survive on all three.
+
+    Regression guard for issue #5422. The resolved name used to reach only the
+    banner body, never the FCM ``data`` map -- and the in-app toast reads the data
+    map exclusively, so it rendered "Someone" while the OS banner named the
+    requester correctly. Both halves are asserted per platform, because each one
+    carries the banner differently: web via WebpushNotification, Android via the
+    top-level Notification (no AndroidConfig is built for this type), iOS via
+    aps.alert plus custom_data.
+    """
+    from hushh_mcp.services.push_notifications import (
+        _connection_request_body,
+        _connection_request_link,
+    )
+
+    request_id = "8f14e45f-ceea-467a-9c1d-5b8f0f9a1234"
+    body = _connection_request_body("Rohan Mehta")
+    deep_link = _connection_request_link(request_id)
+    data = {
+        "type": "connection_request",
+        "requester_user_id": "requester-uid",
+        "requester_label": "Rohan Mehta",
+        "request_id": request_id,
+        "request_url": deep_link,
+        "deep_link": deep_link,
+        "notification_tag": f"connection-request:{request_id}",
+    }
+
+    messages = {
+        platform: build_push_message(
+            _MessagingStub,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data=dict(data),
+            title="New connection request",
+            body=body,
+            request_url=deep_link,
+            notification_tag=f"connection-request:{request_id}",
+            show_alert=True,
+        )
+        for platform in ("web", "ios", "android")
+    }
+
+    assert body == "Rohan Mehta wants to connect with you on Hussh."
+    assert deep_link == f"/one/consent?tab=pending&requestId={request_id}"
+
+    for platform, message in messages.items():
+        # The field the in-app toast reads, on every platform.
+        assert message.data["requester_label"] == "Rohan Mehta", platform
+        assert message.data["request_id"] == request_id, platform
+        # The banner a person sees on the lock screen.
+        assert message.notification.body == body, platform
+        assert "hushh" not in message.notification.body.lower(), platform
+        assert "Someone" not in message.notification.body, platform
+
+    assert messages["web"].webpush.notification.body == body
+    assert messages["android"].android.notification.tag == (f"connection-request:{request_id}")
+    assert messages["web"].webpush.notification.data == {"url": deep_link}
+    assert messages["ios"].apns.payload.aps.alert.body == body
+    # iOS receives the data map as APNS custom_data, which is what feeds the
+    # Capacitor notificationReceived listener.
+    assert messages["ios"].apns.payload.custom_data["requester_label"] == "Rohan Mehta"
 
 
 def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
@@ -240,7 +317,7 @@ def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
     }
     common = {
         "data": data,
-        "title": "SMS · Save my soul",
+        "title": "Save my Soul",
         "body": "Alex: Come get me",
         "request_url": "/one/location?section=shared",
         "notification_tag": "one-location-share:sms-1",
@@ -358,10 +435,246 @@ def test_build_push_message_without_alert_is_data_only():
     assert message.notification is None
     assert message.apns is not None
     assert message.webpush is None
-    assert message.data == {"type": "consent_resolved"}
+    assert message.data == {
+        "type": "consent_resolved",
+        "notification_presentation": "silent",
+    }
     assert message.apns.headers == {
         "apns-push-type": "background",
         "apns-priority": "5",
     }
+    assert message.apns.payload.aps.alert is None
+    assert message.apns.payload.aps.sound is None
+    assert message.apns.payload.aps.badge is None
     assert message.apns.payload.aps.content_available is True
     assert message.apns.payload.aps.thread_id == "consent-request:test"
+
+
+def test_one_location_feed_only_transport_gate_overrides_alert_callers() -> None:
+    """Feed-only Location events must stay data-only at the FCM/APNs boundary."""
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    feed_only_types = (
+        "location_share_revoked",
+        "location_share_shortened",
+        "location_access_request_withdrawn",
+        "location_share_duration_changed",
+        "location_share_expired",
+        "location_circle_code_joined",
+        "location_circle_member_invite_accepted",
+    )
+    delivery_target = "ios-device-id"
+
+    for notification_type in feed_only_types:
+        message = build_push_message(
+            messaging,
+            token=delivery_target,
+            platform="ios",
+            data={
+                "type": notification_type,
+                "share_kind": "standard",
+                "title": "This must not become an alert title",
+                "body": "This must not become an alert body",
+                "image": "https://example.test/alert.png",
+            },
+            title="Caller requested alert title",
+            body="Caller requested alert body",
+            request_url="/one/location",
+            notification_tag=f"one-location-test:{notification_type}",
+            show_alert=True,
+        )
+        encoded = _MessagingService.encode_message(message)
+
+        assert message.notification is None, notification_type
+        assert "notification" not in encoded, notification_type
+        assert encoded["data"]["notification_presentation"] == "silent"
+        assert "title" not in encoded["data"], notification_type
+        assert "body" not in encoded["data"], notification_type
+        assert "image" not in encoded["data"], notification_type
+        assert encoded["apns"]["headers"] == {
+            "apns-push-type": "background",
+            "apns-priority": "5",
+        }
+        aps = encoded["apns"]["payload"]["aps"]
+        assert aps["content-available"] == 1, notification_type
+        assert "alert" not in aps, notification_type
+        assert "sound" not in aps, notification_type
+        assert "badge" not in aps, notification_type
+        assert "title" not in encoded["apns"]["payload"], notification_type
+        assert "body" not in encoded["apns"]["payload"], notification_type
+        assert "image" not in encoded["apns"]["payload"], notification_type
+
+
+def test_one_location_direct_circle_member_added_still_allows_ios_alert() -> None:
+    """Directly adding someone to a Circle remains interruptive."""
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "ios-device-id"
+    message = build_push_message(
+        messaging,
+        token=delivery_target,
+        platform="ios",
+        data={
+            "type": "location_circle_member_added",
+            "circle_id": "circle-1",
+        },
+        title="Added to a Circle",
+        body='Alex added you to "Family".',
+        request_url="/one/location?tab=people&circleId=circle-1",
+        notification_tag="location-circle-member-added:circle-1",
+        show_alert=True,
+    )
+    encoded = _MessagingService.encode_message(message)
+
+    assert message.notification is not None
+    assert encoded["notification"] == {
+        "title": "Added to a Circle",
+        "body": 'Alex added you to "Family".',
+    }
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["alert"] == {
+        "title": "Added to a Circle",
+        "body": 'Alex added you to "Family".',
+    }
+    assert aps["sound"] == "default"
+    assert aps["badge"] == 1
+
+
+def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
+    """Guard the wire shape, not only the intentionally tiny local stub."""
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    for platform in ("web", "ios", "android"):
+        message = build_push_message(
+            messaging,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data={
+                "type": "consent_resolved",
+                "request_id": "request-1",
+            },
+            title="Consent updated",
+            body="Request resolved.",
+            request_url="/one/consent",
+            notification_tag="consent-request:request-1",
+            show_alert=False,
+        )
+        encoded = _MessagingService.encode_message(message)
+        assert encoded["data"]["notification_presentation"] == "silent"
+        assert "title" not in encoded["data"]
+        assert "body" not in encoded["data"]
+        assert "image" not in encoded["data"]
+        assert "notification" not in encoded
+        if platform == "ios":
+            payload = encoded["apns"]["payload"]
+            assert payload["aps"]["content-available"] == 1
+            assert "alert" not in payload["aps"]
+            assert "sound" not in payload["aps"]
+            assert payload["type"] == "consent_resolved"
+            assert "custom_data" not in payload
+        else:
+            assert platform not in encoded
+
+
+def test_chat_transport_supports_legacy_android_and_mutable_ios(monkeypatch):
+    monkeypatch.setattr("api.utils.fcm_messages.time.time", lambda: 1000)
+    import hashlib
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    for kind in ("direct_message", "location_circle_message"):
+        data = {
+            "type": kind,
+            "message_id": "fixture-event",
+            "conversation_id": "fixture-thread",
+            "recipient_key_id": "fixture-key",
+        }
+
+        def wire(platform, payload):
+            return _MessagingService.encode_message(
+                build_push_message(
+                    messaging,
+                    token=delivery_target,
+                    platform=platform,
+                    data=payload,
+                    title="New message",
+                    body="Open chat",
+                    request_url="/one/feed",
+                    notification_tag="fixture-event",
+                    show_alert=True,
+                )
+            )
+
+        assert "notification" not in wire("android", data)
+        assert wire("android", data)["android"]["priority"] == "high"
+        assert wire("android", data)["android"]["ttl"] == "86400s"
+        web = wire("web", data)
+        assert "notification" not in web
+        assert "notification" not in web["webpush"]
+        assert "fcm_options" not in web["webpush"]
+        assert web["webpush"]["headers"]["TTL"] == "86400"
+        legacy = {key: value for key, value in data.items() if key != "recipient_key_id"}
+        assert "notification" in wire("android", legacy)
+        assert wire("android", legacy)["android"]["ttl"] == "86400s"
+        ios = wire("ios", data)["apns"]
+        assert ios["payload"]["aps"]["mutable-content"] == 1
+        assert ios["payload"]["aps"]["thread-id"] == "fixture-thread"
+        assert "badge" not in ios["payload"]["aps"]
+        assert (
+            wire("ios", {**data, "chat_badge_count": "7"})["apns"]["payload"]["aps"]["badge"] == 7
+        )
+        assert ios["headers"]["apns-collapse-id"] == hashlib.sha256(b"fixture-event").hexdigest()
+
+
+def test_chat_read_badge_sync_has_no_alert_or_sound():
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    encoded = _MessagingService.encode_message(
+        build_push_message(
+            messaging,
+            token=delivery_target,
+            platform="ios",
+            data={"type": "direct_message_read", "chat_badge_count": "0"},
+            title="",
+            body="",
+            request_url="/one/messages",
+            notification_tag="fixture-thread",
+            show_alert=False,
+        )
+    )
+    assert encoded["apns"]["headers"]["apns-push-type"] == "alert"
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["badge"] == 0 and aps["content-available"] == 1
+    assert "alert" not in aps and "sound" not in aps and "notification" not in encoded
+
+
+def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):
+    import base64
+    import io
+
+    import requests
+    from PIL import Image
+
+    from hushh_mcp.services.chat_push_delivery import thumbnail
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("Untrusted avatar caused a network request"),
+    )
+    assert thumbnail("https://example.test/avatar.jpg") == ""
+    assert thumbnail("http://169.254.169.254/latest/meta-data") == ""
+    source = io.BytesIO()
+    Image.new("RGB", (64, 64), color="blue").save(source, format="PNG")
+    result = thumbnail("data:image/png;base64," + base64.b64encode(source.getvalue()).decode())
+    assert result.startswith("data:image/jpeg;base64,")
+    assert len(result) <= 1023

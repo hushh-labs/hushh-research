@@ -1,15 +1,26 @@
-"""Best-effort metadata FCM push to a user's registered devices.
+"""Metadata FCM push to a user's registered devices.
 
 Agent-agnostic notifier so any service can nudge a user's client to refresh
 (e.g. a freshly-created connection request). Mirrors the location specialist's
 metadata push but carries no domain coupling. It NEVER raises: push is
-strictly best-effort, and it no-ops (touching no DB) when Firebase is not
-configured, so unit tests and credential-less environments stay clean.
+best-effort outside source-backed system alerts. Core system alerts reuse the
+source-transaction outbox even during Firebase failure; other lanes retain
+their credential-less no-op behavior.
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
+from urllib.parse import quote
+
+from hushh_mcp.branding import connection_request_body
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_NOTIFICATION_DEVICES_FOR_USER_SQL as PUSH_TOKENS_FOR_USER_SQL,
+)
+from hushh_mcp.services.push_tokens_service import (
+    remove_stale_push_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +36,8 @@ def send_user_data_push(
     notification_category: str,
     data: dict[str, str] | None = None,
     show_alert: bool = True,
+    include_user_id: bool = True,
+    platforms: frozenset[str] | None = None,
 ) -> int:
     """Send a metadata push to every device registered for ``user_id``.
 
@@ -32,11 +45,28 @@ def send_user_data_push(
     returns 0 (and swallows everything) when the user is empty, Firebase is
     unconfigured, the user has no tokens, or any send fails. Firebase config is
     checked FIRST so that unconfigured environments never touch the database.
+    Core source-backed alerts return currently registered installation count
+    while the durable worker owns provider acceptance and retries.
+    ``platforms`` limits delivery to those registered platforms (for example
+    native only); ``None`` keeps every registered device.
     """
     user_id = (user_id or "").strip()
     if not user_id:
         return 0
     try:
+        from hushh_mcp.services.system_push_delivery import durable_push_receipt
+
+        receipt = (
+            durable_push_receipt(user_id, notification_type, data or {})
+            if (
+                show_alert
+                and platforms is None
+                and str((data or {}).get("sync_only", "")).lower() != "true"
+            )
+            else None
+        )
+        if receipt is not None:
+            return receipt
         from api.utils.firebase_admin import ensure_firebase_admin
 
         configured, _ = ensure_firebase_admin()
@@ -48,7 +78,7 @@ def send_user_data_push(
         rows = (
             get_db()
             .execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                PUSH_TOKENS_FOR_USER_SQL,
                 {"user_id": user_id},
             )
             .data
@@ -63,13 +93,18 @@ def send_user_data_push(
 
         message_data = {
             "type": notification_type,
-            "user_id": user_id,
             "request_url": deep_link,
             "deep_link": deep_link,
             "notification_tag": notification_tag,
             "notification_category": notification_category,
             **{k: str(v) for k, v in (data or {}).items() if str(v or "").strip()},
         }
+        # Existing notification lanes retain their recipient reconciliation
+        # field. Privacy-scoped callers can opt out when their opaque message
+        # reference is sufficient and a raw account identifier must never
+        # reach Firebase or the device.
+        if include_user_id:
+            message_data["user_id"] = user_id
 
         sent = 0
         seen: set[str] = set()
@@ -79,11 +114,21 @@ def send_user_data_push(
                 continue
             seen.add(token)
             platform = str(row.get("platform") or "").strip().lower()
+            if platforms is not None and platform not in platforms:
+                continue
             message = build_push_message(
                 messaging,
                 token=token,
                 platform=platform,
-                data=message_data,
+                data={
+                    **message_data,
+                    **(
+                        {"recipient_key_id": str(row["preview_key_id"])}
+                        if notification_type in {"location_circle_chat_read", "direct_message_read"}
+                        and row.get("preview_key_id")
+                        else {}
+                    ),
+                },
                 title=title,
                 body=body,
                 request_url=deep_link,
@@ -95,10 +140,7 @@ def send_user_data_push(
                 sent += 1
             except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 try:
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(get_db(), user_id, token)
                 except Exception as cleanup_exc:  # noqa: BLE001
                     logger.warning(
                         "push.token_cleanup_failed type=%s error=%s",
@@ -113,72 +155,648 @@ def send_user_data_push(
         return 0
 
 
-_GENERIC_CONNECTION_REQUEST_BODY = "Someone wants to connect with you on hushh."
+_GENERIC_CONNECTION_REQUEST_BODY = connection_request_body()
+
+# Where a connection-request tap must land. The Consent Center opens the review
+# sheet purely from the URL -- `selectedId = searchParams.get("requestId")` in
+# consent-center-page.tsx -- so a link without the id can only ever render the
+# list, which is what made "tapping the notification" a dead end. `tab=pending`
+# is the shape `buildConsentCenterHref` emits and the one the Feed's Review
+# action already uses, so all three entry points agree.
+CONNECTION_REQUEST_LIST_LINK = "/one/consent?tab=connections"
+ONE_LOCATION_CIRCLE_LIST_LINK = "/one/location?view=people"
+
+
+def _circle_detail_link(circle_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}&action=circle-detail"
+        f"&circleId={quote(str(circle_id or '').strip(), safe='')}"
+    )
+
+
+def _circle_invite_link(invite_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}"
+        f"&circleInviteId={quote(str(invite_id or '').strip(), safe='')}"
+    )
+
+
+def _connection_request_link(connection_request_id: str | None) -> str:
+    request_id = str(connection_request_id or "").strip()
+    if not request_id:
+        return CONNECTION_REQUEST_LIST_LINK
+    return f"/one/consent?tab=pending&requestId={quote(request_id, safe='')}"
 
 
 def _connection_request_body(requester_name: str | None) -> str:
     """Connection-request banner copy. Names the requester when we have one,
-    else falls back to the generic line — never emits ``None``/``undefined``."""
-    name = (requester_name or "").strip()
-    if not name:
-        return _GENERIC_CONNECTION_REQUEST_BODY
-    return f"{name} wants to connect with you on hushh."
+    else falls back to the generic line — never emits ``None``/``undefined``.
+
+    Thin wrapper kept for the existing call sites and tests; the sentence itself
+    lives in ``hushh_mcp.branding`` so the web toast, the OS banner and the SSE
+    body cannot drift apart again (that drift is how the brand misspelling
+    survived on this surface — see issue #5422).
+    """
+    return connection_request_body(requester_name)
 
 
 def _lookup_display_name(user_id: str) -> str:
-    """Best-effort requester display name from the actor identity cache.
+    """Best-effort, lock-screen-safe requester label. "" when unresolved.
 
-    Returns "" on any miss/error, and — mirroring ``send_user_data_push`` —
-    checks Firebase config FIRST so credential-less environments never touch the
-    database. The banner degrades to the generic copy when this returns "".
+    Delegates to ``requester_identity.resolve_requester_label``, which rejects
+    technical identities (a raw Firebase uid is a legitimate value of
+    ``actor_identity_cache.display_name``) and falls back to an email handle.
+
+    Deliberately NOT gated on ``ensure_firebase_admin()``. It used to be, copied
+    from ``send_user_data_push`` where the gate genuinely avoids a pointless
+    token read. Here the same value also feeds the in-app/SSE copy, so the gate
+    blanked a perfectly resolvable name in every environment without Firebase
+    credentials — the database had it the whole time.
     """
-    user_id = (user_id or "").strip()
-    if not user_id:
-        return ""
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    return resolve_requester_label(user_id)
+
+
+def _publish_connection_user_event(user_id: str, payload: dict[str, str]) -> None:
+    """Wake every SSE worker, retaining the local queue as a startup fallback."""
+
     try:
-        from api.utils.firebase_admin import ensure_firebase_admin
-
-        configured, _ = ensure_firebase_admin()
-        if not configured:
-            return ""
-
-        from db.db_client import get_db
-
-        rows = (
-            get_db()
-            .execute_raw(
-                "SELECT display_name FROM actor_identity_cache WHERE user_id = :user_id LIMIT 1",
-                {"user_id": user_id},
-            )
-            .data
-            or []
+        from api.consent_listener import (
+            publish_user_state_event_threadsafe,
+            push_to_consent_queue_threadsafe,
         )
-        if not rows:
-            return ""
-        return str(rows[0].get("display_name") or "").strip()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.name_lookup_skipped error=%s", exc)
-        return ""
+
+        if not publish_user_state_event_threadsafe(user_id, payload):
+            push_to_consent_queue_threadsafe(user_id, payload)
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+        logger.warning("push.sse_queue_failed type=%s error=%s", payload.get("type"), exc)
 
 
-def send_connection_request_push(addressee_user_id: str, requester_user_id: str) -> int:
+def _canonical_push_message_id(
+    user_id: str, notification_type: str, data: dict, fallback: str
+) -> str:
+    try:
+        from hushh_mcp.services.system_push_delivery import durable_push_event_id
+
+        return durable_push_event_id(user_id, notification_type, data) or fallback
+    except Exception:
+        # A live doorbell still works while durable-dispatch recovery catches up.
+        return fallback
+
+
+def send_connection_graph_changed_push(
+    user_id: str,
+    *,
+    transition_id: str,
+    connection_id: str = "",
+) -> int:
+    """Silently reconcile an activated graph edge on all of one user's devices."""
+
+    user_id = str(user_id or "").strip()
+    connection_id = str(connection_id or "").strip()
+    transition_id = str(transition_id or "").strip()
+    if not user_id or not transition_id:
+        return 0
+    message_id = f"connection-graph-changed:{transition_id}:{user_id}"
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    data = {"message_id": message_id, "connection_id": connection_id, "sync_only": "true"}
+    _publish_connection_user_event(
+        user_id,
+        {
+            "type": "connection_graph_changed",
+            "user_id": user_id,
+            "title": "Connections updated",
+            "body": "Your connections changed.",
+            "deep_link": deep_link,
+            "request_url": deep_link,
+            **data,
+        },
+    )
+    return send_user_data_push(
+        user_id,
+        notification_type="connection_graph_changed",
+        title="Connections updated",
+        body="Your connections changed.",
+        deep_link=deep_link,
+        notification_tag=message_id,
+        notification_category="ONE_CONNECTIONS",
+        data=data,
+        show_alert=False,
+    )
+
+
+def send_connection_request_push(
+    addressee_user_id: str,
+    requester_user_id: str,
+    *,
+    requester_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
     """Nudge the addressee's client that a new connection request arrived.
 
     The payload's ``type`` drives the client (see notification-provider.tsx):
     on receipt it invalidates the consent-center cache so the incoming request
     surfaces without a manual refresh. The banner names the requester when the
-    identity cache has a display name, and degrades to the generic line
-    otherwise (best-effort; the lookup never blocks or raises)."""
-    requester_name = _lookup_display_name(requester_user_id)
+    identity cache can, and degrades to the generic line otherwise
+    (best-effort; the lookup never blocks or raises).
+
+    ``requester_display_name`` lets the caller pass a name it already holds
+    (``ConnectionsService`` has one at every notify site) so we skip the query.
+    ``connection_request_id`` is the real ``connection_requests.id``; it is what
+    makes the tap open the review sheet instead of a list, so pass it whenever
+    it is known.
+    """
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    requester_name = resolve_requester_label(
+        requester_user_id,
+        display_name=requester_display_name,
+    )
+    body = connection_request_body(requester_name)
+    deep_link = _connection_request_link(connection_request_id)
+    request_id = str(connection_request_id or "").strip()
+    message_id = f"connection-request:{request_id or uuid.uuid4()}"
+
+    # Identity and routing fields the CLIENT needs, as opposed to the banner the
+    # OS renders. The in-app toast reads only this data map -- it never sees
+    # `body` -- which is exactly why it said "Someone" while the system banner
+    # said the right thing. Empty values are dropped by send_user_data_push, so
+    # an unresolved name simply omits the key and the client owns the fallback.
+    # The raw requester user id is deliberately absent: the client neither
+    # routes nor renders from it, so sending it would widen the push payload
+    # without adding a user-facing capability.
+    message_id = _canonical_push_message_id(
+        addressee_user_id, "connection_request", {"request_id": request_id}, message_id
+    )
+    client_data = {
+        "message_id": message_id,
+        "requester_label": requester_name,
+        "request_id": request_id,
+    }
+
+    sse_payload = {
+        "type": "connection_request",
+        "action": "REQUESTED",
+        "message_id": message_id,
+        # The real row id, not the old synthetic `conn_req:<uid>`. That value
+        # was stable per *requester* rather than per request, so the SSE
+        # de-dup in api/routes/sse.py silently swallowed every follow-up
+        # request from the same person on one connection — and any client
+        # promoting it into `?requestId` would resolve nothing.
+        "request_id": request_id or f"conn_req:{requester_user_id}",
+        "user_id": addressee_user_id,
+        "requester_user_id": requester_user_id,
+        # "" rather than "Someone": baking the placeholder into transport
+        # meant the client's own (richer) fallback ladder could never fire,
+        # because it received a label that merely looked real.
+        "requester_label": requester_name,
+        "title": "New connection request",
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(addressee_user_id, sse_payload)
+
     return send_user_data_push(
         addressee_user_id,
         notification_type="connection_request",
         title="New connection request",
-        body=_connection_request_body(requester_name),
-        deep_link="/one/consent?tab=connections",
-        notification_tag=f"connection-request:{addressee_user_id}",
+        body=body,
+        deep_link=deep_link,
+        # Legacy callers without a row id keep one generic OS replacement tag,
+        # but each delivery still needs a unique client/SSE transition id.
+        notification_tag=(
+            f"connection-request:{request_id}" if request_id else "connection-request"
+        ),
         notification_category="ONE_CONNECTIONS",
-        data={"requester_user_id": requester_user_id},
+        data=client_data,
+    )
+
+
+def send_connection_request_cancelled_push(
+    addressee_user_id: str,
+    requester_user_id: str,
+    *,
+    requester_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the addressee that a pending request was withdrawn.
+
+    Cancelling used to write the DB and tell nobody: the request just sat in
+    the addressee's pending list, indistinguishable from one still awaiting a
+    reply, until their next reconcile.
+    """
+
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    requester_name = resolve_requester_label(
+        requester_user_id,
+        display_name=requester_display_name,
+    )
+    label = requester_name or "Someone"
+    body = f"{label} withdrew their connection request."
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+
+    message_id = f"connection-request-cancelled:{request_id or uuid.uuid4()}"
+    client_data = {
+        "message_id": message_id,
+        "requester_label": requester_name,
+        "request_id": request_id,
+    }
+
+    sse_payload = {
+        "type": "connection_request_cancelled",
+        "action": "CANCELLED",
+        "message_id": message_id,
+        "request_id": request_id or f"conn_req:{requester_user_id}",
+        "user_id": addressee_user_id,
+        "requester_user_id": requester_user_id,
+        "requester_label": requester_name,
+        "title": "Connection request withdrawn",
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(addressee_user_id, sse_payload)
+
+    return send_user_data_push(
+        addressee_user_id,
+        notification_type="connection_request_cancelled",
+        title="Connection request withdrawn",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=(
+            f"connection-request-cancelled:{request_id}"
+            if request_id
+            else "connection-request-cancelled"
+        ),
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
+def send_connection_request_resolved_push(
+    requester_user_id: str,
+    resolver_user_id: str,
+    *,
+    accepted: bool,
+    resolver_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the REQUESTER their sent connection request was accepted/declined.
+
+    `accept_request`/`reject_request` had no notifier call at all -- the only
+    signal toward the requester was a Feed row nobody pushed, so they learned
+    the outcome from the Feed's foreground poll (45s) or their next app open.
+    Mirrors `send_connection_request_push`'s shape, addressed the other way:
+    that one nudges the ADDRESSEE that a request arrived, this nudges the
+    REQUESTER that theirs was resolved.
+
+    `resolver_display_name` lets the caller pass a name it already holds, the
+    same reason `send_connection_request_push` accepts one.
+    """
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    resolver_name = resolve_requester_label(
+        resolver_user_id,
+        display_name=resolver_display_name,
+    )
+    title = "Connection accepted" if accepted else "Connection declined"
+    body = (
+        f"{resolver_name} accepted your connection request."
+        if accepted
+        else f"{resolver_name} declined your connection request."
+    )
+    # The request is resolved, not pending review any more -- send the
+    # requester to their connections list rather than a review sheet that no
+    # longer has anything to review.
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+    message_id = f"connection-request-resolved:{request_id or uuid.uuid4()}"
+
+    client_data = {
+        "message_id": message_id,
+        "resolver_label": resolver_name,
+        "request_id": request_id,
+        "accepted": "true" if accepted else "false",
+    }
+
+    sse_payload = {
+        "type": "connection_request_resolved",
+        "action": "ACCEPTED" if accepted else "DECLINED",
+        "message_id": message_id,
+        "request_id": request_id or f"conn_req_resolved:{resolver_user_id}",
+        "user_id": requester_user_id,
+        "resolver_user_id": resolver_user_id,
+        "resolver_label": resolver_name,
+        "title": title,
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(requester_user_id, sse_payload)
+
+    return send_user_data_push(
+        requester_user_id,
+        notification_type="connection_request_resolved",
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        notification_tag=(
+            f"connection-request-resolved:{request_id}"
+            if request_id
+            else "connection-request-resolved"
+        ),
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
+def send_connection_removed_push(
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    *,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> int:
+    """Silently tell one side that a committed connection was removed.
+
+    Both people receive this metadata-only wake-up (including the actor, whose
+    other devices otherwise retain the old graph). The Feed already explains
+    the relationship transition, so this signal deliberately does not create
+    an OS alert; its job is to invalidate every connection-backed projection.
+    """
+
+    recipient_user_id = str(recipient_user_id or "").strip()
+    counterpart_user_id = str(counterpart_user_id or "").strip()
+    actor_user_id = str(actor_user_id or "").strip()
+    connection_id = str(connection_id or "").strip()
+    revocation_id = str(revocation_id or "").strip()
+    if not recipient_user_id or not counterpart_user_id or not connection_id or not revocation_id:
+        return 0
+
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    message_id = f"connection-removed:{connection_id}:{revocation_id}:{recipient_user_id}"
+    client_data = {
+        "message_id": message_id,
+        "connection_id": connection_id,
+        "counterpart_user_id": counterpart_user_id,
+        "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
+    }
+
+    sse_payload = {
+        "type": "connection_removed",
+        "action": "REMOVED",
+        "message_id": message_id,
+        "connection_id": connection_id,
+        "user_id": recipient_user_id,
+        "counterpart_user_id": counterpart_user_id,
+        "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
+        "title": "Connection updated",
+        "body": "Your connections changed.",
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(recipient_user_id, sse_payload)
+
+    return send_user_data_push(
+        recipient_user_id,
+        notification_type="connection_removed",
+        title="Connection updated",
+        body="Your connections changed.",
+        deep_link=deep_link,
+        notification_tag=message_id,
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+        show_alert=False,
+    )
+
+
+def send_direct_message_push(
+    recipient_user_id: str,
+    *,
+    conversation_id: str,
+    message_id: str,
+) -> int:
+    """Nudge a recipient about a direct message without revealing its body.
+
+    This follows the existing token/OS-permission path in
+    :func:`send_user_data_push`; no direct-message-specific preference table
+    exists yet, so an account with no registered/authorized push token gets no
+    OS alert.  The authenticated SSE doorbell remains available in that case.
+    """
+
+    recipient = str(recipient_user_id or "").strip()
+    conversation = str(conversation_id or "").strip()
+    message = str(message_id or "").strip()
+    if not recipient or not conversation or not message:
+        return 0
+    notification_id = f"direct-message:{message}"
+    from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
+    route_token = DirectMessageRouteCipher().seal(recipient, "conversation", conversation)
+    deep_link = f"/one/messages?token={quote(route_token, safe='')}"
+    return send_user_data_push(
+        recipient,
+        notification_type="direct_message",
+        title="New message",
+        body="You have a new message.",
+        deep_link=deep_link,
+        notification_tag=notification_id,
+        notification_category="ONE_MESSAGES",
+        data={
+            "message_id": notification_id,
+            "conversation_id": conversation,
+            "route_token": route_token,
+            "direct_message_id": message,
+        },
+        # Firebase does not need a raw recipient id to route an opaque message
+        # reference, and message content never reaches FCM.
+        include_user_id=False,
+    )
+
+
+def _send_circle_user_event(
+    user_id: str,
+    *,
+    notification_type: str,
+    title: str,
+    body: str,
+    deep_link: str,
+    notification_tag: str,
+    data: dict[str, str],
+    show_alert: bool = True,
+) -> int:
+    """Deliver one Circle transition over both live transports.
+
+    Circle helpers historically called FCM directly. A web session without a
+    push subscription therefore had no live path, even while its authenticated
+    SSE stream was open. One transition id is shared by both transports so the
+    client can collapse the two deliveries without collapsing a later, valid
+    transition on the same Circle.
+    """
+
+    message_id = f"{notification_type}:{uuid.uuid4()}"
+    if show_alert and str(data.get("sync_only", "")).lower() != "true":
+        message_id = _canonical_push_message_id(user_id, notification_type, data, message_id)
+    client_data = {**data, "message_id": message_id}
+    try:
+        from api.consent_listener import publish_user_state_event_threadsafe
+
+        publish_user_state_event_threadsafe(
+            user_id,
+            {
+                "type": notification_type,
+                "user_id": user_id,
+                "message_id": message_id,
+                "request_url": deep_link,
+                "deep_link": deep_link,
+                "notification_tag": notification_tag,
+                "notification_category": "ONE_LOCATION",
+                "notification_title": title,
+                "notification_body": body,
+                **client_data,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+        logger.warning("circle.sse_notify_skipped type=%s error=%s", notification_type, exc)
+
+    return send_user_data_push(
+        user_id,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        notification_tag=notification_tag,
+        notification_category="ONE_LOCATION",
+        data=client_data,
+        show_alert=show_alert,
+    )
+
+
+def send_circle_code_joined_push(
+    *,
+    inviter_user_id: str,
+    joiner_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell whoever shared a code that it actually worked.
+
+    Sharing a Circle code was previously a one-way act: the sender pasted it
+    into a message and never learned whether anyone used it. That silence is
+    where the invite loop leaked -- there was no signal to act on and no reason
+    to open the app again.
+
+    Addressed to the code's creator, not the whole Circle: they did the
+    inviting, and they are the one person for whom this is news.
+    """
+
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        inviter_user_id,
+        notification_type="location_circle_code_joined",
+        title=circle_name or "Your Circle",
+        body=f"{joiner_display_name} joined using your code.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-code-joined:{circle_id}",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+        },
+    )
+
+
+def send_circle_member_added_push(
+    *,
+    member_user_id: str,
+    added_by_user_id: str,
+    added_by_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell someone they are in a Circle, and who put them there.
+
+    Being added is not being invited: there was no card to tap and no decision
+    to make, so this is the only moment they learn about it. That makes naming
+    the person non-negotiable -- "You were added to a Circle" reads as an
+    intrusion by nobody in particular, and the one thing that turns it back
+    into an ordinary social act is knowing whose Circle it is.
+
+    ``added_by_display_name`` comes from the caller's ``_lookup_display_name``
+    so the same resolved name reaches the banner, the toast and the feed.
+    """
+
+    adder = str(added_by_display_name or "").strip()
+    circle = str(circle_name or "").strip()
+    if adder and circle:
+        body = f'{adder} added you to "{circle}".'
+    elif adder:
+        body = f"{adder} added you to their Circle."
+    elif circle:
+        body = f'You were added to "{circle}".'
+    else:
+        body = "You were added to a Circle."
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        member_user_id,
+        notification_type="location_circle_member_added",
+        title="Added to a Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-added:{circle_id}",
+        # The in-app toast reads only this map, never `body` -- the same reason
+        # send_connection_accepted_push carries approver_label (see #5422).
+        # Without added_by_label here the toast says "Someone" while the OS
+        # banner two inches above it has the name right.
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+            "added_by_user_id": added_by_user_id,
+            "added_by_label": adder,
+        },
+    )
+
+
+def send_circle_roster_changed_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    member_user_id: str,
+    change: str,
+) -> int:
+    """Silent roster doorbell for a member's other devices and Circle viewers.
+
+    A visible notification is sent separately to the person directly affected.
+    This carries no roster or personal details and never creates a Feed item.
+    """
+
+    notification_type = {
+        "added": "location_circle_member_added",
+        "removed": "location_circle_member_removed",
+        "left": "location_circle_member_left",
+    }.get(change)
+    if not notification_type or not user_id or not circle_id or not member_user_id:
+        return 0
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        user_id,
+        notification_type=notification_type,
+        title="Circle updated",
+        body="Your Circle changed.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-roster:{circle_id}",
+        data={
+            "circle_id": circle_id,
+            **({"member_user_id": member_user_id} if user_id == member_user_id else {}),
+            "sync_only": "true",
+        },
+        show_alert=False,
     )
 
 
@@ -191,18 +809,234 @@ def send_circle_member_invite_push(
 ) -> int:
     """Nudge one exact invitee about a pending named Circle invitation."""
 
-    deep_link = f"/one/location?tab=people&circleInviteId={invite_id}"
-    return send_user_data_push(
+    deep_link = _circle_invite_link(invite_id)
+    return _send_circle_user_event(
         invitee_user_id,
         notification_type="location_circle_member_invite",
         title="Circle invitation",
         body="You have a new Circle invitation.",
         deep_link=deep_link,
         notification_tag=f"location-circle-member-invite:{invite_id}",
-        notification_category="ONE_LOCATION",
         data={
             "invite_id": invite_id,
             "circle_id": circle_id,
             "inviter_user_id": inviter_user_id,
         },
+    )
+
+
+def send_circle_member_invite_accepted_push(
+    *,
+    inviter_user_id: str,
+    invitee_user_id: str,
+    invitee_display_name: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell whoever sent a named Circle invite that it was accepted.
+
+    Mirrors ``send_circle_code_joined_push`` (the code-based join's inviter
+    notification) for the targeted-invite path, which previously sent
+    nothing at all on accept -- the inviter's Circle only updated on a
+    manual reload.
+    """
+
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        inviter_user_id,
+        notification_type="location_circle_member_invite_accepted",
+        title=circle_name or "Circle invitation",
+        body=f"{invitee_display_name or 'Someone'} joined your Circle.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-accepted:{invite_id}",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+            "invitee_user_id": invitee_user_id,
+            "network_display_label": invitee_display_name or "",
+        },
+    )
+
+
+def send_circle_member_invite_declined_push(
+    *,
+    inviter_user_id: str,
+    invitee_user_id: str,
+    invitee_display_name: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell whoever sent a named Circle invite that it was declined.
+
+    Mirrors ``send_circle_member_invite_accepted_push`` for the opposite
+    outcome, which previously sent nothing at all -- the inviter only found
+    out the invite went nowhere on a manual reload of the Circle screen.
+    """
+
+    label = str(invitee_display_name or "").strip() or "Someone"
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        inviter_user_id,
+        notification_type="location_circle_member_invite_declined",
+        title=circle_name or "Circle invitation",
+        body=f"{label} declined your Circle invitation.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-declined:{invite_id}",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+            "invitee_user_id": invitee_user_id,
+            "network_display_label": label,
+        },
+    )
+
+
+def send_circle_member_invite_cancelled_push(
+    *,
+    invitee_user_id: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell an invitee that their pending Circle invitation was withdrawn.
+
+    Without this the invite simply vanishes from their list on the next
+    refresh -- indistinguishable from a client-side bug.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = (
+        f'Your invitation to "{circle}" was withdrawn.'
+        if circle
+        else "A Circle invitation was withdrawn."
+    )
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
+    return _send_circle_user_event(
+        invitee_user_id,
+        notification_type="location_circle_member_invite_cancelled",
+        title=circle or "Circle invitation",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-cancelled:{invite_id}",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
+
+
+def send_circle_member_removed_push(
+    *,
+    member_user_id: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a member the Circle owner removed them.
+
+    Otherwise the Circle just disappears from their list on the next reload,
+    with no way to tell that from a sync glitch.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = f'You were removed from "{circle}".' if circle else "You were removed from a Circle."
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
+    return _send_circle_user_event(
+        member_user_id,
+        notification_type="location_circle_member_removed",
+        title=circle or "Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-removed:{circle_id}:{member_user_id}",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+            "member_user_id": member_user_id,
+        },
+    )
+
+
+def send_circle_member_left_push(
+    *,
+    owner_user_id: str,
+    member_user_id: str,
+    member_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a Circle's owner that a member left on their own."""
+
+    label = str(member_display_name or "").strip() or "Someone"
+    circle = str(circle_name or "").strip()
+    body = f'{label} left "{circle}".' if circle else f"{label} left your Circle."
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        owner_user_id,
+        notification_type="location_circle_member_left",
+        title=circle or "Your Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-left:{circle_id}:{member_user_id}",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+            "member_user_id": member_user_id,
+            "network_display_label": label,
+        },
+    )
+
+
+def send_circle_renamed_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    circle_name: str,
+    show_alert: bool = True,
+) -> int:
+    """Tell an affected account to reconcile a renamed Circle."""
+
+    circle = str(circle_name or "").strip()
+    body = f'This Circle is now called "{circle}".' if circle else "A Circle was renamed."
+    data = {"circle_id": circle_id, "circle_name": circle}
+    if not show_alert:
+        data["sync_only"] = "true"
+    return _send_circle_user_event(
+        user_id,
+        notification_type="location_circle_renamed",
+        title="Circle renamed",
+        body=body,
+        deep_link=_circle_detail_link(circle_id),
+        notification_tag=f"location-circle-renamed:{circle_id}",
+        data=data,
+        show_alert=show_alert,
+    )
+
+
+def send_circle_deleted_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    circle_name: str,
+    show_alert: bool = True,
+) -> int:
+    """Tell an affected account that an owned/joined Circle is gone."""
+
+    circle = str(circle_name or "").strip()
+    body = f'"{circle}" was deleted by its owner.' if circle else "A Circle was deleted."
+    data = {"circle_id": circle_id, "circle_name": circle}
+    if not show_alert:
+        data["sync_only"] = "true"
+    return _send_circle_user_event(
+        user_id,
+        notification_type="location_circle_deleted",
+        title="Circle deleted",
+        body=body,
+        deep_link=ONE_LOCATION_CIRCLE_LIST_LINK,
+        notification_tag=f"location-circle-deleted:{circle_id}",
+        data=data,
+        show_alert=show_alert,
     )

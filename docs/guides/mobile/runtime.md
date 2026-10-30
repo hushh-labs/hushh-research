@@ -56,12 +56,15 @@ Required configuration:
 - `NEXT_PUBLIC_ANDROID_APP_ID`
 - `PASSKEY_ALLOWED_RP_IDS`
 
-Keep `NEXT_PUBLIC_PASSKEY_RP_ID` unset for dual-domain web behavior unless a dedicated migration proves otherwise.
+Hosted web builds derive `NEXT_PUBLIC_PASSKEY_RP_ID` from the active
+`APP_FRONTEND_ORIGIN`: `dev.one.hushh.ai`, `uat.one.hushh.ai`, or
+`one.hushh.ai`. Localhost web leaves it unset and resolves to `localhost` from
+the browser host. Do not use a shared parent-domain RP for another lane.
 
 The four association values are Cloud Run runtime secrets. They must be mounted
 on the frontend service, not only present in Secret Manager, because the
-well-known routes are dynamic. Native passkeys use `one.hushh.ai` as the
-canonical relying-party ID; both `one.hushh.ai` and `uat.one.hushh.ai` must
+well-known routes are dynamic. Native passkeys use the matching app origin:
+`one.hushh.ai` in production and `uat.one.hushh.ai` in UAT. Both domains must
 serve valid association documents for their corresponding mobile builds.
 
 Release verification uses:

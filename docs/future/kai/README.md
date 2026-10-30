@@ -26,8 +26,7 @@ The superseded email/KYC planning note was promoted out of `docs/future/`
 because One Email KYC now has execution-owned references.
 
 Current One/Kai/Nav/KYC planning boundaries live in [../one-nav-runtime-plan.md](../one-nav-runtime-plan.md).
-Current One Email KYC implementation truth lives in
-[../../reference/architecture/one-email-kyc.md](../../reference/architecture/one-email-kyc.md).
+The legacy One Email KYC implementation is retired.
 
 ## Promotion Rule
 

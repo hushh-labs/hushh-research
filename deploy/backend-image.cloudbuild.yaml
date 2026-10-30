@@ -1,0 +1,83 @@
+# Build and push a backend image without creating a Cloud Run revision.
+#
+# UAT account-deletion releases use this split phase so the candidate bytes are
+# fixed before the database deletion fence and migration are applied. The later
+# deploy consumes the immutable digest produced here; it never rebuilds a
+# mutable tag across the schema/runtime compatibility boundary.
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ '${_BUILD_TARGET}' == 'commerce-preview-bootstrap' ]]; then
+          [[ '$PROJECT_ID' == 'hushh-pda-dev' ]]
+          docker buildx create --use --name hushh-bootstrap-builder --driver docker-container \
+            >/dev/null 2>&1 || docker buildx use hushh-bootstrap-builder
+          docker buildx build --platform linux/amd64 \
+            --tag gcr.io/$PROJECT_ID/scope-commerce-bootstrap:${_IMAGE_TAG} \
+            --file deploy/commerce-preview-bootstrap/Dockerfile --push \
+            deploy/commerce-preview-bootstrap
+          exit 0
+        fi
+        [[ '${_BUILD_TARGET}' == 'backend' ]]
+        # Include root-generated contracts in the backend build context.
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build --platform linux/amd64 \
+          --metadata-file /workspace/backend-image-metadata.json \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache,mode=max \
+          --tag gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG} \
+          --file consent-protocol/Dockerfile \
+          --push \
+          consent-protocol
+    id: "build-backend-image"
+
+  # A declared Python image records the digest produced by this exact Buildx
+  # invocation. The Docker builder need not contain Python or jq. This inline
+  # authority stays in the main-owned recipe when the archive contains older S.
+  - name: "python:3.13-slim"
+    entrypoint: "python3"
+    args:
+      - "-I"
+      - "-X"
+      - "utf8"
+      - "-c"
+      - |
+        import json, os, pathlib, re, sys
+        if sys.argv[1] != "backend":
+            sys.exit(0)
+        path = pathlib.Path("/workspace/backend-image-metadata.json")
+        if path.stat().st_size > 1048576:
+            raise ValueError("backend image metadata oversized")
+        digest = json.loads(path.read_bytes()).get("containerimage.digest", "")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise ValueError("backend image digest missing")
+        destination = pathlib.Path(os.environ["BUILDER_OUTPUT"])
+        if not destination.is_absolute():
+            raise ValueError("native build output unavailable")
+        report = {"kind": "backend-image-build-output-v1", "imageTag": sys.argv[2],
+                  "indexDigest": digest, "platform": "linux/amd64"}
+        (destination / "output").write_bytes(json.dumps(report, sort_keys=True).encode())
+      - "${_BUILD_TARGET}"
+      - "${_IMAGE_TAG}"
+    id: "record-backend-image"
+    waitFor: ["build-backend-image"]
+
+substitutions:
+  _IMAGE_TAG: manual-build
+  _BUILD_TARGET: backend
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
+  sourceProvenanceHash: ["SHA256"]
+
+# A cold build has to seed the full backend dependency/cache graph and has
+# historically taken longer than Cloud Build's 10-minute default.
+timeout: "1800s"

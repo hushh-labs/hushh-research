@@ -1,0 +1,181 @@
+"""Redacted durable projection of connector-read turns, never a live mutation."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from google.adk.sessions import Session
+
+from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+from hushh_mcp.one_adk.external_read_boundary import (
+    READ_TOOLS,
+    STATE_DRIVE_READ_OUTCOME,
+    STATE_EXECUTION_SURFACE,
+    STATE_EXTERNAL_READ,
+    STATE_EXTERNAL_READ_CONTINUATION,
+    STATE_SELECTED_DRIVE_SHARE,
+)
+from hushh_mcp.one_adk.receipt_client_tools import (
+    PRIVATE_RECEIPT_ANSWER,
+    RECEIPT_TOOL_NAMES,
+    STATE_RECEIPT_PRIVATE,
+    STATE_RECEIPT_RESULT,
+)
+
+_EPHEMERAL = frozenset(
+    {
+        "hussh:pending_directive:calendar_invitations",
+        "hussh:pending_directive:calendar",
+        STATE_EXECUTION_SURFACE,
+        STATE_DRIVE_READ_OUTCOME,
+        STATE_EXTERNAL_READ,
+        STATE_EXTERNAL_READ_CONTINUATION,
+        STATE_SELECTED_DRIVE_SHARE,
+        STATE_RECEIPT_RESULT,
+        "temp:hussh:workspace_chat_admission",
+        "temp:hussh:drive_search_selection",
+        "temp:hussh:mcp_approval",
+        # Agent Chat stores source text behind an in-process request secret.
+        # Remove both handles before encrypting a conversation snapshot so a
+        # selected Gmail request cannot affect a later turn.
+        "temp:hussh:gmail_information_request_workflow_id",
+        "temp:hussh:gmail_information_request_context",
+        "temp:hussh:pending_email_draft",
+        "hussh:gmail_information_request_context",
+        "hussh:pending_directive:gmail_information_request_reply",
+    }
+)
+_PRIVATE_DRAFT_TOOLS = frozenset(
+    {
+        "open_calendar_invitation",
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "propose_calendar_cancellation",
+        "open_gmail_email_draft",
+        "open_gmail_information_request_reply",
+    }
+)
+
+
+def redacted_read_receipt(response: Any) -> dict[str, Any]:
+    receipt: dict[str, Any] = {"content_redacted": True}
+    if isinstance(response, dict):
+        status = response.get("status")
+        if status in {"ok", "blocked", "unavailable"}:
+            receipt.update(
+                {
+                    "status": status,
+                    "private_result": "not_retained",
+                    "truncated": response.get("truncated") is True,
+                }
+            )
+    try:
+        structured = SpecialistReadResult.model_validate(response.get("structured"))
+    except (AttributeError, ValueError):
+        return receipt
+    # Source labels are authored constants today. Do not start retaining file
+    # names if a future source adds them; keep only opaque refs and kind here.
+    safe = structured.model_dump(mode="json")
+    # Search text is private tool input. The UI restores active jobs through
+    # their owner-authenticated API, not by replaying a stored tool receipt.
+    safe["background_search_available"] = False
+    safe["background_search_query"] = None
+    for source in safe["sources"]:
+        source["label"] = "Mail" if safe["connector"] == "mail" else "Document"
+    receipt["structured"] = safe
+    receipt["status"] = structured.status
+    return receipt
+
+
+def durable_external_read_projection(session: Session) -> Session:
+    receipt_result_invocations = set(session.state.get(STATE_RECEIPT_PRIVATE) or []) | {
+        invocation
+        for event in session.events
+        for invocation in event.actions.state_delta.get(STATE_RECEIPT_PRIVATE, [])
+    }
+    receipt_invocations = (
+        set(session.state.get(STATE_RECEIPT_PRIVATE) or [])
+        | {
+            event.invocation_id
+            for event in session.events
+            if event.content
+            for part in event.content.parts or []
+            if (part.function_call and part.function_call.name in RECEIPT_TOOL_NAMES)
+            or (part.function_response and part.function_response.name in RECEIPT_TOOL_NAMES)
+        }
+        | {
+            invocation
+            for event in session.events
+            for invocation in event.actions.state_delta.get(STATE_RECEIPT_PRIVATE, [])
+        }
+    )
+    read_invocations = {
+        event.invocation_id
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if (part.function_call and part.function_call.name in READ_TOOLS)
+        or (part.function_response and part.function_response.name in READ_TOOLS)
+    }
+    private_draft_invocations = {
+        event.invocation_id
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
+        or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)
+    }
+    if (
+        not read_invocations
+        and not receipt_invocations
+        and not private_draft_invocations
+        and not any(key in session.state for key in _EPHEMERAL)
+        and not any(
+            key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
+        )
+    ):
+        return session
+    projected = session.model_copy(deep=True)
+    for key in _EPHEMERAL:
+        projected.state.pop(key, None)
+    for event in projected.events:
+        for key in _EPHEMERAL:
+            event.actions.state_delta.pop(key, None)
+        if event.content is None:
+            continue
+        for part in event.content.parts or []:
+            if part.function_call and (
+                part.function_call.name in RECEIPT_TOOL_NAMES
+                or event.invocation_id in receipt_result_invocations
+            ):
+                part.function_call.args = {}
+            if part.function_response and (
+                part.function_response.name in RECEIPT_TOOL_NAMES
+                or event.invocation_id in receipt_result_invocations
+            ):
+                part.function_response.response = {"content_redacted": True}
+            if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
+                part.text = None if part.thought else PRIVATE_RECEIPT_ANSWER
+            # Keep SDK call names, IDs, associations and opaque thought
+            # signatures. Only tool arguments/results are redacted. Ordinary
+            # user requests and the encrypted assistant answer are preserved.
+            # Unrelated tools may have completed before Mail was selected;
+            # retain their governed history cards. After Mail, only governed
+            # reviewed MCP calls or the redacted client-only draft may follow.
+            if part.function_call and part.function_call.name in READ_TOOLS:
+                part.function_call.args = {}
+            if part.thought and part.text:
+                part.text = None
+            if part.function_response and part.function_response.name in READ_TOOLS:
+                part.function_response.response = redacted_read_receipt(
+                    part.function_response.response
+                )
+            if event.invocation_id in private_draft_invocations and (
+                (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
+                or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)
+            ):
+                if part.function_call:
+                    part.function_call.args = {}
+                if part.function_response:
+                    part.function_response.response = {"content_redacted": True}
+    return projected

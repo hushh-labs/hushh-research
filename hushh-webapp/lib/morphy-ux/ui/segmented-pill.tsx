@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 export type SegmentedPillIcon = React.ElementType<
   React.SVGProps<SVGSVGElement> & { size?: number | string }
@@ -15,7 +16,9 @@ export type SegmentedPillOption = {
   icon?: SegmentedPillIcon;
   /** Optional selected-state counterpart for libraries with filled icons. */
   activeIcon?: SegmentedPillIcon;
-  badge?: number;
+  /** A count when sets are exactly countable, or a dot for attention unions
+   * whose sources may overlap. */
+  badge?: number | "dot";
   tone?: "default" | "accent";
   disabled?: boolean;
   dataTourId?: string;
@@ -32,6 +35,14 @@ type SegmentedPillProps = {
   layout?: SegmentedPillLayout;
   slotCount?: number;
   hitArea?: "segment" | "content";
+  /**
+   * Material ripple on press (default on). Tab bars pass false: the ripple
+   * waits out a ~150 ms touch delay before it shows, then holds for 225 ms,
+   * so on the bottom bar the grey bubble arrived after the icon had already
+   * switched and lingered (measured on a Galaxy S24 Ultra, 2026-09-22).
+   */
+  ripple?: boolean;
+  hapticFeedback?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -98,6 +109,8 @@ export const SegmentedPill = React.forwardRef<
       layout = "inline",
       slotCount,
       hitArea = "segment",
+      ripple = true,
+      hapticFeedback = true,
       className,
       ariaLabel = "Segmented selector",
     },
@@ -143,7 +156,7 @@ export const SegmentedPill = React.forwardRef<
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[140ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{
             width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
             transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
@@ -162,6 +175,12 @@ export const SegmentedPill = React.forwardRef<
           const needsWrapper = hitArea === "content" || hitArea === "segment";
           const OptionIcon =
             isActive && option.activeIcon ? option.activeIcon : option.icon;
+          const numericBadge =
+            typeof option.badge === "number" ? option.badge : null;
+          const hasNumericBadge = numericBadge !== null && numericBadge > 0;
+          const numericBadgeText =
+            numericBadge !== null && numericBadge > 9 ? "9+" : numericBadge;
+          const hasDotBadge = option.badge === "dot";
           const button = (
             <button
               key={option.value}
@@ -174,9 +193,10 @@ export const SegmentedPill = React.forwardRef<
               onClick={() => {
                 if (isDisabled) return;
                 onValueChange(option.value);
+                if (hapticFeedback && !isActive) appHaptic("selection");
               }}
               className={cn(
-                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
+                "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"
@@ -192,8 +212,7 @@ export const SegmentedPill = React.forwardRef<
                 isDisabled && "opacity-45",
               )}
             >
-              {OptionIcon ||
-              (typeof option.badge === "number" && option.badge > 0) ? (
+              {OptionIcon || hasNumericBadge || hasDotBadge ? (
                 <span className="relative flex shrink-0 items-center justify-center">
                   {OptionIcon ? (
                     <OptionIcon
@@ -206,10 +225,19 @@ export const SegmentedPill = React.forwardRef<
                       aria-hidden
                     />
                   ) : null}
-                  {typeof option.badge === "number" && option.badge > 0 ? (
+                  {hasNumericBadge ? (
                     <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[11px] font-bold leading-none text-white">
-                      {option.badge > 9 ? "9+" : option.badge}
+                      {numericBadgeText}
                     </span>
+                  ) : null}
+                  {hasDotBadge ? (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-red-500"
+                      />
+                      <span className="sr-only">New activity</span>
+                    </>
                   ) : null}
                 </span>
               ) : null}
@@ -223,12 +251,14 @@ export const SegmentedPill = React.forwardRef<
               >
                 {option.label}
               </span>
-              <MaterialRipple
-                variant={isAccent ? "link" : "none"}
-                effect={isAccent ? "glass" : "fade"}
-                disabled={isDisabled}
-                className="z-0"
-              />
+              {ripple ? (
+                <MaterialRipple
+                  variant={isAccent ? "link" : "none"}
+                  effect={isAccent ? "glass" : "fade"}
+                  disabled={isDisabled}
+                  className="z-0"
+                />
+              ) : null}
             </button>
           );
 

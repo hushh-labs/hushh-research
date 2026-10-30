@@ -1,0 +1,43 @@
+{
+  "displayName": "[Managed] DB Pool Wait P95 High",
+  "documentation": {
+    "content": "P95 backend request pool wait exceeds 100 ms for 10 minutes.\n\nDiagnostic only: early queue wait is investigated with acquisition timeout and short-read incidents.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": false,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "capacity",
+    "incident_purpose": "diagnostic"
+  },
+  "conditions": [
+    {
+      "displayName": "Pool wait p95 > 100ms (10m)",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_wait_ms\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 100,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "WARNING",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
+}

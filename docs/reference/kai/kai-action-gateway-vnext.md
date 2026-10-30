@@ -28,7 +28,14 @@ capability discoverable. The generator produces:
 - [Generated action gateway](../../../contracts/kai/kai-action-gateway.vnext.json)
 - [Route orchestration index](../../../contracts/kai/one-route-orchestration-index.v1.json)
 
-Generated output is never hand-edited. Run:
+Generated output is never hand-edited.
+
+Discovery includes new/untracked authored contracts but excludes root
+`.next-*` build caches, alongside the existing dependency and build exclusions.
+Generated copies are not authoring input. This keeps verification independent
+of accumulated local Next build outputs without skipping contract validation.
+
+Run:
 
 ```bash
 cd hushh-webapp && npm run build:voice-gateway
@@ -60,6 +67,29 @@ Valid execution policies are:
 Actions with a delegate agent must still have an ingress-validated authority
 path. Until that exists, they remain unwired and fail closed.
 
+### Siri capability metadata
+
+Every generated action carries a `siri_mode`, defaulting to `unsupported`:
+
+| Mode | Contract |
+| --- | --- |
+| `direct` | A typed App Intent may execute the existing canonical action. |
+| `review_ui` | Siri may open a wired, non-mutating review destination. |
+| `conversation_only` | Only the explicit One Voice conversation path may invoke it. |
+| `unsupported` | The action is unavailable to Siri. |
+
+`siri_requires_vault` is separate from general runtime guards because it
+describes the native-to-browser handoff gate. A protected direct action may
+optionally name `siri_vault_locked_fallback_action_id`; that target must resolve
+to a generated `review_ui` action. The verification pipeline rejects unwired
+exposed actions, mutating review routes, invalid conversation targets,
+confirmation drift, and invalid fallback relationships.
+
+The Siri parity verifier compares the generated exposed catalog and vault and
+confirmation sets with both the Swift `OneSystemActionID` catalog and the
+TypeScript native bridge allowlist. This keeps App Intents as typed adapters to
+one executor rather than an independent action catalog.
+
 ### Settled journeys
 
 A cross-screen flow is authored as a settled journey, not improvised by the
@@ -69,30 +99,33 @@ action IDs that are valid on that destination. A source-route fallback is
 invalid for a route-changing local handler.
 
 The browser publishes the destination's redacted context snapshot and waits
-for the relay acknowledgement before it reports the originating settlement.
-Only then can `continue_app_goal` make the authored choices eligible. An
-explicit user choice is retained as its generated action ID only, in the live
-session, and is cleared on timeout, cancellation, sign-out, route mismatch,
-back navigation, or session end. It never carries speech, slots, credentials,
-or durable intent across screens.
+for authoritative client or service settlement before it reports the originating
+result. Only then can `continue_app_goal` make the authored choices eligible.
+An explicit user choice is retained as its generated action ID only, in the
+correlated task, and is cleared on timeout, cancellation, sign-out, route
+mismatch, back navigation, or task end. It never carries audio, slots,
+credentials, or durable intent across screens.
 
 ## Runtime Consumers
 
-- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
+- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/kai/actions/kai-action-gateway.ts)
 - Shared client execution: [agent-action-runtime.ts](../../../hushh-webapp/lib/agent/agent-action-runtime.ts)
 - Backend generated-gateway loader: [action_gateway.py](../../../consent-protocol/hushh_mcp/services/action_gateway.py)
 - One policy tools: [action_tools.py](../../../consent-protocol/hushh_mcp/one_adk/action_tools.py)
-- One Live relay: [adk_live.py](../../../consent-protocol/api/routes/one/adk_live.py)
+- Location command proposal route: [command_proposals.py](../../../consent-protocol/api/routes/one/command_proposals.py)
 
-Gmail is deliberately absent from generated discovery while it is paused. Its
-route and manifest remain dormant for an explicit future enablement; no action
-contract, Search result, or One tool can reactivate it by implication.
+Gmail route discovery and `email.chat.turn` are active in the current generated
+gateway. One Live Mail tools bind to that action and enforce their own typed
+read, draft, send-review and confirmation policies; see the
+[Live tool contract](../one/one-voice-live-tool-contract.md). Connector admission,
+Gmail scopes and the owner Send setting remain execution prerequisites.
 
 ## Verification
 
 ```bash
 cd hushh-webapp && npx vitest run __tests__/voice/kai-action-gateway.test.ts
 cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm run verify:siri-action-contract
 cd hushh-webapp && npm run verify:surface-map
 cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
 ```

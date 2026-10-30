@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { validateVoicePlaybook } from "./voice-playbook-surface-validation.mjs";
+import { applyScopeCommerceSurfaceOverrides } from "./scope-commerce-surface-overrides.mjs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
@@ -157,6 +159,75 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/files": {
+    api_dependencies: [{
+      service_file: "lib/files/service.ts",
+      service_methods: ["list", "upload", "download", "organize", "settings"],
+      nextjs_api_route: null,
+      nextjs_proxy_file: null,
+      backend_endpoint_family: "/api/one/pod/files/*",
+      native_transport: "Not accepted on native; browser uses signed owner-pod admission and direct HTTPS via ApiService.ownerPodRequest",
+    }],
+    native_plugin_dependencies: [],
+  },
+  "/": {
+    api_dependencies: [{
+      service_file: "lib/services/agent-chat-client.ts",
+      service_methods: ["streamAgentChat", "getAgentChatHistory", "recordAgentChatInformationRequest"],
+      nextjs_api_route: "/api/one/{path*}",
+      nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+      backend_endpoint_family: "/api/one/agent-chat/{history/*,conversations/*}",
+      native_transport: "CapacitorHttp direct backend via ApiService.apiFetch",
+    }],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      submitted_card_history: "Owner-bound request receipts are metadata-only encrypted session events; grant status and values require current authority and browser-only decrypt.",
+    },
+  },
+  "/people/[personRef]": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/person-profile-service.ts",
+        service_methods: [
+          "getPublic",
+          "getViewer",
+          "createInformationRequest",
+          "getInformationRequestExports",
+          "cancelInformationRequest",
+          "connect",
+          "cancelConnectionRequest",
+          "removeConnection",
+        ],
+        nextjs_api_route: "/api/{public/people/{personRef},one/{path*}}",
+        nextjs_proxy_file:
+          "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/{public/people/*,one/people/*,one/information-requests/*}",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      public_projection:
+        "Signed-out reads expose minimal public identity only and use an unguessable immutable reference.",
+      authenticated_projection:
+        "Relationship, requestable scope metadata, grant metadata, and request history are viewer-relative; social connection grants no information.",
+      plaintext_boundary:
+        "Granted values remain encrypted through the backend and decrypt only after an explicit reveal in the unlocked client.",
+    },
+  },
+  "/one/referrals": {
+    api_dependencies: [{
+      service_file: "lib/services/referral-service.ts",
+      service_methods: ["getSummary", "getPoints", "getChallenge", "getMilestones", "getEngagement", "getLeaderboard", "getCircleLeaderboard", "getCircleSelection"],
+      nextjs_api_route: "/api/one/{path*}",
+      nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+      backend_endpoint_family: "/api/one/referrals/*",
+      native_transport: "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads.",
+    }],
+    native_plugin_dependencies: [],
+  },
   "/one/calendar": {
     api_dependencies: [
       {
@@ -164,6 +235,8 @@ const routeOverrides = {
         service_methods: [
           "status",
           "startConnect",
+          "startNativeConnect",
+          "completeNativeConnect",
           "disconnect",
           "executeProposal",
         ],
@@ -172,13 +245,16 @@ const routeOverrides = {
         backend_endpoint_family:
           "/api/one/calendar/{status,connect/*,proposals/*}",
         native_transport:
-          "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "ApiService direct backend; shared-runtime authorization uses HushhAuth.connectCalendar and an owner/attempt-bound server-code exchange. Private hosting retains its owner-pod connector flow.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [{
+      package: "HushhAuth",
+      integration: "connectCalendar returns a transient server authorization code to the existing Calendar connection owner; it does not replace the signed-in application account.",
+    }],
     thread_and_consent_contract: {
       oauth_connection:
-        "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+        "Shared-runtime Google refresh tokens remain server-encrypted. Web uses the owned authorization popup; native returns only a transient server authorization code for the existing bound completion flow.",
       mutation_authority:
         "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat.",
     },
@@ -187,18 +263,21 @@ const routeOverrides = {
     api_dependencies: [
       {
         service_file: "lib/services/google-calendar-service.ts",
-        service_methods: ["status", "startConnect", "disconnect"],
+        service_methods: ["status", "startConnect", "startNativeConnect", "completeNativeConnect", "disconnect"],
         nextjs_api_route: "/api/one/{path*}",
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
         backend_endpoint_family: "/api/one/calendar/{status,connect/*}",
         native_transport:
-          "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "Calendar setup reuses the workspace's ApiService transport and HushhAuth.connectCalendar bound authorization flow; no setup-specific sign-in or credential store.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [{
+      package: "HushhAuth",
+      integration: "Calendar setup delegates authorization to the same connectCalendar owner as the workspace.",
+    }],
     thread_and_consent_contract: {
       oauth_connection:
-        "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL.",
+        "Calendar setup reuses the workspace's owner-bound authorization flow. Shared-runtime refresh tokens remain server-encrypted; the native server authorization code is transient.",
     },
   },
   "/one/location": {
@@ -234,12 +313,29 @@ const routeOverrides = {
         native_transport:
           "CapacitorHttp direct backend via the shared One Location service",
       },
+      {
+        service_file: "lib/services/connections-service.ts",
+        service_methods: ["syncContacts"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/connections/contact-sync",
+        native_transport:
+          "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing",
+      },
     ],
     native_plugin_dependencies: [
       {
         package: "@capacitor/share",
         integration:
           "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs",
+      },
+      {
+        package: "HushhContacts",
+        integration:
+          "Read-only local address-book source; raw contact records stay in WebView memory while normalized phone hashes are sent through ConnectionsService",
+        ios: "CNContactStore read on a background queue with limited-access and truncation metadata",
+        android:
+          "READ_CONTACTS content-provider scan on Dispatchers.IO with distinct-contact totals and truncation metadata",
       },
     ],
     thread_and_consent_contract: {
@@ -500,72 +596,7 @@ const routeOverrides = {
   },
 };
 
-function validateVoicePlaybook(route, value) {
-  const requiredStrings = [
-    "playbookId",
-    "purpose",
-    "screen",
-    "completionBoundary",
-    "outOfScopeBehavior",
-  ];
-  for (const field of requiredStrings) {
-    if (typeof value?.[field] !== "string" || !value[field].trim()) {
-      throw new Error(`Route ${route} voicePlaybook.${field} is required`);
-    }
-  }
-  if (!/^[a-z0-9._-]{3,96}$/.test(value.playbookId)) {
-    throw new Error(`Route ${route} has an invalid voicePlaybook.playbookId`);
-  }
-  if (!["on_entry", "ambient"].includes(value.proactivity)) {
-    throw new Error(`Route ${route} has invalid voicePlaybook.proactivity`);
-  }
-  if (
-    ![
-      "stay",
-      "navigate",
-      "external_callback",
-      "return_to_hub",
-      "resolve_root",
-    ].includes(value.returnPolicy)
-  ) {
-    throw new Error(`Route ${route} has invalid voicePlaybook.returnPolicy`);
-  }
-  if (
-    !Array.isArray(value.happyPathActionIds) ||
-    !Array.isArray(value.requiredInputs)
-  ) {
-    throw new Error(
-      `Route ${route} playbook action/input collections must be arrays`,
-    );
-  }
-  for (const recovery of [
-    "blocked",
-    "cancelled",
-    "failed",
-    "timeout",
-    "callbackError",
-    "routeMismatch",
-  ]) {
-    if (
-      typeof value.recoveries?.[recovery] !== "string" ||
-      !value.recoveries[recovery].trim()
-    ) {
-      throw new Error(
-        `Route ${route} voicePlaybook.recoveries.${recovery} is required`,
-      );
-    }
-  }
-  if (
-    value.proactivity === "on_entry" &&
-    !String(value.entryCue || "").trim()
-  ) {
-    throw new Error(`Route ${route} proactive playbook requires an entryCue`);
-  }
-  if (value.proactivity === "on_entry" && !String(value.primaryActionId || "").trim()) {
-    throw new Error(`Route ${route} proactive playbook requires a primaryActionId`);
-  }
-  return value;
-}
+applyScopeCommerceSurfaceOverrides(routeOverrides);
 
 function buildSurfaceMap() {
   const routeContract = readJson(

@@ -1,14 +1,13 @@
 "use client";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { type ColorVariant, type FeedbackTone } from "./types";
 import {
   CheckCircleIcon,
   InfoIcon,
   WarningIcon,
-  WarningCircleIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+  AlertCircleIcon as WarningCircleIcon,
+} from "@/components/icons";
 import { useIconWeight } from "./icon-theme-context";
 import { cn } from "@/lib/utils";
 
@@ -186,15 +185,31 @@ if (typeof window !== "undefined") {
   globalToastManager.initialize();
 }
 
+/**
+ * One block of text, because that is what a toast now is.
+ *
+ * A title with a description under it is two clamped blocks stacked, which
+ * takes a toast past two lines. Callers of this wrapper still pass a
+ * description and still expect their sentence to show, so it joins the message
+ * instead of being dropped.
+ */
+function joinToastText(message: string, description?: string): string {
+  const detail = String(description || "").trim();
+  const head = String(message || "").trim();
+  if (!detail) return head;
+  if (!head) return detail;
+  return /[.!?]$/.test(head) ? `${head} ${detail}` : `${head}. ${detail}`;
+}
+
 export const useMorphyToast = () => {
   const iconWeight = useIconWeight();
 
   const success = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 3000, description, className } = options;
 
-    return toast.success(message, {
+    return toast.success(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <CheckCircleIcon
           className="h-4 w-4 text-current"
@@ -208,9 +223,9 @@ export const useMorphyToast = () => {
   const error = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 5000, description, className } = options;
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningCircleIcon
           className="h-4 w-4 text-current"
@@ -224,9 +239,9 @@ export const useMorphyToast = () => {
   const danger = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 5000, description, className } = options;
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningCircleIcon
           className="h-4 w-4 text-current"
@@ -240,9 +255,9 @@ export const useMorphyToast = () => {
   const warning = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 4000, description, className } = options;
 
-    return toast.warning(message, {
+    return toast.warning(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningIcon
           className="h-4 w-4 text-current"
@@ -256,9 +271,9 @@ export const useMorphyToast = () => {
   const info = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 4000, description, className } = options;
 
-    return toast.info(message, {
+    return toast.info(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <InfoIcon
           className="h-4 w-4 text-current"
@@ -281,11 +296,11 @@ export const useMorphyToast = () => {
       className,
     } = options;
 
-    return toast(message, {
+    return toast(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: icon || (
-        <SparkleIcon
+        <InfoIcon
           className="h-4 w-4 text-current"
           weight={iconWeight}
         />
@@ -327,7 +342,7 @@ export const useMorphyToast = () => {
     info,
     custom,
     dismiss: toast.dismiss,
-    promise: toast.promise,
+    promise: morphyToast.promise,
     // Persistent versions
     persistentSuccess,
     persistentError,
@@ -345,9 +360,9 @@ export const morphyToast = {
   success: (message: string, options?: ToastOptions) => {
     const { variant, duration = 3000, description, className } = options || {};
 
-    return toast.success(message, {
+    return toast.success(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("success", variant), className),
     });
   },
@@ -355,9 +370,9 @@ export const morphyToast = {
   error: (message: string, options?: ToastOptions) => {
     const { variant, duration = 5000, description, className } = options || {};
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("error", variant), className),
     });
   },
@@ -365,9 +380,9 @@ export const morphyToast = {
   danger: (message: string, options?: ToastOptions) => {
     const { variant, duration = 5000, description, className } = options || {};
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("danger", variant), className),
     });
   },
@@ -375,9 +390,9 @@ export const morphyToast = {
   warning: (message: string, options?: ToastOptions) => {
     const { variant, duration = 4000, description, className } = options || {};
 
-    return toast.warning(message, {
+    return toast.warning(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("warning", variant), className),
     });
   },
@@ -385,9 +400,9 @@ export const morphyToast = {
   info: (message: string, options?: ToastOptions) => {
     const { variant, duration = 4000, description, className } = options || {};
 
-    return toast.info(message, {
+    return toast.info(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("info", variant), className),
     });
   },
@@ -404,9 +419,9 @@ export const morphyToast = {
       className,
     } = options || {};
 
-    return toast(message, {
+    return toast(joinToastText(message, description), {
       duration,
-      description,
+      
       icon,
       className: cn(
         "morphy-sonner-toast",
@@ -432,22 +447,33 @@ export const morphyToast = {
     promise: Promise<T> | (() => Promise<T>),
     data: {
       loading: React.ReactNode;
+      description?: React.ReactNode;
+      variant?: ColorVariant;
+      finally?: () => void | Promise<void>;
+    } & ({
+      // Owner-bound operations use already-authored labels. Sonner reads
+      // these getters at settlement, not just when the loading toast starts.
+      // Fulfill with parsed records or reject. Resolved Error/Response/JSX
+      // uses Sonner's earlier special branches, not this label fence. The
+      // caller also retires its loading handle when ownership changes.
+      isCurrent: () => boolean;
+      success: string;
+      error: string;
+    } | {
+      isCurrent?: never;
       success:
         | React.ReactNode
         | ((value: T) => React.ReactNode | Promise<React.ReactNode>);
       error:
         | React.ReactNode
         | ((error: unknown) => React.ReactNode | Promise<React.ReactNode>);
-      description?: React.ReactNode;
-      variant?: ColorVariant;
-      finally?: () => void | Promise<void>;
-    }
+    })
   ): ReturnType<typeof toast.promise> => {
     const accent = getToastVariantAccentClassName(data.variant);
     return toast.promise<T>(promise, {
       loading: data.loading,
-      success: data.success,
-      error: data.error,
+      get success() { return !data.isCurrent || data.isCurrent() ? data.success : undefined; },
+      get error() { return !data.isCurrent || data.isCurrent() ? data.error : undefined; },
       description: data.description,
       finally: data.finally,
       classNames: {

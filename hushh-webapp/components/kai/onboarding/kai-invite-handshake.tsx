@@ -92,7 +92,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
   }, [inviteToken]);
 
   const title = useMemo(() => {
-    if (!invite) return "Kai invite";
+    if (!invite) return "Finance invite";
     return invite.ria.display_name;
   }, [invite]);
 
@@ -169,7 +169,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                   Your finances, quietly understood
                 </h1>
                 <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                  Kai works in the background to connect you and your advisor
+                  One works in the background to connect you and your advisor
                   without exposing more than you approve.
                 </p>
               </>
@@ -195,7 +195,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                 </SurfaceInset>
                 <p className="text-sm leading-7 text-muted-foreground">
                   Your advisor only sees data you explicitly approve. Everything
-                  else stays private to you and Kai.
+                  else stays private to you and One.
                 </p>
               </div>
             ) : null}
@@ -213,7 +213,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                   onChange={(event) => setName(event.target.value)}
                   aria-label="Preferred name"
                   className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="How should Kai address you?"
+                  placeholder="How should One address you?"
                 />
                 <textarea
                   value={goal}
@@ -233,7 +233,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                 <p className="text-sm leading-7 text-muted-foreground">
                   The current flow requests one consent template under the hood.
                   These switches make the trust model explicit before you
-                  continue into Kai.
+                  continue into Finance.
                 </p>
                 {PERMISSION_OPTIONS.map(({ key, label, required }) => (
                   <button
@@ -269,7 +269,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                 </h2>
                 <p className="text-sm leading-7 text-muted-foreground">
                   Your advisor request is now staged. Review and approve the
-                  access request from Consents after your Kai setup is complete.
+                  access request from Consents after your Finance setup is complete.
                 </p>
               </div>
             ) : null}

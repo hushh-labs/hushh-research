@@ -22,7 +22,7 @@ The settings experience should feel:
 
 ## Canonical Primitives
 
-### `SettingsSegmentedTabs`
+### `SegmentedTabs`
 
 Use for top-level mode switching inside a settings surface.
 
@@ -46,8 +46,12 @@ Rules:
 4. Optional eyebrow, title, and short supporting description above the group.
 5. Description must stay compact; do not write paragraph-length helper text.
 6. Group spacing should come from the shared density variables, not ad-hoc `space-y-*` tuning inside route files.
+7. The Profile pane's home menu remains transparent over the outer glass sheet. Inner panels and details use one translucent 17px grouped card per section, with flat rows and hairline separators inside it. Keep blur on the outer sheet. Inner type follows the 20px header, 13px row title, 12px description, and 10px group label scale.
+8. Appearance and accent controls respond to their section width, including a narrow pane on desktop. Below 335px of section width, place controls below the label, aligned with its text; keep visible theme labels and accessible names.
 
 ### `SettingsRow`
+
+Every Profile section shares the home menu's glass row highlight on hover and keyboard focus, in light and dark themes. Keep backdrop blur on the outer sheet so nested sections do not add blur layers. Light-mode surfaces remain translucent enough to reveal the colors behind the pane.
 
 Use as the default interactive row pattern.
 
@@ -59,10 +63,27 @@ Rules:
 4. The whole row owns hover, press, and ripple behavior.
 5. Ripple appears only when the row is actionable.
 6. Do not nest buttons inside the text column.
-7. If trailing content is interactive, split the row into:
-   - primary action zone for navigation/open-detail
-   - trailing controls zone for switches/buttons
-8. A clickable settings row must never render nested interactive DOM.
+7. A clickable row is ONE interactive surface, edge to edge, including when
+   its trailing slot holds a control (checkbox, switch, Allow / Deny):
+   - the row action is a single full-row button (`data-slot="settings-row-action"`)
+     laid under the content; title, description, empty space, trailing values
+     and the chevron all open it;
+   - hover, press, ripple and the focus ring paint the full row at the row's
+     own corner radius. The focus ring is inset, because an outset ring is
+     clipped by the row's and the group's `overflow-hidden`;
+   - a nested control stays independently operable and never fires the row;
+     it has no surface of its own;
+   - never wrap the title alone in a button. That was the "double box" the
+     founder reported on Available to request (2026-09-28): an inner button
+     padded inside the row's padding, its own ripple, and a title-only target.
+   Guarded by `__tests__/components/settings-row-surface.contract.test.tsx`
+   and `e2e/settings-row-surface.layout.spec.ts`.
+8. A clickable settings row must never render nested interactive DOM. Control
+   detection reads a control's props (`onClick`, `onCheckedChange`, `checked`,
+   `href`, ...), not its component name: production builds emit components as
+   anonymous functions, so a name check misses `<Switch>` there. Pass
+   `trailingInteractive` when a trailing node owns its own action and none of
+   those props is visible to the row.
 9. Avoid long text in trailing slots.
 10. Row padding and gaps should inherit from the shared compact density variables so Profile, Consent, and similar row-based managers stay visually aligned.
 

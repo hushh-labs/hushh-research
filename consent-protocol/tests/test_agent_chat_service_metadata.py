@@ -11,10 +11,10 @@ class _FakeResult:
 def test_message_from_row_decrypts_metadata(monkeypatch):
     service = AgentChatService.__new__(AgentChatService)  # skip __init__/db
 
-    def fake_decrypt(row, prefix):
+    def fake_open(row, prefix, *, table):
         return row.get(f"{prefix}_plain", "")
 
-    monkeypatch.setattr(service, "_decrypt_text", fake_decrypt)
+    monkeypatch.setattr(service, "_open", fake_open)
     row = {
         "id": "m1",
         "conversation_id": "c1",
@@ -33,7 +33,7 @@ def test_message_from_row_decrypts_metadata(monkeypatch):
 def test_message_from_row_metadata_none_when_absent(monkeypatch):
     service = AgentChatService.__new__(AgentChatService)
     monkeypatch.setattr(
-        service, "_decrypt_text", lambda row, prefix: "hi" if prefix == "content" else ""
+        service, "_open", lambda row, prefix, *, table: "hi" if prefix == "content" else ""
     )
     message = service._message_from_row({"id": "m2", "role": "assistant", "content_plain": "hi"})
     assert message.metadata is None

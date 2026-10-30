@@ -8,11 +8,13 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultService } from "@/lib/services/vault-service";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import {
   preferPassphraseUnlockForAutomation,
   useNativeTestConfig,
 } from "@/lib/testing/native-test";
+
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 
@@ -27,6 +29,11 @@ type CapabilityVaultPrerequisiteProps = {
   capabilityLabel: string;
   routeKey: string;
   children: ReactNode;
+  /**
+   * Safe, non-interactive route chrome that may render while the vault owner
+   * token is being checked. It must not read protected route data.
+   */
+  checkingFallback?: ReactNode;
   allowVaultCreation?: boolean;
 };
 
@@ -43,12 +50,12 @@ export function CapabilityVaultPrerequisite({
   capabilityLabel,
   routeKey,
   children,
+  checkingFallback,
   allowVaultCreation = true,
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading, retrySessionVerification, signOut } = useAuth();
   const nativeTestConfig = useNativeTestConfig();
-  const userId = user?.uid ?? null;
   const { vaultOwnerToken } = useVault();
   const [state, setState] = useState<VaultPrerequisiteState>("checking");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -59,9 +66,9 @@ export function CapabilityVaultPrerequisite({
     state === "create_required" || state === "unlock_required" || vaultHandoffPending;
 
   useEffect(() => {
-    if (authLoading || userId) return;
+    if (authLoading || user || userId) return;
     router.replace(`/login?redirect=${encodeURIComponent(routeKey)}`);
-  }, [authLoading, routeKey, router, userId]);
+  }, [authLoading, routeKey, router, user, userId]);
 
   useEffect(() => {
     if (authLoading) {
@@ -142,12 +149,14 @@ export function CapabilityVaultPrerequisite({
   // A token is memory-only and is the actual authority for the capability.
   // Render immediately once it arrives instead of briefly flashing a loader
   // while the status effect catches up after vault settlement.
+  if (user && !userId) return <SessionVerificationRecovery onRetry={retrySessionVerification}
+    onSignOut={() => void signOut({ skipFcmCleanup: true })} />;
   if (vaultOwnerToken || state === "ready") return <>{children}</>;
   if (!userId) {
     return <RouteLoadingState label="Redirecting to sign in…" />;
   }
   if (state === "checking") {
-    return <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
+    return checkingFallback ?? <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
   }
   if (vaultHandoffPending) {
     return <RouteLoadingState label={`Opening ${capabilityLabel}…`} />;
@@ -155,15 +164,13 @@ export function CapabilityVaultPrerequisite({
 
   const failed = state === "failed";
   const actionLabel =
-    state === "unlock_required"
-      ? "Open your private vault"
-      : "Set up your private vault";
+    state === "unlock_required" ? "Unlock One" : "Set a lock";
 
   if (failed) {
     return (
       <section className="mx-auto flex min-h-[18rem] w-full max-w-[32rem] flex-col items-center justify-center gap-3 px-4 text-center sm:px-6">
         <p className="text-sm leading-6 text-muted-foreground">
-          We could not confirm your vault yet.
+          We couldn't confirm your lock yet.
         </p>
         <Button
           type="button"
@@ -189,7 +196,7 @@ export function CapabilityVaultPrerequisite({
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           title={actionLabel}
-          description={`Continue ${capabilityLabel} setup after your private vault is ready.`}
+          description={`Continue ${capabilityLabel} setup once you're unlocked.`}
           enableGeneratedDefault={
             !preferPassphraseUnlockForAutomation(nativeTestConfig)
           }

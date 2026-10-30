@@ -5,9 +5,7 @@ import type {
 } from "@/lib/one-location/types";
 
 export type CircleRecipientExclusionReason =
-  | "self"
-  | "location_setup_needed"
-  | "phone_verification_needed";
+  "self" | "location_setup_needed";
 
 export type CircleRecipientExclusion = {
   member: OneLocationCircleMember;
@@ -29,10 +27,75 @@ export type CircleRecipientSelection = {
   excluded: CircleRecipientExclusion[];
 };
 
+/**
+ * Expand the audience choices into the unique people who will receive a
+ * share. Circles remain first-class choices in the picker, while the sharing
+ * pipeline still receives the person-level ids it needs for encryption.
+ */
+export function mergeShareAudienceRecipientIds(
+  directRecipientIds: readonly string[],
+  circleSelections: readonly CircleRecipientSelection[],
+): string[] {
+  const merged = new Set<string>();
+  for (const recipientId of directRecipientIds) {
+    if (recipientId) merged.add(recipientId);
+  }
+  for (const selection of circleSelections) {
+    for (const target of selection.ready) {
+      if (target.recipient.userId) merged.add(target.recipient.userId);
+    }
+  }
+  return [...merged];
+}
+
+function circleCanAuthorizeRecipient(
+  selection: CircleRecipientSelection,
+  recipientUserId: string,
+): boolean {
+  const { circle } = selection;
+  if (circle.systemKind === "trusted") return false;
+
+  const productManaged = Boolean(circle.systemKind || circle.isSystem);
+  if (!productManaged || circle.role === "owner") return true;
+
+  // A joined product-managed Circle (today, the SMS Circle) introduces its
+  // owner to each member, not every member to every other member. The backend
+  // enforces the same owner-scoped edge. If this person also has a direct or
+  // ordinary-Circle relationship, leaving the source unset lets the server use
+  // that valid authority instead of forcing an ineligible SMS provenance.
+  return circle.members.some(
+    (member) =>
+      member.userId === recipientUserId && member.role === "owner",
+  );
+}
+
+/**
+ * Preserve valid Circle provenance after several Circles are selected.
+ * Explicit contact choices stay direct, while overlapping Circle membership
+ * prefers an ordinary Circle over a product-managed one.
+ */
+export function sourceCircleIdForRecipient(
+  circleSelections: readonly CircleRecipientSelection[],
+  recipientUserId: string,
+  directRecipientIds: readonly string[] = [],
+): string | undefined {
+  if (directRecipientIds.includes(recipientUserId)) return undefined;
+
+  const eligible = circleSelections.filter(
+    (selection) =>
+      selection.ready.some(
+        (target) => target.recipient.userId === recipientUserId,
+      ) && circleCanAuthorizeRecipient(selection, recipientUserId),
+  );
+  return (
+    eligible.find(
+      ({ circle }) => !circle.systemKind && circle.isSystem !== true,
+    ) ?? eligible[0]
+  )?.circle.id;
+}
+
 function exclusionLabel(reason: CircleRecipientExclusionReason): string {
   if (reason === "self") return "You are not added as a recipient";
-  if (reason === "phone_verification_needed")
-    return "Phone verification is needed for SMS";
   return "Location setup is not complete";
 }
 
@@ -44,7 +107,6 @@ function exclusionLabel(reason: CircleRecipientExclusionReason): string {
 export function resolveCircleRecipientSelection(params: {
   circle: OneLocationCircleDetail;
   currentUserId?: string | null;
-  requirePhoneVerified?: boolean;
 }): CircleRecipientSelection {
   const currentUserId = String(params.currentUserId || "").trim();
   const ready: CircleRecipientTarget[] = [];
@@ -59,8 +121,6 @@ export function resolveCircleRecipientSelection(params: {
     let reason: CircleRecipientExclusionReason | null = null;
     if (userId === currentUserId) {
       reason = "self";
-    } else if (params.requirePhoneVerified && !member.phoneVerified) {
-      reason = "phone_verification_needed";
     } else if (
       !member.canReceiveLocation ||
       !member.keyId ||
@@ -83,18 +143,63 @@ export function resolveCircleRecipientSelection(params: {
       recipient: {
         userId,
         displayName: member.displayName,
+        photoUrl: member.photoUrl ?? null,
         phoneVerified: member.phoneVerified,
         keyId: member.keyId!,
         publicKeyJwk: member.publicKeyJwk!,
-        keyAlgorithm:
-          member.keyAlgorithm || "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
+        keyAlgorithm: member.keyAlgorithm || "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
         keyRegisteredAt: member.keyRegisteredAt,
         canReceiveLocation: true,
+        connectedFromContacts: member.connectedFromContacts,
+        isRia: Boolean(member.isRia),
       },
     });
   }
 
   return { circle: params.circle, ready, excluded };
+}
+
+/**
+ * Whether a resolved Circle is *still* the recipient selection.
+ *
+ * Picking a Circle selects each of its ready members individually in the people
+ * list below, and those rows stay individually deselectable. The moment one of
+ * them is turned off the share is no longer "this Circle", so the Circle row
+ * must stop reading as selected — and the next tap on it must re-apply the full
+ * roster rather than clear what is left.
+ */
+export function isCircleSelectionFullySelected(
+  selection: CircleRecipientSelection | null | undefined,
+  selectedRecipientIds: readonly string[],
+): boolean {
+  const ready = selection?.ready ?? [];
+  if (!ready.length) return false;
+  const selected = new Set(selectedRecipientIds);
+  return ready.every((target) => selected.has(target.recipient.userId));
+}
+
+/**
+ * Counts only selected recipients that belong to this resolved Circle snapshot.
+ *
+ * The share composer may contain extra hand-picked people while a whole Circle
+ * remains selected. Those people belong in the composer-wide total, but never
+ * in the Circle row's own count. Use recipient ids rather than the summary's
+ * `memberCount`: the resolved snapshot has already excluded the viewer and
+ * anyone who cannot currently receive this kind of share.
+ */
+export function countSelectedCircleRecipients(
+  selection: CircleRecipientSelection | null | undefined,
+  selectedRecipientIds: readonly string[],
+): number {
+  if (!selection?.ready.length || !selectedRecipientIds.length) return 0;
+
+  const selected = new Set(selectedRecipientIds);
+  const counted = new Set<string>();
+  for (const target of selection.ready) {
+    const userId = target.recipient.userId;
+    if (userId && selected.has(userId)) counted.add(userId);
+  }
+  return counted.size;
 }
 
 export function mergeRecipientsByUserId(
@@ -125,6 +230,8 @@ export function mergeRecipientsByUserId(
           recipient.recommendationReasons ?? existing?.recommendationReasons,
         recommendationSummary:
           recipient.recommendationSummary ?? existing?.recommendationSummary,
+        photoUrl: recipient.photoUrl ?? existing?.photoUrl ?? null,
+        isRia: Boolean(recipient.isRia || existing?.isRia),
       });
     }
   }

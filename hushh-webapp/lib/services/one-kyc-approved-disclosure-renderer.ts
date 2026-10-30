@@ -1,5 +1,7 @@
 "use client";
 
+import { HUSHH_MARK_URL } from "@/lib/brand/hushh-mark";
+
 export const APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID =
   "agent_kyc.approved_disclosure_formatter.v1" as const;
 
@@ -566,7 +568,7 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
  * structurally different before vs after an LLM redraft.
  */
 export function wrapApprovedDisclosureShell(content: string): string {
-  return `<div style="margin:0;padding:16px;background:${EMAIL_THEME.background};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"><div style="width:100%;max-width:820px;margin:0 auto;border:1px solid ${EMAIL_THEME.border};border-radius:18px;background:${EMAIL_THEME.card};overflow:hidden;"><div style="padding:16px 20px;border-bottom:1px solid ${EMAIL_THEME.border};background:${EMAIL_THEME.panel};"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="width:42px;vertical-align:middle;"><div style="width:34px;height:34px;border-radius:12px;border:1px solid ${EMAIL_THEME.accentBorder};background:${EMAIL_THEME.accent};color:${EMAIL_THEME.background};font-size:19px;line-height:34px;text-align:center;font-weight:800;">🤫</div></td><td style="vertical-align:middle;"><div style="font-size:14px;line-height:1.2;color:${EMAIL_THEME.heading};font-weight:800;">hussh One</div><div style="margin-top:2px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${EMAIL_THEME.accent};font-weight:750;">approved reply</div></td></tr></table></div><div style="padding:20px;">${content}</div></div></div>`;
+  return `<div style="margin:0;padding:16px;background:${EMAIL_THEME.background};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"><div style="width:100%;max-width:820px;margin:0 auto;border:1px solid ${EMAIL_THEME.border};border-radius:18px;background:${EMAIL_THEME.card};overflow:hidden;"><div style="padding:16px 20px;border-bottom:1px solid ${EMAIL_THEME.border};background:${EMAIL_THEME.panel};"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="width:42px;vertical-align:middle;"><div style="width:34px;height:34px;border-radius:12px;border:1px solid ${EMAIL_THEME.accentBorder};background:${EMAIL_THEME.accent};line-height:34px;text-align:center;"><img src="${HUSHH_MARK_URL}" alt="" width="19" height="19" style="display:inline-block;width:19px;height:19px;vertical-align:middle;" /></div></td><td style="vertical-align:middle;"><div style="font-size:14px;line-height:1.2;color:${EMAIL_THEME.heading};font-weight:800;">hussh One</div><div style="margin-top:2px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${EMAIL_THEME.accent};font-weight:750;">approved reply</div></td></tr></table></div><div style="padding:20px;">${content}</div></div></div>`;
 }
 
 /**

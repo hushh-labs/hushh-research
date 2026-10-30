@@ -48,6 +48,7 @@ REGION="${REGION:-us-central1}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-consent-protocol}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-hushh-webapp}"
 UAT_PROJECT_ID="${UAT_PROJECT_ID:-hushh-pda-uat}"
+UAT_GENAI_PROJECT_ID="$(python3 "$REPO_ROOT/scripts/ops/managed_ai_config.py" --environment uat --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])')"
 DEV_PROJECT_ID="${DEV_PROJECT_ID:-hushh-pda-dev}"
 PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
 FORCE=false
@@ -75,6 +76,10 @@ while [ "$#" -gt 0 ]; do
     --uat-project)
       UAT_PROJECT_ID="${2:-}"
       shift 2
+      ;;
+    --uat-genai-project)
+      echo "Change consent-protocol/config/managed-ai-runtime.json to select the managed project." >&2
+      exit 1
       ;;
     --dev-project)
       DEV_PROJECT_ID="${2:-}"
@@ -146,7 +151,6 @@ keys = {
     "FIREBASE_ADMIN_CREDENTIALS_JSON",
     "FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON",
     "BACKEND_RUNTIME_CONFIG_JSON",
-    "VOICE_RUNTIME_CONFIG_JSON",
 }
 assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 decoder = json.JSONDecoder()
@@ -199,11 +203,16 @@ run_with_timeout() {
   local timeout_seconds="$1"
   shift
   python3 - "$timeout_seconds" "$@" <<'PY'
+import shutil
 import subprocess
 import sys
 
 timeout_seconds = float(sys.argv[1])
 cmd = sys.argv[2:]
+if cmd:
+    resolved = shutil.which(cmd[0])
+    if resolved:
+        cmd[0] = resolved
 
 try:
     completed = subprocess.run(
@@ -395,6 +404,9 @@ PY
 copy_template_if_needed() {
   local template="$1"
   local target="$2"
+  # Retire only the old public rollout key before comparing profile shape, so
+  # cached credentials survive migration to ordinary new-user onboarding.
+  remove_env_keys "$target" NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED
   if [ ! -f "$template" ]; then
     echo "Missing template: $template" >&2
     exit 1
@@ -816,87 +828,6 @@ path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 }
 
-compose_voice_runtime_config_json() {
-  local file="$1"
-  python3 - "$file" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-values = {}
-for line in path.read_text(encoding="utf-8").splitlines():
-    if "=" not in line or line.lstrip().startswith("#"):
-        continue
-    key, value = line.split("=", 1)
-    values[key] = value
-
-payload = {}
-
-def maybe_bool(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        payload[target] = value.lower() in {"1", "true", "yes", "on", "enabled"}
-
-def maybe_int(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        try:
-            payload[target] = int(value)
-        except ValueError:
-            pass
-
-def maybe_csv(key: str, target: str) -> None:
-    value = [item.strip() for item in str(values.get(key, "")).split(",") if item.strip()]
-    if value:
-        payload[target] = value
-
-def maybe_string(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        payload[target] = value
-
-maybe_bool("KAI_VOICE_REALTIME_ENABLED", "realtime_enabled")
-maybe_bool("KAI_VOICE_V1_ENABLED", "hosted_voice_enabled")
-maybe_int("KAI_VOICE_V1_CANARY_PERCENT", "canary_percent")
-maybe_bool("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "tool_execution_disabled")
-maybe_csv("KAI_VOICE_V1_ALLOWED_USERS", "allowed_users")
-maybe_bool("FORCE_REALTIME_VOICE", "force_realtime")
-maybe_bool("FAIL_FAST_VOICE", "fail_fast")
-maybe_bool("DISABLE_VOICE_FALLBACKS", "disable_fallbacks")
-maybe_string("OPENAI_VOICE_REALTIME_MODEL", "realtime_model")
-if str(values.get("OPENAI_VOICE_STT_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_STT_MODELS", "stt_models")
-elif str(values.get("OPENAI_VOICE_STT_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_STT_MODEL", "stt_models")
-if str(values.get("OPENAI_VOICE_INTENT_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_INTENT_MODELS", "intent_models")
-elif str(values.get("OPENAI_VOICE_INTENT_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_INTENT_MODEL", "intent_models")
-if str(values.get("OPENAI_VOICE_TTS_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_TTS_MODELS", "tts_models")
-elif str(values.get("OPENAI_VOICE_TTS_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_TTS_MODEL", "tts_models")
-maybe_string("OPENAI_VOICE_TTS_DEFAULT_VOICE", "tts_default_voice")
-maybe_string("OPENAI_VOICE_TTS_FORMAT", "tts_format")
-maybe_bool("OPENAI_VOICE_TTS_PREFER_QUALITY", "tts_prefer_quality")
-
-needle = "VOICE_RUNTIME_CONFIG_JSON="
-lines = path.read_text(encoding="utf-8").splitlines()
-rendered = json.dumps(payload, separators=(",", ":"))
-for idx, line in enumerate(lines):
-    if line.startswith(needle):
-        lines[idx] = needle + rendered
-        break
-else:
-    if lines and lines[-1].strip():
-        lines.append("")
-    lines.append(needle + rendered)
-
-path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-}
-
 cloudsql_instance_for_backend() {
   local project="$1"
   local annotation
@@ -941,6 +872,10 @@ hydrate_backend_cloud_reference() {
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
+  # Bootstrap the same checked-in profile used by hosted clients.
+  local managed_vertex_project="$UAT_GENAI_PROJECT_ID"
+  set_if_non_empty "$file" "GENAI_GOOGLE_CLOUD_PROJECT" "$managed_vertex_project"
+
   if [ -z "$(read_env_value "$file" "CORS_ALLOWED_ORIGINS")" ] && [ -n "$front_secret" ]; then
     upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "$front_secret"
   fi
@@ -962,8 +897,16 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_CLIENT_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_REDIRECT_URI" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_TOKEN_KEY" "false" "$cache_file" GMAIL_OAUTH_TOKEN_KEY GMAIL_TOKEN_ENCRYPTION_KEY
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_SECRET" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
+  for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+    GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT \
+    OWNER_FEED_SIGNING_ALG OWNER_FEED_ED25519_KID OWNER_FEED_ED25519_PUBLIC_KEYS; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
+  done
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
   # mode-600 local backend runtime file. They are never emitted by doctor or
   # copied into frontend profiles.
@@ -977,7 +920,7 @@ hydrate_backend_cloud_reference() {
 
   compose_backend_runtime_config_json "$file"
   remove_env_keys "$file" \
-    SECRET_KEY VAULT_ENCRYPTION_KEY FRONTEND_URL FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON \
+    SECRET_KEY VAULT_ENCRYPTION_KEY FRONTEND_URL FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON VOICE_RUNTIME_CONFIG_JSON \
     GMAIL_TOKEN_ENCRYPTION_KEY PLAID_TOKEN_ENCRYPTION_KEY \
     APCA_API_SECRET_KEY ALPACA_SECRET_KEY ALPACA_API_SECRET_KEY \
     KAI_VOICE_REALTIME_ENABLED KAI_VOICE_V1_ENABLED KAI_VOICE_V1_ALLOWED_USERS KAI_VOICE_V1_CANARY_PERCENT KAI_VOICE_V1_DISABLE_TOOL_EXECUTION \
@@ -997,11 +940,35 @@ hydrate_backend_local_uatdb() {
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
-  upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/profile/gmail/oauth/return"
+  upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/gmail/oauth/return"
+  upsert_env_value "$file" "GOOGLE_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/google/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
   upsert_env_value "$file" "PORT" "8000"
   upsert_env_value "$file" "PLAID_WEBHOOK_URL" "$existing_local_plaid_webhook"
+
+  # Founder decision 2026-09-26: Drive runs on the Hussh PDA Google projects, not
+  # a dedicated Drive project. Localhost uses the dev/localhost OAuth client
+  # (project hushh-pda-uat), which registers the connector return for every
+  # local and hosted origin, and its Picker key; the Picker app id follows the
+  # client id. Encryption keys stay UAT's because localhost uses the UAT DB. The
+  # backend admits the loopback return only in development
+  # (external_connector_google_oauth.registered_redirect_uris).
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_ID" "false" "$file" GOOGLE_OAUTH_CLIENT_ID
+  set_mapped_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET" "false" "$file" GOOGLE_OAUTH_CLIENT_SECRET
+  set_secret_key_or_cached "$file" "$profile" "$DEV_PROJECT_ID" \
+    "GOOGLE_DRIVE_PICKER_API_KEY" "false" "$file"
+  local drive_key
+  for drive_key in DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 \
+    EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$drive_key" "false" "$file"
+  done
+  upsert_env_value "$file" "GOOGLE_DRIVE_LIVE" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_INDEXING" "true"
+  upsert_env_value "$file" "DRIVE_DOCUMENT_SHARING" "true"
+  upsert_env_value "$file" "CURATED_MCP_CONNECTORS" "true"
 
   local runtime_db_host runtime_db_port runtime_socket instance_name
   local cache_file="$file"
@@ -1080,6 +1047,19 @@ hydrate_frontend_cloud() {
   do
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "true" "$cache_file"
   done
+
+  # Contacts is an environment-isolated, staged browser capability. Hydrate a
+  # configured project without making an intentionally dark project noisy.
+  local google_contacts_client_id=""
+  for connector_pin in NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+    NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
+  done
+  if google_contacts_client_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$cache_file")"; then
+    upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$google_contacts_client_id"
+  else
+    upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" ""
+  fi
 
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
 
@@ -1209,8 +1189,12 @@ if profile_is_in_focus "uat"; then
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.uat.local")
 fi
 if profile_is_in_focus "dev"; then
-  # dev keeps the UAT runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
-  # infrastructure replica of UAT living in its own GCP project.
+  # The LOCAL dev profile still hydrates NEXT_PUBLIC_APP_ENV=uat, deliberately,
+  # even though the DEPLOYED dev environment now reports its own name. Local
+  # `--mode dev` runs the Next server on the developer's machine with no deploy
+  # lane set, so `development` there would satisfy devAuthBypassAllowed() and turn
+  # on the vault auth bypasses while talking to the SHARED dev backend. Changing
+  # this is a separate decision, not a consequence of the deploy rename.
   hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.dev.local")
 fi

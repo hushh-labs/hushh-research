@@ -29,6 +29,18 @@ function nextRequest(body: string): NextRequest {
   });
 }
 
+function agentChatRequest(body: string): NextRequest {
+  return new NextRequest("https://app.test/api/one/agent-chat", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer t",
+      accept: "text/event-stream",
+    },
+    body,
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("fetch", mocks.fetch);
@@ -36,7 +48,9 @@ beforeEach(() => {
 
 describe("/api/one proxy", () => {
   it("passes an event-stream through instead of parsing it as JSON", async () => {
-    const frames = 'event: results\ndata: {"event":"results","category":"hotels_stays","items":[]}\n\n';
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const frames =
+      'event: results\ndata: {"event":"results","category":"hotels_stays","items":[]}\n\n';
     mocks.fetch.mockResolvedValue(
       new Response(frames, {
         status: 200,
@@ -45,18 +59,39 @@ describe("/api/one proxy", () => {
     );
 
     const response = await POST(
-      nextRequest(JSON.stringify({ lat: 1, lng: 2, categories: ["hotels_stays"] })) as never,
+      nextRequest(
+        JSON.stringify({ lat: 1, lng: 2, categories: ["hotels_stays"] }),
+      ) as never,
       { params: Promise.resolve({ path: ["places", "stream"] }) },
     );
 
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     expect(response.headers.get("x-accel-buffering")).toBe("no");
     expect(response.headers.get("cache-control")).toContain("no-transform");
+    expect(timeoutSpy).toHaveBeenCalledWith(285_000);
     // The bytes must survive intact — this is what was being dropped.
     await expect(response.text()).resolves.toContain("hotels_stays");
   });
 
+  it("keeps the agent-chat stream alive until the browser disconnects", async () => {
+    mocks.fetch.mockResolvedValue(
+      new Response("event: RUN_FINISHED\ndata: {}\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+    const request = agentChatRequest(JSON.stringify({ run: "chat" }));
+
+    await POST(request as never, {
+      params: Promise.resolve({ path: ["agent-chat"] }),
+    });
+
+    const [, options] = mocks.fetch.mock.calls[0] ?? [];
+    expect(options?.signal).toBe(request.signal);
+  });
+
   it("still buffers an ordinary JSON route exactly as before", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     mocks.fetch.mockResolvedValue(
       new Response(JSON.stringify({ items: [1, 2] }), {
         status: 200,
@@ -70,6 +105,78 @@ describe("/api/one proxy", () => {
     );
 
     expect(response.headers.get("content-type")).toContain("application/json");
+    expect(timeoutSpy).toHaveBeenCalledWith(45_000);
     await expect(response.json()).resolves.toMatchObject({ items: [1, 2] });
   });
+
+  it("allows an email draft enough time for one safe model retry", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ body: "Hello" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await POST(
+      nextRequest(JSON.stringify({ instruction: "Write a note" })) as never,
+      {
+        params: Promise.resolve({ path: ["email", "draft"] }),
+      },
+    );
+
+    expect(timeoutSpy).toHaveBeenCalledWith(75_000);
+  });
+
+  it("allows a KYC Inbox scan to return its persisted classification result", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    mocks.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ accepted: true, workflow_ids: ["workflow-1"] }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await POST(nextRequest(JSON.stringify({ max_results: 30 })) as never, {
+      params: Promise.resolve({
+        path: ["email", "information-requests", "scan"],
+      }),
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(90_000);
+  });
+});
+
+it("preserves library and mutation fencing only on the Files transport", async () => {
+  const headers = {
+    "content-type": "application/json",
+    authorization: "Bearer synthetic",
+    "X-Files-Library-Id": "synthetic-epoch",
+    "X-Files-Mutation-Lease": "synthetic-lease",
+  };
+  for (const path of [
+    ["files", "storage"],
+    ["wallet", "status"],
+  ]) {
+    mocks.fetch.mockResolvedValueOnce(Response.json({ status: "accepted" }));
+    await POST(
+      new NextRequest(`https://app.test/api/one/${path.join("/")}`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      }) as never,
+      { params: Promise.resolve({ path }) },
+    );
+    const forwarded = mocks.fetch.mock.calls.at(-1)![1].headers as Headers;
+    expect(forwarded.get("Authorization")).toBe("Bearer synthetic");
+    expect(forwarded.get("X-Files-Library-Id")).toBe(
+      path[0] === "files" ? "synthetic-epoch" : null,
+    );
+    expect(forwarded.get("X-Files-Mutation-Lease")).toBe(
+      path[0] === "files" ? "synthetic-lease" : null,
+    );
+  }
 });

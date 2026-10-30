@@ -35,6 +35,11 @@ HEADERS="X-Hushh-Maintenance-Token=${TOKEN},Content-Type=application/json"
 if gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
+  # `create http` takes --headers; `update http` does not -- it takes
+  # --update-headers. Sharing the flag between both subcommands made the
+  # REPAIR path fail with "unrecognized arguments: --headers=..." while
+  # first-time creation kept working, so the break only appeared once the
+  # job already existed, which is steady state.
   gcloud scheduler jobs update http "${JOB_NAME}" \
     --project="${PROJECT_ID}" \
     --location="${SCHEDULER_LOCATION}" \
@@ -42,7 +47,7 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
     --time-zone="${TIMEZONE}" \
     --uri="${URI}" \
     --http-method=POST \
-    --headers="${HEADERS}" \
+    --update-headers="${HEADERS}" \
     --attempt-deadline=300s >/dev/null
 else
   gcloud scheduler jobs create http "${JOB_NAME}" \

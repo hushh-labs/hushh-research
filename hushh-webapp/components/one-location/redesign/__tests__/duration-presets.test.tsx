@@ -1,0 +1,349 @@
+import { useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  CHANGE_TIME_DURATION_LADDER,
+  DURATION_COMPACT_GRID_CLASS,
+  DurationPresetPicker,
+  compactDurationLabel,
+} from "@/components/one-location/redesign/duration-presets";
+import {
+  DurationSelector,
+  ReasonChips,
+  type ReasonValue,
+} from "@/components/one-location/redesign/selectors";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
+
+/** Every cell that currently reads as chosen. */
+function pressedLabels(): string[] {
+  return screen
+    .getAllByRole("button")
+    .filter((node) => node.getAttribute("aria-pressed") === "true")
+    .map((node) => node.textContent ?? "");
+}
+
+describe("DurationPresetPicker", () => {
+  it("opens on the incoming value with exactly one cell pressed", () => {
+    render(<DurationPresetPicker value="0.25" onChange={vi.fn()} />);
+
+    expect(pressedLabels()).toEqual(["15 min"]);
+  });
+
+  it("sets exactly one hour in one tap — no rounding to 1h15m", () => {
+    // The founder's literal report: "when choosing hours, people are unable
+    // to choose 1 hor, 2 hours". On the wheel that was true (its minutes
+    // grid had no :00), and even once :00 landed it took two coordinated
+    // drags. Here it is one tap and the emitted value is exact.
+    const onChange = vi.fn();
+    render(<DurationPresetPicker value="0.25" onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
+
+    expect(onChange).toHaveBeenCalledWith("1");
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens custom when the user wants anything beyond the core presets", () => {
+    const onChange = vi.fn();
+    render(<DurationPresetPicker value="0.25" onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("emits the caller's open-ended sentinel, not the wheel's own alias", () => {
+    // The Share screen's sentinel is "until_stopped"; the wheel's default is
+    // "24". Nothing pinned the hand-off in either direction before, and the
+    // Request screen was silently getting "24" because it never passed one.
+    const onChange = vi.fn();
+    render(
+      <DurationPresetPicker
+        value="0.25"
+        onChange={onChange}
+        untilStopValue="until_stopped"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Until I stop" }));
+
+    expect(onChange).toHaveBeenCalledWith("until_stopped");
+  });
+
+  it("does not mount the wheel until Custom is tapped", () => {
+    // The whole saving. A wheel that renders anyway costs its 120px whether
+    // or not anybody wanted it.
+    render(<DurationPresetPicker value="1" onChange={vi.fn()} />);
+
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeTruthy();
+  });
+
+  it("hides the open-ended rung when the caller cannot accept it", () => {
+    // The Request screen. Its `durationHours` state is shared with the
+    // public-link and circle-invite lanes, which do Number(value) on it, so
+    // a non-numeric sentinel there posts NaN to a `gt=0` field.
+    const { container } = render(
+      <DurationPresetPicker value="1" onChange={vi.fn()} allowUntilStop={false} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
+    // Belt and braces: `getByRole` skips hidden elements, so a rung rendered
+    // with `hidden` would pass the query above while still being in the DOM.
+    expect(container.textContent).not.toContain("Until I stop");
+  });
+
+  it("labels the Custom cell with a real off-grid duration rather than rounding it away", () => {
+    // A value that arrives from voice, or from editing a live grant, must be
+    // shown as itself. Snapping the label to the nearest rung would tell
+    // someone they picked 4 hours when the share runs 2h45m.
+    render(<DurationPresetPicker value="2.75" onChange={vi.fn()} />);
+
+    expect(pressedLabels()).toEqual(["2h 45m"]);
+  });
+
+  it("seeds Custom with a real number when it is opened from the open-ended rung", () => {
+    // The wheel has no row for "until_stopped". Handing it that string makes
+    // it parse NaN and floor to 15 minutes — silently shrinking an
+    // open-ended share to the minimum the moment Custom is opened.
+    const onChange = vi.fn();
+    render(
+      <DurationPresetPicker
+        value="until_stopped"
+        onChange={onChange}
+        untilStopValue="until_stopped"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+
+    expect(onChange).toHaveBeenCalledWith("1");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "1 hr",
+    );
+  });
+
+  it("gives every cell a 44px minimum tap target", () => {
+    // jsdom performs no layout, so this is a class contract; the pixels are
+    // proven in e2e/one-location-duration-ladder.layout.spec.ts. `h-9` (36px)
+    // is what the surrounding chips use and what this must never become.
+    render(<DurationPresetPicker value="1" onChange={vi.fn()} />);
+
+    const cells = screen.getAllByRole("button");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.className).toContain("min-h-11");
+      expect(cell.className).not.toContain("h-9");
+    }
+  });
+
+  it("bounds the confirmation choices without shrinking their touch targets", () => {
+    const { container } = render(
+      <DurationPresetPicker value="1" onChange={vi.fn()} compact />,
+    );
+
+    const grid = container.querySelector('[role="group"] > div');
+    expect(grid).toHaveClass(...DURATION_COMPACT_GRID_CLASS.split(" "));
+    for (const cell of screen.getAllByRole("button")) {
+      expect(cell).toHaveClass("min-h-11", "rounded-full", "px-3");
+    }
+  });
+
+  it("drops the Custom cell and its wheel when allowCustom is false", () => {
+    // The end-time dropdown derives its timed values from this compact rung
+    // set; keep the underlying preset picker contract exact as well.
+    render(
+      <DurationPresetPicker
+        value="1"
+        onChange={vi.fn()}
+        rungs={CHANGE_TIME_DURATION_LADDER}
+        untilStopValue="until_stopped"
+        allowCustom={false}
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("button").map((node) => node.textContent),
+    ).toEqual(["15 min", "1 hour", "2 hours", "4 hours", "Until I stop"]);
+    expect(screen.queryByRole("button", { name: "Custom" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "8 hours" })).toBeNull();
+  });
+
+  it("never opens the wheel for an off-grid value when allowCustom is false", () => {
+    // The editor seeds on whatever the share has left — e.g. 2h45m. With no
+    // Custom cell there is nothing to close a wheel from, so it must stay shut
+    // and simply leave no rung pressed.
+    render(
+      <DurationPresetPicker
+        value="2.75"
+        onChange={vi.fn()}
+        rungs={CHANGE_TIME_DURATION_LADDER}
+        untilStopValue="until_stopped"
+        allowCustom={false}
+      />,
+    );
+
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(pressedLabels()).toEqual([]);
+  });
+
+  it("keeps the whole ladder focused: two presets, custom, and the open-ended row", () => {
+    render(<DurationPresetPicker value="1" onChange={vi.fn()} />);
+
+    expect(
+      screen.getAllByRole("button").map((node) => node.textContent),
+    ).toEqual([
+      "15 min",
+      "1 hour",
+      "Custom",
+      "Until I stop",
+    ]);
+  });
+});
+
+describe("DurationSelector button layout", () => {
+  it("can distribute a short option set evenly across its available width", () => {
+    render(
+      <DurationSelector
+        value="1"
+        onChange={vi.fn()}
+        options={[
+          { value: "0.5", label: "30 min" },
+          { value: "1", label: "1 hour" },
+        ]}
+        presentation="buttons"
+        equalWidthButtons
+      />,
+    );
+
+    const group = screen.getByRole("radiogroup", { name: "Duration" });
+    expect(group).toHaveClass("grid", "w-full", "grid-cols-3", "gap-2");
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option).toHaveClass("min-h-11", "min-w-0", "px-3");
+    }
+  });
+});
+
+describe("ReasonChips inline picker", () => {
+  it("mounts choices only while open and preserves Other as the controlled value", () => {
+    const onChange = vi.fn();
+    function ControlledReason() {
+      const [value, setValue] = useState<ReasonValue>("Safety check-in");
+      return (
+        <ReasonChips
+          value={value}
+          onChange={(next) => {
+            onChange(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+    const { container } = render(<ControlledReason />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAccessibleDescription("Safety check-in");
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(container.querySelector('[role="radio"]')).toBeNull();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByRole("radio").map((option) => option.textContent)).toEqual([
+      "Safety check-in",
+      "Meeting nearby",
+      "Pick-up",
+      "Other",
+    ]);
+    expect(screen.getByRole("radio", { name: "Safety check-in" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("Other");
+    expect(trigger).toHaveAccessibleDescription("Other");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(container.querySelector('[role="radio"]')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveAccessibleDescription("Other");
+  });
+
+  it("opens from the keyboard and dismisses without changing the chosen reason", async () => {
+    const onChange = vi.fn();
+    render(<ReasonChips value="Safety check-in" onChange={onChange} />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+    trigger.focus();
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const selected = screen.getByRole("radio", { name: "Safety check-in" });
+    expect(selected).toHaveFocus();
+    fireEvent.keyDown(selected, { key: "ArrowRight" });
+    const nextOption = screen.getByRole("radio", { name: "Meeting nearby" });
+    await waitFor(() => expect(nextOption).toHaveFocus());
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(nextOption, { key: "Escape" });
+
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAccessibleDescription("Safety check-in");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("limits its Back layer to Ask and removes it after closing or unmounting", () => {
+    const { unmount } = render(<ReasonChips value={null} onChange={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+    fireEvent.click(trigger);
+
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=share")),
+    ).toBe(false);
+    expect(screen.getByRole("radiogroup", { name: "Reason" })).toBeTruthy();
+    act(() => {
+      expect(
+        unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+      ).toBe(true);
+    });
+    expect(trigger).toHaveFocus();
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+    ).toBe(false);
+
+    fireEvent.click(trigger);
+    unmount();
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+    ).toBe(false);
+  });
+});
+
+describe("compactDurationLabel", () => {
+  it("stays within six glyphs so it fits an 80px cell at 320px", () => {
+    expect(compactDurationLabel("0.25")).toBe("15m");
+    expect(compactDurationLabel("1")).toBe("1h");
+    expect(compactDurationLabel("2.75")).toBe("2h 45m");
+    expect(compactDurationLabel("23.75")).toBe("23h 45m");
+  });
+
+  it("falls back to Custom for anything that is not a positive number", () => {
+    expect(compactDurationLabel("until_stopped")).toBe("Custom");
+    expect(compactDurationLabel("today")).toBe("Custom");
+    expect(compactDurationLabel("0")).toBe("Custom");
+  });
+});

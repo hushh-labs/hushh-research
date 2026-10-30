@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { RotateCcw, Send, Sparkles } from "lucide-react";
+import { GmailAgentIcon, RotateCcw, Send } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";
@@ -16,7 +16,7 @@ interface ChatMessage {
 
 const SUGGESTIONS = [
   "What needs a reply today?",
-  "Find unread emails from this week",
+  "Find unread mail messages from this week",
   "Any invoices in my inbox?",
 ];
 
@@ -29,8 +29,10 @@ const ERROR_TEXT = "Sorry — that couldn't be processed. Try rephrasing.";
  */
 export default function GmailChatPanel({
   vaultOwnerToken,
+  vaultKey = null,
 }: {
   vaultOwnerToken: string | null;
+  vaultKey?: string | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -49,6 +51,7 @@ export default function GmailChatPanel({
       try {
         const result = await EmailChatService.chat({
           vaultOwnerToken,
+          vaultKey,
           message,
           conversationId: conversationIdRef.current,
         });
@@ -66,7 +69,7 @@ export default function GmailChatPanel({
         setBusy(false);
       }
     },
-    [busy, vaultOwnerToken, nextId],
+    [busy, vaultOwnerToken, vaultKey, nextId],
   );
 
   const clear = useCallback(() => {
@@ -78,9 +81,9 @@ export default function GmailChatPanel({
     return (
       <SurfaceInset className="px-4 py-4 text-sm sm:px-5 sm:py-5">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
+          <GmailAgentIcon className="h-5 w-5 shrink-0" aria-hidden />
           <div>
-            <p className="text-sm font-semibold text-foreground">Email assistant</p>
+            <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">
               Unlock your vault to chat with your inbox.
             </p>
@@ -96,9 +99,9 @@ export default function GmailChatPanel({
     <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
+          <GmailAgentIcon className="h-5 w-5 shrink-0" aria-hidden />
           <div>
-            <p className="text-sm font-semibold text-foreground">Email assistant</p>
+            <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">
               Ask what needs a reply, or to find anything in your inbox.
             </p>
@@ -109,7 +112,7 @@ export default function GmailChatPanel({
             type="button"
             onClick={clear}
             aria-label="Clear conversation"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -154,7 +157,7 @@ export default function GmailChatPanel({
               key={suggestion}
               type="button"
               onClick={() => void send(suggestion)}
-              className="rounded-full border border-[color:var(--app-card-border-standard)] bg-background/60 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+              className="min-h-11 rounded-full border border-[color:var(--app-card-border-standard)] bg-background/60 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
             >
               {suggestion}
             </button>
@@ -180,9 +183,17 @@ export default function GmailChatPanel({
           }}
           rows={1}
           placeholder="Ask your inbox…"
-          className="min-h-[40px] flex-1 resize-none rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3 py-2 text-sm outline-none focus:border-foreground/40"
+          aria-label="Ask your inbox"
+          className="min-h-11 flex-1 resize-none rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3 py-2 text-sm outline-none focus:border-foreground/40"
         />
-        <Button type="submit" variant="muted" size="icon" disabled={busy || !input.trim()}>
+        <Button
+          type="submit"
+          variant="muted"
+          size="icon"
+          className="h-11 w-11"
+          disabled={busy || !input.trim()}
+          aria-label="Send inbox question"
+        >
           <Send className="h-4 w-4" />
         </Button>
       </form>

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,56 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
+    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+    const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");
+    const end = uiTests.indexOf("private func replaceText", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const helper = uiTests.slice(start, end);
+    const exposesCredential = (text: string) => /XCTAssert(?:Equal|NotEqual)\(\s*(?:primary|canonical)\s*,/.test(text);
+    expect(exposesCredential(helper)).toBe(false);
+    // Negative control reproduces the legacy failure diagnostic without ever
+    // loading a credential or deliberately emitting an XCTest failure.
+    const unsafe = helper.replace("XCTAssertTrue(primary == canonical,", "XCTAssertEqual(primary, canonical,");
+    expect(exposesCredential(unsafe)).toBe(true);
+  });
+
+  it("exports reviewer credentials as literal shell values, never executable substitutions", () => {
+    const synthetic = 'synthetic $(printf expanded) `printf expanded` "quoted" \'literal\' $HUSHH_SYNTHETIC_EXPANSION';
+    const environment = {
+      ...process.env,
+      REVIEWER_UID: "synthetic-reviewer",
+      REVIEWER_VAULT_PASSPHRASE: synthetic,
+      HUSHH_SYNTHETIC_EXPANSION: "expanded",
+    };
+    const assignments = execFileSync(process.execPath, [join(root, "scripts/testing/export-reviewer-test-env.mjs")], {
+      encoding: "utf8", env: environment,
+    });
+    const value = execFileSync("bash", ["-c", `unset REVIEWER_VAULT_PASSPHRASE\n${assignments}\nprintf '%s' "$REVIEWER_VAULT_PASSPHRASE"`], {
+      encoding: "utf8", env: environment,
+    });
+    expect(value).toBe(synthetic);
+  });
+
+  it("stops native execution if reviewer resolution fails despite inherited credentials", () => {
+    const script = source("scripts/native/ios-device-ui-test.sh");
+    const boundary = script.indexOf("\n(\n  # Load only for execution.");
+    expect(boundary).toBeGreaterThan(-1);
+    const result = spawnSync("zsh", ["-c", `set -eu
+COMMON_FLAGS=()
+TEST_FILTER=synthetic
+node() { return 23; }
+run_xcodebuild_with_log() { print -r -- RUNNER_CALLED; }
+${script.slice(boundary)}`], {
+      encoding: "utf8",
+      env: {...process.env, HUSHH_UI_TEST_REVIEWER_UID: "synthetic", HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: "synthetic", REVIEWER_VAULT_PASSPHRASE: "synthetic"},
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain("RUNNER_CALLED");
+  });
+
   const destructiveAudits = [
     "scripts/native/ios-route-audit.mjs",
     "scripts/native/ios-ui-interaction-audit.mjs",
@@ -47,6 +98,27 @@ describe("native cold-audit and continuity contract", () => {
       expect(script).not.toContain("RESET_APP_STATE");
       expect(script).not.toContain("VaultPassphrase");
     }
+
+    const androidContinuity = source(
+      "scripts/native/android-continuity-local.mjs",
+    );
+    expect(androidContinuity).toContain("defaultAdb");
+    expect(androidContinuity).toContain("waitForProcessId");
+  });
+
+  it("keeps native test artifacts and Capacitor on the same web asset directory", () => {
+    const artifacts = source("scripts/native/prepare-native-test-artifacts.mjs");
+    expect(artifacts).toContain("ensureWebAssetDirEnvironment");
+    expect(artifacts).toContain("process.env.NEXT_DIST_DIR = assetDir");
+  });
+
+  it("waits for RIA workspace admission to settle before conditional flows continue", () => {
+    const runner = source("scripts/native/native-ui-test-runner-source.js");
+    expect(runner).toContain("waitForRiaWorkspaceOrAdmission");
+    expect(runner).toContain('riaOnboardingAdmissionActive()');
+    expect(runner).toContain(
+      "await waitForRiaWorkspaceOrAdmission(step.timeoutMs)",
+    );
   });
 
   it("uses the app shell as the one native lifecycle collector and resumes browser visibility", () => {
@@ -55,14 +127,64 @@ describe("native cold-audit and continuity contract", () => {
     const auth = source("lib/firebase/auth-context.tsx");
     const notification = source("components/consent/notification-provider.tsx");
 
-    expect(runtime).toContain('App.addListener("appStateChange"');
+    expect(runtime).toContain('App.addListener("pause"');
+    expect(runtime).toContain('App.addListener("resume"');
+    expect(runtime).not.toContain('App.addListener("appStateChange"');
     expect(runtime).toContain('document.visibilityState === "hidden" ? "background" : "active"');
-    expect(vault).toContain("appInteractionCoordinator.subscribeLifecycle");
+    // Session admission and vault state stay stable across ordinary resume.
+    // Auth's bounded phone-cache recovery consumes the shell signal without
+    // collecting native events or reopening the session admission gate; the
+    // AuthProvider behavior suite verifies fresh and unavailable phone cases.
+    expect(vault).not.toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(auth).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(notification).toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(vault).not.toContain('App.addListener("appStateChange"');
-    expect(auth).not.toContain('App.addListener("appStateChange"');
-    expect(notification).not.toContain('App.addListener("appStateChange"');
+    expect(vault).not.toContain('App.addListener("pause"');
+    expect(vault).not.toContain('App.addListener("resume"');
+    expect(auth).not.toContain('App.addListener("pause"');
+    expect(auth).not.toContain('App.addListener("resume"');
+    expect(notification).not.toContain('App.addListener("pause"');
+    expect(notification).not.toContain('App.addListener("resume"');
+  });
+
+  it("keeps forced Firebase token refresh strict across the shared auth bridge", () => {
+    const contract = source("lib/capacitor/index.ts");
+    const web = source("lib/capacitor/plugins/auth-web.ts");
+    const service = source("lib/services/auth-service.ts");
+    const ios = source("ios/App/App/Plugins/HushhAuthPlugin.swift");
+    const android = source(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
+    );
+
+    expect(contract).toContain("HushhAuthGetIdTokenOptions");
+    expect(contract).toContain("forceRefresh?: boolean");
+    expect(web).toContain("firebaseUser.getIdToken(forceRefresh)");
+    expect(web).toContain("if (forceRefresh)");
+    expect(service).toContain("FirebaseAuthentication.getIdToken(nativeTokenOptions)");
+    expect(service).toContain("HushhAuth.getIdToken(nativeTokenOptions)");
+    expect(service).toContain("authSessionInvalidationCodeFromFirebaseError(error)");
+    expect(ios).toContain('call.getBool("forceRefresh") ?? false');
+    expect(ios).toContain("getIDTokenResult(forcingRefresh: forceRefresh)");
+    expect(android).toContain(
+      'call.getBoolean("forceRefresh", false) ?: false',
+    );
+    expect(android).toContain("user.getIdToken(forceRefresh)");
+    for (const stableCode of [
+      "auth/user-not-found",
+      "auth/user-disabled",
+      "auth/invalid-user-token",
+      "auth/user-token-expired",
+      "auth/network-request-failed",
+      "auth/internal-error",
+    ]) {
+      expect(contract).toContain(stableCode);
+      expect(ios).toContain(stableCode);
+      expect(android).toContain(stableCode);
+    }
+    expect(web).toContain("HUSHH_AUTH_TOKEN_ERROR_CODE.invalidUserToken");
+    expect(ios).toContain("rejectForcedTokenRefresh(call, error: nil)");
+    expect(android).toContain("rejectForcedTokenRefresh(call, null)");
+    expect(ios).not.toContain("Failed to refresh ID token: \\(error.localizedDescription)");
+    expect(android).not.toContain("Failed to refresh ID token: ${exception.message}");
   });
 
   it("exposes explicit cold-audit scripts rather than silently resetting a normal continuity run", () => {
@@ -137,10 +259,10 @@ describe("native cold-audit and continuity contract", () => {
 
   it("ignores partial native status writes so they cannot keep a route watchdog alive", () => {
     const complete = parseNativeRouteAuditStatus(
-      "route=/one/kyc;ready=0;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=0;bootstrap=vault_unlocked",
+      "route=/one/setup/email;ready=0;marker=native-route-one-setup-email;auth=authenticated;data=loaded;doc=complete;found=1;routeok=0;bootstrap=vault_unlocked",
     );
     const partialAuthenticated = parseNativeRouteAuditStatus(
-      "route=/one/kyc;ready=0;marker=native-route-one-kyc",
+      "route=/one/setup/email;ready=0;marker=native-route-one-setup-email",
     );
     const completeAnonymous = parseNativeRouteAuditStatus(
       "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1",
@@ -209,47 +331,32 @@ describe("native cold-audit and continuity contract", () => {
     expect(dismissSource).toContain('"skip tour"');
   });
 
-  it("keeps UI-flow routing ownership across a WebView document reload", () => {
-    const nativeSupport = source("ios/App/App/NativeTestSupport.swift");
-
-    expect(nativeSupport).toContain("function hasIncompleteUiFlowSession(runId)");
-    expect(nativeSupport).toContain("__hushh_native_ui_flow_state_v1");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned === true");
-  });
-
-  it("drives Profile through the canonical signed-in route", () => {
+  it("opens Profile as a recursive pane while retaining canonical routes", () => {
     const runner = source("scripts/native/native-ui-test-runner-source.js");
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
 
     expect(runner).toContain("clickShellAction");
     expect(runner).not.toContain("NAV_ROUTE_BY_PERSONA_AND_LABEL");
-    expect(flows).toContain('route: "/one/profile"');
-    expect(flows).toContain('routeIds: ["/one/profile"]');
+    expect(flows).toContain('route: "/one"');
+    expect(flows).toContain('testId: "profile-pane"');
+    expect(flows).toContain('value: "profile_pane=1"');
+    expect(flows).toContain('value: "profile_panel=account"');
   });
 
-  it("keeps Location onboarding UI-flow checkpoints within the authored screen contract", () => {
+  it("keeps the completed Location capability flow on its canonical handoff", () => {
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
-    const contract = JSON.parse(
-      source("lib/onboarding/one-location-onboarding.contract.json"),
-    ) as { screens: Array<{ testId: string }> };
     const flowStart = flows.indexOf(
-      'id: "native-reviewer-location-intro-fresh-session"',
+      'id: "native-reviewer-location-setup-handoff"',
     );
     const flowEnd = flows.indexOf("\n  },", flowStart);
     const locationFlow = flows.slice(flowStart, flowEnd);
-    const checkpointIndexes = Array.from(
-      locationFlow.matchAll(/LOCATION_ONBOARDING_CHECKPOINTS\[(\d+)\]/g),
-      (match) => Number(match[1]),
-    );
 
     expect(flowStart).toBeGreaterThan(-1);
-    expect(checkpointIndexes).toEqual(
-      contract.screens.map((_, index) => index),
+    expect(locationFlow).toContain('route: "/one/setup/location"');
+    expect(locationFlow).not.toContain('{ type: "assert_route"');
+    expect(locationFlow).toContain(
+      'routeIds: ["/one/location", "/one/setup/location"]',
     );
-    expect(
-      checkpointIndexes.every((index) => index < contract.screens.length),
-    ).toBe(true);
   });
 
   it("binds each cold UI report to the exact generated manifest and real controls", () => {
@@ -360,10 +467,13 @@ describe("native cold-audit and continuity contract", () => {
     });
   });
 
-  it("audits resolved KYC setup through its canonical KYC handoff", () => {
+  it("audits email setup on its own native route while keeping its Mail handoff", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
       routes: Array<{ route: string; expectedMarker?: string; expectedRoute?: string }>;
     };
+    const emailSetup = source(
+      "app/one/setup/email/email-onboarding-setup-client.tsx",
+    );
     const coordinator = source(
       "components/onboarding/setup/setup-capability-coordinator.tsx",
     );
@@ -374,9 +484,10 @@ describe("native cold-audit and continuity contract", () => {
 
     expect(coordinator).toContain("resolveCapabilityHandoffTarget(capabilityId)");
     expect(routes).toContain("email: ROUTES.ONE_KYC");
+    expect(emailSetup).toContain('marker: "native-route-one-setup-email"');
     expect(route).toMatchObject({
-      expectedMarker: "native-route-one-kyc",
-      expectedRoute: "/one/kyc",
+      expectedMarker: "native-route-one-setup-email",
+      expectedRoute: "/one/setup/email",
     });
   });
 
@@ -396,20 +507,17 @@ describe("native cold-audit and continuity contract", () => {
     });
   });
 
-  it("audits resolved Connected Systems setup through the canonical workspace handoff", () => {
+  it("excludes localhost-only CRM destinations from native launch expectations", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
-      routes: Array<{ route: string; expectedMarker?: string; expectedRoute?: string }>;
+      routes: Array<{ route: string; classification: string; initialRoute?: string; expectedMarker?: string; expectedRoute?: string }>;
     };
-    const routes = source("lib/navigation/routes.ts");
-    const route = inventory.routes.find(
-      (entry) => entry.route === "/one/setup/connected-systems",
-    );
-
-    expect(routes).toContain('"connected-systems": ROUTES.CONNECTED_SYSTEMS');
-    expect(route).toMatchObject({
-      expectedMarker: "native-route-connected-systems",
-      expectedRoute: "/one/connected-systems",
-    });
+    for (const path of ["/connected-systems", "/one/connected-systems", "/one/setup/connected-systems"]) {
+      const route = inventory.routes.find((entry) => entry.route === path);
+      expect(route?.classification).toBe("excluded-web-only");
+      expect(route?.initialRoute).toBeUndefined();
+      expect(route?.expectedMarker).toBeUndefined();
+      expect(route?.expectedRoute).toBeUndefined();
+    }
   });
 
   it("keeps Android cold audits debug-only, isolated, and terminally cleaned up", () => {

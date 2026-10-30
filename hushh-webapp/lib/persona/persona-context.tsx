@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -29,7 +30,7 @@ import {
   type PersonaState,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { isOneSetupSurfaceRoute, ROUTES } from "@/lib/navigation/routes";
 
 export type RiaCapability = "disabled" | "setup" | "switch";
 
@@ -51,6 +52,29 @@ interface PersonaContextValue {
 
 const PersonaContext = createContext<PersonaContextValue | null>(null);
 const PERSONA_TRANSITION_TIMEOUT_MS = 4_000;
+
+function scheduleWhenIdle(task: () => void): () => void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    const requestIdle = window.requestIdleCallback as (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number;
+    const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+    const handle = requestIdle(task, { timeout: 4_000 });
+    return () => cancelIdle(handle);
+  }
+  const timeout = globalThis.setTimeout(task, 1_000);
+  return () => globalThis.clearTimeout(timeout);
+}
+
+function isGmailRoute(pathname: string | null): boolean {
+  const path = String(pathname || "").toLowerCase();
+  return (
+    path.startsWith("/one/gmail") ||
+    path.startsWith("/one/setup/gmail") ||
+    path.startsWith("/one/email")
+  );
+}
 
 function readCachedPersona(userId: string) {
   const cache = CacheService.getInstance();
@@ -104,7 +128,7 @@ function shouldLoadRiaOnboardingStatus(
 
 export function PersonaProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { user, userId, isAuthenticated, loading: authLoading } = useAuth();
   const [personaState, setPersonaState] = useState<PersonaState | null>(null);
   const [riaOnboardingStatus, setRiaOnboardingStatus] =
     useState<RiaOnboardingStatus | null>(null);
@@ -122,7 +146,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
       if (authLoading) return;
-      if (!isAuthenticated || !user) {
+      if (!isAuthenticated || !user || !userId) {
         setPersonaState(null);
         setRiaOnboardingStatus(null);
         setLoading(false);
@@ -132,7 +156,6 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       }
 
       const cache = CacheService.getInstance();
-      const userId = user.uid;
       const force = Boolean(options?.force);
       const cached = readCachedPersona(userId);
 
@@ -201,12 +224,41 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         setRefreshing(false);
       }
     },
-    [authLoading, isAuthenticated, user],
+    [authLoading, isAuthenticated, user, userId],
   );
 
+  const chromeSuppressed = useSessionChromeSuppressed();
+
+  // A tab switch does not change who the person is. Once the context holds
+  // a persona and the cache entry is still fresh, a navigation leaves it
+  // alone; refreshing on every pathname change flipped `refreshing` twice
+  // per tap and re-rendered every persona consumer (top shell, command bar,
+  // navbar, runtime providers) in the frame the new route was mounting.
+  // Mount, an expired cache and explicit refreshes still go to the network.
+  const personaStateRef = useRef<PersonaState | null>(null);
+  personaStateRef.current = personaState;
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (isOneSetupSurfaceRoute(pathname) || chromeSuppressed) {
+      return undefined;
+    }
+    const run = () => {
+      if (
+        !authLoading &&
+        isAuthenticated &&
+        userId &&
+        personaStateRef.current &&
+        readCachedPersona(userId).personaState
+      ) {
+        return;
+      }
+      void refresh();
+    };
+    if (isGmailRoute(pathname)) {
+      return scheduleWhenIdle(run);
+    }
+    run();
+    return undefined;
+  }, [pathname, refresh, chromeSuppressed, authLoading, isAuthenticated, userId]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;
@@ -226,17 +278,17 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   const switchPersona = useCallback(
     async (target: Persona) => {
-      if (!user || !isAuthenticated) return null;
+      if (!user || !userId || !isAuthenticated) return null;
       personaMutationSeqRef.current += 1;
       setPersonaTransitionTarget(target);
       try {
         const idToken = await user.getIdToken();
         const next = await RiaService.switchPersona(idToken, target);
         const cache = CacheService.getInstance();
-        CacheSyncService.onPersonaStateChanged(user.uid, {
+        CacheSyncService.onPersonaStateChanged(userId, {
           preservePersonaState: true,
         });
-        cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
+        cache.set(CACHE_KEYS.PERSONA_STATE(userId), next, CACHE_TTL.SESSION);
         personaMutationSeqRef.current += 1;
         setPersonaState(next);
         return next;
@@ -246,7 +298,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [isAuthenticated, user],
+    [isAuthenticated, user, userId],
   );
 
   const riaCapability: RiaCapability = useMemo(() => {

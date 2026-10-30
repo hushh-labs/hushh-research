@@ -1,17 +1,148 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import threading
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from api.routes import notifications
+from tests.test_circle_chat import ROOT, _seed
+from tests.test_circle_chat import chat_db as chat_db
 
 
 def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(notifications.router)
     return app
+
+
+@pytest.mark.parametrize("version", [True, -1, 2, "1"])
+def test_sms_alarm_capability_rejects_invalid_versions(monkeypatch, version):
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "owner")
+    response = TestClient(_build_app()).post(
+        "/api/notifications/register",
+        json={
+            "user_id": "owner",
+            "token": "token",
+            "platform": "android",
+            "sms_alarm_version": version,
+        },
+        headers={"Authorization": "Bearer fixture"},
+    )
+    assert response.status_code == 400
+
+
+def test_sms_alarm_capability_is_bound_to_a_ready_android_installation(monkeypatch):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from hushh_mcp.services.chat_push_delivery import b64
+
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "owner")
+    public = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    body = {
+        "user_id": "owner",
+        "token": "token",
+        "platform": "android",
+        "sms_alarm_version": 1,
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "preview_key_id": "22222222-2222-4222-8222-222222222222",
+        "preview_public_key": b64(public),
+    }
+    upsert = MagicMock(return_value=1)
+    monkeypatch.setattr(
+        notifications, "PushTokensService", lambda: SimpleNamespace(upsert_user_push_token=upsert)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.chat_push_delivery.retry_registered_chat_pushes", lambda _user: False
+    )
+    client = TestClient(_build_app())
+    assert (
+        client.post(
+            "/api/notifications/register", json=body, headers={"Authorization": "Bearer fixture"}
+        ).status_code
+        == 200
+    )
+    assert upsert.call_args.kwargs["sms_alarm_version"] == 1
+    assert (
+        client.post(
+            "/api/notifications/register",
+            json={**body, "platform": "ios"},
+            headers={"Authorization": "Bearer fixture"},
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.asyncio
+async def test_registration_keeps_auth_db_and_chat_recovery_off_the_serving_loop(monkeypatch):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from hushh_mcp.services import (
+        chat_push_delivery,
+        circle_chat_notifications,
+        direct_message_notifications,
+    )
+    from hushh_mcp.services.chat_push_delivery import b64
+
+    loop_thread = threading.get_ident()
+    threads = []
+    key = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    body = {
+        "user_id": "current-owner",
+        "token": "fixture-token",
+        "platform": "ios",
+        "device_id": "388b1e4b-25cf-4c63-aed0-281607f3dd9b",
+        "preview_key_id": "488b1e4b-25cf-4c63-aed0-281607f3dd9b",
+        "preview_public_key": b64(key),
+    }
+
+    def verify(_header):
+        threads.append(threading.get_ident())
+        return "current-owner"
+
+    def upsert(**fields):
+        threads.append(threading.get_ident())
+        assert fields == body
+        return 1
+
+    def recover(user):
+        threads.append(threading.get_ident())
+        assert user == "current-owner"
+        return 1
+
+    wake_circle, wake_direct = MagicMock(), MagicMock()
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", verify)
+    monkeypatch.setattr(
+        notifications, "PushTokensService", lambda: SimpleNamespace(upsert_user_push_token=upsert)
+    )
+    monkeypatch.setattr(chat_push_delivery, "retry_registered_chat_pushes", recover)
+    monkeypatch.setattr(circle_chat_notifications, "wake_circle_chat_push_worker", wake_circle)
+    monkeypatch.setattr(
+        direct_message_notifications, "wake_direct_message_push_worker", wake_direct
+    )
+    request = SimpleNamespace(
+        headers={"Authorization": "Bearer fixture-proof"}, json=AsyncMock(return_value=body)
+    )
+    result = await notifications.register_push_token(request)
+    assert result["ok"] and result["user_id"] == "current-owner"
+    assert len(threads) == 3 and all(thread != loop_thread for thread in threads)
+    wake_circle.assert_called_once_with()
+    wake_direct.assert_called_once_with()
 
 
 def test_register_push_token_requires_firebase_auth():
@@ -145,6 +276,25 @@ def test_register_push_token_maps_service_failure_to_500(monkeypatch):
     assert response.json()["detail"] == "Failed to register token"
 
 
+def test_registration_does_not_acknowledge_an_unpersisted_token(monkeypatch):
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "current-owner")
+    monkeypatch.setattr(
+        notifications,
+        "PushTokensService",
+        lambda: SimpleNamespace(upsert_user_push_token=lambda **_fields: None),
+    )
+    response = TestClient(_build_app()).post(
+        "/api/notifications/register",
+        json={
+            "user_id": "current-owner",
+            "token": "fixture-token",
+            "platform": "ios",
+        },
+    )
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to register token"
+
+
 def test_unregister_push_token_requires_firebase_auth():
     client = TestClient(_build_app())
     response = client.request("DELETE", "/api/notifications/unregister")
@@ -262,3 +412,59 @@ def test_unregister_push_token_maps_service_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to unregister token(s)"
+
+
+def test_sms_alarm_registration_downgrade_replay_and_rollback(chat_db, monkeypatch):
+    from hushh_mcp.services import push_tokens_service as registry
+
+    _seed(chat_db)
+    monkeypatch.setattr(registry, "get_db", lambda: chat_db)
+    service = registry.PushTokensService()
+    device, key = str(uuid.uuid4()), str(uuid.uuid4())
+
+    def version():
+        return chat_db.execute_raw(registry.PUSH_SMS_DEVICES_FOR_USER_SQL, {"user_id": "bob"}).data[
+            0
+        ]["sms_alarm_version"]
+
+    def register(value):
+        service.upsert_user_push_token(
+            "bob",
+            "sms-device",
+            "android",
+            device_id=device,
+            preview_key_id=key,
+            sms_alarm_version=value,
+        )
+
+    register(1)
+    assert version() == 1
+    # Old modern-backend UPDATE cannot preserve an unreported capability.
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE user_push_installations SET updated_at=now() WHERE token='sms-device'")
+        )
+    assert version() == 0
+    register(1)
+    # Omission by an older binary is an explicit downgrade on a new backend too.
+    service.upsert_user_push_token(
+        "bob", "sms-device", "android", device_id=device, preview_key_id=key
+    )
+    assert version() == 0
+    register(1)
+    raw = chat_db.engine.raw_connection()
+    try:
+        raw.autocommit = True
+        with raw.cursor() as cursor:
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+            assert version() == 1
+            cursor.execute(
+                (ROOT / "db/migrations/rollback/441_sms_alarm_capability.rollback.sql").read_text()
+            )
+            cursor.execute(
+                "UPDATE user_push_installations SET updated_at=now() WHERE token='sms-device'"
+            )
+            cursor.execute((ROOT / "db/migrations/441_sms_alarm_capability.sql").read_text())
+    finally:
+        raw.close()
+    assert version() == 0

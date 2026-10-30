@@ -226,28 +226,9 @@ export async function runRuntimeSecretCommitWithRetry<
   let attempt = 0;
   for (;;) {
     attempt += 1;
+    let result: T;
     try {
-      const result = await hooks.send();
-      if (result.success) {
-        return result;
-      }
-      if (result.conflict === true) {
-        if (attempt >= maxAttempts) {
-          throw new RuntimeSecretCommitError(
-            result.message ||
-              "This change collided with another update. Please try again.",
-            { reason: "conflict", attempts: attempt, result },
-          );
-        }
-        await hooks.rebuildAfterConflict(result);
-        // No backoff: a conflict means the vault moved on, not that it is busy.
-        continue;
-      }
-      // success === false with no conflict: a definite, non-retryable rejection.
-      throw new RuntimeSecretCommitError(
-        result.message || "Your change could not be saved.",
-        { reason: "rejected", attempts: attempt, result },
-      );
+      result = await hooks.send();
     } catch (error) {
       if (error instanceof RuntimeSecretCommitError) {
         throw error;
@@ -272,6 +253,24 @@ export async function runRuntimeSecretCommitWithRetry<
       );
       await hooks.pause(delay);
       // Replay the identical built artifacts on the next iteration.
+      continue;
     }
+    if (result.success) return result;
+    if (result.conflict === true) {
+      if (attempt >= maxAttempts) {
+        throw new RuntimeSecretCommitError(
+          result.message || "This change collided with another update. Please try again.",
+          { reason: "conflict", attempts: attempt, result },
+        );
+      }
+      // Recovery is outside the send retry boundary. A failed read or rebuild
+      // must never replay the artifacts already rejected as stale.
+      await hooks.rebuildAfterConflict(result);
+      continue;
+    }
+    throw new RuntimeSecretCommitError(
+      result.message || "Your change could not be saved.",
+      { reason: "rejected", attempts: attempt, result },
+    );
   }
 }

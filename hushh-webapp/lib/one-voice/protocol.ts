@@ -1,0 +1,505 @@
+/**
+ * Wire protocol `one-voice-v1` between the app and the One Live Voice relay.
+ *
+ * Mirrors consent-protocol/hushh_mcp/one_voice/protocol.py. JSON text frames,
+ * discriminated on `type`. Audio is base64 PCM16: 16 kHz up, 24 kHz down.
+ * Every server frame about an action carries the same typed payload the
+ * model narrates from, so the UI and the speech never disagree.
+ */
+
+export const ONE_VOICE_PROTOCOL_VERSION = "one-voice-v1" as const;
+export const INPUT_MIME = "audio/pcm;rate=16000" as const;
+export const OUTPUT_MIME = "audio/pcm;rate=24000" as const;
+
+// --- client -> server ---------------------------------------------------------
+
+export type AuthFrame = {
+  type: "auth";
+  vault_owner_token: string;
+  firebase_id_token?: string | null;
+  conversation_id: string;
+  client?: Record<string, unknown>;
+  /** The owner's IANA zone, so "today" resolves on their clock, not the server's. */
+  timezone?: string | null;
+  resume?: boolean;
+};
+export type AudioFrame = { type: "audio"; data: string; mime_type?: string; seq?: number };
+export type TextFrame = { type: "text"; text: string; request_id?: string };
+export type AppContextFrame = {
+  type: "app_context";
+  screen_id?: string | null;
+  route?: string | null;
+  available_action_ids?: string[];
+  screen_state?: Record<string, unknown>;
+  os_location_permission?: OsPermission;
+  /**
+   * Canonical id of the circle whose detail screen is open, so "this circle"
+   * resolves server-side. Typed and separate from `screen_state` (which is
+   * rendered into the prompt and carries no identifiers); a hint the relay
+   * reads through the authorized circle service, never authority.
+   */
+  active_circle_id?: string | null;
+  /**
+   * The mail row open on screen: its position in a server offer and that
+   * offer's revision, so "reply to this" resolves server-side. Never a message
+   * id. Sent both together or not at all; the relay honors them only while
+   * that offer is still its current one.
+   */
+  active_mail_ordinal?: number;
+  active_mail_offer_revision?: number;
+};
+export type PendingShownFrame = { type: "pending_action.shown"; pending_action_id: string };
+export type ConfirmActionFrame = {
+  type: "confirm_action";
+  pending_action_id: string;
+  receipt_token?: string | null;
+  source?: "tap";
+  firebase_id_token?: string | null;
+  consent_version?: string | null;
+};
+export type CancelActionFrame = {
+  type: "cancel_action";
+  pending_action_id?: string | null;
+  scope?: "pending_action" | "turn" | "session";
+};
+export type CandidateChooseFrame = {
+  type: "candidate.choose";
+  kind?: "person" | "circle";
+  id?: string | null;
+  none?: boolean;
+};
+export type ClientStepResultFrame = {
+  type: "client_step.result";
+  step_id: string;
+  status: "ok" | "failed";
+  payload?: Record<string, unknown>;
+};
+/**
+ * A review card's Send finished. Names the send action and the session-issued
+ * delivery ref only: there is no status, because the relay re-reads the send
+ * action server-side and a client cannot report a send that did not happen.
+ */
+export type MailDeliveryResultFrame = {
+  type: "mail_delivery.result";
+  delivery_ref: string;
+  action_id: string;
+};
+export type MailDraftChange = {
+  draft_ref: string;
+  revision: number;
+  operation_id: string;
+  draft?: { to: string; cc?: string; bcc?: string; subject: string; body: string };
+  closed?: boolean;
+};
+export type MailDraftChangedFrame = MailDraftChange & { type: "mail_draft.changed" };
+export type UiSettledFrame = {
+  type: "ui.settled";
+  directive_id: string;
+  status?: "opened" | "failed" | "ignored";
+};
+export type InterruptFrame = { type: "interrupt" };
+export type PlaybackFrame = { type: "audio.playback"; turn_id: string; item_id: string; played_ms: number };
+/** Optional, content-free device timing. The relay validates the same bounds. */
+export type PerfFrame = {
+  type: "perf";
+  metric:
+    | "endpointing_client"
+    | "audio_receive_to_audible"
+    | "capture_callback_to_socket_enqueue";
+  duration_ms: number;
+  turn_id?: string;
+};
+export type PingFrame = { type: "ping" };
+export type EndFrame = { type: "end" };
+/**
+ * The person typed a new name on an open create_circle card. Sent only to a
+ * relay that lists `name_edit`; the relay validates the name, replaces that
+ * exact card, and answers with `name_edit.result` for this `operation_id`.
+ */
+export type NameEditSubmitFrame = {
+  type: "name_edit.submit";
+  pending_action_id: string;
+  name: string;
+  operation_id: string;
+};
+
+export type ClientFrame =
+  | AuthFrame
+  | AudioFrame
+  | TextFrame
+  | AppContextFrame
+  | PendingShownFrame
+  | ConfirmActionFrame
+  | CancelActionFrame
+  | CandidateChooseFrame
+  | ClientStepResultFrame
+  | MailDeliveryResultFrame
+  | MailDraftChangedFrame
+  | UiSettledFrame
+  | InterruptFrame
+  | PlaybackFrame
+  | PerfFrame
+  | PingFrame
+  | EndFrame
+  | NameEditSubmitFrame;
+
+/** Relay feature that accepts `name_edit.submit` (see SessionReadyFrame.features). */
+export const NAME_EDIT_FEATURE = "name_edit" as const;
+/** Cards whose name the person may type; the relay enforces the same set. */
+export const NAME_EDITABLE_TOOLS = new Set<string>(["create_circle"]);
+/** The circle name bound the relay applies after collapsing whitespace. */
+export const NAME_EDIT_MAX_CHARS = 80;
+
+export type OsPermission = "unknown" | "prompt" | "granted" | "denied";
+
+// --- server -> client ---------------------------------------------------------
+
+export type VoiceState =
+  | "listening"
+  | "understanding"
+  | "asking"
+  | "confirming"
+  | "executing"
+  | "complete"
+  | "error";
+
+export type PendingActionPublic = {
+  pending_action_id: string;
+  origin_turn_id?: string | null;
+  tool: string;
+  gateway_action_id: string;
+  tier: "voice" | "tap";
+  summary: string;
+  args: Record<string, unknown>;
+  status: "pending" | "confirmed" | "executed" | "failed" | "cancelled" | "expired";
+  shown_at: string | null;
+  expires_at: string | null;
+  result: Record<string, unknown> | null;
+};
+
+export type EntityCardPayload = {
+  kind: "person" | "circle";
+  user_id?: string;
+  circle_id?: string;
+  display_name?: string;
+  name?: string;
+  photo_url?: string | null;
+  relationship?: "connected" | "pending_outgoing" | "pending_incoming" | "none" | "self";
+  has_location_key?: boolean;
+  kind_label?: string;
+  member_count?: number | null;
+};
+
+export type CandidatePublic = {
+  user_id?: string;
+  circle_id?: string;
+  public_person_ref?: string | null;
+  display_name?: string;
+  name?: string;
+  photo_url?: string | null;
+  relationship?: string;
+  match_tier?: number;
+  has_location_key?: boolean;
+};
+
+export type ToolResultPublic = {
+  status: string;
+  spoken_facts?: string[];
+  needs?: string | null;
+  reason_code?: string | null;
+  ui_refresh?: string[];
+  client_step?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type SessionReadyFrame = {
+  type: "session.ready";
+  protocol_version: typeof ONE_VOICE_PROTOCOL_VERSION;
+  /** New relays opt in to optional client perf frames; old relays omit this. */
+  client_perf?: boolean;
+  session_id: string;
+  conversation_id: string;
+  model: string;
+  resumed: boolean;
+  idle_timeout_ms: number;
+  session_max_ms: number;
+  pending_actions: PendingActionPublic[];
+  setup_progress: Record<string, unknown> | null;
+  output_mime_type: typeof OUTPUT_MIME;
+  /**
+   * Additive client capabilities this relay accepts ("active_mail",
+   * "mail_delivery"). Absent on an older relay, which refuses those keys and
+   * frames outright, so the client sends them only when they are listed.
+   */
+  features?: string[];
+};
+export type AudioOutFrame = {
+  type: "audio";
+  data: string;
+  mime_type: string;
+  turn_id: string;
+  /** The user turn that owns this audio; narration has its own playback ID. */
+  origin_turn_id?: string;
+  /** Opaque provider item, correlated by the relay; absent on narration. */
+  item_id?: string;
+  /**
+   * Audio this server synthesized, not audio the Live model produced.
+   *
+   * While it plays the microphone is closed on every device: the speaker is
+   * carrying mail-derived text, and the Live session transcribes what the
+   * microphone hears straight into the context that text must stay out of.
+   * Ordinary model speech needs no such gate -- it is already in that context --
+   * and closing the mic for it would cost barge-in.
+   */
+  narration?: boolean;
+};
+export type TranscriptFrame = {
+  type: "transcript.input" | "transcript.output";
+  text: string;
+  final: boolean;
+  turn_id: string;
+  /** Present only for a typed request echoed by the relay. */
+  request_id?: string;
+  /**
+   * Relay-owned line identity, additive and used only when all three are
+   * present: frames of one segment carry a seq rising from 1, and `kind` says
+   * how to apply `text` (partial appends, cumulative replaces, final replaces
+   * and freezes). Without them the client keeps its legacy merge.
+   */
+  segment_id?: string;
+  seq?: number;
+  kind?: TranscriptKind;
+};
+export type TranscriptKind = "partial" | "cumulative" | "final";
+export type TurnFrame = { type: "turn"; state: "model_start" | "model_end" | "interrupted"; turn_id: string };
+export type StateFrame = { type: "state"; state: VoiceState; turn_id?: string | null };
+export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: string; args_public: Record<string, unknown>; turn_id?: string };
+export type ToolResultFrame = {
+  type: "tool.result";
+  call_id: string | null;
+  /** Immutable origin captured before the tool began. */
+  turn_id?: string;
+  /** Exact pending confirmation this terminal result settles, when there is one. */
+  pending_action_id?: string | null;
+  tool: string;
+  status: string;
+  ok: boolean;
+  result_public: ToolResultPublic;
+};
+export type PendingActionFrame = PendingActionPublic & {
+  type: "pending_action";
+  turn_id?: string;
+  risk_level: "low" | "medium" | "high";
+  requires_tap: boolean;
+  entities: EntityCardPayload[];
+  receipt_token?: string;
+};
+export type PendingResolvedFrame = {
+  type: "pending_action.resolved";
+  pending_action_id: string;
+  status: "executed" | "failed" | "cancelled" | "expired" | "not_pending";
+  result_public: ToolResultPublic | null;
+};
+export type EntityCardFrame = EntityCardPayload & { type: "entity_card"; turn_id?: string };
+export type CandidatePickerFrame = {
+  type: "candidate_picker";
+  turn_id?: string;
+  kind: "person" | "circle";
+  question: string;
+  candidates: CandidatePublic[];
+};
+export type UiDirectiveKind =
+  | "navigate"
+  | "refresh"
+  | "publish_location_envelopes"
+  | "request_os_permission"
+  | "open_share_sheet"
+  | "focus_pending_action"
+  /** Open the original message at a position already on screen. */
+  | "open_mail"
+  /** Open the owner's draft at a position in a drafts list already on screen. */
+  | "open_draft";
+export type UiDirectiveFrame = {
+  type: "ui_directive";
+  turn_id?: string;
+  directive_id: string;
+  kind: UiDirectiveKind;
+  payload: Record<string, unknown>;
+};
+export type ClientStepRequestFrame = {
+  type: "client_step.request";
+  turn_id?: string;
+  confirmed_pending_action_id?: string;
+  step_id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  timeout_s: number;
+};
+/** The relay's answer to one `name_edit.submit`; a resend gets the same one. */
+export type NameEditResultFrame = {
+  type: "name_edit.result";
+  operation_id: string;
+  status: "accepted" | "rejected";
+  reason_code: string | null;
+  message: string | null;
+  /** The new card on `accepted`; null on a refusal. */
+  pending_action_id: string | null;
+};
+export type ReconnectRequiredFrame = { type: "session.reconnect_required"; reason: "go_away" | "max_duration" };
+export type PongFrame = { type: "pong" };
+export type ErrorFrame = { type: "error"; code: string; message: string };
+
+export type ServerFrame =
+  | SessionReadyFrame
+  | AudioOutFrame
+  | TranscriptFrame
+  | TurnFrame
+  | StateFrame
+  | ToolStartedFrame
+  | ToolResultFrame
+  | PendingActionFrame
+  | PendingResolvedFrame
+  | EntityCardFrame
+  | CandidatePickerFrame
+  | UiDirectiveFrame
+  | ClientStepRequestFrame
+  | NameEditResultFrame
+  | ReconnectRequiredFrame
+  | PongFrame
+  | ErrorFrame;
+
+const SERVER_TYPES = new Set<string>([
+  "session.ready",
+  "audio",
+  "transcript.input",
+  "transcript.output",
+  "turn",
+  "state",
+  "tool.started",
+  "tool.result",
+  "pending_action",
+  "pending_action.resolved",
+  "entity_card",
+  "candidate_picker",
+  "ui_directive",
+  "client_step.request",
+  "name_edit.result",
+  "session.reconnect_required",
+  "pong",
+  "error",
+]);
+
+/** Parse one raw socket message; unknown or malformed frames return null. */
+export function parseServerFrame(raw: unknown): ServerFrame | null {
+  if (typeof raw !== "string") return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const type = (value as { type?: unknown }).type;
+  if (typeof type !== "string" || !SERVER_TYPES.has(type)) return null;
+  return value as ServerFrame;
+}
+
+// Application close codes (mirrors the backend).
+export const CLOSE_CODES = {
+  disabled: 4001,
+  auth: 4003,
+  ticket: 4004,
+  protocol: 4008,
+  idle: 4009,
+  maxDuration: 4010,
+  providerUnavailable: 4013,
+  capacity: 4029,
+  replaced: 4030,
+  ended: 1000,
+} as const;
+
+/**
+ * Save My Soul on the wire. `trigger_save_my_soul` can only ARM the alert
+ * (`SOS_GRANTS_CREATED`): the position is encrypted on the device, so what
+ * reached whom is a fact only `report_save_my_soul_delivery` may state, from
+ * the stored envelopes. Nothing in this file, and nothing rendered from these
+ * statuses, may call an armed alert "sent" or "done".
+ */
+export const SOS_TRIGGER_TOOL = "trigger_save_my_soul" as const;
+export const SOS_REPORT_TOOL = "report_save_my_soul_delivery" as const;
+export const SOS_STOP_TOOL = "stop_save_my_soul" as const;
+export const SOS_GRANTS_CREATED = "sos_grants_created" as const;
+export const SOS_PUBLISH_STEP_KIND = "publish_location_envelopes" as const;
+export const SOS_PUBLISH_PURPOSE = "sos" as const;
+/** Account reset / deletion: the tap issues a device step; the server verifies. */
+export const ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle" as const;
+export const ACCOUNT_LIFECYCLE_REPORT_TOOL = "report_account_lifecycle" as const;
+export const RESET_STEP_ISSUED = "reset_step_issued" as const;
+export const DELETE_STEP_ISSUED = "delete_step_issued" as const;
+/** The verified lifecycle outcomes; only account_reset / account_deleted are changes. */
+export const ACCOUNT_LIFECYCLE_REPORT_STATUSES = new Set<string>([
+  "account_reset",
+  "account_deleted",
+  "needs_unlock",
+  "blocked_external",
+  "not_changed",
+  "unverified",
+]);
+/** The verified delivery outcomes, and only these, may say who was reached. */
+export const SOS_REPORT_STATUSES = new Set<string>([
+  "sos_sent",
+  "sos_partial",
+  "sos_not_sent",
+  "sos_unverified",
+]);
+
+/** Statuses that must never render as success. */
+export const NOT_SUCCESS_STATUSES = new Set<string>([
+  "rejected",
+  "unsupported",
+  "confirmation_required",
+  "tap_required",
+  "card_not_shown",
+  // A firebase-plane card that needs a tap with a fresh sign-in proof.
+  "firebase_proof_required",
+  // The scope-review screen is open; nothing has been accepted yet.
+  "scope_review_required",
+  "navigation_dispatched",
+  // A dispatch asks the surface to do something; it reports no outcome, so it
+  // must never render as a success even if it reaches a card.
+  "mail_open_dispatched",
+  "draft_open_dispatched",
+  // Gmail may or may not have sent the draft; never shown as "Sent".
+  "draft_send_unconfirmed",
+  "review_requested",
+  "review_pending",
+  "needs_input",
+  "outcome_unknown",
+  "sending",
+  // A scheduled-mail cancel that cancelled nothing, and a scheduled send whose
+  // confirmation could not be recorded (mirrors the relay's NOT_OK_STATUSES).
+  "send_unconfirmed",
+  "schedule_unconfirmed",
+  "already_sent",
+  "already_sending",
+  "not_sent",
+  "draft_open_requested",
+  "draft_not_opened",
+  "draft_open_unconfirmed",
+  "grant_created",
+  "check_in_created",
+  "sos_grants_created",
+  "reset_step_issued",
+  "delete_step_issued",
+  "position_publish_pending",
+  "location_updates_pending",
+  "pending",
+  "not_pending",
+  "consent_required",
+  "setup_required",
+  // The same voice proposal is already waiting for an answer; nothing ran.
+  "confirmation_waiting",
+  // A different voice action is already waiting for an answer; this proposal
+  // was refused and nothing was written.
+  "pending_action_exists",
+]);

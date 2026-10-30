@@ -119,4 +119,59 @@ describe("FinanceSetupDraftService", () => {
 
     await expect(FinanceSetupDraftService.hasPending("user-1")).resolves.toBe(true);
   });
+
+  // A brokerage statement committed twice (a retried Finish, or the setup draft
+  // and the review both saving it) was stored as two snapshots, because each
+  // commit prepended a fresh timestamp id.
+  it("keeps one snapshot when the same statement is committed twice", async () => {
+    const schwab = {
+      account_info: {
+        brokerage: "Charles Schwab",
+        account_number: "XXXX-1234",
+        statement_period_start: "2026-08-01",
+        statement_period_end: "2026-08-31",
+      },
+      holdings: [{ symbol: "AAPL", quantity: 10, price: 200, market_value: 2000 }],
+    };
+    const commit = async (
+      portfolio: Record<string, unknown>,
+      current: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> => {
+      await FinanceSetupDraftService.stage({ userId: "user-1", portfolio });
+      await FinanceSetupDraftService.finalizeForVault({
+        userId: "user-1",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "owner-token",
+      });
+      const { build } = mocks.saveMergedDomain.mock.calls.at(-1)![0] as {
+        build: (context: { currentDomainData: Record<string, unknown> }) => {
+          domainData: Record<string, unknown>;
+        };
+      };
+      return build({ currentDomainData: current }).domainData;
+    };
+    const statementIds = (domain: Record<string, unknown>) =>
+      ((domain.documents as { statements: Array<{ id: string }> }).statements).map(
+        (statement) => statement.id,
+      );
+
+    const first = await commit(schwab, {});
+    const second = await commit(schwab, first);
+    expect(statementIds(second)).toHaveLength(1);
+    expect(statementIds(second)).toEqual(statementIds(first));
+
+    // Negative control: the next month's statement is a new snapshot.
+    const september = await commit(
+      {
+        ...schwab,
+        account_info: {
+          ...schwab.account_info,
+          statement_period_start: "2026-09-01",
+          statement_period_end: "2026-09-30",
+        },
+      },
+      second,
+    );
+    expect(statementIds(september)).toHaveLength(2);
+  });
 });

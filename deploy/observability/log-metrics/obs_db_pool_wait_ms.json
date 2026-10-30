@@ -1,0 +1,18 @@
+{
+  "name": "obs_db_pool_wait_ms",
+  "description": "Per-request database pool wait time in milliseconds from backend request.summary text logs",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"\\\"message\\\":\\\"request[.]summary\\\"\" AND textPayload=~\"\\\"db_pool_wait_ms\\\":\"",
+  "valueExtractor": "REGEXP_EXTRACT(textPayload, \"db_pool_wait_ms\\\":([0-9]+[.]?[0-9]*)\")",
+  "bucketOptions": {
+    "exponentialBuckets": {
+      "numFiniteBuckets": 30,
+      "growthFactor": 1.5,
+      "scale": 1
+    }
+  },
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms"
+  }
+}

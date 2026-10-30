@@ -1,6 +1,7 @@
 "use client";
 
-export const INTERNAL_APP_NAVIGATION_REQUEST_EVENT = "app-internal-navigation-requested";
+export const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
+  "app-internal-navigation-requested";
 
 export type InternalAppNavigationRequest = {
   href: string;
@@ -8,7 +9,13 @@ export type InternalAppNavigationRequest = {
   scroll?: boolean;
   source?: "tap" | "voice" | "search" | "native_back" | "programmatic";
   transitionMode?: "full" | "contextual";
+  feedback?: "selection" | "light";
 };
+
+// Native notification actions can arrive before React mounts the shared router
+// listener on a terminated-app launch. Keep only the latest intent in memory;
+// it contains route metadata, never credentials or decrypted information.
+let pendingInternalNavigation: InternalAppNavigationRequest | null = null;
 
 function canUseWindow(): boolean {
   return typeof window !== "undefined";
@@ -35,14 +42,29 @@ export function openExternalUrl(url: string): void {
 }
 
 export function requestInternalAppNavigation(
-  detail: InternalAppNavigationRequest
+  detail: InternalAppNavigationRequest,
 ): boolean {
   if (!canUseWindow()) return false;
+  pendingInternalNavigation = detail;
   window.dispatchEvent(
     new CustomEvent<InternalAppNavigationRequest>(
       INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
-      { detail }
-    )
+      { detail },
+    ),
   );
   return true;
+}
+
+export function consumePendingInternalAppNavigation(): InternalAppNavigationRequest | null {
+  const pending = pendingInternalNavigation;
+  pendingInternalNavigation = null;
+  return pending;
+}
+
+export function acknowledgeInternalAppNavigation(
+  detail: InternalAppNavigationRequest,
+): void {
+  if (pendingInternalNavigation === detail) {
+    pendingInternalNavigation = null;
+  }
 }

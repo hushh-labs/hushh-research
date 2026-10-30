@@ -8,20 +8,36 @@ Regulated cutover rules:
 - Consent polling endpoint is deprecated and disabled.
 """
 
-import asyncio
 import json
 import logging
 import os
+import time
+from contextlib import aclosing
 from typing import Annotated, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Path, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from api.routes import document_feed_stream as feed_stream
+from api.routes.document_feed_stream import (
+    PROTOCOL_V1,
+    PROTOCOL_V2,
+    STREAM_PROXY_HEADER,
+    STREAM_PROXY_VALUE,
+    Authorize,
+    negotiate_version,
+    open_document_feed_stream,
+    stream_lifetime_seconds,
+)
+from api.routes.notification_stream import notification_events, open_notification_stream
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.system_push_delivery import SYSTEM_PUSH_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +47,12 @@ router = APIRouter(prefix="/api/consent", tags=["SSE"])
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _RequestId = Annotated[str, Path(min_length=1, max_length=128)]
 
+# Document-feed stream policy (owned by api/routes/document_feed_stream.py),
+# bound here so this router's entry points read it at call time.
+FEED_STREAM_LIFETIME_SECONDS = feed_stream.V1_MAX_LIFETIME_SECONDS  # v1 (installed builds) cap
+FEED_AUTH_RECHECK_SECONDS = feed_stream.FEED_AUTH_RECHECK_SECONDS
+FEED_SEND_TIMEOUT_SECONDS = feed_stream.FEED_SEND_TIMEOUT_SECONDS
+
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
     raw = str(os.getenv(name, fallback)).strip().lower()
@@ -38,8 +60,9 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _consent_sse_enabled() -> bool:
-    if _env_truthy("CONSENT_WEB_FALLBACK_ENABLED", "true"):
-        return True
+    web_fallback = os.getenv("CONSENT_WEB_FALLBACK_ENABLED")
+    if web_fallback is not None:
+        return _env_truthy("CONSENT_WEB_FALLBACK_ENABLED")
 
     explicit = os.getenv("CONSENT_SSE_ENABLED")
     if explicit is not None:
@@ -87,7 +110,32 @@ def _payload_string(value: object | None) -> str:
     return str(value)
 
 
+def _sse_event_id(payload: dict[str, object]) -> str:
+    return (
+        _payload_string(payload.get("message_id")).strip()
+        or _payload_string(payload.get("request_id")).strip()
+        or _payload_string(payload.get("token_id")).strip()
+    )
+
+
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
+    event_type = str(payload.get("type") or "").strip()
+    if (
+        event_type in SYSTEM_PUSH_NOTIFICATION_TYPES
+        or event_type.startswith("location_circle_")
+        or event_type
+        in {
+            "location_settings_changed",
+            "location_pkm_changed",
+            "connection_request",
+            "connection_request_cancelled",
+            "connection_request_resolved",
+            "connection_removed",
+            "connection_graph_changed",
+            "direct_message",
+        }
+    ):
+        return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
     bundle_id = _payload_string(payload.get("bundle_id")) or _payload_string(
@@ -153,79 +201,138 @@ def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, obj
     }
 
 
-async def consent_event_generator(user_id: str, request: Request) -> AsyncGenerator[dict, None]:
-    """
-    Generate SSE events for consent notifications.
-
-    Event-driven: waits on per-user queue (NOTIFY pushes here). No DB polling.
-    Backfills once on connect, then only yields when NOTIFY delivers an event.
-    Heartbeat every 30s to keep connection alive.
-    """
-    from datetime import datetime
-
-    from api.consent_listener import get_consent_queue
+async def consent_event_generator(
+    user_id: str,
+    request: Request,
+    *,
+    lease: feed_stream.StreamLease | None = None,
+    authorization: str | None = None,
+    lifetime_seconds: float | None = None,
+    auth_recheck_seconds: float = FEED_AUTH_RECHECK_SECONDS,
+) -> AsyncGenerator[dict[str, str], None]:
+    """Bounded event-driven notifications with one subscribe-before-backfill read."""
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    logger.info("consent_sse.open user_id=%s", user_id)
-    connection_start_ms = int(datetime.now().timestamp() * 1000)
-    backfill_window_ms = 2 * 60 * 1000
-    after_timestamp_ms = connection_start_ms - backfill_window_ms
-    notified_event_ids = set()
-    heartbeat_interval = 30
-    queue = get_consent_queue(user_id)
+    after_timestamp_ms = int(time.time() * 1000) - 2 * 60 * 1000
+    notified_event_ids: set[str] = set()
 
-    try:
-        service = ConsentDBService()
-        recent_events = await service.get_recent_consent_events(
-            user_id=user_id,
-            after_timestamp_ms=after_timestamp_ms,
-            limit=10,
+    async def backfill() -> list[dict]:
+        rows = await ConsentDBService().get_recent_consent_events(
+            user_id=user_id, after_timestamp_ms=after_timestamp_ms, limit=10
         )
-        for event in recent_events:
-            event_id = event.get("request_id") or event.get("token_id")
-            request_id = event.get("request_id")
-            if not event_id or event_id in notified_event_ids:
-                continue
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Consent notification backfill is unavailable.")
+        return [dict(row) for row in rows]
 
-            notified_event_ids.add(event_id)
-            yield {
-                "event": "consent_update",
-                "id": event_id,
-                "data": json.dumps(_sse_payload_from_event_payload(event)),
-            }
-
-        while True:
-            if await request.is_disconnected():
-                logger.info("consent_sse.disconnected user_id=%s", user_id)
-                break
-
-            try:
-                data = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
-            except asyncio.TimeoutError:
-                import time
-
+    async with aclosing(
+        notification_events(
+            user_id,
+            request,
+            lease=lease,
+            authorize=_owner_recheck(user_id, authorization),
+            backfill=backfill,
+            lifetime_seconds=lifetime_seconds,
+            auth_recheck_seconds=auth_recheck_seconds,
+        )
+    ) as events:
+        async for data in events:
+            if data is None:
                 yield {
                     "event": "heartbeat",
                     "data": json.dumps({"timestamp": int(time.time() * 1000)}),
                 }
                 continue
-
-            request_id = data.get("request_id") or ""
-            event_id = request_id
+            if data.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
+                continue
+            event_id = _sse_event_id(data)
             if not event_id or event_id in notified_event_ids:
                 continue
-
             notified_event_ids.add(event_id)
+            if len(notified_event_ids) > 500:
+                notified_event_ids.clear()
+                notified_event_ids.add(event_id)
             yield {
                 "event": "consent_update",
                 "id": event_id,
                 "data": json.dumps(_sse_payload_from_event_payload(data)),
             }
-    except asyncio.CancelledError:
-        logger.info("consent_sse.cancelled user_id=%s", user_id)
-    except Exception as e:
-        logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
-        raise
+
+
+def _owner_recheck(user_id: str, authorization: str | None) -> Authorize | None:
+    """Re-verify through the same Firebase authority as the handshake."""
+    if authorization is None:
+        return None
+
+    async def recheck() -> None:
+        await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+
+    return recheck
+
+
+def _feed_lifetime_seconds(version: int, *, proxied: bool) -> float:
+    """v1 (installed builds) keeps the 120 s cap; proxied streams end sooner still."""
+    lifetime = stream_lifetime_seconds(version, proxied=proxied)
+    if version < PROTOCOL_V2:
+        lifetime = min(lifetime, FEED_STREAM_LIFETIME_SECONDS)
+    return lifetime
+
+
+def document_feed_event_generator(
+    user_id: str,
+    request: Request,
+    *,
+    authorization: str | None = None,
+    version: int = PROTOCOL_V1,
+    proxied: bool = False,
+) -> AsyncGenerator[dict[str, str], None]:
+    """Owner-scoped snapshot hints, never a durable replay or access grant.
+
+    Subscribe before resetting. General Feed hints need no document UUID.
+    Revalidate through the shared Firebase authority on a wall-clock schedule,
+    even during a busy queue, and close so every connection has a finite life.
+    Frames, coalescing and lifetimes: api/routes/document_feed_stream.py.
+    """
+    return feed_stream.document_feed_event_generator(
+        user_id,
+        request,
+        version=version,
+        lifetime_seconds=_feed_lifetime_seconds(version, proxied=proxied),
+        authorize=_owner_recheck(user_id, authorization),
+        auth_recheck_seconds=FEED_AUTH_RECHECK_SECONDS,
+    )
+
+
+@router.get("/document-feed/{user_id}")
+async def document_feed_events(
+    user_id: _UserId,
+    request: Request,
+    v: Annotated[str | None, Query(max_length=4, description="2 selects typed frames")] = None,
+    authorization: Annotated[str | None, Header(description="Bearer Firebase ID token")] = None,
+    stream_via: Annotated[
+        str | None,
+        Header(alias=STREAM_PROXY_HEADER, include_in_schema=False),
+    ] = None,
+) -> EventSourceResponse:
+    """Authenticated live wake-ups for document requests, the Feed and payouts.
+
+    Unlike the legacy consent-fallback stream, this endpoint is available
+    alongside FCM. Its reset frame instructs a fresh authenticated snapshot.
+    Native apps call it directly; the web's same-origin proxy marks its
+    requests so they end before the web server's request timeout.
+    """
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+    version = negotiate_version(v)
+    proxied = stream_via == STREAM_PROXY_VALUE
+    return open_document_feed_stream(
+        user_id,
+        request,
+        version=version,
+        proxied=proxied,
+        lifetime_seconds=_feed_lifetime_seconds(version, proxied=proxied),
+        authorize=_owner_recheck(user_id, authorization),
+        auth_recheck_seconds=FEED_AUTH_RECHECK_SECONDS,
+        send_timeout_seconds=FEED_SEND_TIMEOUT_SECONDS,
+    )
 
 
 @router.get("/events/{user_id}")
@@ -233,6 +340,7 @@ async def consent_events(
     user_id: _UserId,
     request: Request,
     authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
+    capabilities: Annotated[bool, Query()] = False,
 ):
     """
     Authenticated SSE endpoint for consent notifications.
@@ -242,16 +350,22 @@ async def consent_events(
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id required")
 
-    _ensure_consent_sse_enabled()
-    _authorize_sse_user(user_id, authorization)
+    if capabilities:
+        await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+        return JSONResponse(
+            {"enabled": _consent_sse_enabled()},
+            headers={"Cache-Control": "private, no-store", "Vary": "Authorization"},
+        )
 
-    return EventSourceResponse(
-        consent_event_generator(user_id, request),
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    _ensure_consent_sse_enabled()
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+
+    return open_notification_stream(
+        user_id,
+        request,
+        lambda lease: consent_event_generator(
+            user_id, request, lease=lease, authorization=authorization
+        ),
     )
 
 

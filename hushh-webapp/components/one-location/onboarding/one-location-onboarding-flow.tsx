@@ -1,5 +1,6 @@
 "use client";
 
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   useCallback,
   useEffect,
@@ -8,43 +9,52 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
+  ChevronRight,
   Copy,
   Loader2,
-  MapPin,
   Share2,
   UserPlus,
-  Users,
-} from "lucide-react";
-import { toast } from "sonner";
-
+} from "@/components/icons";
+import { SaveLocationModal, type SaveLocationModalProps } from "./save-location-modal";
+import { OnboardingOptionSheet } from "./onboarding-option-sheet";
+import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface-base";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
-import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import { Button } from "@/components/ui/button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+} from "@/components/one-location/redesign/location-action-styles";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import type { OneLocationOnboardingScreen } from "@/components/one-location/onboarding/one-location-onboarding-steps";
+import {
+  READY_CODE_CLASSNAME,
+  READY_MAP_CLASSNAME,
+  READY_PANEL_CLASSNAME,
+  READY_SURFACE_CLASSNAME,
+} from "@/components/one-location/onboarding/ready-panel-layout";
+import { resolveOnboardingFinaleMapPoint } from "@/lib/one-location/onboarding-map-point";
+import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
+import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
-import type {
-  ConnectionSummaryEntry,
-  DirectoryPerson,
-} from "@/lib/services/connections-service";
+import { trackEvent } from "@/lib/observability/client";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
+import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
-type OnboardingScreen =
-  | "welcome"
-  | "features"
-  | "invite"
-  | "people"
-  | "circle";
+type OnboardingScreen = OneLocationOnboardingScreen;
 
 const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
 ) as Record<OnboardingScreen, string>;
 
-// "permissions" remains accepted for callers restoring the previous contract.
-// It now opens the consolidated feature screen, which owns permission requests.
-export type OneLocationOnboardingStart = "welcome" | "permissions";
+// Legacy entry names restart at Features without requesting device access.
+export type OneLocationOnboardingStart = "features" | "welcome" | "permissions";
 
 export type ConnectionRequestResult = {
   sentUserIds: string[];
@@ -63,37 +73,114 @@ export type OnboardingCircleInvite = {
   code: string;
 };
 
-type CircleMember = {
+/**
+ * Someone from the person's own address book who already has One.
+ *
+ * Deliberately not the same thing as the directory list this flow used to show:
+ * that was every Hushh user, so it asked a new person to share location
+ * with strangers. These are people whose number is already in their phone.
+ */
+export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
-  photoUrl: string | null;
-  status: "connected" | "pending" | "failed";
+  connectionStatus:
+    "auto_connected" | "already_connected" | "request_required" | "suppressed";
 };
+
+/**
+ * What a circle code points at, shown before anyone joins it.
+ *
+ * Seeing the circle's name, its owner and how many people are already in it is
+ * the difference between accepting an invitation and accepting a string. It is
+ * also the moment where someone decides whether to share location with
+ * these people, which is not a decision to make blind.
+ */
+export type OnboardingCirclePreview = {
+  name: string;
+  ownerDisplayName: string;
+  memberCount: number;
+  alreadyMember: boolean;
+};
+
+export type OnboardingContactSyncResult =
+  | {
+      status: "matched";
+      matches: OnboardingContactMatch[];
+      partial?: boolean;
+      summary?: string;
+    }
+  | { status: "none"; partial: boolean; summary?: string }
+  | { status: "cancelled" }
+  | { status: "failed"; message: string; canOpenSettings: boolean };
+
+type OnboardingContactState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "none"; partial: boolean; summary?: string }
+  | { kind: "matched"; partial: boolean; summary?: string }
+  | { kind: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
+  /** Account-scoped checkpoint for the introduction. */
+  activeScreen?: OnboardingScreen;
+  onScreenChange?: (screen: OnboardingScreen) => void;
   currentUserName: string;
-  currentUserPhotoUrl?: string | null;
-  people: DirectoryPerson[];
-  connections: ConnectionSummaryEntry[];
-  peopleLoading: boolean;
-  peopleError: string | null;
-  locationPermission: HushhLocationPermissionState | null;
-  notificationDeliveryMode: ConsentNotificationDeliveryMode;
-  notificationBusy: boolean;
-  locationBusy: boolean;
   nativeTest: React.ComponentProps<typeof NativeTestBeacon>;
-  onRetryPeople: () => void;
-  onSendConnectionRequests: (
-    userIds: string[],
-  ) => Promise<ConnectionRequestResult>;
-  onRequestLocation: () => Promise<void>;
-  onLocationReady: () => Promise<boolean>;
-  onRequestNotifications: () => Promise<void>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
-  requireLocationToComplete?: boolean;
+  /**
+   * Label for the final CTA. Setup ends back in the wizard, the workspace ends
+   * on the Location hub, and saying so beats a generic "Done" that leaves the
+   * person guessing where the button goes.
+   */
+  completeLabel?: string;
+  completeControlId?: string;
+  /**
+   * Whether this device can read an address book at all.
+   *
+   * False on a desktop browser, where there is nothing to read. The step is
+   * then skipped rather than rendered as an apology: a screen whose entire
+   * content is "this does not work here" is a step that should not exist.
+   *
+   * This is a platform capability, not a missing prop -- the distinction
+   * matters, because a screen that disappears because a caller forgot to pass
+   * a handler is the bug this flow just removed.
+   */
+  /** Where to centre the finale map. Null renders the stylised fallback. */
+  mapPoint?: { lat: number; lng: number } | null;
+  /** Request a fix only after the owner taps Use my location. */
+  onPrepareLocation?: () => Promise<boolean>;
+  /** A completed save retained by the account-scoped page through auth gates. */
+  savedPlace?: boolean;
+  /** Existing saved-place transaction and account-scoped draft state. */
+  place?: Omit<SaveLocationModalProps, "open" | "onBack" | "onSkip" | "unifiedOnboarding" | "compactOnboarding" | "onRequestLocation" | "requestingLocation" | "onboardingPlaceSaved" | "onContinue">;
+  contactsStepAvailable?: boolean;
+  /** Account-backed web fallback versus the device address book. */
+  contactsSource?: "device" | "google";
+  /**
+   * Read the address book and return whichever contacts already have One.
+   * Called only after the person taps on the contacts screen, never on mount.
+   */
+  onSyncOnboardingContacts?: (options?: {
+    chooseGoogleAccount?: boolean;
+  }) => Promise<OnboardingContactSyncResult>;
+  /** Latest settled result, including retries started from the named sheet. */
+  contactSyncResult?: OnboardingContactSyncResult | null;
+  /** Offer the Google account chooser after an empty Google read. */
+  showGoogleAccountSwitcher?: boolean;
+  /** Send a connection request to one matched contact. */
+  onAddOnboardingContact?: (userId: string) => Promise<void>;
+  /** Open the OS settings page so a declined permission can be changed. */
+  onOpenContactSettings?: (resume: () => void) => void;
+  /** Look up a circle code so it can be previewed before joining. */
+  onPreviewCircleCode?: (code: string) => Promise<OnboardingCirclePreview>;
+  /**
+   * Accept a previewed circle. Joining needs a vault, which does not exist
+   * during setup, so the parent parks the code and redeems it once one does.
+   */
+  onAcceptCircleCode?: (code: string) => Promise<void>;
   /**
    * Find-or-create the person's first Circle and return its active,
    * member-visible invite code. Called when the Invite screen opens so a
@@ -108,118 +195,6 @@ type OneLocationOnboardingFlowProps = {
   ) => Promise<void> | void;
 };
 
-const WELCOME_ORBIT_ITEMS = [
-  {
-    src: "/one-location/onboarding/orbit-person-1.webp",
-    position: "left-[14%] top-[20%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-office.webp",
-    position: "right-[8%] top-[10%]",
-    imageClassName: "object-contain",
-  },
-  {
-    src: "/one-location/onboarding/orbit-person-2.webp",
-    position: "right-[8%] top-[56%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-person-3.webp",
-    position: "bottom-[2%] left-[42%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-car.webp",
-    position: "bottom-[14%] left-[3%]",
-    imageClassName: "object-contain",
-  },
-] as const;
-
-const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
-
-const AVATAR_TONES = [
-  { background: "#2f80ed", foreground: "#ffffff" },
-  { background: "#a847e8", foreground: "#ffffff" },
-  { background: "#0fae9c", foreground: "#ffffff" },
-  { background: "#f38a13", foreground: "#ffffff" },
-  { background: "#e74747", foreground: "#ffffff" },
-  { background: "#7357df", foreground: "#ffffff" },
-] as const;
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "O";
-  return parts
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join("");
-}
-
-function safeName(
-  value: string | null | undefined,
-  fallback = "Someone",
-): string {
-  const normalized = String(value || "").trim();
-  return normalized || fallback;
-}
-
-function avatarTone(seed: string) {
-  let hash = 0;
-  for (const character of seed) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-  return AVATAR_TONES[hash % AVATAR_TONES.length]!;
-}
-
-function Avatar({
-  name,
-  photoUrl,
-  size = "md",
-  colorSeed,
-}: {
-  name: string;
-  photoUrl?: string | null;
-  size?: "sm" | "md" | "lg";
-  colorSeed?: string;
-}) {
-  const sizeClass =
-    size === "lg"
-      ? "h-[72px] w-[72px] text-xl"
-      : size === "sm"
-        ? "h-9 w-9 text-xs"
-        : "h-14 w-14 text-sm";
-  const tone = avatarTone(colorSeed || name);
-
-  return (
-    <span
-      className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-white font-bold shadow-[0_8px_22px_rgba(24,57,91,0.18)] dark:border-[#e7edf6]",
-        sizeClass,
-      )}
-      style={
-        photoUrl
-          ? undefined
-          : { backgroundColor: tone.background, color: tone.foreground }
-      }
-      aria-hidden="true"
-    >
-      {photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- Directory photos are remote user media.
-        <img
-          src={photoUrl}
-          alt=""
-          loading="eager"
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        initials(name)
-      )}
-    </span>
-  );
-}
-
 function PrimaryButton({
   children,
   onClick,
@@ -227,8 +202,10 @@ function PrimaryButton({
   busy = false,
   inverse = false,
   className,
+  voiceControlId,
 }: {
   children: ReactNode;
+  voiceControlId?: string;
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
@@ -236,15 +213,17 @@ function PrimaryButton({
   className?: string;
 }) {
   return (
-    <button
+    <Button data-location-type-role="primary-action"
       type="button"
+      size="prominent"
       onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
+      data-voice-control-id={voiceControlId}
       className={cn(
-        "press-scale flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "mx-auto flex w-full max-w-[244px] disabled:cursor-not-allowed disabled:opacity-50",
         inverse
-          ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
+          ? "bg-white text-[color:var(--app-accent-deep)] hover:bg-white/90 hover:text-[color:var(--app-accent-deep)] dark:bg-white dark:hover:bg-white/90 dark:text-[#07111f] dark:hover:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         className,
       )}
@@ -253,7 +232,7 @@ function PrimaryButton({
         <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
       ) : null}
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -262,1092 +241,32 @@ function OnboardingSkipButton({
   disabled = false,
   inverse = false,
   floating = false,
+  plain = false,
 }: {
   onClick: () => void;
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
+  plain?: boolean;
 }) {
   return (
-    <button
+    <button data-location-type-role="utility-action"
       type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
-        floating
-          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
-          : inverse
-            ? "text-white"
-            : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
+        "ui-text-button-label min-h-11 justify-self-end rounded-full disabled:opacity-50",
+        plain
+          ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
+          : floating
+            ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+            : inverse
+              ? "text-white"
+              : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
       Skip
     </button>
-  );
-}
-
-function OnboardingNavigation({
-  onBack,
-  onSkip,
-  disabled = false,
-  inverse = false,
-  floating = false,
-  busy = false,
-  className,
-}: {
-  onBack: () => void;
-  onSkip: () => void;
-  disabled?: boolean;
-  inverse?: boolean;
-  floating?: boolean;
-  busy?: boolean;
-  className?: string;
-}) {
-  return (
-    <nav
-      aria-label="Onboarding"
-      className={cn(
-        "relative z-40 flex h-14 shrink-0 items-center justify-between",
-        className,
-      )}
-      data-one-onboarding-navigation
-    >
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={disabled}
-        className={cn(
-          "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
-          floating
-            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
-            : inverse
-              ? "bg-white/15 text-white"
-              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
-        )}
-        aria-label="Go back"
-      >
-        {busy ? (
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-        ) : (
-          <ArrowLeft className="h-6 w-6" aria-hidden="true" />
-        )}
-      </button>
-      <OnboardingSkipButton
-        inverse={inverse}
-        floating={floating}
-        onClick={onSkip}
-        disabled={disabled}
-      />
-    </nav>
-  );
-}
-
-function WelcomeRadar() {
-  return (
-    <div
-      className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
-      aria-hidden="true"
-    >
-      {["inset-[5%]", "inset-[21%]", "inset-[37%]"].map((position, index) => (
-        <span
-          key={position}
-          data-one-onboarding-motion
-          className={cn(
-            "absolute rounded-full border border-white/30",
-            position,
-            index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
-          )}
-        />
-      ))}
-      <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-        <span className="flex h-[70px] w-[70px] items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]">
-          <MapPin className="h-7 w-7 fill-current/10" strokeWidth={2.7} />
-        </span>
-        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
-          You
-        </span>
-      </span>
-      {WELCOME_ORBIT_ITEMS.map((item, index) => (
-        <span
-          key={item.src}
-          data-one-onboarding-motion
-          className={cn(
-            "absolute z-10 [animation:oneOrbitItemIn_.48s_ease-out_both]",
-            item.position,
-          )}
-          style={{ animationDelay: `${120 + index * 90}ms` }}
-        >
-          <span className="block h-[66px] w-[66px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={item.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className={cn(
-                "h-full w-full rounded-[13px]",
-                item.imageClassName,
-              )}
-            />
-          </span>
-          <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
-        </span>
-      ))}
-      <style>{`
-        @keyframes oneWelcomeRing { 0%, 100% { opacity: .32; } 50% { opacity: .78; } }
-        @keyframes oneOrbitItemIn { from { opacity: 0; transform: translateY(10px) scale(.92); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @media (prefers-reduced-motion: reduce) { [data-one-onboarding-motion] { animation: none !important; } }
-      `}</style>
-    </div>
-  );
-}
-
-function WelcomeScreen({
-  onBack,
-  onSkip,
-  onStart,
-  leaving,
-}: {
-  onBack: () => void;
-  onSkip: () => void;
-  onStart: () => void;
-  leaving: boolean;
-}) {
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] text-white dark:bg-[#073d78]">
-      <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
-      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <OnboardingNavigation
-        inverse
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-        className="pt-2"
-      />
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 text-center">
-          <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
-            <MapPin
-              className="h-5 w-5"
-              strokeWidth={2.5}
-              data-testid="location-agent-heading-icon"
-            />
-            Location Agent
-          </p>
-          <h1
-            className="mx-auto mt-7 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.025em]"
-            data-one-welcome-heading
-          >
-            Share your location
-            <br />
-            easily with anyone.
-          </h1>
-        </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center py-2">
-          <WelcomeRadar />
-        </div>
-        <div className="shrink-0">
-          <PrimaryButton inverse onClick={onStart}>
-            Get started
-          </PrimaryButton>
-        </div>
-      </div>
-      <style>{`
-        @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
-      `}</style>
-    </div>
-  );
-}
-
-/** Minimal, stylised street-map backdrop used behind the share / check-in art. */
-function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
-  const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
-  return (
-    <svg
-      viewBox="0 0 200 168"
-      preserveAspectRatio="xMidYMid slice"
-      className="absolute inset-0 h-full w-full"
-      aria-hidden="true"
-    >
-      <rect
-        width="200"
-        height="168"
-        className="fill-[#edf1f6] dark:fill-[#1b222d]"
-      />
-      {/* green / park blocks */}
-      <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
-      <rect x="150" y="98" width="64" height="74" rx="7" fill={park} />
-      {/* building blocks */}
-      <rect
-        x="122"
-        y="2"
-        width="34"
-        height="30"
-        rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
-      />
-      <rect
-        x="150"
-        y="8"
-        width="52"
-        height="34"
-        rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
-      />
-      <rect
-        x="8"
-        y="118"
-        width="44"
-        height="48"
-        rx="5"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
-      />
-      {/* road casings */}
-      <path
-        d="M-12 86 H212"
-        className="stroke-white dark:stroke-[#0f141c]"
-        strokeWidth="15"
-        fill="none"
-      />
-      <path
-        d="M100 -12 V180"
-        className="stroke-white dark:stroke-[#0f141c]"
-        strokeWidth="15"
-        fill="none"
-      />
-      <path
-        d="M150 58 L214 122"
-        className="stroke-white dark:stroke-[#0f141c]"
-        strokeWidth="10"
-        fill="none"
-      />
-      {/* road centre hairlines */}
-      <path
-        d="M-12 86 H212"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
-        strokeWidth="1.5"
-        fill="none"
-      />
-      <path
-        d="M100 -12 V180"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
-        strokeWidth="1.5"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
-const SHARE_LOCATION_AVATARS = [
-  {
-    src: "/one-location/onboarding/feature-share-person-1.webp",
-    className: "right-[7%] top-[10%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-2.webp",
-    className: "bottom-[10%] left-[3%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-3.webp",
-    className: "bottom-[8%] right-[7%]",
-  },
-] as const;
-
-function FeatureStatusPill({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
-        className,
-      )}
-      data-one-use-case-alert
-    >
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
-        aria-hidden="true"
-      >
-        <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
-      </span>
-      <span className="min-w-max whitespace-nowrap">{children}</span>
-    </span>
-  );
-}
-
-function FeatureStatusRow({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative z-30 mt-auto flex shrink-0 items-center pb-3",
-        className,
-      )}
-      data-one-feature-status-row
-    >
-      <FeatureStatusPill>{children}</FeatureStatusPill>
-    </div>
-  );
-}
-
-function TwoLineFeatureTitle({
-  lines,
-  className,
-}: {
-  lines: readonly [string, string];
-  className?: string;
-}) {
-  return (
-    <div
-      role="heading"
-      aria-level={2}
-      aria-label={lines.join(" ")}
-      className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
-        className,
-      )}
-      data-one-feature-title
-    >
-      {lines.map((line) => (
-        <span
-          key={line}
-          aria-hidden="true"
-          className="block whitespace-nowrap"
-          data-one-feature-title-line
-        >
-          {line}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ShareLocationFeatureCard() {
-  return (
-    <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
-      data-testid="location-use-case-trip"
-      data-one-use-case-card
-      data-one-feature-card="share"
-    >
-      <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
-      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
-          data-one-use-case-tag
-        >
-          Share location
-        </span>
-        <TwoLineFeatureTitle
-          lines={["No more explaining", "where you are."]}
-          className="font-[family-name:var(--font-app-display)] text-[21px]"
-        />
-        <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
-          data-one-feature-body
-        >
-          Share once with family, friends, your driver &mdash; or anyone in your
-          Circle.
-        </p>
-      </div>
-      <div
-        className="absolute inset-y-0 right-0 z-10 w-[53%]"
-        data-one-use-case-art
-        aria-hidden="true"
-      >
-        <svg
-          viewBox="0 0 220 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full"
-        >
-          <path
-            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
-            fill="none"
-            stroke="var(--app-accent)"
-            strokeWidth="1.5"
-            strokeDasharray="3 5"
-            opacity="0.72"
-          />
-        </svg>
-        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
-        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
-        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
-          <span
-            key={avatar.src}
-            className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
-              avatar.className,
-            )}
-            data-one-share-avatar={index + 1}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={avatar.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className="h-full w-full object-cover"
-            />
-          </span>
-        ))}
-      </div>
-      <FeatureStatusRow className="px-5">
-        Sharing with Mom, Driver +1
-      </FeatureStatusRow>
-    </article>
-  );
-}
-
-function CheckInFeatureCard() {
-  return (
-    <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
-      data-testid="location-use-case-checkin"
-      data-one-use-case-card
-      data-one-feature-card="checkin"
-    >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
-          data-one-use-case-tag
-        >
-          Check in
-        </span>
-        <TwoLineFeatureTitle
-          lines={["At the venue, but", "can\u2019t find each other?"]}
-          className="text-[19px]"
-        />
-        <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
-          data-one-feature-body
-        >
-          Check in once so your Circle sees your exact spot.
-        </p>
-      </div>
-      <div
-        className="absolute inset-x-0 bottom-0 h-[47%]"
-        data-one-use-case-art
-        aria-hidden="true"
-      >
-        <MapBackdrop tone="checkin" />
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        {/* Green location-pin overlay removed: the check-in card now shows the
-            clean building artwork on its own. The [data-one-checkin-pin]
-            responsive rules below are harmless no-ops now. */}
-        <span
-          className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
-          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
-          data-one-checkin-art
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
-            style={{ transform: "rotateY(8deg)" }}
-            data-one-checkin-hotel
-          />
-        </span>
-      </div>
-      <FeatureStatusRow className="px-3">
-        Checked in at Hotel Grand
-      </FeatureStatusRow>
-    </article>
-  );
-}
-
-function SaveMySoulFeatureCard() {
-  return (
-    <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
-      data-testid="location-use-case-sos"
-      data-one-use-case-card
-      data-one-feature-card="sms"
-    >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
-          data-one-use-case-tag
-        >
-          SMS &middot; Save My Soul
-        </span>
-        <TwoLineFeatureTitle
-          lines={["Need help but can\u2019t", "call or speak?"]}
-          className="text-[19px]"
-        />
-        <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
-          data-one-feature-body
-        >
-          Send an emergency SMS with your live location to trusted contacts.
-        </p>
-      </div>
-      <div
-        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
-        data-one-feature-art-region
-      >
-        <div
-          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
-          data-one-sms-radar-clearance
-          aria-hidden="true"
-        >
-          <span
-            className="relative flex h-20 w-20 items-center justify-center"
-            data-one-sms-radar
-          >
-            <span
-              data-one-onboarding-motion
-              data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
-            />
-            <span
-              data-one-onboarding-motion
-              data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
-            />
-            <span
-              data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
-            >
-              <span
-                data-one-onboarding-motion
-                data-one-sms-core-pulse
-                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-              />
-              <span className="relative z-10" data-one-sms-label>
-                SMS
-              </span>
-            </span>
-          </span>
-        </div>
-      </div>
-      <FeatureStatusRow className="px-3">
-        SMS sent to 3 contacts
-      </FeatureStatusRow>
-    </article>
-  );
-}
-
-function FeaturesScreen({
-  locationGranted,
-  notificationsGranted,
-  locationBusy,
-  locationPreparationBusy,
-  locationPreparationRetry,
-  notificationBusy,
-  requireLocationToContinue,
-  onBack,
-  onSkip,
-  leaving,
-  onContinue,
-}: {
-  locationGranted: boolean;
-  notificationsGranted: boolean;
-  locationBusy: boolean;
-  locationPreparationBusy: boolean;
-  locationPreparationRetry: boolean;
-  notificationBusy: boolean;
-  requireLocationToContinue: boolean;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-  onContinue: () => void;
-}) {
-  const waitingForLocation = requireLocationToContinue && !locationGranted;
-  const permissionBusy =
-    locationBusy || locationPreparationBusy || notificationBusy;
-  const status = locationPreparationBusy
-    ? "Preparing your saved place..."
-    : locationBusy
-      ? "Requesting Location permission..."
-      : notificationBusy
-        ? "Turning on notifications..."
-        : locationPreparationRetry
-          ? "We couldn't prepare your saved place. Try again."
-          : waitingForLocation
-            ? "Allow Location to continue. You stay in control of every share."
-            : locationGranted && notificationsGranted
-              ? "Location and notifications are ready."
-              : "You can adjust permissions later in Location Settings.";
-
-  return (
-    <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]"
-      data-one-feature-screen
-    >
-      <OnboardingNavigation
-        floating
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-      />
-      <div
-        className="flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden"
-        data-one-feature-scroll
-      >
-        <header className="mt-3 shrink-0" data-one-feature-header>
-          <h1
-            className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
-            data-one-feature-heading
-          >
-            Stay connected
-          </h1>
-          <p
-            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
-            data-one-feature-subtitle
-          >
-            For everyday plans, meetups, and emergencies.
-          </p>
-        </header>
-        <div className="mt-6 grid shrink-0 gap-4" data-one-feature-grid>
-          <ShareLocationFeatureCard />
-          <div
-            className="grid grid-cols-2 items-start gap-4"
-            data-one-feature-lower-grid
-          >
-            <CheckInFeatureCard />
-            <SaveMySoulFeatureCard />
-          </div>
-        </div>
-        <p
-          className={cn(
-            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
-            !waitingForLocation && !permissionBusy && "sr-only",
-          )}
-          aria-live="polite"
-        >
-          {status}
-        </p>
-      </div>
-      <div className="shrink-0 pt-8" data-one-feature-cta>
-        <PrimaryButton
-          onClick={onContinue}
-          busy={permissionBusy}
-          disabled={permissionBusy}
-          className="h-[58px] min-h-[58px]"
-        >
-          {locationPreparationRetry ? "Try again" : "Add my people"}
-        </PrimaryButton>
-      </div>
-      <style>{`
-        @keyframes oneSmsRadar {
-          0% { transform: scale(0.55); opacity: 0.65; }
-          80% { opacity: 0; }
-          100% { transform: scale(1.35); opacity: 0; }
-        }
-        @keyframes oneSmsCore {
-          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px rgba(239,48,47,0.34); }
-          50% { transform: scale(1.06); box-shadow: 0 18px 34px rgba(239,48,47,0.46); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-one-onboarding-motion] { animation: none !important; }
-        }
-        [data-one-feature-heading] {
-          --foundation-title1-size: clamp(36px, 3vw, 40px);
-          --foundation-title1-line: 1.05;
-        }
-        [data-one-feature-copy] {
-          --one-feature-copy-gap: 12px;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: var(--one-feature-copy-gap);
-        }
-        @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
-          [data-one-feature-scroll] { flex: 1 1 0%; }
-          [data-one-feature-grid] {
-            flex: 1 1 0%;
-            min-height: 0;
-            grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr);
-          }
-          [data-one-feature-lower-grid] {
-            height: 100%;
-            min-height: 0;
-            align-items: stretch;
-          }
-          [data-one-feature-card] {
-            height: 100%;
-            min-height: 0;
-            aspect-ratio: auto;
-          }
-        }
-        @media (max-height: 780px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 8px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
-          }
-          [data-one-onboarding-navigation] { height: 52px; }
-          [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --foundation-title1-size: 32px; }
-          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
-          [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
-          [data-one-feature-lower-grid] { gap: 12px; }
-          [data-one-feature-cta] { padding-top: 14px; }
-          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
-        }
-        @media (max-height: 680px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 6px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
-          }
-          [data-one-onboarding-navigation] { height: 44px; }
-          [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 431px) and (min-height: 820px) {
-          [data-one-feature-header] { margin-top: 16px; }
-          [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
-        }
-        @media (max-width: 431px) {
-          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --foundation-title1-size: 34px; }
-          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
-          [data-one-feature-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-lower-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-card] {
-            border-radius: 22px;
-          }
-        }
-        @media (max-width: 380px) {
-          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
-        }
-        @media (max-width: 340px) {
-          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --foundation-title1-size: 31px; }
-          [data-one-feature-grid] { gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-card] { border-radius: 20px; }
-        }
-        @media (max-width: 300px) {
-          [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
-          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
-          [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-body] { font-size: 11px; }
-          [data-one-use-case-alert] { font-size: 9px; }
-        }
-        @container (max-width: 420px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 8px;
-            width: 60%;
-            padding: 16px 14px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 19px;
-            line-height: 1.12;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 14px;
-            line-height: 1.35;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 14px;
-            padding-left: 14px;
-          }
-        }
-        @container (max-width: 310px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding: 13px 11px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 17px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.3;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-bottom: 9px;
-            padding-right: 11px;
-            padding-left: 11px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 5px;
-            padding-right: 5px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-        }
-        @container (max-width: 220px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding-top: 10px;
-            padding-left: 12px;
-            padding-right: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(15px, calc(5vw - 4.5px), 17px);
-            line-height: 1.12;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.025em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 13.5px;
-            line-height: 1.3;
-          }
-          [data-one-checkin-pin] {
-            top: 14px;
-            bottom: auto;
-          }
-          [data-one-checkin-art] {
-            bottom: clamp(54px, calc(65vh - 486.6px), 120px);
-          }
-          [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            align-items: flex-start;
-            padding-top: 12px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
-          }
-          [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
-          [data-one-sms-radar] { width: 60px; height: 60px; }
-          [data-one-sms-core] { width: 44px; height: 44px; font-size: 13px; }
-        }
-        @container (max-width: 165px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 8px;
-            padding-left: 7px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(14px, 9.5cqw, 15px);
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.05em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.25;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 6px;
-            padding-bottom: 8px;
-            padding-left: 6px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 4px;
-            padding-right: 4px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-          [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
-          [data-one-checkin-art] { bottom: 36px; width: 52%; }
-          [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
-          [data-one-sms-radar] { width: 40px; height: 40px; }
-          [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
-        }
-        @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 340px) and (max-height: 680px) {
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
-        }
-        @media (max-width: 365px) and (min-height: 681px) {
-          [data-one-checkin-pin] {
-            bottom: clamp(54px, calc(40vh - 179.4px), 194px);
-          }
-          [data-one-checkin-art] {
-            bottom: clamp(43px, calc(40vh - 218.4px), 155px);
-          }
-        }
-        @media (max-width: 431px) and (max-height: 560px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 4px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
-          }
-          [data-one-onboarding-navigation] { height: 38px; }
-          [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --foundation-title1-size: 28px; }
-          [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 11.5px;
-            line-height: 15px;
-          }
-          [data-one-feature-grid] {
-            grid-template-rows: minmax(0, 0.72fr) minmax(0, 1fr);
-            margin-top: 6px;
-            gap: 6px;
-          }
-          [data-one-feature-lower-grid] { gap: 6px; }
-          [data-one-feature-cta] { padding-top: 6px; }
-          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 5px;
-            width: 60%;
-            padding: 9px 9px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 2px 7px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 15.5px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 10px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 9px;
-            padding-bottom: 6px;
-            padding-left: 9px;
-          }
-          [data-one-share-avatar="2"] { left: 20%; }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 7px;
-            padding-left: 6px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 2px 6px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 13px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 9.5px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 5px;
-            padding-bottom: 6px;
-            padding-left: 5px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert],
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 22px;
-            padding-right: 4px;
-            padding-left: 4px;
-            font-size: 8px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 11px;
-            height: 11px;
-          }
-          [data-one-checkin-pin] { top: 8px; }
-          [data-one-checkin-art] { bottom: 36px; width: 44%; }
-          [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
-          [data-one-sms-radar] { width: 32px; height: 32px; }
-          [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
-        }
-      `}</style>
-    </div>
   );
 }
 
@@ -1360,13 +279,332 @@ function formatCircleCode(code: string): string {
 }
 
 /**
- * Third onboarding screen (before the contact list). A brand-new person always
- * lands here with their own Circle invite code ready to copy/share, so friends
- * can set up their One account and later join the Location Circle with it. The
- * code is member-visible only and is never placed in a URL.
+ * Find the people you already know who are already on One.
+ *
+ * Primed, not sprung: the OS contacts prompt fires only after the person taps
+ * the button on this screen, which is what lifts opt-in and is how Snapchat
+ * ties the prompt to "find friends" rather than to app launch. Every state has
+ * a way forward, so nobody is stuck behind a permission they declined.
  */
-function InviteScreen({
-  currentUserName,
+function ContactsScreen({
+  state,
+  source,
+  matches,
+  addedUserIds,
+  addingUserIds,
+  onSync,
+  onAdd,
+  onOpenSettings,
+  onBack,
+  onSkip,
+  onContinue,
+  leaving,
+  embedded = false,
+  showGoogleAccountSwitcher = false,
+  onSyncDifferentGoogleAccount,
+}: {
+  state: OnboardingContactState;
+  source: "device" | "google";
+  matches: OnboardingContactMatch[];
+  addedUserIds: string[];
+  addingUserIds: string[];
+  onSync: () => void;
+  onAdd: (userId: string) => void;
+  onOpenSettings: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+  onContinue: () => void;
+  leaving: boolean;
+  embedded?: boolean;
+  /**
+   * Offer the Google account chooser after an empty Google read. Silent
+   * retries re-read the same (possibly empty) account, so without this the
+   * person loops on "No eligible contacts matched" with no way out.
+   */
+  showGoogleAccountSwitcher?: boolean;
+  onSyncDifferentGoogleAccount?: () => void;
+}) {
+  const MATCH_PAGE_SIZE = 100;
+  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
+  useEffect(() => setVisibleMatchCount(MATCH_PAGE_SIZE), [matches]);
+  const visibleMatches = matches.slice(0, visibleMatchCount);
+  const primed = state.kind === "idle" || state.kind === "busy";
+  const contactOperationBusy = state.kind === "busy";
+  const navigationDisabled = leaving || contactOperationBusy;
+
+  return (
+    <div
+      className={cn(
+        embedded
+          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] p-3.5"
+          : "flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]",
+      )}
+      data-testid="one-location-onboarding-contacts-surface"
+      aria-busy={contactOperationBusy}
+    >
+      {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
+          under the clock and battery on every notched iPhone -- reachable
+          only by guessing where they were. */}
+      {!embedded ? (
+        <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={navigationDisabled}
+            className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </button>
+          <OnboardingSkipButton
+            onClick={onSkip}
+            disabled={navigationDisabled}
+          />
+        </header>
+      ) : null}
+
+      <div
+        className={cn(!embedded && "min-h-0 flex-1 overflow-y-auto px-6 pb-4")}
+      >
+        <div className="mx-auto flex w-full max-w-[520px] flex-col">
+          {!embedded ? (
+            <>
+              <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                <UserPlus className="h-7 w-7" strokeWidth={2} />
+              </span>
+              <h1 data-location-type-role="flow-title" className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+                Find your people
+              </h1>
+            </>
+          ) : null}
+          <p data-location-type-role="row-description" className="ui-text-page-subtitle mt-2 text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+            {primed
+              ? "Find people from your contacts already on One. Exact matches connect automatically."
+              : state.kind === "matched"
+                ? "Your matched ONE contacts and connection results are ready."
+                : "You can always find people later from the People tab."}
+          </p>
+
+          {primed ? (
+            <>
+              <div
+                className={cn(
+                  "rounded-[20px] border border-[#e4e6e9] bg-white p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]",
+                  embedded ? "mt-4" : "mt-7",
+                )}
+              >
+                {state.kind === "busy" ? (
+                  <div data-location-type-role="row-description" className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                    <Loader2 className="h-5 w-5 animate-spin" /> Checking your
+                    contacts
+                  </div>
+                ) : (
+                  <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
+                    <p data-location-type-role="row-description" className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                      Connect contacts to see who is already here.
+                    </p>
+                    <button data-location-type-role="primary-action"
+                      type="button"
+                      className="min-h-11 px-2 text-[15px] font-semibold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+                      onClick={onSync}
+                      disabled={leaving}
+                    >
+                      Check my contacts
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {state.kind === "matched" ? (
+            <ul
+              className="mt-6 space-y-2"
+              data-testid="onboarding-contact-matches"
+            >
+              {visibleMatches.map((match) => {
+                const added = addedUserIds.includes(match.userId);
+                const adding = addingUserIds.includes(match.userId);
+                const connected =
+                  match.connectionStatus === "auto_connected" ||
+                  match.connectionStatus === "already_connected";
+                const requestRequired =
+                  match.connectionStatus === "request_required";
+                return (
+                  <li
+                    key={match.userId}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <span data-location-type-role="row-description" className="min-w-0 truncate">
+                        {match.displayName}
+                      </span>
+                      {connected ? <ContactSourceBadge /> : null}
+                    </span>
+                    {requestRequired ? (
+                      <MorphyButton
+                        type="button"
+                        variant="none"
+                        effect="fade"
+                        size="compact"
+                        onClick={() => onAdd(match.userId)}
+                        disabled={added || adding || leaving}
+                        aria-busy={adding || undefined}
+                        className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
+                      >
+                        <span data-location-type-role="compact-action" className={cn(
+                          LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+                          added && "!border-[color:var(--app-card-border-standard)] !text-[color:var(--app-secondary-label)]",
+                        )}>
+                          {adding ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : added ? (
+                            <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                          ) : null}
+                          {added ? "Requested" : adding ? "Sending" : "Request"}
+                        </span>
+                      </MorphyButton>
+                    ) : (
+                      <span data-location-type-role="helper" className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                        {connected ? (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        ) : null}
+                        {match.connectionStatus === "auto_connected"
+                          ? "Connected now"
+                          : match.connectionStatus === "already_connected"
+                            ? "Already connected"
+                            : "Kept disconnected"}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+              {visibleMatches.length < matches.length ? (
+                <li className="flex flex-col items-center gap-2 pt-2">
+                  <span data-location-type-role="helper" className="text-xs text-[#73777f]" aria-live="polite">
+                    Showing {visibleMatches.length} of {matches.length}
+                  </span>
+                  <button data-location-type-role="primary-action"
+                    type="button"
+                    onClick={() =>
+                      setVisibleMatchCount((current) =>
+                        Math.min(current + MATCH_PAGE_SIZE, matches.length),
+                      )
+                    }
+                    className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                  >
+                    Show more
+                  </button>
+                </li>
+              ) : null}
+              {state.summary || state.partial ? (
+                <li data-location-type-role="row-description" className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
+                  {state.summary ||
+                    "Only part of your contact list was checked."}
+                </li>
+              ) : null}
+              <li className="flex justify-center pt-2">
+                <button data-location-type-role="utility-action"
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale min-h-11 rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Sync again
+                </button>
+              </li>
+            </ul>
+          ) : null}
+
+          {state.kind === "none" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p data-location-type-role="row-description" className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                No eligible contacts matched.
+              </p>
+              <p data-location-type-role="row-description" className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                {state.partial
+                  ? state.summary ||
+                    "Only part of your contact list was checked. "
+                  : "ONE users with an exact verified phone match connect automatically unless they are hidden, opted out, or were previously disconnected. "}
+                Use the circle code above to invite anyone you want here.
+              </p>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {showGoogleAccountSwitcher && onSyncDifferentGoogleAccount ? (
+                  <button data-location-type-role="primary-action"
+                    type="button"
+                    onClick={onSyncDifferentGoogleAccount}
+                    disabled={leaving}
+                    aria-label="Check a different Google account"
+                    className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)] disabled:opacity-50"
+                  >
+                    Use a different Google account
+                  </button>
+                ) : null}
+                <button data-location-type-role="utility-action"
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Sync again
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {state.kind === "failed" ? (
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <p data-location-type-role="row-description" className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                {state.message}
+              </p>
+              {state.canOpenSettings ? (
+                <button data-location-type-role="utility-action"
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Open Settings
+                </button>
+              ) : null}
+              {!state.canOpenSettings || source === "google" ? (
+                <button data-location-type-role="utility-action"
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Try again
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {!embedded ? (
+        <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+          {/* Always present, whatever happened above. Declining contacts, finding
+            nobody, or a plugin failure must never be a dead end. */}
+          <div className="mx-auto w-full max-w-[520px]">
+            <PrimaryButton
+              onClick={onContinue}
+              disabled={navigationDisabled}
+              inverse={primed && state.kind === "idle"}
+            >
+              {state.kind === "idle" ? "Not now" : "Continue"}
+            </PrimaryButton>
+          </div>
+        </footer>
+      ) : null}
+    </div>
+  );
+}
+
+/** Circle invitations and optional people tasks share the final screen. */
+function ReadyScreen({
+  routeId,  currentUserName: _currentUserName,
+  mapPoint,
+  mapEmptyLabel,
   invite,
   loading,
   error,
@@ -1375,11 +613,42 @@ function InviteScreen({
   onCopy,
   onShare,
   onBack,
-  onSkip,
   onContinue,
   leaving,
+  completeLabel,
+  completeControlId,
+  completing,
+  settlementRetryCount,
+  joinCode,
+  joinPreview,
+  joinBusy,
+  joinError,
+  joinAccepted,
+  joinEnabled,
+  onJoinCodeChange,
+  onPreviewJoinCode,
+  onAcceptJoinCode,
+  onClearJoinPreview,
+  activeDisclosure,
+  onToggleDisclosure,
+  onCloseDisclosure,
+  contactsAvailable,
+  contactState,
+  contactsSource,
+  contactMatches,
+  addedContactIds,
+  addingContactIds,
+  onSyncContacts,
+  onAddContact,
+  onOpenContactSettings,
+  showGoogleAccountSwitcher = false,
+  onSyncDifferentGoogleAccount,
 }: {
+  routeId: string;
   currentUserName: string;
+  mapPoint: { lat: number; lng: number } | null;
+  /** What the map band says when there is no coordinate to draw. */
+  mapEmptyLabel: string;
   invite: OnboardingCircleInvite | null;
   loading: boolean;
   error: string | null;
@@ -1388,510 +657,419 @@ function InviteScreen({
   onCopy: () => void;
   onShare: () => void;
   onBack: () => void;
-  onSkip: () => void;
   onContinue: () => void;
   leaving: boolean;
+  completeLabel: string;
+  completeControlId?: string;
+  completing: boolean;
+  settlementRetryCount: number;
+  joinCode: string;
+  joinPreview: OnboardingCirclePreview | null;
+  joinBusy: boolean;
+  joinError: string | null;
+  joinAccepted: boolean;
+  joinEnabled: boolean;
+  onJoinCodeChange: (value: string) => void;
+  onPreviewJoinCode: () => void;
+  onAcceptJoinCode: () => void;
+  onClearJoinPreview: () => void;
+  activeDisclosure: "join" | "contacts" | null;
+  onToggleDisclosure: (disclosure: "join" | "contacts") => void;
+  onCloseDisclosure: (disclosure: "join" | "contacts") => void;
+  contactsAvailable: boolean;
+  contactState: OnboardingContactState;
+  contactsSource: "device" | "google";
+  contactMatches: OnboardingContactMatch[];
+  addedContactIds: string[];
+  addingContactIds: string[];
+  onSyncContacts: () => void;
+  onAddContact: (userId: string) => void;
+  onOpenContactSettings: () => void;
+  showGoogleAccountSwitcher?: boolean;
+  onSyncDifferentGoogleAccount?: () => void;
 }) {
-  const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+    <div
+      className={READY_SURFACE_CLASSNAME}
+      data-testid="one-location-onboarding-ready-surface"
+    >
+      <header className="col-span-full shrink-0">
+        <div className="flex h-11 items-center gap-3">
+          <button type="button" onClick={onBack} disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0} className={cn(SHELL_ICON_BUTTON_CLASSNAME, "!h-11 !w-11 shrink-0")} aria-label="Go back">
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
+          <h1 ref={headingRef} tabIndex={-1} data-location-type-role="flow-title" className="ui-text-page-title text-[color:var(--app-label)] outline-none" data-one-ready-title>Your people.</h1>
+        </div>
+        <p data-location-type-role="row-description" className="mb-3 mt-2 text-muted-foreground">Connect now. Share only when you choose.</p>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-          <Users className="h-7 w-7" strokeWidth={2} />
-        </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
-          Share your circle code
-        </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Send this code to your loved ones. When they set up One, they enter it
-          under &ldquo;Join a circle&rdquo; to connect with you.
-        </p>
+      <OnboardingLiveMap point={mapPoint} emptyLabel={mapEmptyLabel} className={READY_MAP_CLASSNAME} />
 
-        <div
-          className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-none dark:border-white/[0.08] dark:bg-[#1c212a]"
-          data-testid="one-location-onboarding-invite-card"
-        >
-          {loading ? (
-            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
-              code
-            </div>
-          ) : error ? (
-            <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580]">
-                {error}
+      <div
+        className={READY_PANEL_CLASSNAME}
+        data-testid="one-location-onboarding-ready-panel"
+      >
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-hidden [@media(max-height:560px)]:justify-start [@media(max-height:560px)]:overflow-y-auto">
+          <div
+            className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+            data-testid="one-location-onboarding-invite-card"
+            data-one-ready-code
+          >
+            {loading ? (
+              <div data-location-type-role="row-description" className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
+              </div>
+            ) : error ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+                <p data-location-type-role="row-description" className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                  {error}
+                </p>
+                <Button data-location-type-role="compact-action"
+                  type="button"
+                  size="compact"
+                  onClick={onRetry}
+                  className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : invite ? (
+              <>
+                <p data-location-type-role="row-title" className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
+                  Your circle code
+                </p>
+                <p data-location-type-exception="invitation-code"
+                  className={READY_CODE_CLASSNAME}
+                  data-testid="one-location-onboarding-invite-code"
+                  data-ui-contract="required-copy"
+                  data-ui-id="onboarding-invite-code"
+                  data-ui-truncation="forbid"
+                >
+                  {formattedCode}
+                </p>
+                {/* Kept, shortened. The expiry changes what the person does with
+                  the code, so it stays; "You can get a fresh one any time" is a
+                  reassurance about a screen they have not reached yet. */}
+                <p data-location-type-role="row-description" className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                  Expires in 72 hours
+                </p>
+                <div className="mt-4 grid grid-cols-2 items-center gap-2.5">
+                  <Button data-location-type-role="utility-action"
+                    type="button"
+                    variant="outline"
+                    size="standard"
+                    onClick={onCopy}
+                    className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  >
+                    {copied ? (
+                      <Check className="h-5 w-5" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="h-5 w-5" strokeWidth={2} />
+                    )}
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
+
+                  <Button data-location-type-role="utility-action"
+                    type="button"
+                    variant="outline"
+                    size="standard"
+                    onClick={onShare}
+                  >
+                    <Share2 className="h-5 w-5" strokeWidth={2} />
+                    Share
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p data-location-type-role="row-description" className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                {/* Where to get it is the button at the bottom of this screen,
+                  which already says "Open One Location". Saying it again here
+                  is the paragraph this card used to be. */}
+                Your code isn&apos;t ready yet.
               </p>
+            )}
+          </div>
+
+          {joinEnabled ? (
+            <div data-testid="onboarding-join-circle">
               <button
                 type="button"
-                onClick={onRetry}
-                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+                onClick={() => onToggleDisclosure("join")}
+                aria-expanded={activeDisclosure === "join"}
+                aria-controls="onboarding-join-circle-panel"
+                aria-haspopup="dialog"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                data-testid="onboarding-join-circle-toggle"
               >
-                Try again
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <span data-location-type-role="utility-action" className="min-w-0 flex-1">Join with a code</span>
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
               </button>
-            </div>
-          ) : invite ? (
-            <>
-              <p className="text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
-                {invite.circleName}
-              </p>
-              <p
-                className="mt-3 select-all font-mono text-[30px] font-bold uppercase leading-none tracking-[0.14em] text-[#151b26] dark:text-[#f5f7fb]"
-                data-testid="one-location-onboarding-invite-code"
-              >
-                {formattedCode}
-              </p>
-              <p className="mt-3 text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can always get a fresh code later from
-                your circle.
-              </p>
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={onCopy}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "join"} onClose={() => onCloseDisclosure("join")} title="Join with a code" busy={joinBusy}>
+                <div
+                  id="onboarding-join-circle-panel"
+                  className="mt-3"
+                  data-testid="onboarding-join-circle-panel"
                 >
-                  {copied ? (
-                    <Check className="h-5 w-5" strokeWidth={2.5} />
+                  {joinAccepted ? (
+                    <p data-location-type-role="status"
+                      className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
+                      role="status"
+                    >
+                      <Check
+                        className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                        strokeWidth={2.5}
+                        aria-hidden
+                      />
+                      You&apos;ll join {joinPreview?.name ?? "their circle"}{" "}
+                      after setup.
+                    </p>
+                  ) : joinPreview ? (
+                    <div
+                      className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                      data-testid="onboarding-join-circle-preview"
+                    >
+                      <p data-location-type-role="row-title" className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                        {joinPreview.name}
+                      </p>
+                      <p data-location-type-role="row-description" className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                        {joinPreview.ownerDisplayName} &middot;{" "}
+                        {joinPreview.memberCount}{" "}
+                        {joinPreview.memberCount === 1 ? "person" : "people"}
+                      </p>
+                      {!joinPreview.alreadyMember ? (
+                        <button data-location-type-role="primary-action"
+                          type="button"
+                          onClick={onAcceptJoinCode}
+                          disabled={joinBusy || leaving}
+                          className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                        >
+                          {joinBusy ? (
+                            <Loader2
+                              className="h-4 w-4 animate-spin"
+                              aria-hidden
+                            />
+                          ) : null}
+                          Join {joinPreview.name}
+                        </button>
+                      ) : (
+                        <p data-location-type-role="row-description" className="mt-3 text-[13px] text-muted-foreground">
+                          Already in this circle.
+                        </p>
+                      )}
+                      <button data-location-type-role="primary-action"
+                        type="button"
+                        onClick={onClearJoinPreview}
+                        disabled={joinBusy || leaving}
+                        className="press-scale mt-2 min-h-11 w-full text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
+                        data-testid="onboarding-join-circle-reset"
+                      >
+                        Use a different code
+                      </button>
+                    </div>
                   ) : (
-                    <Copy className="h-5 w-5" strokeWidth={2} />
+                    <div className="flex gap-2">
+                      <input data-location-type-exception="invitation-code"
+                        value={joinCode}
+                        onChange={(event) =>
+                          onJoinCodeChange(event.target.value)
+                        }
+                        placeholder="Enter their code"
+                        aria-label="Circle code"
+                        autoCapitalize="characters"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-describedby={
+                          joinError ? "onboarding-join-code-error" : undefined
+                        }
+                        className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                      />
+                      <button data-location-type-role="utility-action"
+                        type="button"
+                        onClick={onPreviewJoinCode}
+                        disabled={joinBusy || !joinCode.trim() || leaving}
+                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                      >
+                        {joinBusy ? (
+                          <Loader2
+                            className="h-4 w-4 animate-spin"
+                            aria-hidden
+                          />
+                        ) : null}
+                        Look up
+                      </button>
+                    </div>
                   )}
-                  {copied ? "Copied" : "Copy"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onShare}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
-                >
-                  <Share2 className="h-5 w-5" strokeWidth={2} />
-                  Share
-                </button>
-              </div>
-            </>
+                  {joinError ? (
+                    <p data-location-type-role="row-description"
+                      id="onboarding-join-code-error"
+                      className="mt-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                      role="alert"
+                    >
+                      {joinError}
+                    </p>
+                  ) : null}
+                </div>
+              </OnboardingOptionSheet>
+            </div>
+          ) : null}
+
+          {contactsAvailable ? (
+            <div data-testid="onboarding-contacts-disclosure">
+              <button
+                type="button"
+                onClick={() => onToggleDisclosure("contacts")}
+                aria-expanded={activeDisclosure === "contacts"}
+                aria-controls="onboarding-contacts-panel"
+                aria-haspopup="dialog"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <span data-location-type-role="utility-action" className="min-w-0 flex-1">Find contacts</span>
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+              </button>
+              <OnboardingOptionSheet routeId={routeId} open={activeDisclosure === "contacts"} onClose={() => onCloseDisclosure("contacts")} title="Find contacts" busy={contactState.kind === "busy" || addingContactIds.length > 0}>
+                <div id="onboarding-contacts-panel" className="mt-3">
+                  <ContactsScreen
+                    embedded
+                    state={contactState}
+                    source={contactsSource}
+                    matches={contactMatches}
+                    addedUserIds={addedContactIds}
+                    addingUserIds={addingContactIds}
+                    onSync={onSyncContacts}
+                    onAdd={onAddContact}
+                    onOpenSettings={onOpenContactSettings}
+                    showGoogleAccountSwitcher={showGoogleAccountSwitcher}
+                    onSyncDifferentGoogleAccount={onSyncDifferentGoogleAccount}
+                    onBack={() => undefined}
+                    onSkip={() => undefined}
+                    onContinue={() => undefined}
+                    leaving={leaving}
+                  />
+                </div>
+              </OnboardingOptionSheet>
+            </div>
           ) : null}
         </div>
 
-        <p className="mx-auto mt-5 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-          Joining connects you as {firstName}&apos;s circle. Location and SMS
-          always stay private until each person chooses to share.
-        </p>
-      </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
-        <PrimaryButton onClick={onContinue}>
-          {invite ? "Next" : "Skip for now"}
-        </PrimaryButton>
-      </footer>
-    </div>
-  );
-}
-
-function SelectionMark({ selected }: { selected: boolean }) {
-  return (
-    <span
-      className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-        selected
-          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-          : "border-[#c9cdd3] bg-white text-transparent dark:border-white/25 dark:bg-white/[0.06]",
-      )}
-      aria-hidden="true"
-    >
-      <Check className="h-5 w-5" strokeWidth={3} />
-    </span>
-  );
-}
-
-function PeopleScreen({
-  people,
-  connections,
-  loading,
-  error,
-  initialSelectedIds,
-  onRetry,
-  onBack,
-  onSkip,
-  leaving,
-  onSelectionChange,
-  onContinue,
-}: {
-  people: DirectoryPerson[];
-  connections: ConnectionSummaryEntry[];
-  loading: boolean;
-  error: string | null;
-  initialSelectedIds: string[];
-  onRetry: () => void;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-  onSelectionChange: (selectedIds: string[]) => void;
-  onContinue: (selectedIds: string[]) => void;
-}) {
-  const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
-  const defaultsAppliedRef = useRef(false);
-
-  const recommendedPeople = useMemo(() => {
-    const weight = (relationship: DirectoryPerson["relationship"]) => {
-      if (relationship === "connected") return 0;
-      if (relationship === "none") return 1;
-      return 2;
-    };
-    return [...people]
-      .sort((a, b) => weight(a.relationship) - weight(b.relationship))
-      .slice(0, 6);
-  }, [people]);
-
-  useEffect(() => {
-    if (defaultsAppliedRef.current || recommendedPeople.length === 0) return;
-    defaultsAppliedRef.current = true;
-    if (initialSelectedIds.length > 0) return;
-    const connectedIds = new Set(
-      connections.map((connection) => connection.userId),
-    );
-    setSelectedIds(
-      recommendedPeople
-        .filter(
-          (person) =>
-            person.relationship === "connected" ||
-            connectedIds.has(person.userId),
-        )
-        .map((person) => person.userId),
-    );
-  }, [connections, initialSelectedIds.length, recommendedPeople]);
-
-  useEffect(() => {
-    onSelectionChange(selectedIds);
-  }, [onSelectionChange, selectedIds]);
-
-  const togglePerson = (person: DirectoryPerson) => {
-    if (
-      person.relationship === "pending_incoming" ||
-      person.relationship === "pending_outgoing"
-    ) {
-      return;
-    }
-    setSelectedIds((current) =>
-      current.includes(person.userId)
-        ? current.filter((userId) => userId !== person.userId)
-        : [...current, person.userId],
-    );
-  };
-
-  const canContinue = !loading;
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#14171d]">
-      <OnboardingNavigation
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-        className="px-5 pt-2"
-      />
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="ui-text-agent-title mt-3 text-[#151b26] dark:!text-[#f5f7fb]">
-          Add people
-        </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Invite the people you want to keep connected with.
-        </p>
-        <h2 className="mt-7 text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
-          Contacts
-        </h2>
-        <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
-          {loading ? (
-            <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-[#777d86]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Finding your people
-            </div>
-          ) : error ? (
-            <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center">
-              <p className="text-sm text-[#6f7580]">
-                We could not load recommendations.
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="min-h-11 px-4 font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
-              >
-                Try again
-              </button>
-            </div>
-          ) : recommendedPeople.length === 0 ? (
-            <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center text-[#73777f]">
-              <UserPlus className="h-8 w-8 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
-              <p className="max-w-[260px] text-sm leading-5">
-                No recommendations yet. Refresh after your people open One
-                Location.
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
-              >
-                Refresh people
-              </button>
-            </div>
-          ) : (
-            recommendedPeople.map((person, index) => {
-              const selected = selectedIds.includes(person.userId);
-              const pending =
-                person.relationship === "pending_incoming" ||
-                person.relationship === "pending_outgoing";
-              return (
-                <button
-                  key={person.userId}
-                  type="button"
-                  onClick={() => togglePerson(person)}
-                  disabled={pending}
-                  aria-pressed={selected}
-                  aria-label={`${selected ? "Remove" : "Add"} ${safeName(person.displayName)}`}
-                  className={cn(
-                    "flex min-h-[88px] w-full items-center gap-3 py-3 text-left",
-                    index > 0 &&
-                      "border-t border-[#e4e6e9] dark:border-white/[0.08]",
-                    pending && "cursor-default opacity-70",
-                  )}
-                >
-                  <Avatar
-                    name={safeName(person.displayName)}
-                    photoUrl={person.photoUrl}
-                    colorSeed={person.userId}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[17px] font-bold text-[#171d28] dark:text-[#f3f6fb]">
-                      {safeName(person.displayName)}
-                    </span>
-                    <span className="block truncate text-[14px] text-[#999ca2] dark:text-[#9ca8b7]">
-                      {pending
-                        ? "Connection request pending"
-                        : person.relationship === "connected"
-                          ? "Already in your circle"
-                          : person.email || "Available on One"}
-                    </span>
-                  </span>
-                  {pending ? (
-                    <span className="shrink-0 rounded-full bg-[#eef1f5] px-3 py-1 text-xs font-semibold text-[#7d828b] dark:bg-white/10 dark:text-white/60">
-                      Pending
-                    </span>
-                  ) : (
-                    <SelectionMark selected={selected} />
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-        <p className="mx-auto mt-4 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-          New people receive a Connect request. Location is never shared until
-          you approve it.
-        </p>
-      </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
-        <p
-          className="mb-3 h-5 text-center text-[12px] font-semibold text-[#8b8f96] dark:text-[#98a5b5]"
-          aria-live="polite"
-        >
-          {selectedIds.length > 0
-            ? `${selectedIds.length} selected`
-            : "Select at least one person to continue"}
-        </p>
-        <PrimaryButton
-          onClick={() => onContinue(selectedIds)}
-          disabled={!canContinue}
-        >
-          Continue
-        </PrimaryButton>
-      </footer>
-    </div>
-  );
-}
-
-function CircleScreen({
-  currentUserName,
-  currentUserPhotoUrl,
-  members,
-  requestsSending,
-  failedCount,
-  settlementRetryCount,
-  onBack,
-  onSkip,
-  leaving,
-}: {
-  currentUserName: string;
-  currentUserPhotoUrl?: string | null;
-  members: CircleMember[];
-  requestsSending: boolean;
-  failedCount: number;
-  settlementRetryCount: number;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-}) {
-  const shown = members.slice(0, 4);
-  const positions = [
-    "left-[42%] top-[-2%]",
-    "left-[-1%] top-[38%]",
-    "right-[-1%] top-[38%]",
-    "bottom-[-2%] left-[13%]",
-  ];
-  const joinedMember = shown.find((member) => member.status === "connected");
-  const joinedFirstName = joinedMember?.displayName.split(/\s+/)[0];
-  const subtitle =
-    settlementRetryCount > 0
-      ? "One is finishing your secure setup. This screen will close when it is ready."
-      : failedCount > 0
-        ? `${failedCount} invitation could not be sent. You can retry it later from Connect.`
-        : requestsSending
-          ? "I am sending the invitations now. I will tell you when your people join."
-          : joinedFirstName
-            ? `${joinedFirstName}'s in. I've invited the rest - I'll tell you when they join.`
-            : "I've invited your people - I'll tell you when they join.";
-
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]">
-      <OnboardingNavigation
-        floating
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-      />
-      <div className="shrink-0 pt-3 text-left" data-one-circle-heading>
-        <h1 className="ui-text-agent-title text-[#111823] dark:!text-[#f5f7fb]">
-          Your circle is ready.
-        </h1>
-        <p className="mt-3 min-h-12 max-w-[410px] text-[15px] font-normal leading-[20px] text-[#777d86] dark:text-[#aeb8c7]">
-          {subtitle}
-        </p>
-      </div>
-      <div className="flex min-h-0 flex-1 items-start justify-center pt-3">
-        <div
-          className="relative aspect-square w-[min(88vw,48dvh,390px)]"
-          aria-label="Your private circle"
-        >
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-[9%] rounded-full border-2 border-dashed border-[#a8d5fb] [animation:oneCircleReady_2.8s_ease-in-out_infinite] dark:border-[#426b91]"
-          />
-          <span className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-            <Avatar
-              name={currentUserName}
-              photoUrl={currentUserPhotoUrl}
-              size="lg"
-              colorSeed={currentUserName}
-            />
-            <span className="absolute -inset-2 -z-10 rounded-full border-[3px] border-[#087ff5] bg-white shadow-[0_9px_28px_rgba(8,127,245,0.24)] dark:bg-[#0c1017]" />
-          </span>
-          {shown.map((member, index) => (
-            <span
-              key={member.userId}
-              data-one-onboarding-motion
-              className={cn(
-                "absolute z-10 flex w-[82px] flex-col items-center [animation:oneCircleMemberIn_.46s_ease-out_both]",
-                positions[index],
-              )}
-              style={{ animationDelay: `${180 + index * 340}ms` }}
+        {/* The SAME surface as the panel it sits inside, by token rather than
+            by a second hand-picked hex. When the panel moved to the semantic
+            token and this did not, dark mode showed the panel at #1c1c1e and
+            its own footer at #14171d -- one card with a seam across it. */}
+        <footer className="relative z-10 shrink-0 pt-3">
+          {settlementRetryCount > 0 ? (
+            <p data-location-type-role="status"
+              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
+              role="status"
             >
-              <span className="relative">
-                <Avatar
-                  name={member.displayName}
-                  photoUrl={member.photoUrl}
-                  colorSeed={member.userId}
-                />
-                {member.status === "connected" ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-[18px] w-[18px] rounded-full border-[3px] border-white bg-[#31c65b] dark:border-[#0c1017]" />
-                ) : null}
-              </span>
-              <span className="mt-1 max-w-[82px] truncate text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
-                {member.displayName.split(" ")[0]}
-              </span>
-              <span
-                className={cn(
-                  "mt-0.5 text-[10px] font-semibold",
-                  member.status === "connected"
-                    ? "text-[#23a64d]"
-                    : member.status === "failed"
-                      ? "text-[#c2413b] dark:text-[#ff8b83]"
-                    : "text-[#8b919a] dark:text-[#8f9bab]",
-                )}
-              >
-                {member.status === "connected"
-                  ? "Joined"
-                  : member.status === "failed"
-                    ? "Not sent"
-                    : "Invited"}
-              </span>
-            </span>
-          ))}
-        </div>
+              That didn&apos;t save. Tap again.
+            </p>
+          ) : null}
+          {/* Always the completion CTA. A code that failed to load is not a
+              reason to record the whole capability as skipped -- the person
+              finished the introduction, so opening Location is the honest
+              outcome. Retrying the code lives inside the card above. */}
+          <PrimaryButton
+            voiceControlId={completeControlId}
+            className="mx-auto flex max-w-[244px]"
+            onClick={onContinue}
+            busy={completing}
+            disabled={leaving}
+          >
+            {completeLabel}
+          </PrimaryButton>
+        </footer>
       </div>
+
       <style>{`
-        @keyframes oneCircleReady { 0%, 100% { opacity: .52; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.02); } }
-        @keyframes oneCircleMemberIn { from { opacity: 0; transform: translateY(10px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @media (max-height: 680px) {
-          [data-one-onboarding-navigation] { height: 52px; }
-          [data-one-circle-heading] { padding-top: 6px; }
-          [data-one-circle-heading] h1 { font-size: 31px; }
-          [data-one-circle-heading] p { margin-top: 8px; font-size: 14px; line-height: 20px; }
+        [data-one-ready-title] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        [data-one-ready-code] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @keyframes oneReadyRise {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
-          [data-one-onboarding-motion] { animation: none !important; }
+          [data-one-ready-title],
+          [data-one-ready-code] {
+            animation: none;
+            opacity: 1;
+            transform: none;
+          }
         }
       `}</style>
     </div>
   );
 }
 
-function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
-  return startAt === "permissions" ? "features" : "welcome";
+function initialScreen(): OnboardingScreen {
+  return "features";
 }
 
 export function OneLocationOnboardingFlow({
   startAt,
+  activeScreen,
+  onScreenChange,
   currentUserName,
-  currentUserPhotoUrl,
-  people,
-  connections,
-  peopleLoading,
-  peopleError,
-  locationPermission,
-  notificationDeliveryMode,
-  notificationBusy,
-  locationBusy,
   nativeTest,
-  onRetryPeople,
-  onSendConnectionRequests,
-  onRequestLocation,
-  onLocationReady,
-  onRequestNotifications,
   onBack,
   onComplete,
-  onSkip = onComplete,
-  requireLocationToComplete = false,
+  completeLabel = "Open One Location",
+  completeControlId,
+  mapPoint = null,
+  contactsStepAvailable = true,
+  contactsSource = "device",
+  onPrepareLocation,
+  place,
+  savedPlace = false,
+  onSyncOnboardingContacts,
+  contactSyncResult,
+  showGoogleAccountSwitcher = false,
+  onAddOnboardingContact,
+  onOpenContactSettings,
+  onPreviewCircleCode,
+  onAcceptCircleCode,
   onPrepareOnboardingCircleInvite,
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
 }: OneLocationOnboardingFlowProps) {
-  for (const source of ONBOARDING_IMAGE_SOURCES) {
-    preload(source, { as: "image", fetchPriority: "high" });
-  }
+  // Onboarding owns the whole screen: no tab bar, top bar or agent dock under it.
+  useSessionChromeSuppression(true);
 
-  const [screen, setScreen] = useState<OnboardingScreen>(() =>
-    initialScreen(startAt),
+  // Subscribe to an existing fix without requesting permission or starting GPS.
+  const { snapshot: deviceSnapshot } = useCurrentLocation({ auto: false });
+
+  const finaleMapPoint = useMemo(
+    () =>
+      resolveOnboardingFinaleMapPoint({
+        onboarding: mapPoint,
+        device: deviceSnapshot,
+      }),
+    [deviceSnapshot, mapPoint],
   );
-  const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
-  // Invite screen (third step) state. The parent provisions the code; we cache
+
+  const [internalScreen, setInternalScreen] = useState<OnboardingScreen>(() =>
+    initialScreen(),
+  );
+  const screen = activeScreen ?? internalScreen;
+  const setScreen = useCallback(
+    (next: OnboardingScreen) => {
+      setInternalScreen(next);
+      onScreenChange?.(next);
+    },
+    [onScreenChange],
+  );
+  // Invite screen (final step) state. The parent provisions the code; we cache
   // it so navigating back/forward never refetches or rotates it.
   const [circleInvite, setCircleInvite] =
     useState<OnboardingCircleInvite | null>(null);
@@ -1905,89 +1083,54 @@ export function OneLocationOnboardingFlow({
   const circleInviteCopiedTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const inviteScreenEnabled = Boolean(onPrepareOnboardingCircleInvite);
+  // Contacts screen. Nothing runs until the person asks for it, so "idle" is
+  // the resting state rather than a loading one.
+  const [contactState, setContactState] = useState<OnboardingContactState>({
+    kind: "idle",
+  });
+  // Mirror for the sync handler: dismissing the chooser must restore the
+  // exact state the run started from, which the busy state has covered by
+  // the time a cancellation lands.
+  const contactStateRef = useRef(contactState);
+  contactStateRef.current = contactState;
+  const [contactMatches, setContactMatches] = useState<
+    OnboardingContactMatch[]
+  >([]);
+  const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
+  const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
 
-  const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([]);
-  const [failedRequestCount, setFailedRequestCount] = useState(0);
-  const [requestsSending, setRequestsSending] = useState(false);
+  // "Someone sent me a code" is the other half of this product, and it had no
+  // route through onboarding at all: a person handed a code finished setup
+  // alone and then had to go hunting for Join a circle on the hub.
+  const [joinCode, setJoinCode] = useState("");
+  const [joinPreview, setJoinPreview] =
+    useState<OnboardingCirclePreview | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinAccepted, setJoinAccepted] = useState(false);
+
   const [leaving, setLeaving] = useState(false);
+  const [localPlaceSaved, setPlaceSaved] = useState(false);
+  const placeSaved = savedPlace || localPlaceSaved;
+  const placeSaveInFlightRef = useRef(false);
+  const [locationPreparing, setLocationPreparing] = useState(false);
+  const locationPreparingRef = useRef(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
-  const requestBatchRef = useRef(0);
-  const requestedConnectionIdsRef = useRef<Set<string>>(new Set());
-  const permissionPromptAttemptedRef = useRef(false);
-  const locationPreparationCompleteRef = useRef(false);
-  const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
+  const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
+    "join" | "contacts" | null
+  >(null);
+  // Funnel bookkeeping. Refs, not state: none of this should cause a render.
+  const codeSharedRef = useRef(false);
+  const codeCopiedRef = useRef(false);
+  const outcomeReportedRef = useRef(false);
+  const screensSeenRef = useRef<Set<OnboardingScreen>>(new Set());
   const completionInFlightRef = useRef(false);
-  const [locationPreparationBusy, setLocationPreparationBusy] = useState(false);
-  const [locationPreparationRetry, setLocationPreparationRetry] =
-    useState(false);
-
-  const locationGranted =
-    locationPermission?.state === "granted" &&
-    locationPermission.locationServicesEnabled !== false;
-  const notificationsGranted = notificationDeliveryMode === "push_active";
-
-  const requestMissingPermissions = useCallback(() => {
-    if (permissionPromptAttemptedRef.current) return;
-    permissionPromptAttemptedRef.current = true;
-    const requests: Promise<void>[] = [];
-    if (!locationGranted) requests.push(Promise.resolve(onRequestLocation()));
-    if (!notificationsGranted) {
-      requests.push(Promise.resolve(onRequestNotifications()));
-    }
-    void Promise.allSettled(requests);
-  }, [
-    locationGranted,
-    notificationsGranted,
-    onRequestLocation,
-    onRequestNotifications,
-  ]);
-
-  const prepareSavedLocation = useCallback((): Promise<boolean> => {
-    if (!locationGranted) return Promise.resolve(false);
-    if (locationPreparationCompleteRef.current) {
-      return Promise.resolve(true);
-    }
-    if (locationPreparationInFlightRef.current) {
-      return locationPreparationInFlightRef.current;
-    }
-
-    setLocationPreparationBusy(true);
-    setLocationPreparationRetry(false);
-    const attempt = Promise.resolve(onLocationReady())
-      .then((complete) => {
-        locationPreparationCompleteRef.current = complete;
-        setLocationPreparationRetry(!complete);
-        return complete;
-      })
-      .catch(() => {
-        locationPreparationCompleteRef.current = false;
-        setLocationPreparationRetry(true);
-        return false;
-      })
-      .finally(() => {
-        locationPreparationInFlightRef.current = null;
-        setLocationPreparationBusy(false);
-      });
-    locationPreparationInFlightRef.current = attempt;
-    return attempt;
-  }, [locationGranted, onLocationReady]);
 
   useEffect(() => {
-    const nextScreen = initialScreen(startAt);
-    setScreen(nextScreen);
-    permissionPromptAttemptedRef.current = false;
-  }, [startAt]);
-
-  useEffect(() => {
-    if (startAt === "permissions") requestMissingPermissions();
-  }, [requestMissingPermissions, startAt]);
-
-  useEffect(() => {
-    if (screen !== "features" || !locationGranted) return;
-    void prepareSavedLocation();
-  }, [locationGranted, prepareSavedLocation, screen]);
+    if (activeScreen) return;
+    setInternalScreen(initialScreen());
+  }, [activeScreen, startAt]);
 
   const prepareCircleInvite = useCallback(async () => {
     if (!onPrepareOnboardingCircleInvite) return;
@@ -2004,7 +1147,9 @@ export function OneLocationOnboardingFlow({
       setCircleInviteError(
         error instanceof Error && error.message
           ? error.message
-          : "We couldn't prepare your circle code. Try again.",
+          : // The state, not the apology. "Try again" is the button directly
+            // under this line, so the sentence does not have to say it too.
+            "Couldn't get your code.",
       );
     } finally {
       circleInviteInFlightRef.current = false;
@@ -2014,12 +1159,16 @@ export function OneLocationOnboardingFlow({
 
   // Provision the invite code once, the first time the Invite screen opens.
   useEffect(() => {
-    if (screen !== "invite" || !inviteScreenEnabled) return;
+    screensSeenRef.current.add(screen);
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen !== "ready") return;
     if (circleInvitePreparedRef.current || circleInviteInFlightRef.current) {
       return;
     }
     void prepareCircleInvite();
-  }, [inviteScreenEnabled, prepareCircleInvite, screen]);
+  }, [prepareCircleInvite, screen]);
 
   useEffect(() => {
     return () => {
@@ -2031,11 +1180,12 @@ export function OneLocationOnboardingFlow({
 
   const handleCopyCircleInvite = useCallback(() => {
     if (!circleInvite) return;
-    void Promise.resolve(
-      onCopyOnboardingCircleCode?.(circleInvite.code),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    codeCopiedRef.current = true;
+    void Promise.resolve(onCopyOnboardingCircleCode?.(circleInvite.code)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
     setCircleInviteCopied(true);
     if (circleInviteCopiedTimerRef.current) {
       clearTimeout(circleInviteCopiedTimerRef.current);
@@ -2048,48 +1198,236 @@ export function OneLocationOnboardingFlow({
 
   const handleShareCircleInvite = useCallback(() => {
     if (!circleInvite) return;
-    void Promise.resolve(
-      onShareOnboardingCircleCode?.(circleInvite),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    codeSharedRef.current = true;
+    void Promise.resolve(onShareOnboardingCircleCode?.(circleInvite)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
   }, [circleInvite, onShareOnboardingCircleCode]);
 
-  useEffect(() => {
-    if (screen !== "circle") return;
-    const delay = settlementRetryCount === 0 ? 4000 : 3000;
+  const canOpenContactSettings = Boolean(onOpenContactSettings);
+  const applyContactSyncResult = useCallback(
+    (result: OnboardingContactSyncResult) => {
+      if (result.status === "cancelled") {
+        setContactState({ kind: "idle" });
+        return;
+      }
+      if (result.status === "matched" && result.matches.length > 0) {
+        setContactMatches(result.matches);
+        setContactState({
+          kind: "matched",
+          partial: Boolean(result.partial),
+          summary: result.summary,
+        });
+        return;
+      }
+      // A declined permission resolves rather than throws, and must not be
+      // reported as "nobody matched" -- that would hide the one thing that
+      // could fix it, and on iOS the decline is otherwise permanent.
+      if (result.status === "failed") {
+        setContactState({
+          kind: "failed",
+          message: result.message,
+          canOpenSettings: result.canOpenSettings && canOpenContactSettings,
+        });
+        return;
+      }
+      // "matched" with an empty list lands here too, which is the same outcome
+      // as "none" from the person's point of view.
+      setContactState({
+        kind: "none",
+        partial: result.status === "none" ? result.partial : false,
+        summary: result.status === "none" ? result.summary : undefined,
+      });
+    },
+    [canOpenContactSettings],
+  );
 
-    const timer = window.setTimeout(() => {
-      if (completionInFlightRef.current) return;
-      completionInFlightRef.current = true;
-      setCompletionBusy(true);
-      void Promise.resolve(onComplete()).catch(() => {
+  useEffect(() => {
+    if (contactSyncResult) applyContactSyncResult(contactSyncResult);
+  }, [applyContactSyncResult, contactSyncResult]);
+
+  const contactSyncInFlightRef = useRef(false);
+  const handleSyncContacts = useCallback(
+    async (chooseGoogleAccount = false) => {
+      if (!onSyncOnboardingContacts || contactSyncInFlightRef.current) return;
+      contactSyncInFlightRef.current = true;
+      // Dismissing the Google chooser or consent sheet is not a reset: a
+      // cancellation restores exactly this state instead of idling.
+      const resumeState =
+        contactStateRef.current.kind === "matched" ||
+        contactStateRef.current.kind === "none"
+          ? contactStateRef.current
+          : null;
+      setContactState({ kind: "busy" });
+      try {
+        const result = await onSyncOnboardingContacts(
+          chooseGoogleAccount ? { chooseGoogleAccount: true } : undefined,
+        );
+        if (result.status === "cancelled") {
+          setContactState((current) =>
+            current.kind === "busy"
+              ? (resumeState ?? { kind: "idle" })
+              : current,
+          );
+          return;
+        }
+        applyContactSyncResult(result);
+      } catch (error) {
+        setContactState({
+          kind: "failed",
+          message:
+            error instanceof Error && error.message
+              ? error.message
+              : "We couldn't check your contacts. You can try again later.",
+          canOpenSettings: canOpenContactSettings,
+        });
+      } finally {
+        contactSyncInFlightRef.current = false;
+      }
+    },
+    [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts],
+  );
+
+  const handleAddContact = useCallback(
+    (userId: string) => {
+      if (!onAddOnboardingContact) return;
+      setAddingContactIds((current) =>
+        current.includes(userId) ? current : [...current, userId],
+      );
+      void Promise.resolve(onAddOnboardingContact(userId))
+        .then(() => {
+          setAddedContactIds((current) =>
+            current.includes(userId) ? current : [...current, userId],
+          );
+        })
+        .catch(() => {
+          /* the parent owns the failure toast; the row simply stays addable */
+        })
+        .finally(() => {
+          setAddingContactIds((current) =>
+            current.filter((id) => id !== userId),
+          );
+        });
+    },
+    [onAddOnboardingContact],
+  );
+
+  const handlePreviewJoinCode = useCallback(async () => {
+    if (!onPreviewCircleCode) return;
+    const trimmed = joinCode.trim();
+    if (!trimmed) return;
+    // Your own code resolves to a circle you already own, so the generic
+    // "you're already in this circle" would be technically true and useless.
+    // Caught before the request, because there is nothing to look up.
+    if (
+      circleInvite &&
+      normalizeCircleCode(trimmed) === normalizeCircleCode(circleInvite.code)
+    ) {
+      setJoinPreview(null);
+      setJoinError(
+        "That's your own code — send it to someone else so they can join you.",
+      );
+      return;
+    }
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      setJoinPreview(await onPreviewCircleCode(trimmed));
+    } catch (error) {
+      setJoinPreview(null);
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "That code did not match a circle. Check it and try again.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [circleInvite, joinCode, onPreviewCircleCode]);
+
+  const handleAcceptJoinCode = useCallback(async () => {
+    if (!onAcceptCircleCode || !joinPreview) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await onAcceptCircleCode(joinCode.trim());
+      setJoinAccepted(true);
+    } catch (error) {
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn't join that circle. You can try again from Circles.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [joinCode, joinPreview, onAcceptCircleCode]);
+
+  // Report how onboarding ended, once per exit. Removing the contact picker is
+  // a bet on drop-off; without this there is no way to tell whether it paid off
+  // or simply moved where people leave. The circle code is deliberately never
+  // included -- this screen's whole content is a shareable secret.
+  const reportOutcome = useCallback(
+    (exitedVia: "complete" | "skip") => {
+      if (outcomeReportedRef.current) return;
+      outcomeReportedRef.current = true;
+      trackEvent("one_location_onboarding_completed", {
+        route_id: resolveRouteId(window.location.pathname),
+        result: "success",
+        exited_via: exitedVia,
+        code_shared: codeSharedRef.current,
+        code_copied: codeCopiedRef.current,
+        screens_seen: screensSeenRef.current.size,
+        contacts_matched: contactMatches.length,
+        contacts_added: addedContactIds.length,
+      });
+      // Only a finish counts as a funnel step. A skip is a real exit and is
+      // still legible on the feature event above via `exited_via`; folding it
+      // in here would flatter the funnel and hide the drop.
+      if (exitedVia === "complete") {
+        trackLocationFunnelStepCompleted("onboarding_completed");
+      }
+    },
+    [addedContactIds.length, contactMatches.length],
+  );
+
+  // Paired with the step above so the ratio between them is the onboarding
+  // drop-off rate.
+  useEffect(() => {
+    trackLocationFunnelStepCompleted("onboarding_started");
+  }, []);
+
+  // Completion is a press, not a timer. The settlement guard and retry counter
+  // are unchanged -- they are what makes setup completion durable when the
+  // capability coordinator rejects -- but a screen that finished itself after
+  // four seconds could not be skipped, could not be tested by the reviewer
+  // flow, and made the person wait for nothing.
+  const finishFromInvite = useCallback(() => {
+    if (completionInFlightRef.current || leaving) return;
+    completionInFlightRef.current = true;
+    setCompletionBusy(true);
+    reportOutcome("complete");
+    void Promise.resolve(onComplete()).then(
+      () => {
+        // Only on settle. `reportOutcome` above fires when the button is
+        // pressed; this fires when setup actually took, and setup is a one-time
+        // lock — the two diverge exactly when settlement is failing, which is
+        // the case worth seeing.
+        trackEvent("one_location_setup_completed", {
+          route_id: resolveRouteId(window.location.pathname),
+          result: "success",
+          settlement_retries: settlementRetryCount,
+        });
+      },
+      () => {
         completionInFlightRef.current = false;
         setCompletionBusy(false);
         setSettlementRetryCount((current) => current + 1);
-      });
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [onComplete, screen, settlementRetryCount]);
-
-  const runSkip = async (settleCircle = false) => {
-    if (leaving || (settleCircle && completionInFlightRef.current)) return;
-    if (settleCircle) {
-      completionInFlightRef.current = true;
-      setCompletionBusy(true);
-    }
-    setLeaving(true);
-    try {
-      await onSkip();
-    } catch {
-      if (settleCircle) completionInFlightRef.current = false;
-      if (settleCircle) {
-        setCompletionBusy(false);
-        setSettlementRetryCount((current) => current + 1);
-      }
-      setLeaving(false);
-    }
-  };
+      },
+    );
+  }, [leaving, onComplete, reportOutcome, settlementRetryCount]);
 
   const runBack = async () => {
     if (leaving) return;
@@ -2101,131 +1439,40 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const openFeatures = () => {
-    setScreen("features");
-    requestMissingPermissions();
+  const requestLocation = () => {
+    if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
+    locationPreparingRef.current = true;
+    setLocationPreparing(true);
+    void onPrepareLocation().catch(() => false).finally(() => {
+      locationPreparingRef.current = false;
+      setLocationPreparing(false);
+    });
   };
 
-  const backFromFeatures = () => {
-    // A dismissed location picker is reversible. When the owner goes back and
-    // returns to Features, prepare Location again; the parent still suppresses
-    // duplicate work after a confirmed save.
-    locationPreparationCompleteRef.current = false;
-    if (startAt === "permissions") {
+  // All Back surfaces unwind the same local flow, including native Back and
+  // legacy/controlled entries that start directly on the feature screen.
+  const handleFlowBack = () => {
+    if (leaving || locationPreparing || placeSaveInFlightRef.current || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
+    if (screen === "features") {
       void runBack();
-      return;
+    } else if (screen === "ready" && activeReadyDisclosure) {
+      setActiveReadyDisclosure(null);
+    } else {
+      setScreen("features");
     }
-    setScreen("welcome");
+    return true;
   };
-
-  const continueFromFeatures = () => {
-    if (requireLocationToComplete && !locationGranted) {
-      void onRequestLocation();
-      return;
-    }
-    if (locationGranted && !locationPreparationCompleteRef.current) {
-      void prepareSavedLocation();
-      return;
-    }
-    setScreen(inviteScreenEnabled ? "invite" : "people");
-  };
-
-  const handlePeopleContinue = (selectedIds: string[]) => {
-    const selectedPeople = people.filter((person) =>
-      selectedIds.includes(person.userId),
-    );
-    if (selectedPeople.length === 0) {
-      toast.error("Choose at least one contact", {
-        description:
-          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
-      });
-      return;
-    }
-
-    setSelectedPeopleIds(selectedPeople.map((person) => person.userId));
-    const requestIds = selectedPeople
-      .filter(
-        (person) =>
-          person.relationship === "none" &&
-          !requestedConnectionIdsRef.current.has(person.userId),
-      )
-      .map((person) => person.userId);
-    const activeIds = new Set(
-      connections.map((connection) => connection.userId),
-    );
-    const optimisticMembers: CircleMember[] = selectedPeople.map((person) => ({
-      userId: person.userId,
-      displayName: safeName(person.displayName),
-      photoUrl: person.photoUrl,
-      status:
-        person.relationship === "connected" || activeIds.has(person.userId)
-          ? "connected"
-          : "pending",
-    }));
-
-    setCircleMembers(optimisticMembers);
-    setFailedRequestCount(0);
-    setRequestsSending(requestIds.length > 0);
-    setSettlementRetryCount(0);
-    completionInFlightRef.current = false;
-    setCompletionBusy(false);
-    setScreen("circle");
-
-    const batchId = ++requestBatchRef.current;
-    if (requestIds.length === 0) return;
-    requestIds.forEach((userId) =>
-      requestedConnectionIdsRef.current.add(userId),
-    );
-
-    void onSendConnectionRequests(requestIds)
-      .then((result) => {
-        result.failedUserIds.forEach((userId) =>
-          requestedConnectionIdsRef.current.delete(userId),
-        );
-        if (requestBatchRef.current !== batchId) return;
-        const failedIds = new Set(result.failedUserIds);
-        setCircleMembers(
-          optimisticMembers.map((member) =>
-            failedIds.has(member.userId)
-              ? { ...member, status: "failed" as const }
-              : member,
-          ),
-        );
-        setFailedRequestCount(result.failedUserIds.length);
-        setRequestsSending(false);
-      })
-      .catch(() => {
-        requestIds.forEach((userId) =>
-          requestedConnectionIdsRef.current.delete(userId),
-        );
-        if (requestBatchRef.current !== batchId) return;
-        const failedIds = new Set(requestIds);
-        setCircleMembers(
-          optimisticMembers.map((member) =>
-            failedIds.has(member.userId)
-              ? { ...member, status: "failed" as const }
-              : member,
-          ),
-        );
-        setFailedRequestCount(requestIds.length);
-        setRequestsSending(false);
-      });
-  };
-
-  // Skip leaves onboarding without adding anyone. It used to call Continue so
-  // that neither control could bypass a minimum-one-contact requirement, but
-  // that made the button lie: a person with nobody selected tapped Skip and got
-  // "Choose at least one contact" back, with no way forward. Requiring a
-  // contact to finish setup is the friction this screen was meant to avoid, and
-  // contacts can be added later from Connect. Continue still enforces the
-  // minimum, so the choice stays deliberate rather than accidental.
-  const handlePeopleSkip = () => {
-    void runSkip();
-  };
+  useBackLayer(nativeTest.routeId, activeReadyDisclosure ? 2 : 1, handleFlowBack);
 
   return (
     <main
-      className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      // Onboarding is modal; nothing from the app shell belongs over it. Keep
+      // it above elevated Talk to One / bottom-nav states without touching those
+      // global controls.
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] dark:text-[color:var(--app-label)]"
+      data-one-onboarding-design="location-agent-v3"
+      data-location-type-scale="connect"
+      data-location-type-context="flow"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}
@@ -2233,46 +1480,46 @@ export function OneLocationOnboardingFlow({
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          // Features sizes off viewport HEIGHT so its artwork keeps its
-          // proportions on a short screen, but that left the whole panel a
-          // narrow strip on a wide one: `58dvh` shrinks as the window gets
-          // shorter, and 560px capped it however much room there was. Keep
-          // that behaviour where it earns its place -- phones and short
-          // windows -- and let a genuinely wide viewport use the width, the
-          // same way the SOS panel does.
-          screen === "features"
-            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none lg:max-w-3xl"
-            : "max-w-[480px]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
+          // Feature content keeps a responsive rail; Ready owns its panel.
+          "max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
-        {screen === "welcome" ? (
-          <WelcomeScreen
-            onBack={() => void runBack()}
-            onSkip={() => void runSkip()}
-            onStart={openFeatures}
-            leaving={leaving}
-          />
-        ) : null}
-        {screen === "features" ? (
-          <FeaturesScreen
-            locationGranted={locationGranted}
-            notificationsGranted={notificationsGranted}
-            locationBusy={locationBusy}
-            locationPreparationBusy={locationPreparationBusy}
-            locationPreparationRetry={locationPreparationRetry}
-            notificationBusy={notificationBusy}
-            requireLocationToContinue={requireLocationToComplete}
-            onBack={backFromFeatures}
-            onSkip={() => void runSkip()}
-            leaving={leaving}
-            onContinue={continueFromFeatures}
-          />
-        ) : null}
-        {screen === "invite" ? (
-          <InviteScreen
+        <SaveLocationModal
+          {...place}
+          open={screen === "features"}
+          takeover
+          collectAddressDetails
+          unifiedOnboarding
+          compactOnboarding
+          onboardingRouteId={nativeTest.routeId}
+          onBack={handleFlowBack}
+          onRequestLocation={requestLocation}
+          requestingLocation={locationPreparing}
+          onboardingPlaceSaved={placeSaved}
+          onContinue={() => setScreen("ready")}
+          onSkip={() => setScreen("ready")}
+          onSave={async (...args) => {
+            if (placeSaveInFlightRef.current || !place) return false;
+            placeSaveInFlightRef.current = true;
+            try {
+              const saved = await place.onSave(...args);
+              if (saved !== true) return false;
+              setPlaceSaved(true);
+              setScreen("ready");
+              return true;
+            } finally {
+              placeSaveInFlightRef.current = false;
+            }
+          }}
+        />
+        {screen === "ready" ? (
+          <ReadyScreen
+            routeId={nativeTest.routeId}
             currentUserName={currentUserName}
+            mapPoint={finaleMapPoint}
+            mapEmptyLabel="Turn on Location when you're ready."
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}
@@ -2280,42 +1527,54 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("features")}
-            onSkip={() => void runSkip()}
-            onContinue={() => setScreen("people")}
+            onBack={handleFlowBack}
+            onContinue={finishFromInvite}
             leaving={leaving}
-          />
-        ) : null}
-        {screen === "people" ? (
-          <PeopleScreen
-            people={people}
-            connections={connections}
-            loading={peopleLoading}
-            error={peopleError}
-            initialSelectedIds={selectedPeopleIds}
-            onRetry={onRetryPeople}
-            onBack={() =>
-              setScreen(inviteScreenEnabled ? "invite" : "features")
-            }
-            onSkip={handlePeopleSkip}
-            leaving={leaving}
-            onSelectionChange={setSelectedPeopleIds}
-            onContinue={handlePeopleContinue}
-          />
-        ) : null}
-        {screen === "circle" ? (
-          <CircleScreen
-            currentUserName={currentUserName}
-            currentUserPhotoUrl={currentUserPhotoUrl}
-            members={circleMembers}
-            requestsSending={requestsSending}
-            failedCount={failedRequestCount}
+            completeLabel={completeLabel}
+            completeControlId={completeControlId}
+            completing={completionBusy}
             settlementRetryCount={settlementRetryCount}
-            onBack={() => {
-              if (!completionBusy) setScreen("people");
+            joinCode={joinCode}
+            joinPreview={joinPreview}
+            joinBusy={joinBusy}
+            joinError={joinError}
+            joinAccepted={joinAccepted}
+            joinEnabled={Boolean(onPreviewCircleCode && onAcceptCircleCode)}
+            onJoinCodeChange={(value) => {
+              setJoinCode(value);
+              setJoinPreview(null);
+              setJoinError(null);
             }}
-            onSkip={() => void runSkip(true)}
-            leaving={leaving || completionBusy || requestsSending}
+            onPreviewJoinCode={() => void handlePreviewJoinCode()}
+            onAcceptJoinCode={() => void handleAcceptJoinCode()}
+            onClearJoinPreview={() => {
+              // Keep the typed code so a single wrong character is a quick
+              // edit rather than a retype of all twelve.
+              setJoinPreview(null);
+              setJoinError(null);
+            }}
+            activeDisclosure={activeReadyDisclosure}
+            onToggleDisclosure={(disclosure) =>
+              setActiveReadyDisclosure((current) =>
+                current === disclosure ? null : disclosure,
+              )
+            }
+            onCloseDisclosure={(disclosure) => setActiveReadyDisclosure((current) => current === disclosure ? null : current)}
+            contactsAvailable={
+              contactsStepAvailable && Boolean(onSyncOnboardingContacts)
+            }
+            contactState={contactState}
+            contactsSource={contactsSource}
+            contactMatches={contactMatches}
+            addedContactIds={addedContactIds}
+            addingContactIds={addingContactIds}
+            onSyncContacts={() => void handleSyncContacts()}
+            onSyncDifferentGoogleAccount={() => void handleSyncContacts(true)}
+            onAddContact={handleAddContact}
+            onOpenContactSettings={() =>
+              onOpenContactSettings?.(() => void handleSyncContacts())
+            }
+            showGoogleAccountSwitcher={showGoogleAccountSwitcher}
           />
         ) : null}
       </section>

@@ -1,10 +1,9 @@
-"""The places directory: its taxonomy, its streaming, and what it must not cost.
+"""Directory taxonomy/streaming and the separately budgeted check-in discovery.
 
-The sharpest risk in this feature is not the new surface, it is the old one.
-`nearby_places` builds its "All" sweep by iterating `_NEARBY_PLACE_CATEGORY_TYPES`,
-so a category added to that table becomes another concurrent provider call on
-every check-in drawer open — a cost increase on a shipped feature that no test
-would otherwise notice. The first test here pins that table's size.
+Check-in deliberately requests every category's types to improve 500 m coverage.
+The reviewed category set and hard query/concurrency/deadline budgets are pinned
+here; discovery behavior and budget exhaustion are exercised in the service suite.
+Directory categories remain independent from the check-in sweep.
 """
 
 from __future__ import annotations
@@ -19,30 +18,65 @@ from api.routes.one import places as places_routes
 from hushh_mcp.services import google_maps_service as maps
 
 # --------------------------------------------------------------------------- #
-# The check-in picker must not pay for the directory's finer buckets.
+# The check-in discovery budget is independent of the directory's categories.
 # --------------------------------------------------------------------------- #
 
 
-def test_the_check_in_sweep_still_costs_what_it_did() -> None:
-    """One request per bucket, plus one unfiltered. Adding a bucket adds a call."""
+def test_check_in_discovery_has_reviewed_categories_and_cost_bounds() -> None:
+    """Full type coverage costs more than the former nine narrow buckets.
 
-    # Seven buckets was the shipped cost of opening the check-in drawer on "All".
-    assert len(maps._NEARBY_PLACE_CATEGORY_TYPES) == 7
-    assert set(maps._NEARBY_PLACE_CATEGORY_TYPES) == {
+    Cafe, Stays and More get explicit discovery; saturated queries can refine.
+    Query, concurrency and time budgets bound this deliberate coverage increase.
+    """
+
+    assert len(maps._NEARBY_SWEEP_TYPES) == 12
+    assert set(maps._NEARBY_SWEEP_TYPES) == {
         "food_drink",
+        "cafes",
         "health",
         "shopping_services",
         "hotels_stays",
+        "other_stays",
         "education",
         "outdoors_landmarks",
         "transit",
+        "worship",
+        "civic",
+        "other",
     }
+    assert maps._NEARBY_DISCOVERY_MAX_QUERIES == 96
+    assert maps._NEARBY_DISCOVERY_CONCURRENCY == 6
+    assert maps._NEARBY_DISCOVERY_TIMEOUT_SECONDS == 25
+
+
+def test_every_swept_type_belongs_to_the_bucket_that_fetches_it() -> None:
+    """A bucket's types must classify to that bucket's own chip.
+
+    The types in a bucket are free to REQUEST -- Google caps `includedTypes` at
+    50 -- but the response is capped at 20 and ranked by distance, so every type
+    in a bucket competes for the same twenty slots. A bucket that fetches types
+    belonging to some other chip therefore spends its budget on rows it will not
+    show, and starves its own chip.
+
+    That is not hypothetical: worship and government types were briefly packed
+    into the landmarks bucket to keep the bucket count down, and in a pilgrimage
+    city twenty nearby temples would have taken every slot and left the Leisure
+    chip empty at a spot with parks and museums in range. This is a better guard
+    than the count above, because a count cannot see it.
+    """
+
+    for chip, place_types in maps._NEARBY_SWEEP_TYPES.items():
+        for place_type in place_types:
+            assert chip in maps._taxonomy.place_categories([place_type]), (
+                f"the {chip!r} bucket fetches {place_type!r}, which is classified as "
+                f"{maps._taxonomy.place_categories([place_type])} and can never show under {chip!r}"
+            )
 
 
 def test_the_two_taxonomies_are_separate_objects() -> None:
     """Aliasing them would silently couple the picker's cost to the directory."""
 
-    assert maps._DIRECTORY_CATEGORY_TYPES is not maps._NEARBY_PLACE_CATEGORY_TYPES
+    assert maps._DIRECTORY_CATEGORY_TYPES is not maps._NEARBY_SWEEP_TYPES
 
 
 def test_the_directory_offers_exactly_ten_categories() -> None:
@@ -69,12 +103,11 @@ def test_every_directory_place_type_is_one_the_picker_already_used() -> None:
     nothing in production.
     """
 
-    known = {
-        place_type for types in maps._NEARBY_PLACE_CATEGORY_TYPES.values() for place_type in types
-    }
-    # The one deliberate addition: EV charging had no picker equivalent.
-    known.add("electric_vehicle_charging_station")
-    known.add("spa")
+    # Checked against the picker's full taxonomy rather than the handful of
+    # types its sweep happens to request. That table is exhaustive over Google's
+    # Table A now, so the two hardcoded exceptions this test used to carry
+    # (`spa`, `electric_vehicle_charging_station`) are simply members of it.
+    known = set(maps._taxonomy.CHIP_BY_PLACE_TYPE)
 
     for slug, types in maps._DIRECTORY_CATEGORY_TYPES.items():
         for place_type in types:
@@ -87,7 +120,7 @@ def test_every_directory_place_type_is_one_the_picker_already_used() -> None:
 
 
 def test_unknown_categories_are_dropped_not_fatal() -> None:
-    """A client one release ahead should get the nine we have, not an error."""
+    """A client one release ahead should get current categories, not an error."""
 
     resolved = places_routes._resolve_categories(["hotels_stays", "teleportation"])
 
@@ -104,6 +137,35 @@ def test_duplicate_categories_collapse() -> None:
     """Two of the same slug would otherwise be two provider calls."""
 
     assert places_routes._resolve_categories(["banking", "banking"]) == ["banking"]
+
+
+# --------------------------------------------------------------------------- #
+# The origin box takes an area name, not just a postcode.
+# --------------------------------------------------------------------------- #
+
+
+def test_an_area_name_is_a_valid_origin() -> None:
+    """The bound was 12 characters, which is a postcode and nothing else.
+
+    `_resolve_origin` hands this straight to Places Text Search, which resolves
+    "Koramangala, Bengaluru" perfectly well -- but the schema rejected it before
+    it ever got there, and the resulting 422 reached the reader as an outage.
+    """
+
+    payload = places_routes.PlacesSearchRequest(postalCode="Koramangala, Bengaluru")
+
+    assert payload.postal_code == "Koramangala, Bengaluru"
+
+
+def test_a_postcode_still_resolves() -> None:
+    assert places_routes.PlacesSearchRequest(postalCode="560034").postal_code == "560034"
+
+
+def test_an_unbounded_origin_is_still_refused() -> None:
+    """Widened, not opened: this string is forwarded to a paid provider."""
+
+    with pytest.raises(ValueError):
+        places_routes.PlacesSearchRequest(postalCode="x" * 121)
 
 
 # --------------------------------------------------------------------------- #

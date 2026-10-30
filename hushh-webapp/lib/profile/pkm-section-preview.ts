@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 export type PkmSectionPreviewStat = {
   label: string;
   value: string;
@@ -27,6 +29,36 @@ export type PkmSectionPreviewEntity = {
   editable?: boolean;
   editPayload?: Record<string, unknown>;
 };
+
+export type PkmPreviewEntityTarget =
+  | { kind: "entity"; relativePath: readonly string[]; entityId: string }
+  | { kind: "financial-context"; entryId: string };
+// Display/export JSON deliberately omits stored IDs. A WeakMap binds only
+// the original local projection object to its reviewed operation target.
+// Serialized/shared projections cannot acquire edit/delete authority.
+const entityTargets = new WeakMap<PkmSectionPreviewEntity, PkmPreviewEntityTarget>();
+export function pkmPreviewEntityTarget(entity: PkmSectionPreviewEntity): PkmPreviewEntityTarget | null {
+  const target = entityTargets.get(entity);
+  return target?.kind === "entity" ? { ...target, relativePath: [...target.relativePath] } : target ? { ...target } : null;
+}
+function targetableSegment(value: string): boolean {
+  return value.length > 0 && value.trim() === value && !/[.\[\]]/.test(value) &&
+    Array.from(value).every(point => point.charCodeAt(0) >= 32 && point.charCodeAt(0) !== 127) &&
+    !["__proto__", "prototype", "constructor"].includes(value);
+}
+export function validPkmPreviewPath(path: string): boolean {
+  return path.split(".").every(targetableSegment);
+}
+function finalizeTargets(presentation: PkmSectionPreviewPresentation, path: string): PkmSectionPreviewPresentation {
+  if (validPkmPreviewPath(path)) return presentation;
+  for (const group of presentation.groups) {
+    if (group.kind !== "entities") continue;
+    for (const entity of group.items) {
+      entityTargets.delete(entity); entity.deletable = false; entity.editable = false;
+    }
+  }
+  return presentation;
+}
 
 export type PkmSectionPreviewGroup =
   | {
@@ -136,10 +168,10 @@ function sanitizeConsumerValue(value: unknown): unknown {
 }
 
 function humanizeKey(value: string): string {
-  return value
+  return mailDisplayLabel(value
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
-    .trim();
+    .trim());
 }
 
 function formatTimestamp(value: string): string | null {
@@ -394,23 +426,26 @@ function buildEntitySections(
 function buildEntityItem(
   key: string,
   value: Record<string, unknown>,
-  options?: { deletable?: boolean }
+  options?: { target?: PkmPreviewEntityTarget }
 ): PkmSectionPreviewEntity {
   const title = extractEntityTitle(value, "Saved entry");
   const fields = objectToEntityFields(value, title);
-  return {
+  const entity: PkmSectionPreviewEntity = {
     key,
     title,
     subtitle: extractEntitySubtitle(value),
     fields,
     sections: buildEntitySections(value, title),
-    deletable: options?.deletable === true,
+    deletable: options?.target !== undefined,
   };
+  if (options?.target) entityTargets.set(entity, options.target);
+  return entity;
 }
 
 function maybeBuildEntitiesGroup(
   title: string | undefined,
-  value: unknown
+  value: unknown,
+  relativeParent: readonly string[] = [],
 ): PkmSectionPreviewGroup | null {
   if (Array.isArray(value) && value.every(isPlainObject)) {
     return {
@@ -422,8 +457,9 @@ function maybeBuildEntitiesGroup(
   if (isPlainObject(value) && isPlainObject(value.entities)) {
     const entities = Object.entries(value.entities)
       .filter(([, entity]) => isPlainObject(entity))
-      .map(([, entity], index) =>
-        buildEntityItem(`entity-${index + 1}`, entity as Record<string, unknown>, { deletable: true })
+      .map(([key, entity], index) =>
+        buildEntityItem(`entity-${index + 1}`, entity as Record<string, unknown>,
+          [...relativeParent, key].every(targetableSegment) ? { target: { kind: "entity", relativePath: [...relativeParent, "entities", key], entityId: key } } : undefined)
       );
     if (entities.length > 0) {
       return {
@@ -603,11 +639,14 @@ function buildReceiptsPreview(
 function buildContextPreview(
   title: string,
   description: string | undefined,
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
+  original: Record<string, unknown>,
+  editable: boolean,
 ): PkmSectionPreviewPresentation {
   const entries = Array.isArray(record.entries)
     ? record.entries.filter(isPlainObject)
     : [];
+  const originalEntries = Array.isArray(original.entries) ? original.entries.filter(isPlainObject) : [];
   const entities = entries.map((entry, index) => {
     const key = `context-${index + 1}`;
     const category =
@@ -623,13 +662,15 @@ function buildContextPreview(
         ? entry.text.trim()
         : "Saved context";
 
-    return {
+    const entryId = originalEntries[index]?.id;
+    const target = editable && typeof entryId === "string" && targetableSegment(entryId) ? entryId : null;
+    const entity = {
       key,
       title: category,
       subtitle: updatedAt ? `Saved ${updatedAt}` : undefined,
       fields: [{ label: "Context", value: text }],
-      deletable: true,
-      editable: true,
+      deletable: target !== null,
+      editable: target !== null,
       editPayload: {
         category:
           typeof entry.category === "string" && entry.category.trim()
@@ -638,6 +679,8 @@ function buildContextPreview(
         text,
       },
     } satisfies PkmSectionPreviewEntity;
+    if (target) entityTargets.set(entity, { kind: "financial-context", entryId: target });
+    return entity;
   });
 
   return {
@@ -701,7 +744,7 @@ function buildGenericPreview(
           }
           continue;
         }
-        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value, [key]);
         if (entitiesGroup) {
           groups.push(entitiesGroup);
         }
@@ -709,7 +752,7 @@ function buildGenericPreview(
       }
 
       if (isPlainObject(value)) {
-        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value, [key]);
         if (entitiesGroup) {
           groups.push(entitiesGroup);
           continue;
@@ -762,9 +805,8 @@ export function buildPkmSectionPreviewPresentation(params: {
   const description =
     params.permissionDescription?.trim() ||
     `Saved values from your ${params.domainTitle.toLowerCase()} domain.`;
-  const value = sanitizeConsumerValue(
-    unwrapSectionValue(params.value, params.topLevelScopePath)
-  );
+  const original = unwrapSectionValue(params.value, params.topLevelScopePath);
+  const value = sanitizeConsumerValue(original);
 
   if (!isPlainObject(value)) {
     return {
@@ -778,14 +820,14 @@ export function buildPkmSectionPreviewPresentation(params: {
 
   const previewKey = `${params.domain}.${params.topLevelScopePath}`.toLowerCase();
   if (previewKey === "ria.advisor_package") {
-    return buildAdvisorPackagePreview(title, description, value);
+    return finalizeTargets(buildAdvisorPackagePreview(title, description, value), params.topLevelScopePath);
   }
   if (previewKey === "shopping.receipts_memory") {
-    return buildReceiptsPreview(title, description, value);
+    return finalizeTargets(buildReceiptsPreview(title, description, value), params.topLevelScopePath);
   }
   if (params.topLevelScopePath === "context" && Array.isArray(value.entries)) {
-    return buildContextPreview(title, description, value);
+    return finalizeTargets(buildContextPreview(title, description, value, isPlainObject(original) ? original : {}, params.domain === "financial"), params.topLevelScopePath);
   }
 
-  return buildGenericPreview(title, description, value);
+  return finalizeTargets(buildGenericPreview(title, description, value), params.topLevelScopePath);
 }

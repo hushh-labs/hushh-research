@@ -4,11 +4,13 @@ import { memo, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
+  Brain,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Loader2,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   Collapsible,
@@ -17,17 +19,25 @@ import {
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { HelperText } from "@/components/app-ui/typography";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { cn } from "@/lib/utils";
 
-export type AppStreamProgressStatus = "running" | "done" | "blocked" | "error";
+/** `waiting` is paused on the person (e.g. a review), neither running nor done. */
+export type AppStreamProgressStatus = "running" | "waiting" | "done" | "blocked" | "error";
 
 export type AppStreamProgressItem = {
   id: string;
   label?: string;
   message: string;
   status?: AppStreamProgressStatus;
+  /** Replaces the status icon (specialist summaries). */
   badge?: string;
+  /** Shown beside the label while keeping the status icon. */
+  tag?: string;
+  /** Optional decorative mark before the label (e.g. an official connector logo). */
+  mark?: ReactNode;
+  durationMs?: number;
 };
 
 type AppStreamEventListProps = {
@@ -42,7 +52,8 @@ function ProgressStatusIcon({ status }: { status: AppStreamProgressStatus }) {
   if (status === "blocked" || status === "error") {
     return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
   }
-  return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong" />;
+  if (status === "waiting") return <Clock className="h-3.5 w-3.5 text-accent-strong" />;
+  return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong motion-reduce:animate-none" />;
 }
 
 export const AppStreamEventList = memo(function AppStreamEventList({
@@ -72,7 +83,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
         return (
           <li key={item.id} className="ui-text-caption flex gap-2">
             {item.badge ? (
-              <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 font-medium text-muted-foreground">
+              <span className="mt-0.5 shrink-0 rounded-full bg-accent-surface px-2 py-0.5 font-semibold text-accent-strong">
                 {item.badge}
               </span>
             ) : (
@@ -80,8 +91,23 @@ export const AppStreamEventList = memo(function AppStreamEventList({
                 <ProgressStatusIcon status={status} />
               </span>
             )}
-            <div className="min-w-0">
-              {item.label ? <p className="font-medium text-foreground">{item.label}</p> : null}
+            <div className="min-w-0" data-status={status}>
+              {item.label || item.tag ? (
+                <p className="flex flex-wrap items-center gap-x-1.5 font-medium text-foreground">
+                  {item.mark ? <span className="inline-flex shrink-0" aria-hidden="true">{item.mark}</span> : null}
+                  {item.label ? <span className="min-w-0 break-words">{item.label}</span> : null}
+                  {item.tag ? (
+                    <span className="rounded-full bg-accent-surface px-1.5 py-px text-[0.6875rem] font-semibold text-accent-strong">
+                      {item.tag}
+                    </span>
+                  ) : null}
+                  {typeof item.durationMs === "number" && Number.isFinite(item.durationMs) && status !== "running" ? (
+                    <span className="font-normal tabular-nums text-muted-foreground" data-operation-timing={status}>
+                      {(Math.max(0, item.durationMs) / 1000).toFixed(1)}s
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
               <p className="break-words text-muted-foreground">{item.message}</p>
             </div>
           </li>
@@ -103,6 +129,7 @@ export type AppStreamSectionProps = {
   emptyLabel?: string;
   className?: string;
   bodyClassName?: string;
+  appearance?: "surface" | "plain";
 };
 
 export function AppStreamSection({
@@ -117,14 +144,15 @@ export function AppStreamSection({
   className,
   bodyClassName,
   content,
+  appearance = "surface",
 }: AppStreamSectionProps) {
   return (
     <Collapsible open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
-      <div className={cn("rounded-xl border border-border/60 bg-muted/20", className)}>
+      <div className={cn("rounded-[16px]", appearance === "plain" ? "bg-transparent" : "bg-foreground/[0.035] dark:bg-white/[0.045]", className)}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="ui-text-section-label group flex w-full items-center justify-between gap-3 px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className={cn("ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70", appearance === "plain" && "min-h-11")}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -141,10 +169,11 @@ export function AppStreamSection({
                 aria-hidden="true"
               />
             </span>
+            <MaterialRipple variant="none" effect="glass" />
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className={cn("border-t border-border/50 px-3 py-2", bodyClassName)}>
+          <div className={cn("px-3 pb-3 pt-1", bodyClassName)}>
             {content ?? (
               <AppStreamEventList
                 items={items}
@@ -165,11 +194,21 @@ export type AppStreamPanelProps = {
   progressIndeterminate?: boolean;
   statusMessage?: string;
   progressItems?: AppStreamProgressItem[];
+  activityAppearance?: AppStreamSectionProps["appearance"];
   thinkingItems?: AppStreamProgressItem[];
   thinkingContent?: ReactNode;
   thinkingTitle?: string;
   evidenceItems?: AppStreamProgressItem[];
   evidenceTitle?: string;
+  /** Presentation override for the nested reasoning section. */
+  thinkingClassName?: string;
+  structuredContent?: ReactNode;
+  /**
+   * Where cards sit relative to the answer. "before" (the default) suits a card
+   * the answer then summarizes; "after" suits a lead-in the card completes
+   * ("Here's what I'd request:" then the ask), so text reads before the card.
+   */
+  structuredContentPlacement?: "before" | "after";
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
@@ -186,11 +225,15 @@ export function AppStreamPanel({
   progressIndeterminate = false,
   statusMessage,
   progressItems = [],
+  activityAppearance = "plain",
   thinkingItems = [],
   thinkingContent,
-  thinkingTitle = "Working notes",
+  thinkingTitle = "Reasoning",
   evidenceItems = [],
   evidenceTitle = "Consulted specialists",
+  thinkingClassName,
+  structuredContent,
+  structuredContentPlacement = "before",
   response,
   responseText = "",
   responsePendingLabel,
@@ -206,17 +249,24 @@ export function AppStreamPanel({
   );
   const showProgressMeter =
     progressIndeterminate || (typeof progressValue === "number" && Number.isFinite(progressValue));
+  // Activity is open while the turn runs. A finished turn keeps it one tap
+  // away, collapsed, unless a step still waits on the person or failed. A
+  // restored turn mounts finished, so it reads exactly like the live one did
+  // after it completed.
+  const activityNeedsAttention = progressItems.some((item) =>
+    item.status === "waiting" || item.status === "blocked" || item.status === "error");
+  const activityOpen = isStreaming || activityNeedsAttention;
 
   return (
     <section
-      className={cn(
-        "w-full max-w-none rounded-2xl border border-black/10 bg-white/70 p-3 shadow-sm shadow-black/[0.025] backdrop-blur-xl",
-        "dark:border-white/10 dark:bg-white/[0.035] dark:shadow-none",
-        className
-      )}
+      // No card of its own. The answer is the same plain prose whether the
+      // turn used tools or not, live or reopened. The caller selects Activity's
+      // appearance. A tinted, shadowed card around the answer
+      // read as a shaded box that disappeared after a reload.
+      className={cn("w-full max-w-none", className)}
       aria-label={title}
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         {opportunities ? <div>{opportunities}</div> : null}
 
         {showProgressMeter || statusMessage || progressItems.length > 0 ? (
@@ -235,10 +285,12 @@ export function AppStreamPanel({
             ) : null}
             {progressItems.length > 0 ? (
               <AppStreamSection
-                title="Progress"
+                key={activityOpen ? "activity-open" : "activity-collapsed"}
+                title="Activity"
+                appearance={activityAppearance}
                 items={progressItems}
                 count={progressItems.length}
-                defaultOpen
+                defaultOpen={activityOpen}
               />
             ) : null}
           </div>
@@ -250,10 +302,17 @@ export function AppStreamPanel({
             // collapsed once the answer arrives so it never covers the response.
             key={hasResponse ? "thinking-collapsed" : "thinking-open"}
             title={thinkingTitle}
+            // Its own glyph. Both sections defaulted to the Activity icon, so a
+            // turn that reasoned rendered two stacked collapsibles with the same
+            // icon, the same chevron and the same shell -- which reads as the
+            // app having said the same thing twice rather than as two different
+            // kinds of detail.
+            icon={Brain}
             items={thinkingItems}
             count={thinkingContent ? undefined : thinkingItems.length}
             defaultOpen={isStreaming && !hasResponse}
             bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
+            className={thinkingClassName}
             content={thinkingContent}
           />
         ) : null}
@@ -268,11 +327,17 @@ export function AppStreamPanel({
           />
         ) : null}
 
+        {structuredContent && structuredContentPlacement === "before" ? <div>{structuredContent}</div> : null}
+
         {showResponsePending ? (
           <div
             role="status"
             aria-live="polite"
-            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-background/55 px-3 py-2 text-sm text-muted-foreground"
+            // A plain line, not a pill: the panel is already the container, and
+            // a filled pill inside it read as a box in a box. Same padding and
+            // line height as the answer below, so the answer takes its place
+            // without the row jumping.
+            className="flex items-center gap-2 px-1 text-sm leading-6 text-muted-foreground"
           >
             <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
             <span>{responsePendingLabel}</span>
@@ -282,8 +347,8 @@ export function AppStreamPanel({
         {hasResponse ? (
           <div
             className={cn(
-              "rounded-xl border border-border/60 bg-background/70 px-3 py-3 text-sm leading-6",
-              isError && "border-destructive/30 bg-destructive/10 text-destructive"
+              "px-1 text-sm leading-6",
+              isError && "text-destructive"
             )}
             aria-live={isStreaming ? "polite" : undefined}
           >
@@ -298,6 +363,8 @@ export function AppStreamPanel({
             ) : null}
           </div>
         ) : null}
+
+        {structuredContent && structuredContentPlacement === "after" ? <div>{structuredContent}</div> : null}
       </div>
     </section>
   );

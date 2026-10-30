@@ -118,7 +118,10 @@ struct NativeTestConfiguration {
     let uiFlowRunId: String?
     let showStatusOverlay: Bool
 
-    init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+    init(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         #if DEBUG
         let testModeEnabled = arguments.contains("-UITestMode")
         #else
@@ -131,8 +134,8 @@ struct NativeTestConfiguration {
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
         autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        vaultPassphrase = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments) : nil
-        expectedUserId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments) : nil
+        vaultPassphrase = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] : nil
+        expectedUserId = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_UID"] : nil
         resetAppState = NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,
@@ -344,6 +347,7 @@ struct NativeTestConfiguration {
                 ? bridge.bootstrapUserId === bridge.expectedUserId
                 : null,
               bootstrapErrorClass: bridge.bootstrapErrorClass || "",
+              bootstrapDetail: bridge.bootstrapDetail || "",
               title: document.title || "",
               routeId: beacon ? (beacon.routeId || "") : "",
               authState: beacon ? (beacon.authState || "") : "",
@@ -410,7 +414,7 @@ struct NativeTestConfiguration {
                     if (!fallbackButton) {
                       fallbackButton = buttons.find(function(button) {
                         var text = (button.textContent || "").trim().toLowerCase();
-                        return text === "use passphrase instead";
+                        return text === "use password instead";
                       });
                     }
                     if (fallbackButton && !fallbackButton.disabled) {
@@ -429,7 +433,7 @@ struct NativeTestConfiguration {
                   passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
                   var unlockButton = buttons.find(function(button) {
                     var text = (button.textContent || "").trim().toLowerCase();
-                    return text === "unlock with passphrase";
+                    return text === "unlock with password";
                   });
                   if (unlockButton && !unlockButton.disabled && bridge._vaultUnlockSubmitted !== true) {
                     bridge._vaultUnlockSubmitted = true;
@@ -578,6 +582,7 @@ struct NativeTestConfiguration {
               ? bridge.bootstrapUserId === bridge.expectedUserId
               : null,
             bootstrapErrorClass: bridge.bootstrapErrorClass || "",
+              bootstrapDetail: bridge.bootstrapDetail || "",
             jsErrorClass: bridge.lastJsErrorClass || "",
             jsRejectionClass: bridge.lastUnhandledRejectionClass || "",
             longImportWait: bridge.uiFlowLongWait === true,
@@ -693,6 +698,15 @@ enum NativeTestResetter {
 }
 
 final class NativeTestStatusLabel: UIButton {
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+    /// Synchronous, bounded public evidence only. No asynchronous WebKit
+    /// completion is needed to inspect the current native presentation.
+    var currentValue: ((String?) -> String)?
+    override var accessibilityValue: String? {
+        get { currentValue?(super.accessibilityValue) ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
+    #endif
     init(frame: CGRect, showOverlay: Bool) {
         super.init(frame: frame)
         isAccessibilityElement = true
@@ -719,6 +733,310 @@ final class NativeTestStatusLabel: UIButton {
         accessibilityValue = status
     }
 }
+
+#if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+/// Attach-only layout evidence, separate from reviewer bootstrap and its
+/// persistent status store. Opt-in snapshots contain public geometry and passive
+/// event counts only; they cannot invoke unlock or inspect credential values.
+final class NativeVaultLayoutProbe {
+    private let label = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+    private var timer: Timer?
+    private var inFlight = false
+    private var sequence = 0
+    private var heldDrawerSamples = 0
+    private var heldDrawerMissingPlaneSamples = 0
+    private var previousDrawerLeft: Double?
+    private weak var webView: WKWebView?
+    private var observers = [NSObjectProtocol]()
+
+    static func acceptsSample(captured: HushhSessionPrivacyShield.Snapshot,
+                              current: HushhSessionPrivacyShield.Snapshot) -> Bool {
+        captured.appIsActive && !captured.shielded && current.appIsActive &&
+            !current.shielded && captured.generation == current.generation
+    }
+
+    private func conceal() {
+        heldDrawerSamples = 0
+        heldDrawerMissingPlaneSamples = 0
+        previousDrawerLeft = nil
+        label.isHidden = true
+        label.accessibilityElementsHidden = true
+        label.update(status: "{}")
+    }
+
+    init(host: UIView, webView: WKWebView) {
+        self.webView = webView
+        label.accessibilityIdentifier = "native-vault-layout"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.update(status: "{}")
+        conceal()
+        host.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            label.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
+            label.widthAnchor.constraint(equalToConstant: 1),
+            label.heightAnchor.constraint(equalToConstant: 1),
+        ])
+        for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.conceal()
+            })
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in self?.sample() }
+    }
+
+    deinit {
+        timer?.invalidate()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        label.removeFromSuperview()
+    }
+
+    private func sample() {
+        let captured = HushhSessionPrivacyShield.shared.snapshot()
+        guard Self.acceptsSample(captured: captured, current: captured) else { conceal(); return }
+        guard !inFlight, let webView else { return }
+        inFlight = true
+        webView.evaluateJavaScript(Self.script) { [weak self, weak webView] result, _ in
+            guard let self else { return }
+            self.inFlight = false
+            let current = HushhSessionPrivacyShield.shared.snapshot()
+            guard Self.acceptsSample(captured: captured, current: current),
+                  let webView, self.webView === webView else { self.conceal(); return }
+            guard let values = result as? [String: Any] else { return }
+            // Whitelist numeric/bool geometry. Never propagate unexpected JS
+            // fields, text, credentials, provider bodies or a DOM hierarchy.
+            let keys = Set(["presentCount", "innerHeight", "visualHeight", "visualTop", "visualScale",
+                            "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
+                            "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
+                            "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
+                            "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
+                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
+                            "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
+                            "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
+                            "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
+                            "routeKind", "globalErrorKind", "phoneGate", "nativeChoiceBootstrap", "nativeChoiceReady", "nativeChoicePresented", "nativeChoiceBlocked",
+                            "nativeChoiceCount", "nativeChoiceViewportWidth", "walletNativeMode", "walletWeb", "walletIntro",
+                            "nativeChoice0X", "nativeChoice0Y", "nativeChoice0Width", "nativeChoice0Height", "nativeChoice0Hit", "nativeChoice0Mode",
+                            "nativeChoice1X", "nativeChoice1Y", "nativeChoice1Width", "nativeChoice1Height", "nativeChoice1Hit", "nativeChoice1Mode"])
+            var payload = [String: Any]()
+            for (key, value) in values where keys.contains(key) {
+                guard let number = value as? NSNumber,
+                      number.doubleValue.isFinite, abs(number.doubleValue) <= 100_000 else { continue }
+                payload[key] = number
+            }
+            self.sequence += 1
+            payload["sequence"] = self.sequence
+            payload["nativeWebInteractive"] = webView.isUserInteractionEnabled
+            payload["nativeWebAXHidden"] = webView.accessibilityElementsHidden
+            payload["nativeWebInWindow"] = webView.window != nil
+            payload["nativeChoicePreparationCount"] = NativeOwnedChoiceCoordinator.preparationCount
+            payload["walletPresentationCount"] = NativeWalletPanelPresentation.presentationCount
+            payload["workspaceAdmissionStage"] = HushhNativeDrawersPlugin.workspaceAdmissionStage
+            payload["nativeChoicePreparationStage"] = NativeOwnedChoiceCoordinator.preparationStage
+            // Read UIKit's current docked-keyboard layout guide independently
+            // of the Capacitor height event consumed by CSS. A hardware/floating
+            // keyboard need not reserve a full-width inset.
+            payload["nativeGuideHeight"] = (webView.superview as? NativePresentationContainer)?.keyboardLayoutGuide.layoutFrame.height
+                ?? webView.keyboardLayoutGuide.layoutFrame.height
+            payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            payload["regionRefusal"] = (webView.superview as? NativePresentationContainer)?.lastRegionRefusal ?? 0
+            payload["baseEditorFocused"] = (webView.superview as? NativePresentationContainer)?.baseEditorFocused ?? false
+            payload["nativeBaseConcealed"] = (webView.superview as? NativePresentationContainer)?.preparationBaseIsConcealed ?? false
+            payload["nativeIsolation"] = (webView.superview as? NativePresentationContainer)?.interactionIsolated ?? false
+            if let container = webView.superview as? NativePresentationContainer,
+               let frame = container.lastRejectedInitialFrame {
+                for (key, value) in [("initialTopDelta", frame.minY - container.bounds.minY),
+                    ("initialBottomDelta", frame.maxY - container.bounds.maxY),
+                    ("initialWidthDelta", frame.width - container.bounds.width)]
+                    where value.isFinite && abs(value) <= 100_000 { payload[key] = value }
+            }
+            // Public Debug admission booleans, never process arguments or
+            // private editor state. Activation alone need not apply new flags.
+            payload["dockOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
+            payload["chromeOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
+            if let container = webView.superview as? NativePresentationContainer,
+               let left = payload["drawerLeft"] as? NSNumber {
+                let partial = (payload["drawerPartial"] as? NSNumber)?.boolValue == true
+                // Two stationary numeric samples prove a held partial exposure,
+                // not settled-only screenshots or a disappearing AX heading.
+                if partial, let previous = self.previousDrawerLeft, abs(previous - left.doubleValue) <= 1 {
+                    self.heldDrawerSamples = min(100_000, self.heldDrawerSamples + 1)
+                    if container.underlay.isHidden || container.baseVisibleFrame.width <= 1 {
+                        self.heldDrawerMissingPlaneSamples = min(100_000, self.heldDrawerMissingPlaneSamples + 1)
+                    }
+                }
+                self.previousDrawerLeft = partial ? left.doubleValue : nil
+                payload["baseExposureX"] = container.baseVisibleFrame.minX
+                payload["baseExposureWidth"] = container.baseVisibleFrame.width
+            } else { self.previousDrawerLeft = nil }
+            payload["heldDrawerSamples"] = self.heldDrawerSamples
+            payload["heldDrawerMissingPlaneSamples"] = self.heldDrawerMissingPlaneSamples
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            self.label.update(status: json)
+            self.label.accessibilityElementsHidden = false
+            self.label.isHidden = false
+        }
+    }
+
+    private static let script = """
+    (() => {
+      const receiptKey = Symbol.for('hushh.native.vault.public-receipt');
+      if (!window[receiptKey]) {
+        const receipt = { clicks: 0, accepted: 0, methodClicks: 0, methodPointerUps: 0 };
+        window[receiptKey] = receipt;
+        document.addEventListener('click', event => {
+          const button = event.target instanceof Element ? event.target.closest('button') : null;
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.textContent?.trim() === 'Unlock') receipt.clicks = Math.min(100000, receipt.clicks + 1);
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.matches('[data-testid="vault-use-passphrase-instead"]')) {
+            receipt.methodClicks = Math.min(100000, receipt.methodClicks + 1);
+          }
+        }, { capture: true, passive: true });
+        document.addEventListener('pointerup', event => {
+          const button = event.target instanceof Element ? event.target.closest('button') : null;
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.matches('[data-testid="vault-use-passphrase-instead"]')) {
+            receipt.methodPointerUps = Math.min(100000, receipt.methodPointerUps + 1);
+          }
+        }, { capture: true, passive: true });
+        // Occurrence only, never the event detail. This is not proof that React
+        // rendered protected content; the normal Chat assertion remains required.
+        window.addEventListener('vault-unlocked', () => {
+          receipt.accepted = Math.min(100000, receipt.accepted + 1);
+        });
+      }
+      const receipt = window[receiptKey];
+      const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
+      const root = document.documentElement;
+      const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
+      const dockFailure = document.querySelector('[data-native-dock-failure-code]');
+      const scrollRoot = document.querySelector('[data-app-scroll-root="true"]');
+      const progressConsumer = document.querySelector('[data-bottom-chrome-progress-consumer]') || root;
+      // Read only the authored public guard packet. Never include its raw text,
+      // private scene/body, document identity or an arbitrary DOM projection.
+      let profileGuards = {};
+      const profileStatus = document.getElementById('native-control-status-profile-back')?.textContent || '';
+      if (profileStatus.startsWith('NATIVE_SELECTOR_STATUS ') && profileStatus.length <= 1024) {
+        try {
+          const packet = JSON.parse(profileStatus.slice('NATIVE_SELECTOR_STATUS '.length));
+          for (const [key, output] of [['overlayBlocked', 'profileOverlayBlocked'], ['inertBlocked', 'profileInertBlocked'],
+            ['moving', 'profileMoving'], ['suppressed', 'profileSuppressed'], ['voiceBlocked', 'profileVoiceBlocked'], ['documentHidden', 'profileDocumentHidden']]) {
+            if (typeof packet[key] === 'boolean') profileGuards[output] = packet[key];
+          }
+        } catch { /* Malformed public diagnostics grant no authority. */ }
+      }
+      const result = {
+        walletNativeMode: Math.max(0, ['checking', 'native', 'web', 'blocked'].indexOf(document.querySelector('[data-native-wallet-workspace]')?.getAttribute('data-native-wallet-workspace')) + 1),
+        walletWeb: !!document.querySelector('[data-testid="wallet-card-browser"]'),
+        walletIntro: !!document.querySelector('[data-testid="wallet-introduction"]'),
+        nativeChoiceBootstrap: window.__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.ownedChoices === true,
+        nativeChoiceReady: document.querySelectorAll('[data-native-owned-choice="ready"]').length,
+        nativeChoicePresented: document.querySelectorAll('[data-native-owned-choice="presented"]').length,
+        nativeChoiceBlocked: document.querySelectorAll('[data-native-owned-choice="blocked"]').length,
+        routeKind: Math.max(0, ['/', '/one', '/login', '/register', '/register/phone', '/one/setup'].indexOf(location.pathname) + 1),
+        globalErrorKind: Math.max(0, ['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError'].indexOf(document.querySelector('[data-native-global-error]')?.getAttribute('data-native-global-error')) + 1),
+        phoneGate: !!document.querySelector('[data-figma-phone-step]'),
+        ...profileGuards,
+        bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
+        appScrollTop: scrollRoot?.scrollTop,
+        appScrollRange: scrollRoot ? scrollRoot.scrollHeight - scrollRoot.clientHeight : undefined,
+        appScrollHeight: scrollRoot?.scrollHeight,
+        appScrollClientHeight: scrollRoot?.clientHeight,
+        appScrollRootCount: document.querySelectorAll('[data-app-scroll-root="true"]').length,
+        windowScrollRange: document.scrollingElement ? document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight : undefined,
+        oneRosterPresent: Boolean(document.querySelector('[data-testid="one-agents-section"]')),
+        presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
+        visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
+        cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
+        kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
+        unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
+        methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
+        passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
+        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]')),
+        dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
+        dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
+      };
+      // Public shared-control geometry only. No labels, values, selection,
+      // account information or executable UI commands cross this probe.
+      const choices = Array.from(document.querySelectorAll('[data-slot="select-trigger"]'))
+        .filter(node => node.getClientRects().length && !node.closest('[inert], [aria-hidden="true"]'));
+      result.nativeChoiceCount = choices.length;
+      result.nativeChoiceViewportWidth = innerWidth;
+      choices.slice(0, 2).forEach((node, index) => {
+        const rect = node.getBoundingClientRect();
+        result[`nativeChoice${index}X`] = rect.left;
+        result[`nativeChoice${index}Y`] = rect.top;
+        result[`nativeChoice${index}Width`] = rect.width;
+        result[`nativeChoice${index}Height`] = rect.height;
+        result[`nativeChoice${index}Hit`] = node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        result[`nativeChoice${index}Mode`] = ({ ready: 1, presented: 2, blocked: 3 })[node.getAttribute('data-native-owned-choice')] || 0;
+      });
+      // Authored public pane geometry, not a named AX heading or inferred
+      // operation. Neither contents nor account/route labels are read.
+      const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]') ||
+        document.querySelector('[data-profile-preview]:not([hidden])');
+      const history = document.querySelector('[data-agent-history-drawer][aria-hidden="false"]');
+      const drawer = profile || history;
+      if (drawer) {
+        const rect = drawer.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const owns = y => drawer.contains(document.elementFromPoint(x, y));
+        const moving = drawer.getAnimations().some(animation =>
+          animation.effect?.target === drawer && animation.playState === 'running' &&
+          animation.effect?.getComputedTiming().iterations !== Infinity);
+        Object.assign(result, { drawerKind: profile ? 1 : 2,
+          drawerTop: rect.top, drawerBottom: rect.bottom, drawerWidth: rect.width,
+          drawerLeft: rect.left, drawerRight: rect.right,
+          drawerPartial: Math.min(innerWidth, rect.right) - Math.max(0, rect.left) > 1 &&
+            Math.min(innerWidth, rect.right) - Math.max(0, rect.left) < innerWidth - 1,
+          drawerViewportHeight: innerHeight, drawerOwnsTopEdge: owns(1),
+          drawerOwnsBottomEdge: owns(innerHeight - 1), drawerSettled: !moving });
+      }
+      // Public interaction admission only. Never read the editor's value,
+      // selection contents, transcript, account identity or arbitrary DOM.
+      const chats = document.querySelectorAll('textarea[aria-label="Message One"]');
+      result.chatCount = chats.length;
+      if (chats.length === 1) {
+        const editor = chats[0];
+        const rect = editor.getBoundingClientRect();
+        Object.assign(result, {
+          chatFocused: document.activeElement === editor,
+          chatDisabled: editor.disabled,
+          chatInert: Boolean(editor.closest('[inert]')),
+          chatHit: editor.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+          chatWidth: rect.width, chatHeight: rect.height
+        });
+      }
+      const surface = surfaces.length === 1 ? surfaces[0] : null;
+      const scroll = surface?.querySelector('[data-vault-flow-content]');
+      const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');
+      if (surface && scroll) {
+        const unlock = Array.from(scroll.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Unlock');
+        if (unlock) {
+          const u = unlock.getBoundingClientRect();
+          result.unlockHits = unlock.contains(document.elementFromPoint(u.left + u.width / 2, u.top + u.height / 2));
+        }
+        const s = scroll.getBoundingClientRect();
+        Object.assign(result, { surfaceTop: surface.getBoundingClientRect().top,
+          surfaceMaxHeight: finite(getComputedStyle(surface).maxHeight), scrollTopEdge: s.top, scrollBottomEdge: s.bottom,
+          clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight, scrollTop: scroll.scrollTop,
+          overflowAuto: getComputedStyle(scroll).overflowY === 'auto' });
+        if (recovery) {
+          const r = recovery.getBoundingClientRect();
+          Object.assign(result, { recoveryTop: r.top, recoveryBottom: r.bottom,
+            recoveryInside: r.top >= s.top && r.bottom <= s.bottom,
+            recoveryHits: recovery.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) });
+        }
+      }
+      return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+    })()
+    """
+}
+#endif
 
 enum NativeTestStatusStore {
     private static let fileName = "native-test-status.txt"

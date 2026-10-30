@@ -14,6 +14,7 @@ Usage:
     --region <region> \
     --service <cloud-run-service> \
     --contract-file <path> \
+    [--release-environment <production|uat>] \
     [--report-path <path>] \
     [--proxy-port <port>]
 
@@ -27,6 +28,7 @@ PROJECT=""
 REGION="us-central1"
 SERVICE="consent-protocol"
 CONTRACT_FILE=""
+RELEASE_ENVIRONMENT="production"
 REPORT_PATH=""
 PROXY_PORT="${DB_PROXY_PORT:-6543}"
 
@@ -46,6 +48,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --contract-file)
       CONTRACT_FILE="${2:-}"
+      shift 2
+      ;;
+    --release-environment)
+      RELEASE_ENVIRONMENT="${2:-}"
       shift 2
       ;;
     --report-path)
@@ -70,10 +76,22 @@ done
 
 [ -n "$PROJECT" ] || { echo "--project is required" >&2; exit 1; }
 [ -n "$CONTRACT_FILE" ] || { echo "--contract-file is required" >&2; exit 1; }
+case "$RELEASE_ENVIRONMENT" in
+  production|uat) ;;
+  *) echo "--release-environment must be production or uat" >&2; exit 1 ;;
+esac
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 1; }
+# The interpreter that runs the release guard. Overridable because the guard
+# imports `asyncpg`, which lives in the consent-protocol environment and not in
+# whatever `python3` resolves to on a PATH. Hardcoding it here is how a caller
+# that HAD resolved the right interpreter still ended up running the guard under
+# one that could not import it (measured 2026-08-29: the RCA runner chose the
+# project venv for every check except this one, because this one goes through
+# bash). Defaults to `python3`, so every existing caller is unchanged.
+PYTHON="${PYTHON:-python3}"
+command -v "$PYTHON" >/dev/null 2>&1 || { echo "$PYTHON is required" >&2; exit 1; }
 
 if [ -z "$REPORT_PATH" ]; then
   REPORT_PATH="$(mktemp "${TMPDIR:-/tmp}/runtime-db-contract.XXXXXX")"
@@ -108,10 +126,31 @@ secret_value_if_exists() {
   fi
 }
 
-DB_HOST="$(runtime_env_value DB_HOST)"
-DB_PORT="$(runtime_env_value DB_PORT)"
-DB_NAME="$(runtime_env_value DB_NAME)"
-DB_UNIX_SOCKET="$(runtime_env_value DB_UNIX_SOCKET)"
+# Match hydrate_runtime_environment(): a deployed DB env entry wins over the
+# corresponding packed runtime setting. Keep the JSON in process memory.
+BACKEND_RUNTIME_CONFIG="$(runtime_env_value BACKEND_RUNTIME_CONFIG_JSON)"
+if [ -n "$BACKEND_RUNTIME_CONFIG" ] && ! printf '%s' "$BACKEND_RUNTIME_CONFIG" | \
+  jq -e 'type == "object"' >/dev/null 2>&1; then
+  echo "Invalid packed runtime DB configuration." >&2
+  exit 1
+fi
+runtime_db_value() {
+  local name="$1" key="$2"
+  if printf '%s' "$SERVICE_JSON" | jq -e --arg name "$name" \
+    'any(.spec.template.spec.containers[0].env[]?; .name == $name)' >/dev/null; then
+    runtime_env_value "$name"
+    return
+  fi
+  if [ -n "$BACKEND_RUNTIME_CONFIG" ]; then
+    printf '%s' "$BACKEND_RUNTIME_CONFIG" | jq -r --arg key "$key" \
+      '.[$key] // empty | tostring | gsub("^\\s+|\\s+$"; "")'
+  fi
+}
+
+DB_HOST="$(runtime_db_value DB_HOST db_host)"
+DB_PORT="$(runtime_db_value DB_PORT db_port)"
+DB_NAME="$(runtime_db_value DB_NAME db_name)"
+DB_UNIX_SOCKET="$(runtime_db_value DB_UNIX_SOCKET db_unix_socket)"
 
 DB_HOST="${DB_HOST:-$(secret_value_if_exists DB_HOST)}"
 DB_PORT="${DB_PORT:-$(secret_value_if_exists DB_PORT)}"
@@ -121,8 +160,12 @@ DB_UNIX_SOCKET="${DB_UNIX_SOCKET:-$(secret_value_if_exists DB_UNIX_SOCKET)}"
 DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-postgres}"
 
-DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="$PROJECT")"
-DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="$PROJECT")"
+# Match the deployed mount/version before falling back to the legacy secret names.
+DB_USER="$(runtime_env_value DB_USER)"
+DB_PASSWORD="$(runtime_env_value DB_PASSWORD)"
+DB_USER="${DB_USER:-$(gcloud secrets versions access latest --secret=DB_USER --project="$PROJECT")}"
+DB_PASSWORD="${DB_PASSWORD:-$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="$PROJECT")}"
+
 echo "::add-mask::${DB_USER}" >/dev/null 2>&1 || true
 echo "::add-mask::${DB_PASSWORD}" >/dev/null 2>&1 || true
 
@@ -146,6 +189,17 @@ if [ -n "$DB_UNIX_SOCKET" ] || [ "$DB_HOST" = "cloudsql-socket" ]; then
     echo "Could not infer Cloud SQL instance connection name from DB_UNIX_SOCKET." >&2
     exit 1
   }
+
+  # Never mistake another worktree's proxy for the requested environment.
+  python3 - "$PROXY_PORT" <<'PYPORT'
+import socket
+import sys
+with socket.socket() as listener:
+    try:
+        listener.bind(("127.0.0.1", int(sys.argv[1])))
+    except OSError:
+        raise SystemExit("Audit proxy port is occupied; choose a dedicated --proxy-port")
+PYPORT
 
   cloud-sql-proxy "$INSTANCE_CONNECTION_NAME" --port "$PROXY_PORT" >/tmp/cloud-sql-proxy.log 2>&1 &
   PROXY_PID="$!"
@@ -174,6 +228,10 @@ while time.time() < deadline:
 raise SystemExit("Timed out waiting for cloud-sql-proxy")
 PY
 
+  if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+    echo "Audit proxy exited before verification; refusing an unowned connection." >&2
+    exit 1
+  fi
   export DB_HOST="127.0.0.1"
   export DB_PORT="$PROXY_PORT"
 else
@@ -184,8 +242,12 @@ fi
 export DB_NAME
 export DB_USER
 export DB_PASSWORD
+# Both branches above select TCP. Prevent the guard's dotenv load from restoring
+# a machine-local Cloud Run socket and overriding the explicitly selected host.
+export DB_UNIX_SOCKET=""
 
-python3 "$REPO_ROOT/scripts/ops/db_migration_release_guard.py" \
+"$PYTHON" "$REPO_ROOT/scripts/ops/db_migration_release_guard.py" \
+  --release-environment "$RELEASE_ENVIRONMENT" \
   --contract-file "$CONTRACT_FILE" \
   --report-path "$REPORT_PATH"
 

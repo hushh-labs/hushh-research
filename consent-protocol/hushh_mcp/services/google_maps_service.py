@@ -6,15 +6,29 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
 import math
+import os
+import time
 from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
+from cachetools import TTLCache
+from redis import asyncio as redis_asyncio
 
 from hushh_mcp.config import GOOGLE_MAPS_API_KEY
+from hushh_mcp.services import place_taxonomy as _taxonomy
+from hushh_mcp.services.nearby_place_discovery import (
+    DiscoveryLimits,
+    Query,
+    _place_types,
+    discover_nearby_places,
+)
+from hushh_mcp.services.place_geometry import (
+    distance_meters as _distance_meters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,89 +43,205 @@ _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
 # request, not per area, which is why "All" alone can never be complete in a
 # dense block: 20 cafes within 40 m bury the hotel 120 m away.
 _NEARBY_CHECK_IN_RESULT_LIMIT = 20
-# Ceiling for the merged multi-request sweep. Each category bucket contributes
-# its own 20-result budget, so a hotel is never crowded out by restaurants.
-_NEARBY_CHECK_IN_MERGED_LIMIT = 80
+# Refine saturated searches, with bounded concurrency and a total deadline below
+# the proxy timeout. These are query budgets, never a limit on returned venues.
+_NEARBY_DISCOVERY_MAX_QUERIES = 96
+_NEARBY_DISCOVERY_MAX_DEPTH = 4
+_NEARBY_DISCOVERY_CONCURRENCY = 6
+_NEARBY_DISCOVERY_TIMEOUT_SECONDS = 25.0
+
+# Repeat opens at the same spot reuse a short-lived response cache. Check-in
+# keys use the exact origin because shaped rows already carry distances and a
+# 500 m inclusion decision. The separate, wider-radius directory keeps its
+# existing coarse grid cache, at three decimal places (roughly 110 m).
+#
+# Google's Maps Platform terms permit exactly this: temporary caching for
+# Customer Application performance is allowed for under 30 consecutive
+# calendar days, kept secure, not redistributed, and not used to defeat
+# Google's usage accounting. 10 minutes is far inside that ceiling.
+#
+# Two tiers, cache-aside:
+#   L1 -- per-process TTLCache. Bounded (maxsize) so a long-lived worker
+#         cannot grow this without limit; evicts on both size and age.
+#   L2 -- Redis, shared across every Cloud Run instance and worker, so a
+#         cell one instance already paid for is free on every other one.
+#         Reuses the connection this service already runs in production for
+#         rate limiting (api/middlewares/rate_limit.py) -- same documented
+#         "SCALE SEAM" pattern, second consumer. If Redis is unset or errors,
+#         every call here degrades to L1-only: caching gets less effective,
+#         nothing breaks.
+_PLACES_CACHE_TTL_SECONDS = 600.0
+_PLACES_CACHE_CELL_DECIMALS = 3
+_PLACES_CACHE_MAX_ENTRIES = 2_000
+# Version shaped results with the taxonomy and discovery strategy so a rolling
+# deployment cannot mix old category assignments with this revision.
+_PLACES_CACHE_KEY_PREFIX = "places-cache:v3:"
+_REDIS_OP_TIMEOUT_SECONDS = 0.5
+
+# A module-level indirection so a test can freeze/advance time deterministically
+# instead of sleeping for real seconds to prove TTL expiry. The lambdas below
+# look this global up by name on every call (not at construction time), so
+# monkeypatching `_cache_clock` after the caches already exist still works.
+_cache_clock = time.monotonic
+
+# Two independent caches: the check-in picker's "all" sweep and the
+# directory's per-category, caller-chosen-radius lookups have different key
+# shapes and must not collide with each other.
+_nearby_places_cache: TTLCache = TTLCache(
+    # Discovery no longer truncates rows. Bound retained venue records rather
+    # than request keys so dense areas cannot multiply this worker's memory.
+    maxsize=_PLACES_CACHE_MAX_ENTRIES * _NEARBY_CHECK_IN_RESULT_LIMIT,
+    getsizeof=lambda rows: max(1, len(rows)),
+    ttl=_PLACES_CACHE_TTL_SECONDS,
+    timer=lambda: _cache_clock(),
+)
+_directory_cache: TTLCache = TTLCache(
+    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+)
+_redis_client: "redis_asyncio.Redis | None" = None
+
+
+def clear_places_cache() -> None:
+    """Reset both cache tiers.
+
+    Call this between tests -- otherwise a cache hit from one test (many
+    reuse the same lat/lng as "the" standard test point) silently serves a
+    different test's mock response instead of exercising a fresh call. Also
+    drops the Redis client so a test that monkeypatches the connection URL
+    or injects a fake client starts from a clean slate.
+    """
+
+    global _redis_client
+    _nearby_places_cache.clear()
+    _directory_cache.clear()
+    _redis_client = None
+
+
+def _geo_cell(lat: float, lng: float) -> tuple[float, float]:
+    return (
+        round(float(lat), _PLACES_CACHE_CELL_DECIMALS),
+        round(float(lng), _PLACES_CACHE_CELL_DECIMALS),
+    )
+
+
+def _cache_key_string(namespace: str, key_parts: tuple[Any, ...]) -> str:
+    return _PLACES_CACHE_KEY_PREFIX + namespace + ":" + ":".join(str(part) for part in key_parts)
+
+
+def _redis_url() -> str:
+    # A dedicated override, falling back to the URI this service already
+    # provisions for rate limiting -- same Memorystore instance, a second,
+    # namespaced use, no new secret required.
+    return (
+        os.getenv("PLACES_CACHE_REDIS_URL") or os.getenv("RATE_LIMIT_STORAGE_URI") or ""
+    ).strip()
+
+
+def _get_redis_client() -> "redis_asyncio.Redis | None":
+    """Lazily build the shared Redis client, or None if unconfigured.
+
+    Constructing `Redis.from_url` does not itself open a connection -- it is
+    cheap and does not need to be awaited -- so this can stay a plain
+    function. Every real network call happens in `_redis_cache_get/_set`,
+    which swallow errors, so a bad or unreachable URL degrades to L1-only
+    caching instead of failing a request.
+    """
+
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    url = _redis_url()
+    if not url:
+        return None
+    _redis_client = redis_asyncio.Redis.from_url(
+        url,
+        socket_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+        socket_connect_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+    )
+    return _redis_client
+
+
+async def _redis_cache_get(cache_key: str) -> list[dict[str, Any]] | None:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = await client.get(cache_key)
+    except Exception:
+        logger.warning("maps.places_cache.redis_get_failed")
+        return None
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    # Don't trust a cached blob's shape blindly -- a version bump on this key
+    # prefix, or a stale write from a future/older deploy sharing the same
+    # Redis instance, must read as a miss, not a corrupt result.
+    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
+        return None
+    return decoded
+
+
+async def _redis_cache_set(cache_key: str, value: list[dict[str, Any]]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        await client.set(cache_key, json.dumps(value), ex=int(_PLACES_CACHE_TTL_SECONDS))
+    except Exception:
+        logger.warning("maps.places_cache.redis_set_failed")
+
+
+async def _places_cache_get(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_hit = local_cache.get(cache_key)
+    if local_hit is not None:
+        return list(local_hit)
+    remote_hit = await _redis_cache_get(cache_key)
+    if remote_hit is None:
+        return None
+    # Backfill L1 so the next hit on this same instance is free of the
+    # network round trip, not just free of Google.
+    local_cache[cache_key] = remote_hit
+    return list(remote_hit)
+
+
+async def _places_cache_set(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+    value: list[dict[str, Any]],
+) -> None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_cache[cache_key] = list(value)
+    await _redis_cache_set(cache_key, value)
+
 
 NearbyPlaceCategory = Literal[
     "all",
     "food_drink",
+    "cafes",
     "health",
     "shopping_services",
     "hotels_stays",
+    "other_stays",
     "education",
     "outdoors_landmarks",
     "transit",
+    "worship",
+    "civic",
+    "other",
 ]
 
-# "All" issues one request per bucket here, concurrently, and merges the
-# results. That costs more provider calls per drawer open than the single
-# unfiltered request it replaced, and buys the only thing that makes the picker
-# trustworthy: each category gets its own slice of the provider's 20-result cap,
-# so a hotel cannot be buried by twenty nearer cafes. The client filters chips
-# from that one merged sweep, so browsing categories now costs nothing extra.
-# These are broad Table A types from Places API (New): Google includes matching
-# specialized subtypes (for example an Indian restaurant when `restaurant` is
-# requested).
-_NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
-    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
-    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
-    "shopping_services": (
-        "store",
-        "shopping_mall",
-        "supermarket",
-        "convenience_store",
-        "beauty_salon",
-        "hair_salon",
-        "barber_shop",
-        "laundry",
-        # Vehicle service stops are somewhere a person genuinely waits, so they
-        # belong in the picker. They already surfaced under "All" (which sends no
-        # includedTypes filter) but were unreachable from every category chip.
-        "car_repair",
-        "car_wash",
-        "car_dealer",
-        # Everyday errands people wait at, same reasoning.
-        "bank",
-        "atm",
-        "post_office",
-        "gym",
-    ),
-    "hotels_stays": (
-        "hotel",
-        "lodging",
-        "motel",
-        "hostel",
-        "bed_and_breakfast",
-        "campground",
-    ),
-    "education": (
-        "school",
-        "university",
-        "preschool",
-        "library",
-        "educational_institution",
-    ),
-    "outdoors_landmarks": (
-        "park",
-        "tourist_attraction",
-        "museum",
-        "art_gallery",
-        "historical_landmark",
-        "beach",
-        "garden",
-        "plaza",
-    ),
-    "transit": (
-        "transit_station",
-        "bus_stop",
-        "train_station",
-        "subway_station",
-        "airport",
-        "parking",
-        "gas_station",
-    ),
-}
+# Every requestable type is swept explicitly; classification is independent of
+# which query finds it. Each category is chunked at Google's 50-type limit.
+_NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = _taxonomy.CHIP_TYPES.copy()
 
 # Search Nearby can return geographical/address records when no category filter
 # is supplied. They are useful for geocoding but are not places a person can
@@ -148,7 +278,7 @@ _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
 _GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
 
 
-# Deliberately a SEPARATE table from `_NEARBY_PLACE_CATEGORY_TYPES`, not an
+# Deliberately a SEPARATE table from `_NEARBY_SWEEP_TYPES`, not an
 # extension of it. `nearby_places` builds its "All" sweep by iterating that dict,
 # so every key added there becomes another concurrent provider call on every
 # check-in drawer open. The directory needs finer buckets than the picker wants
@@ -243,37 +373,10 @@ _DIRECTORY_DETAIL_FIELD_MASK = (
 )
 
 
-def _build_category_index() -> dict[str, tuple[str, ...]]:
-    """Reverse index from a Places type to the drawer's category chips.
-
-    Built from the same table the requests use, so a place surfaced by the
-    unfiltered sweep still lands under the right chip without a second call.
-    """
-
-    index: dict[str, tuple[str, ...]] = {}
-    for category, place_types in _NEARBY_PLACE_CATEGORY_TYPES.items():
-        for place_type in place_types:
-            index[place_type] = (*index.get(place_type, ()), category)
-    return index
-
-
-_CATEGORY_BY_PLACE_TYPE = _build_category_index()
-
-
-def _place_types(place: dict[str, Any]) -> list[str]:
-    """Every type Google reported, primary first, de-duplicated."""
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for raw in (place.get("primaryType"), *(place.get("types") or [])):
-        if not isinstance(raw, str):
-            continue
-        value = raw.strip()[:80]
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
+# Kept as a module-level name because the classifier used to live here. The
+# mapping itself is `place_taxonomy.CHIP_BY_PLACE_TYPE`, which is exhaustive over
+# Table A rather than derived from whatever the sweep happens to request.
+_CATEGORY_BY_PLACE_TYPE = _taxonomy.CHIP_BY_PLACE_TYPE
 
 
 def _is_non_check_in_type(place_type: str) -> bool:
@@ -283,14 +386,9 @@ def _is_non_check_in_type(place_type: str) -> bool:
 
 
 def _place_categories(place_types: list[str]) -> list[str]:
-    """Category chips this place belongs to, in the table's declared order."""
+    """Category chips this place belongs to. Never empty -- see `place_taxonomy`."""
 
-    matched = {
-        category
-        for place_type in place_types
-        for category in _CATEGORY_BY_PLACE_TYPE.get(place_type, ())
-    }
-    return [category for category in _NEARBY_PLACE_CATEGORY_TYPES if category in matched]
+    return _taxonomy.place_categories(place_types)
 
 
 class GoogleMapsError(RuntimeError):
@@ -306,6 +404,14 @@ class GoogleMapsError(RuntimeError):
         self.status_code = status_code
         self.code = code
         super().__init__(message)
+
+
+class NearbyPlaceSuggestions(list[dict[str, Any]]):
+    """List-compatible result with an explicit discovery completeness signal."""
+
+    def __init__(self, places: list[dict[str, Any]], *, incomplete: bool) -> None:
+        super().__init__(places)
+        self.discovery_incomplete = incomplete
 
 
 def is_configured() -> bool:
@@ -379,26 +485,6 @@ def _postal_code_from_components(components: Any) -> str:
     return ""
 
 
-def _distance_meters(
-    *,
-    origin_lat: float,
-    origin_lng: float,
-    destination_lat: float,
-    destination_lng: float,
-) -> float:
-    radius = 6_371_000.0
-    lat1 = math.radians(origin_lat)
-    lat2 = math.radians(destination_lat)
-    delta_lat = math.radians(destination_lat - origin_lat)
-    delta_lng = math.radians(destination_lng - origin_lng)
-    value = (
-        math.sin(delta_lat / 2.0) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2.0) ** 2
-    )
-    clamped = max(0.0, min(1.0, value))
-    return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
-
-
 def _valid_coordinates(*, lat: float, lng: float) -> bool:
     return (
         math.isfinite(lat)
@@ -438,7 +524,7 @@ def _check_in_place_identity(
     """
 
     business_status = str(place.get("businessStatus") or "").strip().upper()
-    if business_status and business_status != "OPERATIONAL":
+    if business_status and business_status not in {"OPERATIONAL", "CLOSED_TEMPORARILY"}:
         return None
     pure_service_area = place.get("pureServiceAreaBusiness")
     if pure_service_area is True or (
@@ -685,6 +771,7 @@ class GoogleMapsService:
         lat: float,
         lng: float,
         included_types: tuple[str, ...] | None,
+        radius_meters: float = _NEARBY_CHECK_IN_RADIUS_METERS,
     ) -> list[dict[str, Any]]:
         """One Search Nearby call. Returns the raw provider place records."""
 
@@ -697,7 +784,7 @@ class GoogleMapsService:
                         "latitude": float(lat),
                         "longitude": float(lng),
                     },
-                    "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
+                    "radius": radius_meters,
                 }
             },
         }
@@ -775,15 +862,17 @@ class GoogleMapsService:
         )
         if (
             not math.isfinite(raw_distance_meters)
-            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
+            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS + 1e-6
         ):
             return None
         primary_type_display = place.get("primaryTypeDisplayName") or {}
         if not isinstance(primary_type_display, dict):
             primary_type_display = {}
-        category_label = str(primary_type_display.get("text") or "").strip()[:80]
-        if not category_label and primary_type:
-            category_label = primary_type.replace("_", " ").title()
+        # Our wording where Google's reads as a classification rather than a
+        # description. "Lodging" under a place named "... Lounge" is what the
+        # report was actually looking at: a true label, in a vocabulary nobody
+        # outside the Places API speaks.
+        category_label = _taxonomy.display_label(primary_type, primary_type_display.get("text"))
         return {
             "placeId": place_id,
             "name": display,
@@ -796,7 +885,7 @@ class GoogleMapsService:
             "latitude": place_lat,
             "longitude": place_lng,
             "primaryType": primary_type or None,
-            "category": category_label or "Place",
+            "category": category_label,
             "categories": _place_categories(place_types),
         }
 
@@ -807,98 +896,56 @@ class GoogleMapsService:
         lng: float,
         category: NearbyPlaceCategory = "all",
     ) -> list[dict[str, Any]]:
-        """Return the nearest check-in-able places, complete rather than merely bounded.
-
-        A single Search Nearby response is capped at 20 records by the provider.
-        On "All" that cap is spent on whatever happens to be closest, so a hotel
-        one street back disappears behind twenty cafes -- and the drawer looked
-        like it had simply skipped it. "All" therefore sweeps every category
-        bucket concurrently and merges: each bucket brings its own 20-result
-        budget, so no category can crowd out another.
-
-        The request point is sent to Google only for this foreground request and
-        is not cached or logged by this service. Exact distance helps the owner
-        choose a place but is never included in nearby-person responses.
-        """
-
+        """Discover within 500 m; preserve partial results without caching them."""
+        cache_key_parts = (category, float(lat), float(lng))
+        cached = await _places_cache_get(_nearby_places_cache, "nearby", cache_key_parts)
+        if cached is not None:
+            return cached
         key = _require_key()
-        # (chip this request stands for, types it filters on). The leading
-        # (None, None) sweep is unfiltered and catches anything the buckets miss.
-        requests: list[tuple[str | None, tuple[str, ...] | None]]
         if category == "all":
-            requests = [
-                (None, None),
-                *((chip, types) for chip, types in _NEARBY_PLACE_CATEGORY_TYPES.items()),
-            ]
+            type_groups = [None, *_NEARBY_SWEEP_TYPES.values()]
+        elif category in _NEARBY_SWEEP_TYPES:
+            type_groups = [_NEARBY_SWEEP_TYPES[category]]
         else:
-            requests = [(category, _NEARBY_PLACE_CATEGORY_TYPES.get(category))]
-
+            raise GoogleMapsError("Unknown place category.", status_code=400)
         async with _async_client() as client:
-            batches = await asyncio.gather(
-                *(
-                    self._search_nearby_once(
-                        client,
-                        key=key,
-                        lat=lat,
-                        lng=lng,
-                        included_types=included_types,
-                    )
-                    for _chip, included_types in requests
+
+            async def fetch(query: Query) -> list[dict[str, Any]]:
+                query_lat, query_lng, radius, types = query
+                return await self._search_nearby_once(
+                    client,
+                    key=key,
+                    lat=query_lat,
+                    lng=query_lng,
+                    included_types=types,
+                    radius_meters=radius,
+                )
+
+            discovery = await discover_nearby_places(
+                lat=lat,
+                lng=lng,
+                category=category,
+                type_groups=type_groups,
+                fetch=fetch,
+                normalize=lambda place: self._normalize_nearby_place(place, lat=lat, lng=lng),
+                limits=DiscoveryLimits(
+                    radius=_NEARBY_CHECK_IN_RADIUS_METERS,
+                    result_limit=_NEARBY_CHECK_IN_RESULT_LIMIT,
+                    max_queries=_NEARBY_DISCOVERY_MAX_QUERIES,
+                    max_depth=_NEARBY_DISCOVERY_MAX_DEPTH,
+                    concurrency=_NEARBY_DISCOVERY_CONCURRENCY,
+                    timeout_seconds=_NEARBY_DISCOVERY_TIMEOUT_SECONDS,
                 ),
-                return_exceptions=True,
             )
-
-        merged: dict[str, dict[str, Any]] = {}
-        order: dict[str, int] = {}
-        chips: dict[str, set[str]] = {}
-        fallback_chips: dict[str, set[str]] = {}
-        failures = 0
-        for (request_chip, _types), batch in zip(requests, batches, strict=True):
-            if isinstance(batch, BaseException):
-                # One bucket failing must not empty the whole picker; the rest
-                # of the sweep is still a better list than no list.
-                failures += 1
-                continue
-            for source_index, place in enumerate(batch):
-                normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
-                if normalized is None:
-                    continue
-                place_id = str(normalized["placeId"])
-                chips.setdefault(place_id, set()).update(normalized["categories"])
-                if request_chip:
-                    # Remember which filters surfaced this place. Used only as a
-                    # fallback below, so a precisely-typed venue keeps precise
-                    # chips and is never filed under a category it is not in.
-                    fallback_chips.setdefault(place_id, set()).add(request_chip)
-                if place_id not in merged:
-                    merged[place_id] = normalized
-                    order[place_id] = source_index
-                else:
-                    order[place_id] = min(order[place_id], source_index)
-
-        for place_id, place in merged.items():
-            # A venue Google reports with only `establishment` maps to no chip
-            # of its own, yet a category filter still surfaced it -- an
-            # independent hotel is the common case. File it under the filters
-            # that found it so tapping "Hotels" cannot hide it.
-            matched = chips.get(place_id) or fallback_chips.get(place_id, set())
-            place["categories"] = [chip for chip in _NEARBY_PLACE_CATEGORY_TYPES if chip in matched]
-
-        if not merged and failures == len(batches):
+        if not discovery.received_response:
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
-
-        results = sorted(
-            merged.values(),
-            key=lambda item: (
-                int(item["distanceMeters"]),
-                order[str(item["placeId"])],
-                str(item["name"]).casefold(),
-            ),
-        )
-        limit = (
-            _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
-        )
-        return results[:limit]
+        if discovery.incomplete:
+            logger.warning("maps.nearby_places.partial failures=%s", discovery.failures)
+        else:
+            await _places_cache_set(
+                _nearby_places_cache, "nearby", cache_key_parts, discovery.places
+            )
+        return NearbyPlaceSuggestions(discovery.places, incomplete=discovery.incomplete)
 
     async def search_directory_category(
         self,
@@ -920,8 +967,13 @@ class GoogleMapsService:
         picker is answering "where am I standing", so 500 m is the honest bound;
         a directory is answering "what is around here", where the reader chooses.
 
-        The request point is sent to Google for this foreground request only. It
-        is not cached, logged, or persisted by this service.
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in a
+        two-tier cache-aside cache (process memory, plus Redis when
+        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`)
+        keyed on category, grid cell, and the clamped radius/limit -- so
+        tapping between radius tiers or reopening the same category on the
+        same visit does not re-bill Google for an answer already in hand.
         """
 
         key = _require_key()
@@ -935,6 +987,11 @@ class GoogleMapsService:
 
         bounded_radius = max(1.0, min(float(radius_meters), _DIRECTORY_MAX_RADIUS_METERS))
         bounded_limit = max(1, min(int(limit), _DIRECTORY_MAX_RESULT_COUNT))
+
+        cache_key_parts = (category, *_geo_cell(lat, lng), round(bounded_radius), bounded_limit)
+        cached = await _places_cache_get(_directory_cache, "directory", cache_key_parts)
+        if cached is not None:
+            return cached
 
         body: dict[str, Any] = {
             "maxResultCount": bounded_limit,
@@ -987,6 +1044,7 @@ class GoogleMapsService:
                 rows.append(row)
 
         rows.sort(key=lambda item: (item["distanceMeters"], str(item["name"]).casefold()))
+        await _places_cache_set(_directory_cache, "directory", cache_key_parts, rows)
         return rows
 
     def _normalize_directory_place(

@@ -8,10 +8,15 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  isLocationRequestPending,
+  locationRequestExpiryMs,
+} from "@/lib/one-location/request-expiry";
+import {
   isOneLocationGrantOpened,
   ONE_LOCATION_GRANT_OPENED_EVENT,
   ONE_LOCATION_GRANT_UNWATCHED_EVENT,
 } from "@/lib/one-location/notifications";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 
 type LocationNotificationState = {
   /** Active grants shared with me (plain shares AND quick actions: SOS,
@@ -19,7 +24,11 @@ type LocationNotificationState = {
   receivedGrantIds: string[];
   /** Pending access requests where someone is asking to see MY location. */
   pendingIncomingRequests: number;
+  /** Nearest explicit deadline, used to retire the badge without polling. */
+  nextPendingRequestExpiryAtMs: number | null;
 };
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /**
  * App-wide count of location notifications needing your attention, powering the
@@ -37,13 +46,13 @@ type LocationNotificationState = {
  * cached + shared via useStaleResource so this adds no polling.
  */
 export function useUnseenLocationShareCount(): number {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   // Bumped on grant open/unwatch and on location notification events so the
   // active-grant list re-fetches and the unopened filter re-runs immediately.
   const [tick, setTick] = useState(0);
 
-  const uid = user?.uid ?? null;
+  const uid = userId;
   const enabled = Boolean(uid && isVaultUnlocked);
   const cacheKey = uid
     ? `one_location_received_active:${uid}`
@@ -60,25 +69,72 @@ export function useUnseenLocationShareCount(): number {
       const receivedGrantIds = (state.receivedGrants ?? [])
         .filter((grant) => grant.status === "active")
         .map((grant) => grant.id);
-      const pendingIncomingRequests = (state.requests ?? []).filter(
+      const requestNowMs = Date.now();
+      const pendingIncoming = (state.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === uid && request.status === "pending",
-      ).length;
-      return { receivedGrantIds, pendingIncomingRequests };
+          request.ownerUserId === uid &&
+          isLocationRequestPending(request, requestNowMs),
+      );
+      const nextPendingRequestExpiryAtMs = pendingIncoming.reduce<
+        number | null
+      >((nearest, request) => {
+        const expiresAt = locationRequestExpiryMs(request);
+        if (expiresAt === null || expiresAt <= requestNowMs) return nearest;
+        return nearest === null ? expiresAt : Math.min(nearest, expiresAt);
+      }, null);
+      return {
+        receivedGrantIds,
+        pendingIncomingRequests: pendingIncoming.length,
+        nextPendingRequestExpiryAtMs,
+      };
     },
   });
 
+  const nextPendingRequestExpiryAtMs =
+    resource.data?.nextPendingRequestExpiryAtMs ?? null;
+  useEffect(() => {
+    if (nextPendingRequestExpiryAtMs === null) return;
+    // One millisecond beyond the inclusive deadline avoids a timer callback
+    // racing the same exact clock value that still produced the cached count.
+    const delay = Math.min(
+      MAX_TIMER_DELAY_MS,
+      Math.max(0, nextPendingRequestExpiryAtMs - Date.now() + 1),
+    );
+    const timeoutId = window.setTimeout(
+      () => setTick((value) => value + 1),
+      delay,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [nextPendingRequestExpiryAtMs]);
+
   useEffect(() => {
     const bump = () => setTick((value) => value + 1);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") bump();
+    };
+    const unsubscribeLocationState = subscribeToOneLocationStateChanges(
+      (detail) => {
+        if (detail.userId === uid && detail.domains.includes("workspace")) {
+          bump();
+        }
+      },
+    );
     window.addEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, bump);
     window.addEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, bump);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
+    window.addEventListener("focus", bump);
+    window.addEventListener("online", bump);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      unsubscribeLocationState();
       window.removeEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, bump);
       window.removeEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, bump);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
+      window.removeEventListener("focus", bump);
+      window.removeEventListener("online", bump);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, []);
+  }, [uid]);
 
   const activeGrantIds = useMemo(
     () => resource.data?.receivedGrantIds ?? [],

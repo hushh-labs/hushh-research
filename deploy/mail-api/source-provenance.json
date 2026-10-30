@@ -1,0 +1,8 @@
+{
+  "upstream_service": "projects/hushh-tech-prod/locations/us-central1/services/hushh-mail-api",
+  "baseline_revision": "hushh-mail-api-00002-j6p",
+  "baseline_image_digest": "sha256:a53d76bee065b42e8a7ad5e255243bc8752e30b5c14475069ffde27d9d81e2bf",
+  "baseline_source": "gs://run-sources-hushh-tech-prod-us-central1/services/hushh-mail-api/1785935446.863283-45b4c5eedf464d60bbbe865878a6d904.zip#1785935449228381",
+  "baseline_archive_sha256": "158dd1cb82d36e22d97c0d298050cc8ded1fe5d454c294a4fdfebf81f03e7a7a",
+  "change": "Optional consumer-one delegated OTP transport; existing SMTP behavior preserved."
+}

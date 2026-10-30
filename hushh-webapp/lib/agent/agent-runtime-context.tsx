@@ -11,8 +11,8 @@
 // active voice mode.
 //
 // Security posture: this context only describes state. It never carries vault
-// keys or owner tokens. Realtime and STT remain tool-less regardless of tier;
-// only typed chat (which separately holds the vault owner token) touches data.
+// keys or owner tokens. Command interpretation remains tool-less regardless of
+// tier; only typed chat (which separately holds the vault owner token) touches data.
 
 import {
   createContext,
@@ -27,6 +27,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -38,15 +39,21 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { resolveEffectiveDisabledDomains } from "@/lib/agent/voice-engine-domains";
+import {
+  readVoicePreferences,
+  subscribeVoicePreferences,
+  type OneVoicePreferencesState,
+} from "@/lib/agent/voice-preferences";
 import type { Persona } from "@/lib/services/ria-service";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
   buildOneVoiceContextSnapshot,
   type OneVoiceContextSnapshot,
 } from "@/lib/voice/screen-context-builder";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import {
   buildMorphyAxSnapshot,
   resolveMorphyAxPresentation,
@@ -59,7 +66,7 @@ import { useLocalOnboardingHandlerRevision } from "@/lib/agent/local-onboarding-
 import {
   deriveVoiceCapabilityState,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
+} from "@/lib/kai/actions/capability-projection";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -73,14 +80,6 @@ export type AgentAccessTier =
   | "signed_locked"
   | "signed_unlocked";
 
-// The agent bar can be in one of these interaction modes at a time.
-//   - idle:     resting, no live channel
-//   - ambient:  visual-only affordance (no capture, no socket)
-//   - stt:      browser/STT dictation turn (tool-less)
-//   - realtime: Gemini Live conversational session (tool-less)
-//   - chat:     typed chat workspace is the active channel (vault-backed)
-export type AgentVoiceMode = "idle" | "ambient" | "stt" | "realtime" | "chat";
-
 export type AgentRuntimeState = {
   /** The full app runtime snapshot consumed by the voice/chat planner. */
   appRuntimeState: AppRuntimeState;
@@ -88,7 +87,7 @@ export type AgentRuntimeState = {
   tier: AgentAccessTier;
   /** True when the user is inside the onboarding / intro flow. */
   onboardingActive: boolean;
-  /** True on the marketing root route ("/"). */
+  /** True on the canonical root route ("/"); the route is Chat when signed in. */
   isHomeRoute: boolean;
   /** True when vault is unlocked AND a fresh owner token is available. */
   hasVaultAccess: boolean;
@@ -96,7 +95,7 @@ export type AgentRuntimeState = {
   activePersona: Persona;
   /** Normalized current screen id derived from the route. */
   screen: string;
-  /** Redacted One Voice snapshot safe for realtime prompt shaping. */
+  /** Redacted One context snapshot safe for command and chat shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
   /** Redacted lifecycle and mounted-control state for action discovery. */
   capabilityState: VoiceCapabilityStateV1;
@@ -167,7 +166,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   // export. Never wrap History: Next owns its insertion-effect settlement and
   // native post-auth routing must not acquire a second route publisher.
   const routeQuery = searchParams.toString();
-  const { user } = useAuth();
+  const { userId: uid } = useAuth();
   const {
     isVaultUnlocked,
     vaultOwnerToken,
@@ -179,7 +178,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
 
@@ -188,7 +189,6 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const oneVoiceState = useAgentVoiceState((state) => state.oneVoiceState);
   const lastVoiceTransition = useAgentVoiceState((state) => state.lastTransition);
 
-  const uid = user?.uid ?? null;
   const signedIn = Boolean(uid);
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const hasVaultAccess = Boolean(isVaultUnlocked && vaultOwnerToken && tokenIsFresh);
@@ -196,8 +196,8 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const path = pathname ?? "";
   const pathnameWithQuery = routeQuery ? `${path}?${routeQuery}` : path;
   const routeInfo = useMemo(
-    () => deriveVoiceRouteScreen(path, routeQuery),
-    [path, routeQuery]
+    () => deriveVoiceRouteScreen(path, routeQuery, { authenticated: signedIn }),
+    [path, routeQuery, signedIn]
   );
 
   const isHomeRoute = path === ROUTES.HOME;
@@ -205,14 +205,14 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     const chrome = getKaiChromeState(path);
     return (
       chrome.useOnboardingChrome ||
-      isHomeRoute ||
+      (isHomeRoute && !signedIn) ||
       path === ROUTES.GETTING_STARTED ||
       path === ROUTES.LOGIN ||
       path === ROUTES.PHONE_MANDATE ||
       path === ROUTES.ONE_SETUP ||
       path.startsWith(`${ROUTES.ONE_SETUP}/`)
     );
-  }, [path, isHomeRoute]);
+  }, [path, isHomeRoute, signedIn]);
 
   const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
   useEffect(() => {
@@ -227,13 +227,36 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       const cached = cache.get<PreVaultUserState>(cacheKey);
       if (active && cached) setPreVaultState(cached);
     };
-    void PreVaultUserStateService.bootstrapState(uid)
-      .then((state) => {
-        if (active) setPreVaultState(state);
-      })
-      .catch(() => {
-        if (active) setPreVaultState(null);
-      });
+    const loadPreVaultState = () => {
+      void PreVaultUserStateService.bootstrapState(uid)
+        .then((state) => {
+          if (active) setPreVaultState(state);
+        })
+        .catch(() => {
+          if (active) setPreVaultState(null);
+        });
+    };
+    const isGmailRoute =
+      path.startsWith("/one/gmail") ||
+      path.startsWith("/one/setup/gmail") ||
+      path.startsWith("/one/email");
+    let cancelIdle: (() => void) | null = null;
+    if (isGmailRoute && typeof window !== "undefined") {
+      if ("requestIdleCallback" in window) {
+        const requestIdle = window.requestIdleCallback as (
+          callback: IdleRequestCallback,
+          options?: IdleRequestOptions,
+        ) => number;
+        const cancel = window.cancelIdleCallback as (handle: number) => void;
+        const handle = requestIdle(loadPreVaultState, { timeout: 4_000 });
+        cancelIdle = () => cancel(handle);
+      } else {
+        const timeout = globalThis.setTimeout(loadPreVaultState, 1_000);
+        cancelIdle = () => globalThis.clearTimeout(timeout);
+      }
+    } else {
+      loadPreVaultState();
+    }
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" && event.key === cacheKey) {
         refreshFromCache();
@@ -253,9 +276,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     });
     return () => {
       active = false;
+      cancelIdle?.();
       unsubscribe();
     };
-  }, [uid]);
+  }, [path, uid]);
 
   // hasPortfolioData mirrors the cache-subscribed computation that previously
   // lived only inside the chat workspace, so the shared state stays in sync as
@@ -280,6 +304,15 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       }
     });
     return () => unsubscribe();
+  }, [uid]);
+
+  const [voicePreferences, setVoicePreferences] = useState<OneVoicePreferencesState>(
+    () => readVoicePreferences(uid),
+  );
+  useEffect(() => {
+    setVoicePreferences(readVoicePreferences(uid));
+    if (!uid) return;
+    return subscribeVoicePreferences(uid, setVoicePreferences);
   }, [uid]);
 
   const availablePersonas = useMemo(() => {
@@ -331,6 +364,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         transition_target: personaTransitionTarget,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: voiceActive,
@@ -343,6 +377,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       activeAnalysisTicker,
       activePersona,
       availablePersonas,
+      riaOnboardingComplete,
       busyOperations,
       hasPortfolioData,
       isVaultUnlocked,
@@ -383,6 +418,15 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         surfaceMetadata,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
+        voiceSettings: {
+          voiceEnabled: voicePreferences.voiceEnabled,
+          requireTapConfirmation: voicePreferences.requireTapConfirmation,
+          // Unenforced domains have no switch, so a key left over from when
+          // they did must not keep restricting voice with no way to undo it.
+          disabledDomains: resolveEffectiveDisabledDomains(
+            voicePreferences.disabledDomains,
+          ),
+        },
         onboarding: {
           phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))
             ? resolveOnboardingPhase({
@@ -448,6 +492,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       signedIn,
       surfaceMetadata,
       localHandlerRevision,
+      voicePreferences,
     ]
   );
 

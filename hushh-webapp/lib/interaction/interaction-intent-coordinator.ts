@@ -86,8 +86,24 @@ export type ActionRun = {
   label: string;
   source: InteractionIntentSource;
   directiveId: string | null;
+  /**
+   * The authored journey/goal this run belongs to, when the directive that
+   * started it named one. Two runs sharing a `goalId` are steps of the same
+   * multi-action task (e.g. a navigate step and the local-handler step it
+   * escorts) -- this is the only thing that ties them together, since each
+   * step still arrives as its own directive and its own run.
+   */
+  goalId: string | null;
   phase: ActionRunPhase;
   message: string;
+  /**
+   * Who or what this run acts on, once a handler has resolved it -- the same
+   * name+detail shape `VoiceConfirm`/`VoiceDisambiguationCandidate` already
+   * show, surfaced here so the walkthrough panel can display it live instead
+   * of only inside a confirmation card. Unknown until a handler result says
+   * otherwise, and untouched by phase-only updates.
+   */
+  subject: { name: string; detail?: string | null } | null;
   createdAtMs: number;
   updatedAtMs: number;
   completedAtMs: number | null;
@@ -126,6 +142,22 @@ type NavigationRecord = {
 
 const MAX_DIRECTIVES_PER_SESSION = 96;
 const MAX_FINISHED_INTENTS = 40;
+
+/**
+ * How long a repeat request for the same destination counts as a duplicate of
+ * the one already in flight.
+ *
+ * Coalescing exists so a double-tap schedules one commit rather than two, and
+ * that is all it is for. It used to have no bound, which turned it into a
+ * permanent lock: a navigation only clears itself when the app reports the new
+ * route has settled, and if that report never arrived the record stayed active
+ * forever and silently swallowed every later tap to the same destination — the
+ * "back button does nothing, no matter how many times I press it" deadlock.
+ *
+ * Past this window a repeat request is not a stutter, it is the person telling
+ * us the first attempt did not happen. Answer it.
+ */
+const NAVIGATION_COALESCE_WINDOW_MS = 400;
 
 function createId(prefix: string): string {
   const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -187,6 +219,7 @@ export class InteractionIntentCoordinator {
     label: string;
     source: InteractionIntentSource;
     directiveId?: string | null;
+    goalId?: string | null;
     phase?: Extract<ActionRunPhase, "acknowledged" | "preparing">;
     message?: string;
   }): ActionRun {
@@ -206,8 +239,10 @@ export class InteractionIntentCoordinator {
       label: input.label,
       source: input.source,
       directiveId: input.directiveId ?? null,
+      goalId: input.goalId ?? null,
       phase,
       message: input.message ?? actionRunMessage(phase, input.label),
+      subject: null,
       createdAtMs: now,
       updatedAtMs: now,
       completedAtMs: null,
@@ -220,18 +255,26 @@ export class InteractionIntentCoordinator {
   updateActionRun(
     runId: string,
     input: {
-      phase: ActionRunPhase;
+      /** Omit to patch `subject`/`message` without moving the run's phase. */
+      phase?: ActionRunPhase;
       message?: string;
+      subject?: ActionRun["subject"];
     },
   ): ActionRun | null {
     let updated: ActionRun | null = null;
     this.actionRuns = this.actionRuns.map((run) => {
       if (run.id !== runId || isTerminalActionRunPhase(run.phase)) return run;
-      const terminal = isTerminalActionRunPhase(input.phase);
+      const phase = input.phase ?? run.phase;
+      const terminal = isTerminalActionRunPhase(phase);
       updated = {
         ...run,
-        phase: input.phase,
-        message: input.message ?? actionRunMessage(input.phase, run.label),
+        phase,
+        message:
+          input.message ??
+          (input.phase !== undefined
+            ? actionRunMessage(phase, run.label)
+            : run.message),
+        subject: input.subject !== undefined ? input.subject : run.subject,
         updatedAtMs: Date.now(),
         completedAtMs: terminal ? Date.now() : null,
       };
@@ -255,6 +298,18 @@ export class InteractionIntentCoordinator {
       phase,
       message: settlement.summary,
     });
+  }
+
+  /**
+   * Test-only. `cancelActiveActionRuns` marks runs terminal but keeps them in
+   * the rolling history for grouping (e.g. `VoiceWalkthroughPanel`), so a
+   * suite that starts real runs against the shared singleton needs a genuine
+   * wipe between tests -- otherwise a later test's runs land inside the
+   * still-recent grouping window of an earlier test's.
+   */
+  resetActionRunsForTests(): void {
+    this.actionRuns = [];
+    this.publish();
   }
 
   cancelActiveActionRuns(message = "Action cancelled"): void {
@@ -282,17 +337,14 @@ export class InteractionIntentCoordinator {
     start: (intent: InteractionIntent) => (reason: string) => void;
   }): InteractionIntent {
     const active = this.activeNavigation;
-    if (
-      active &&
-      active.intent.target === input.target &&
-      (active.intent.status === "accepted" || active.intent.status === "committing")
-    ) {
+    if (active && this.canCoalesceNavigation(active, input.target)) {
       return active.intent;
     }
 
     if (active) {
       active.cancel("superseded_by_newer_navigation");
       this.finish(active.intent.id, "superseded", "superseded_by_newer_navigation");
+      this.activeNavigation = null;
     }
 
     const intent = this.addIntent({
@@ -303,9 +355,33 @@ export class InteractionIntentCoordinator {
       routeRevision: input.routeRevision ?? null,
       status: "accepted",
     });
-    const cancel = input.start(intent);
-    this.activeNavigation = { intent, cancel };
+    // Publish the record BEFORE start() runs. Callers mark the navigation
+    // committing from inside start(), and a record installed afterwards would
+    // carry a stale "accepted" that the coalescing guard above then reads.
+    const record: NavigationRecord = { intent, cancel: () => undefined };
+    this.activeNavigation = record;
+    try {
+      record.cancel = input.start(intent);
+    } catch (error) {
+      if (this.activeNavigation === record) this.activeNavigation = null;
+      this.finish(intent.id, "rejected", "navigation_start_failed");
+      throw error;
+    }
     return intent;
+  }
+
+  /**
+   * A repeat request folds into the one in flight only while that one is still
+   * a live, pre-commit attempt at the same destination. Once it has committed,
+   * or once the window has passed, the request is a retry and must navigate.
+   */
+  private canCoalesceNavigation(
+    active: NavigationRecord,
+    target: string,
+  ): boolean {
+    if (active.intent.target !== target) return false;
+    if (active.intent.status !== "accepted") return false;
+    return Date.now() - active.intent.createdAtMs <= NAVIGATION_COALESCE_WINDOW_MS;
   }
 
   markNavigationCommitting(intentId: string): void {
@@ -454,6 +530,13 @@ export class InteractionIntentCoordinator {
     this.intents = this.intents.map((intent) =>
       intent.id === intentId ? { ...intent, status } : intent,
     );
+    // The active record holds its own copy of the intent, and the coalescing
+    // guard reads the status off that copy. Rebuilding only the ledger left the
+    // record frozen at "accepted" for the whole life of the navigation.
+    const active = this.activeNavigation;
+    if (active?.intent.id === intentId) {
+      active.intent = { ...active.intent, status };
+    }
     this.publish();
   }
 
@@ -502,7 +585,7 @@ export function useActiveActionRun(): ActionRun | null {
   return null;
 }
 
-function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
+export function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
   return (
     phase === "completed" ||
     phase === "blocked" ||

@@ -7,7 +7,7 @@ History tabs) and the notification bell summary.
 
 Design rules (see docs/future/one-location-consent-center-integration-plan.md):
 
-* Reuse ``list_state`` -- do NOT issue raw SQL against ``one_location_*`` tables.
+* Reuse the Location service projections -- do NOT issue raw SQL here.
   ``list_state`` already assembles every location surface and never returns
   coordinates (those live only inside encrypted envelopes via
   ``view_latest_envelope``).
@@ -84,12 +84,23 @@ def _coerce_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 class OneLocationCenterContributor:
     """Maps ``OneLocationAgentService.list_state`` into ConsentCenterEntry dicts."""
 
-    def __init__(self, location_service: OneLocationAgentService | None = None) -> None:
+    def __init__(
+        self,
+        location_service: OneLocationAgentService | None = None,
+        *,
+        read_only: bool = False,
+        require_complete: bool = False,
+    ) -> None:
+        self._require_complete = require_complete
         self._location = location_service or OneLocationAgentService()
+        self._read_only = read_only
 
     # ----- public API ----------------------------------------------------
 
     def collect(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        return self._collect(user_id, counts_only=False)
+
+    def _collect(self, user_id: str, *, counts_only: bool) -> dict[str, list[dict[str, Any]]]:
         """Return location-derived consent entries grouped by surface bucket.
 
         Buckets match ConsentCenterResponse keys so the caller can concatenate
@@ -100,8 +111,22 @@ class OneLocationCenterContributor:
         if not normalized_user:
             return self._empty()
         try:
-            state = self._location.list_state(user_id=normalized_user)
+            if self._require_complete:
+                state = self._location.list_state(
+                    user_id=normalized_user,
+                    require_complete=True,
+                    **({"read_only": True} if self._read_only else {}),
+                )
+            elif counts_only:
+                state = self._location.list_consent_state(user_id=normalized_user)
+            else:
+                state = self._location.list_state(
+                    user_id=normalized_user,
+                    **({"read_only": True} if self._read_only else {}),
+                )
         except Exception as exc:  # never let location break the consent surface
+            if self._require_complete:
+                raise
             logger.warning(
                 "one_location.consent_center.list_state_failed user=%s error=%s",
                 normalized_user,
@@ -119,7 +144,7 @@ class OneLocationCenterContributor:
 
     def counts(self, user_id: str) -> dict[str, int]:
         """Surface counts for the consent summary endpoint."""
-        buckets = self.collect(user_id)
+        buckets = self._collect(user_id, counts_only=True)
         return {
             "pending": len(buckets["incoming_requests"]),
             "active": len(buckets["active_grants"]),
@@ -236,6 +261,29 @@ class OneLocationCenterContributor:
         for invite in state.get("publicInvites") or []:
             if _safe_str(invite.get("status")) in {"revoked", "expired"}:
                 entries.append(self._public_invite_entry(invite, kind="history"))
+        if self._require_complete:
+            # Memory inventory retains durable requests and invitations after resolution.
+            for request in state.get("requests") or []:
+                if (
+                    _safe_str(request.get("ownerUserId")) == user_id
+                    and _safe_str(request.get("status")) not in _PENDING_REQUEST_STATUSES
+                ):
+                    entries.append(
+                        self._request_entry(
+                            request,
+                            kind="history",
+                            section="approvals",
+                            counterpart_id=_safe_str(request.get("requesterUserId")),
+                            counterpart_label="Location requester",
+                        )
+                    )
+            entries.extend(self._invites(state, user_id))
+            for invite in state.get("circleMemberInvites") or []:
+                if (
+                    _safe_str(invite.get("status")) != "pending"
+                    or _safe_str(invite.get("inviteeUserId")) != user_id
+                ):
+                    entries.append(self._circle_member_invite_entry(invite))
         return entries
 
     def _invites(self, state: dict[str, Any], user_id: str) -> list[dict[str, Any]]:
@@ -325,26 +373,61 @@ class OneLocationCenterContributor:
         counterpart_label: str,
     ) -> dict[str, Any]:
         request_id = _safe_str(request.get("id"))
+        # The amount asked for travels with the row, so the Consent Manager can
+        # say "3 hours more" on the same request the popup and the feed are
+        # already naming. An entry that omitted it left the owner approving a
+        # duration only one of the three surfaces had ever mentioned.
+        is_extension = bool(request.get("isExtension")) or bool(
+            _safe_str(request.get("extendsGrantId"))
+        )
+        duration_label = _duration_label(request.get("requestedDurationHours"))
+        until_stopped = _safe_str(request.get("requestedDurationMode")) == "until_stopped"
+        amount = "for as long as they need" if until_stopped else duration_label
         metadata = _coerce_metadata(
             {
                 "request_source": "one_location_access_request",
                 "section": section,
                 "request_id": request_id,
                 "requester_label": counterpart_label,
+                "is_extension": is_extension,
+                **({"requested_duration_label": amount} if amount else {}),
+                **(
+                    {"requested_duration_hours": request.get("requestedDurationHours")}
+                    if request.get("requestedDurationHours") is not None
+                    else {}
+                ),
+                **(
+                    {"requested_duration_mode": _safe_str(request.get("requestedDurationMode"))}
+                    if request.get("requestedDurationMode")
+                    else {}
+                ),
             }
         )
+        if is_extension:
+            scope_description = (
+                f"More live location time requested ({amount})"
+                if amount
+                else "More live location time requested"
+            )
+        else:
+            scope_description = (
+                f"Live location access request ({amount})"
+                if amount
+                else "Live location access request"
+            )
         return {
             "id": f"one_location_request:{request_id}",
             "kind": kind,
             "status": _safe_str(request.get("status")) or "pending",
             "action": "REQUESTED",
             "scope": LOCATION_VIEW_SCOPE,
-            "scope_description": "Live location access request",
+            "scope_description": scope_description,
             "counterpart_type": "investor",
             "counterpart_id": counterpart_id or None,
             "counterpart_label": counterpart_label,
             "request_id": request_id,
             "issued_at": request.get("requestedAt"),
+            **({"expires_at": request.get("expiresAt")} if self._require_complete else {}),
             "reason": _safe_str(request.get("message")) or None,
             "metadata": metadata,
         }
@@ -400,7 +483,9 @@ class OneLocationCenterContributor:
             # investor Consent Manager can discover it without exposing the
             # generic Allow/Don't allow location-grant controls.
             "kind": "invite",
-            "status": "pending",
+            "status": (_safe_str(invite.get("status")) or "pending")
+            if self._require_complete
+            else "pending",
             "action": "CIRCLE_MEMBER_INVITED",
             "scope": None,
             "scope_description": f"Invitation to join {circle_name}",

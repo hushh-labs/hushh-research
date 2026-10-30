@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { ROUTES } from "@/lib/navigation/routes";
 

@@ -1,10 +1,97 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  user: { uid: "stream-panel-reviewer", getIdToken: vi.fn(async () => "test-token") },
+  getViewer: vi.fn(),
+}));
+
+// Answer links route in-app; the panel test only needs a router to exist.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: false }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    isVaultUnlocked: true,
+    vaultKey: "test-vault-key",
+    vaultOwnerToken: "test-owner-token",
+  }),
+}));
+
+vi.mock("@/lib/services/person-profile-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/services/person-profile-service")>();
+  return {
+    ...actual,
+    PersonProfileService: {
+      ...actual.PersonProfileService,
+      getViewer: mocks.getViewer,
+    },
+  };
+});
+
+vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
+  OneKycClientZkService: {
+    ensureConnector: vi.fn(async () => ({ connector_key_id: "test-connector" })),
+  },
+}));
+
+beforeEach(() => {
+  mocks.getViewer.mockResolvedValue({
+    personRef: "1234567890abcdef",
+    displayName: "Alex Morgan",
+    photoUrl: null,
+    verifiedRole: null,
+    relationship: {
+      status: "connected",
+      connectionId: "test-connection",
+      connectedAt: null,
+      requestId: null,
+    },
+    grants: [],
+    requestHistory: [],
+    requestableScopes: [
+      {
+        scopeRef: "scope_ref_private_123",
+        label: "Employment status",
+        description: "Current employment eligibility status.",
+        domain: "Identity",
+        sensitivity: "sensitive",
+        wildcard: false,
+      },
+      {
+        scopeRef: "scope_ref_private_456",
+        label: "Tax residency",
+        description: null,
+        domain: "Financial",
+        sensitivity: "restricted",
+        wildcard: false,
+      },
+    ],
+    scopeCatalog: {
+      page: 1,
+      nextPage: null,
+      limit: 100,
+      totalCount: 2,
+      hasMore: false,
+      catalogRevision: "test-revision",
+      paginationReset: false,
+      domains: [],
+    },
+  });
+});
 
 import {
   AgentTurnStreamPanel,
+  PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+  ROUTINE_STEP_SLOW_MS,
   agentToolEventToVisibleStreamEvent,
+  driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
+import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { driveOwnerCompileKey } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatToolEvent {
@@ -21,8 +108,63 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("renders a completed turn the same live and reopened, with its markdown and no thinking", () => {
+    // Founder report 2026-09-27: a live answer sat in a tinted card with a
+    // timing line and Activity; reopened, the same answer came back as a bare
+    // paragraph. Both now go through this one panel and must match.
+    const answer = "Here is **tomorrow**:\n\n1. [Standup](https://example.test)\n2. Run `sync`";
+    const step = agentToolEventToVisibleStreamEvent(
+      "result",
+      makeToolEvent({ callId: "call-events", label: "Google Calendar", message: "Reading your calendar events." }),
+      1_700_000,
+    );
+    const turn = (isStreaming: boolean) => (
+      <AgentTurnStreamPanel
+        streamEvents={[{ ...step, status: isStreaming ? "running" : "done" }]}
+        responseText={answer}
+        isStreaming={isStreaming}
+        response={<AgentMarkdown text={answer} />}
+      />
+    );
+    const live = render(turn(true));
+    expect(screen.getByRole("button", { name: /Activity/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("button", { name: /Thinking|Reasoning/ })).not.toBeInTheDocument();
+    live.rerender(turn(false));
+    const reopened = render(turn(false));
+    const markup = (node: HTMLElement) => node.innerHTML.replace(/radix-[^"]+/g, "radix");
+    expect(markup(live.container)).toBe(markup(reopened.container));
+    const region = within(reopened.container).getByRole("region", { name: "One activity" });
+    expect(region.querySelector("strong")).toHaveTextContent("tomorrow");
+    expect(region.querySelectorAll("ol li")).toHaveLength(2);
+    expect(region.querySelector("a")).toHaveTextContent("Standup");
+    expect(region.querySelector("code")).toHaveTextContent("sync");
+    expect(within(region).getByRole("button", { name: /Activity/ })).toHaveAttribute("aria-expanded", "false");
+    expect(region.textContent).not.toMatch(/Response complete|first text|Thinking|Reasoning/);
+  });
+  it("renders metadata provenance and opens Connectors only on explicit click", () => {
+    const onOpenConnections = vi.fn();
+    const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,
+      status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: true };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="Your answer."
+      isStreaming={false} structuredExperience={experience} onOpenConnections={onOpenConnections} />);
+    expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
+    expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
+    expect(screen.getByText("Mail 1")).toBeInTheDocument();
+    expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
+    expect(onOpenConnections).not.toHaveBeenCalled();
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
+      isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
+      onOpenConnections={onOpenConnections} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review Gmail access" }));
+    expect(onOpenConnections).toHaveBeenCalledOnce();
+    expect(onOpenConnections).toHaveBeenCalledWith("gmail", expect.any(HTMLButtonElement));
+    expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+  });
   it("renders tool progress without leaking raw action payloads", () => {
-    const event = agentToolEventToVisibleStreamEvent("waiting", makeToolEvent(), 1_700_000);
+    const event = {
+      ...agentToolEventToVisibleStreamEvent("result", makeToolEvent(), 1_700_000),
+      durationMs: 1300,
+    };
 
     render(
       <AgentTurnStreamPanel
@@ -32,12 +174,34 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByText("Progress")).toBeInTheDocument();
+    expect(screen.getByText("Activity")).toBeInTheDocument();
     expect(screen.getByText("Open workspace")).toBeInTheDocument();
     expect(screen.getByText("Opening the right workspace.")).toBeInTheDocument();
+    expect(screen.getByText("1.3s").getAttribute("data-operation-timing")).toBe("done");
     expect(screen.queryByText("route.private.internal")).not.toBeInTheDocument();
     expect(screen.queryByText("hidden")).not.toBeInTheDocument();
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
+  });
+
+  it("shows elapsed time only while the turn runs", () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming />);
+    expect(screen.getByText("Working for 0s")).toBeInTheDocument();
+    now = 3000;
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="A private answer" isStreaming={false} />);
+    expect(screen.queryByText(/Working for|Response complete/)).not.toBeInTheDocument();
+    clock.mockRestore();
+  });
+
+  it("uses the originating call for a parked directive so one tool stays one activity", () => {
+    const event = agentToolEventToVisibleStreamEvent(
+      "waiting",
+      makeToolEvent({ callId: "call-42:directive", directiveId: "call-42" }),
+      1_700_000,
+    );
+
+    expect(event.id).toBe("call-42");
   });
 
   it("renders a streaming response with the cursor affordance", () => {
@@ -50,7 +214,7 @@ describe("AgentTurnStreamPanel", () => {
     );
 
     expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Agent response stream")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByRole("region", { name: "One activity" })).toHaveClass("w-full", "max-w-none");
   });
 
   it("shows an app-owned pending state while progress is available but response text has not arrived", () => {
@@ -68,21 +232,240 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
-  it("formats actual working notes without treating them as response tokens", () => {
-    render(
+  it("keeps a routine turn's quick readiness checks out of Activity", () => {
+    // Founder report: every answer carried "Private memory ready." and
+    // "Connector access checked." rows that told the person nothing.
+    const memoryReady = {
+      id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+      label: "Private memory",
+      message: "Private memory ready.",
+      status: "done" as const,
+      createdAtMs: 1,
+      durationMs: 400,
+    };
+    const connectorAccess = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "access", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "calendar" },
+    }), 2);
+    const { rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[memoryReady, connectorAccess]} responseText="Hello." isStreaming={false} />,
+    );
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Private memory ready.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connector access checked.")).not.toBeInTheDocument();
+
+    // A failed memory load, a slow one, and a real tool call still show.
+    const mailRead = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mail", actionId: null, label: "Gmail", execution: "server",
+      message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
+    }), 3);
+    rerender(
       <AgentTurnStreamPanel
+        streamEvents={[
+          { ...memoryReady, status: "error", message: "Private memory could not load." },
+          { ...connectorAccess, id: "slow-access", durationMs: ROUTINE_STEP_SLOW_MS },
+          connectorAccess,
+          mailRead,
+        ]}
+        responseText="Hello."
+        isStreaming={false}
+      />,
+    );
+    const activity = screen.getByRole("button", { name: /Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    expect(screen.getByText("Private memory could not load.")).toBeInTheDocument();
+    expect(screen.getAllByText("Connector access checked.")).toHaveLength(1);
+    expect(screen.getByText("Mail read finished.")).toBeInTheDocument();
+  });
+
+  it("shows a still-running memory preparation only once it is slow", () => {
+    vi.useFakeTimers();
+    try {
+      const preparation = {
+        id: PRIVATE_MEMORY_PREPARATION_EVENT_ID,
+        label: "Private memory",
+        message: "Preparing your private memory.",
+        status: "running" as const,
+        createdAtMs: Date.now(),
+      };
+      render(<AgentTurnStreamPanel streamEvents={[preparation]} responseText="" isStreaming />);
+      expect(screen.queryByText("Preparing your private memory.")).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+
+      act(() => { vi.advanceTimersByTime(ROUTINE_STEP_SLOW_MS); });
+      expect(screen.getByText("Preparing your private memory.")).toBeInTheDocument();
+      expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows only reported Drive file counts and advances the meter from actual checks", () => {
+    const first = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 1, total: 30, failed: 0 }, "activity-1", 1_700_001,
+    );
+    const { rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[first]} responseText="" isStreaming />,
+    );
+
+    expect(screen.getByText("Checked 1 of 30 files.")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(100 / 30));
+    expect(screen.queryByText("One is preparing your response.")).not.toBeInTheDocument();
+
+    const second = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 2, total: 30, failed: 1 }, "activity-1", 1_700_002,
+    );
+    expect(second.id).toBe(first.id);
+    rerender(<AgentTurnStreamPanel streamEvents={[second]} responseText="" isStreaming />);
+    expect(screen.getByText("Checked 2 of 30 files. 1 file could not be read or processed.")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(200 / 30));
+    expect(screen.queryByText("Checked 1 of 30 files.")).not.toBeInTheDocument();
+  });
+
+  it("does not show a made-up percentage before the server knows the batch size", () => {
+    const searching = driveBatchProgressToVisibleStreamEvent(
+      { phase: "searching", completed: 0, total: 0, failed: 0 }, "activity-1", 1_700_001,
+    );
+    const { rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[searching]} responseText="" isStreaming />,
+    );
+    expect(screen.getByText("Finding matching Drive files.")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+    const finished = driveBatchProgressToVisibleStreamEvent(
+      { phase: "partial", completed: 29, total: 30, failed: 1 }, "activity-1", 1_700_002,
+    );
+    rerender(<AgentTurnStreamPanel streamEvents={[finished]} responseText="The available notes are below." isStreaming={false} />);
+    expect(screen.getByText(/Document batch finished with some files unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("keeps real progress visible when owner compilation runs after the chat turn", () => {
+    const searching = driveBatchProgressToVisibleStreamEvent(
+      { phase: "searching", completed: 0, total: 0, failed: 0 }, "owner-compile", 1_700_001,
+    );
+    const { container, rerender } = render(
+      <AgentTurnStreamPanel streamEvents={[searching]} responseText="Drive matches found."
+        isStreaming={false} driveCompilation={{ status: "running" }} />,
+    );
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+    const fetching = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 0, total: 0, failed: 0 }, "owner-compile", 1_700_002,
+    );
+    rerender(<AgentTurnStreamPanel streamEvents={[fetching]} responseText="Drive matches found."
+      isStreaming={false} driveCompilation={{ status: "running" }} />);
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+
+    const checked = driveBatchProgressToVisibleStreamEvent(
+      { phase: "fetching", completed: 1, total: 30, failed: 0 }, "owner-compile", 1_700_003,
+    );
+    rerender(<AgentTurnStreamPanel streamEvents={[checked]} responseText="Drive matches found."
+      isStreaming={false} driveCompilation={{ status: "running" }} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(100 / 30));
+  });
+
+  it("offers compilation only for an owner-authorized metadata receipt", () => {
+    const onCompileDriveNotes = vi.fn();
+    const onDownloadDriveNotes = vi.fn();
+    const experience = {
+      type: "one.connector_read.v1" as const, connector: "drive" as const,
+      status: "ok" as const, sourceRefs: [], metadataOnly: true, truncated: false,
+      ownerCompileAvailable: true, ownerCompileQuery: "share all last 30 days standup notes",
+      ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
+    };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText=""
+      isStreaming={false} structuredExperience={experience}
+      onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes} />);
+    fireEvent.click(screen.getByRole("button", { name: "Compile original notes" }));
+    expect(onCompileDriveNotes).toHaveBeenCalledWith(
+      experience.ownerCompileQuery, experience.ownerCompileWindow,
+    );
+    expect(screen.queryByRole("list", { name: "Document sources" })).not.toBeInTheDocument();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperience={experience} onCompileDriveNotes={onCompileDriveNotes}
+      onDownloadDriveNotes={onDownloadDriveNotes}
+      driveCompilation={{ status: "partial", matched: 30, included: 29, failed: 1,
+        sourceKey: driveOwnerCompileKey(experience.ownerCompileQuery, experience.ownerCompileWindow) }} />);
+    expect(screen.getByText(/Compiled 29 of 30 matching files/)).toBeInTheDocument();
+    expect(screen.getByText(/Some notes were unavailable or omitted/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown notes" }));
+    expect(onDownloadDriveNotes).toHaveBeenCalledOnce();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperience={{ ...experience, ownerCompileAvailable: false }}
+      onCompileDriveNotes={onCompileDriveNotes} />);
+    expect(screen.queryByRole("button", { name: "Compile original notes" })).not.toBeInTheDocument();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperience={{ ...experience, ownerCompileWindow: undefined }}
+      onCompileDriveNotes={onCompileDriveNotes} />);
+    expect(screen.queryByRole("button", { name: "Compile original notes" })).not.toBeInTheDocument();
+  });
+
+  it("sends each listing button's own validated query and window", () => {
+    const onCompileDriveNotes = vi.fn();
+    const first = {
+      type: "one.connector_read.v1" as const, connector: "drive" as const,
+      status: "ok" as const, sourceRefs: [], metadataOnly: true, truncated: false,
+      ownerCompileAvailable: true, ownerCompileQuery: "all last 30 days standup notes",
+      ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
+    };
+    const second = {
+      ...first, ownerCompileQuery: "all last 7 days planning notes",
+      ownerCompileWindow: { start_date: "2026-09-19", end_date: "2026-09-25",
+        timezone: "Asia/Kolkata" },
+    };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperiences={[{ id: "first", experience: first }, { id: "second", experience: second }]}
+      onCompileDriveNotes={onCompileDriveNotes} />);
+    const buttons = screen.getAllByRole("button", { name: "Compile original notes" });
+    fireEvent.click(buttons[0]!);
+    fireEvent.click(buttons[1]!);
+    expect(onCompileDriveNotes.mock.calls).toEqual([
+      [first.ownerCompileQuery, first.ownerCompileWindow],
+      [second.ownerCompileQuery, second.ownerCompileWindow],
+    ]);
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="" isStreaming={false}
+      structuredExperiences={[{ id: "first", experience: first }, { id: "second", experience: second }]}
+      onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={vi.fn()}
+      driveCompilation={{ status: "ready", matched: 30, included: 30, failed: 0,
+        sourceKey: driveOwnerCompileKey(first.ownerCompileQuery, first.ownerCompileWindow) }} />);
+    expect(screen.getAllByRole("button", { name: "Download Markdown notes" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Compile original notes" })).toHaveLength(1);
+  });
+
+  it("never renders legacy reasoning during a turn or after the answer arrives", () => {
+    const legacyProps = { thinkingText: "Private provider reasoning." };
+    const { rerender } = render(
+      <AgentTurnStreamPanel
+        {...legacyProps}
         streamEvents={[]}
         responseText=""
-        thinkingText="**Checking context**\n\nComparing the active settings."
         isStreaming
       />
     );
 
-    expect(screen.getByText("Working notes")).toBeInTheDocument();
-    expect(screen.getByText("Checking context")).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("Comparing the active settings."))).toBeInTheDocument();
+    expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
+    expect(screen.queryByRole("log", { name: "Thinking details" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+
+    rerender(
+      <AgentTurnStreamPanel
+        {...legacyProps}
+        streamEvents={[]}
+        responseText="The settings are ready."
+        isStreaming
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /One is thinking/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
+    expect(screen.getByText("The settings are ready.")).toBeInTheDocument();
   });
 
   it("presents consulted specialists as bounded provenance without internal ids or request text", async () => {
@@ -106,12 +489,233 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Sources consulted/i }));
-
+    // A finished turn keeps Activity one tap away.
+    fireEvent.click(screen.getByRole("button", { name: /Activity 1/i }));
     expect(screen.getByText("Finance")).toBeInTheDocument();
     expect(screen.getByText("Finance specialist consulted.")).toBeInTheDocument();
     expect(screen.queryByText("agent_kai")).not.toBeInTheDocument();
     expect(screen.queryByText("Review the portfolio question.")).not.toBeInTheDocument();
     expect(screen.queryByText("Duplicate source.")).not.toBeInTheDocument();
+  });
+
+  it("renders validated AG-UI scope discovery as a Morphy information surface", async () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="You can review these fields before asking for access."
+        isStreaming={false}
+        structuredExperience={{
+          type: "one.scope_discovery.v1",
+          person: {
+            personRef: "1234567890abcdef",
+            displayName: "Alex Morgan",
+            profilePath: "/people/1234567890abcdef",
+            relationship: "connected",
+          },
+          domainFilter: "Financial",
+          scopes: [
+            {
+              scopeRef: "scope_ref_private_123",
+              label: "Employment status",
+              description: "Current employment eligibility status.",
+              domain: "Identity",
+              sensitivity: "sensitive",
+            },
+            {
+              scopeRef: "scope_ref_private_456",
+              label: "Tax residency",
+              description: null,
+              domain: "Financial",
+              sensitivity: "restricted",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Information available from Alex Morgan" }),
+    ).toHaveAttribute("data-experience-type", "one.scope_discovery.v1");
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalled());
+    await act(async () => {
+      screen.getByRole("button", { name: "Open Identity" }).click();
+    });
+    expect(await screen.findByRole("button", { name: "Employment status" })).toBeInTheDocument();
+    await act(async () => {
+      screen.getByTestId("scope-discovery-scopes-back").click();
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "Open Financial" }).click();
+    });
+    expect(await screen.findByRole("button", { name: "Tax residency" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Tax residency" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute(
+      "href",
+      "/people/1234567890abcdef",
+    );
+    expect(screen.queryByText("scope_ref_private_123")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("You can review these fields before asking for access."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows safe discovery descriptors while current authority is refreshing", async () => {
+    mocks.getViewer.mockReturnValue(new Promise(() => undefined));
+
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="I found information you can review."
+        isStreaming={false}
+        structuredExperience={{
+          type: "one.scope_discovery.v1",
+          person: {
+            personRef: "1234567890abcdef",
+            displayName: "Alex Morgan",
+            profilePath: "/people/1234567890abcdef",
+            relationship: "connected",
+          },
+          domainFilter: "Professional",
+          scopes: [
+            {
+              scopeRef: "scope_ref_private_789",
+              label: "Employment status",
+              description: "Current employment eligibility status.",
+              domain: "Professional",
+              sensitivity: "standard",
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    expect(screen.getByText("Employment status")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review request/ })).toBeDisabled();
+    expect(screen.getByText("Checking what is currently available to request.")).toBeInTheDocument();
+  });
+
+  it("keeps supplementary notes alongside multiple distinct cards", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="A short clarification."
+        isStreaming={false}
+        structuredExperiences={[
+          {
+            id: "activity-1",
+            experience: {
+              type: "one.scope_discovery.v1",
+              person: {
+                displayName: "Alex Morgan",
+                profilePath: "/people/1234567890abcdef",
+                relationship: "connected",
+              },
+              domainFilter: null,
+              scopes: [],
+              presentation: "primary_card",
+            },
+          },
+          {
+            id: "activity-2",
+            experience: {
+              type: "one.scope_discovery.v1",
+              person: {
+                displayName: "Alex Morgan",
+                profilePath: "/people/1234567890abcdef",
+                relationship: "connected",
+              },
+              domainFilter: "Professional",
+              scopes: [],
+              presentation: "supplementary_note",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("region", { name: "Information available from Alex Morgan" })).toHaveLength(2);
+    expect(screen.getByText("A short clarification.")).toBeInTheDocument();
+  });
+
+  it("shows a connector step by the owner's name with its review tag, never a success mark on failure", () => {
+    const read = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read",
+    }), 1);
+    const review = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-review", actionId: null, label: "Hussh Wiki", execution: "server",
+      status: "waiting", message: "Waiting for your review.", tag: "Needs review",
+    }), 2);
+    const failed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-failed", actionId: null, label: "DeepWiki", execution: "blocked",
+      message: "Connector call needs attention.",
+    }), 3);
+    expect(read).toMatchObject({ status: "done", tag: "Read" });
+    expect(review).toMatchObject({ status: "waiting", tag: "Needs review" });
+    expect(failed.status).toBe("blocked");
+    expect(failed.tag).toBeUndefined();
+    const { container } = render(<AgentTurnStreamPanel streamEvents={[read, review, failed]}
+      responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    expect(screen.getByText("Microsoft Learn")).toBeInTheDocument();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    const failedRow = screen.getByText("DeepWiki").closest("li");
+    expect(failedRow?.querySelector(".text-destructive")).not.toBeNull();
+    expect(failedRow?.querySelector(".text-emerald-600")).toBeNull();
+    const reviewRow = screen.getByText("Hussh Wiki").closest("li");
+    expect(reviewRow?.querySelector(".text-emerald-600")).toBeNull();
+    expect(container.querySelector('[data-status="waiting"]')).not.toBeNull();
+  });
+
+  it("labels Google connector steps with their official mark, and nothing for private connectors", () => {
+    const calendar = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "calendar-read", actionId: null, label: "Connected app read", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "read_workspace_tool", provider: "calendar" },
+    }), 1);
+    const mail = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mail-read", actionId: null, label: "Gmail", execution: "server",
+      message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
+    }), 2);
+    const custom = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "mcp-read", actionId: null, label: "Microsoft Learn", execution: "server",
+      message: "Connector call finished.", tag: "Read", raw: { protocol: "ag-ui", toolName: `mcp_${"a".repeat(40)}` },
+    }), 3);
+    const spoofed = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: "spoof", actionId: null, label: "Connector access", execution: "server",
+      message: "Connector access checked.", raw: { protocol: "ag-ui", toolName: "discover_workspace_tools", provider: "https://evil.test/logo" },
+    }), 4);
+    expect(calendar.brand).toBe("calendar");
+    expect(mail.brand).toBe("gmail");
+    expect(custom.brand).toBeUndefined();
+    expect(spoofed.brand).toBeUndefined();
+    render(<AgentTurnStreamPanel streamEvents={[calendar, mail, custom]} responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    const calendarRow = screen.getByText("Connected app read").closest("li");
+    expect(calendarRow?.querySelector('img[data-connector-brand="calendar"]')).toHaveAttribute("src", "/icons/connectors/calendar.svg");
+    expect(screen.getByText("Microsoft Learn").closest("li")?.querySelector("img")).toBeNull();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+  });
+
+  it("keeps current Drive reads and non-provider actions identifiable without inventing logos", () => {
+    const events = [
+      ["read_selected_drive_search_result", "Selected file"],
+      ["propose_drive_bulk_share", "Review sharing"],
+      ["ask_memory_agent", "Your memory"],
+      ["inspect_private_connectors", "Connectors"],
+    ].map(([toolName, label], index) => agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: `mark-${index}`, actionId: null, label, execution: "server",
+      raw: { protocol: "ag-ui", toolName },
+    }), index));
+    render(<AgentTurnStreamPanel streamEvents={events} responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    for (const label of ["Selected file", "Review sharing"])
+      expect(screen.getByText(label).closest("li")?.querySelector('[data-connector-brand="drive"]')).not.toBeNull();
+    expect(screen.getByText("Your memory").closest("li")?.querySelector('[data-agent-activity-icon="memory"]')).not.toBeNull();
+    expect(screen.getByText("Connectors").closest("li")?.querySelector('[data-agent-activity-icon="connectors"]')).not.toBeNull();
   });
 });

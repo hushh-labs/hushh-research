@@ -7,11 +7,23 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+
+UNIVERSAL_LINK_PATHS = (
+    "/one/kai/plaid/oauth/return",
+    "/one/profile/google/oauth/return",
+    "/one/profile/gmail/oauth/return",
+    "/one/profile/connectors/oauth/return",
+    "/kai/plaid/oauth/return",
+    "/profile/google/oauth/return",
+    "/profile/gmail/oauth/return",
+)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -74,7 +86,7 @@ def _origin(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
-def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+def _fetch_once(url: str, timeout_seconds: int) -> _HttpResponse:
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
@@ -92,6 +104,20 @@ def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
         )
 
 
+def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+    # A transient network/read timeout must not fail an otherwise healthy
+    # release. HTTP errors and invalid association payloads remain hard failures.
+    for attempt in range(3):
+        try:
+            return _fetch_once(url, timeout_seconds)
+        except (TimeoutError, ConnectionError, urllib.error.URLError) as error:
+            if attempt == 2:
+                reason = str(getattr(error, "reason", error)).strip() or "network error"
+                raise RuntimeError(f"Could not fetch {url} after 3 attempts: {reason}") from error
+            time.sleep(2 ** attempt)
+    raise AssertionError("unreachable")
+
+
 def _json(response: _HttpResponse, label: str) -> Any:
     if response.status != 200:
         raise RuntimeError(f"{label} returned HTTP {response.status}; expected 200")
@@ -105,9 +131,38 @@ def _json(response: _HttpResponse, label: str) -> Any:
         raise RuntimeError(f"{label} returned invalid JSON") from error
 
 
-def _verify_aasa(payload: Any, expected_app_id: str) -> None:
+def _verify_aasa(
+    payload: Any, expected_app_id: str, *, require_app_links: bool = True
+) -> None:
     if not isinstance(payload, dict):
         raise RuntimeError("AASA payload must be an object")
+    if require_app_links:
+        applinks = payload.get("applinks")
+        if not isinstance(applinks, dict):
+            raise RuntimeError("AASA payload is missing applinks")
+        details = applinks.get("details")
+        if not isinstance(details, list):
+            raise RuntimeError("AASA applinks is missing details")
+        matching_details = [
+            entry
+            for entry in details
+            if isinstance(entry, dict)
+            and isinstance(entry.get("appIDs"), list)
+            and expected_app_id in entry["appIDs"]
+        ]
+        if not matching_details:
+            raise RuntimeError("AASA applinks does not authorize the configured iOS app")
+        claimed_paths = {
+            component.get("/")
+            for entry in matching_details
+            for component in entry.get("components", [])
+            if isinstance(component, dict) and isinstance(component.get("/"), str)
+        }
+        missing_paths = [path for path in UNIVERSAL_LINK_PATHS if path not in claimed_paths]
+        if missing_paths:
+            raise RuntimeError(
+                "AASA applinks is missing OAuth return paths: " + ", ".join(missing_paths)
+            )
     webcredentials = payload.get("webcredentials")
     if not isinstance(webcredentials, dict):
         raise RuntimeError("AASA payload is missing webcredentials")
@@ -121,9 +176,13 @@ def _verify_asset_links(
     *,
     expected_package: str,
     expected_fingerprints: set[str],
+    require_app_links: bool = True,
 ) -> None:
     if not isinstance(payload, list):
         raise RuntimeError("Digital Asset Links payload must be an array")
+    required_relations = {"delegate_permission/common.get_login_creds"}
+    if require_app_links:
+        required_relations.add("delegate_permission/common.handle_all_urls")
     for entry in payload:
         if not isinstance(entry, dict):
             continue
@@ -131,7 +190,7 @@ def _verify_asset_links(
         target = entry.get("target")
         if (
             not isinstance(relations, list)
-            or "delegate_permission/common.get_login_creds" not in relations
+            or not required_relations.issubset(relations)
             or not isinstance(target, dict)
             or target.get("namespace") != "android_app"
             or target.get("package_name") != expected_package
@@ -157,6 +216,10 @@ def main() -> int:
         required=True,
         help="HTTPS app origin to verify; pass once per domain",
     )
+    parser.add_argument(
+        "--credentials-only-origin", action="append", default=[],
+        help="Additional shared RP origin: verify credentials without app-link routes",
+    )
     parser.add_argument("--timeout-seconds", type=int, default=15)
     args = parser.parse_args()
 
@@ -174,7 +237,9 @@ def main() -> int:
         if not expected_fingerprints:
             raise RuntimeError("Configured Android certificate fingerprint list is empty")
 
-        for raw_origin in args.origin:
+        origins = [(value, True) for value in args.origin]
+        origins.extend((value, False) for value in args.credentials_only_origin)
+        for raw_origin, require_app_links in origins:
             origin = _origin(raw_origin)
             aasa = _json(
                 _fetch(f"{origin}/.well-known/apple-app-site-association", args.timeout_seconds),
@@ -184,11 +249,12 @@ def main() -> int:
                 _fetch(f"{origin}/.well-known/assetlinks.json", args.timeout_seconds),
                 f"{origin} Digital Asset Links",
             )
-            _verify_aasa(aasa, expected_ios_app_id)
+            _verify_aasa(aasa, expected_ios_app_id, require_app_links=require_app_links)
             _verify_asset_links(
                 asset_links,
                 expected_package=expected_android_package,
                 expected_fingerprints=expected_fingerprints,
+                require_app_links=require_app_links,
             )
             print(f"Passkey associations verified for {origin}.")
     except (RuntimeError, ValueError) as error:

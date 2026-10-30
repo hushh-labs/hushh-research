@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# UAT-only post-gate deployment of the private Drive work service. The scanner
+# runs as a pinned ClamAV sidecar on localhost; ordinary API instances never
+# start it. Candidate startup itself executes offline E5 and EICAR checks.
+readonly PROJECT_ID="hushh-pda-uat"
+readonly REGION="us-central1"
+readonly SERVICE="consent-protocol-drive-worker"
+readonly SCHEDULER_STATE_HELPER="deploy/drive/work_drain_scheduler_snapshot.py"
+readonly SCHEDULER_AUDIENCE="https://api.uat.hushh.ai"
+readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
+# Preserve the exact intake setting as immutable revision provenance.
+PROTECTED_DOCUMENT_DELIVERY_ENABLED="${PROTECTED_DOCUMENT_DELIVERY_ENABLED:-false}"
+case "${PROTECTED_DOCUMENT_DELIVERY_ENABLED}" in
+  true|false) ;;
+  *) echo "Protected document intake must be true or false" >&2; exit 1 ;;
+esac
+readonly PROTECTED_DOCUMENT_DELIVERY_ENABLED
+
+# Managed Gemini bills to the same dedicated Vertex project as the API
+# (deploy-uat.yml _GENAI_PROJECT_ID); Cloud Run, SQL and secrets stay here.
+managed_ai_profile="$(python3 scripts/ops/managed_ai_config.py --environment uat --format json)"
+GENAI_PROJECT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <<< "${managed_ai_profile}")"
+MANAGED_TEXT_MODEL="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["text_model"])' <<< "${managed_ai_profile}")"
+readonly GENAI_PROJECT_ID MANAGED_TEXT_MODEL
+DRIVE_WORK_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED:-true}"
+case "${DRIVE_WORK_DRAIN_ENABLED}" in
+  true|false) ;;
+  *) echo "Drive background processing must be true or false" >&2; exit 1 ;;
+esac
+readonly DRIVE_WORK_DRAIN_ENABLED
+
+record_stage_timing() {
+  printf 'drive_worker_release stage=%s duration_seconds=%s\n' "$1" "$((SECONDS - $2))"
+}
+
+# Creation-only policy: accepted requests retain their sealed search contract.
+DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED="${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED:-true}"
+case "${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}" in
+  true|false) ;;
+  *) echo "Drive semantic request enrollment must be true or false" >&2; exit 1 ;;
+esac
+readonly DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED
+source deploy/drive/activity_policy_flags.sh
+DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT="${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT:-gemini}"
+case "${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" in
+  gemini|azure_openai) ;;
+  *) echo "Invalid Documents semantic provider" >&2; exit 1 ;;
+esac
+readonly DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT
+readonly CLAMAV_IMAGE="clamav/clamav@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
+# The pinned OCI index above contains this Linux/AMD64 child manifest. Cloud
+# Run's registry mirror records the child digest in the deployed revision.
+readonly CLAMAV_AMD64_DIGEST="sha256:e8388295191bff0893fb889d9415ae975491201c989b205e30c9057b1985d36a"
+
+IMAGE_REFERENCE="${IMAGE_REFERENCE:?immutable backend image required}"
+DEPLOY_SHA="${DEPLOY_SHA:?release SHA required}"
+RUNTIME_SERVICE_ACCOUNT="${RUNTIME_SERVICE_ACCOUNT:?runtime identity required}"
+CLOUDSQL_INSTANCE="${CLOUDSQL_INSTANCE:?Cloud SQL instance required}"
+RELEASE_RUN_ID="${RELEASE_RUN_ID:?release run id required}"
+
+if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ \
+  || ! "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ \
+  || ! "${RELEASE_RUN_ID}" =~ ^[0-9]+$ \
+  || "${RUNTIME_SERVICE_ACCOUNT}" != "consent-protocol-runtime@${PROJECT_ID}.iam.gserviceaccount.com" \
+  || "${CLOUDSQL_INSTANCE}" != "${PROJECT_ID}:${REGION}:hushh-uat-pg" ]]; then
+  echo "Drive worker release inputs do not match the reviewed UAT boundary" >&2
+  exit 1
+fi
+
+# Use the serving API's exact release binding, including a Vertex-only selection.
+MANAGED_TEXT_PROVIDER="$(python3 scripts/ci/managed_provider_readiness.py worker-provider \
+  --sha="${DEPLOY_SHA}" --image="${IMAGE_REFERENCE}" \
+  --run-id="${RELEASE_RUN_ID}" --account="${RUNTIME_SERVICE_ACCOUNT}")"
+readonly MANAGED_TEXT_PROVIDER
+
+# Reject unsafe live credentials before scheduler capture, rollback setup, or
+# any candidate revision is created.
+source deploy/drive/uat_stripe_bindings.sh
+_STRIPE_MODE="${STRIPE_UAT_MODE}"
+_STRIPE_CONNECT_MODE="${STRIPE_CONNECT_UAT_MODE}"
+_STRIPE_SECRET_KEY_SECRET="${STRIPE_UAT_KEY_SECRET}"
+_STRIPE_CONNECT_SECRET_KEY_SECRET="${STRIPE_UAT_CONNECT_KEY_SECRET}"
+_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_SECRET}"
+_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
+_DRIVE_REQUEST_HASHCOINS_ENABLED="${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}"
+_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+source deploy/drive/verify_hashcoin_config.sh "${PROJECT_ID}"
+
+# An existing service needs a known rollback revision before deploying an
+# unserved candidate. Cloud Run does not accept --no-traffic on first creation;
+# that first revision is private and the scheduler still points at the API.
+service_exists="$(gcloud run services list \
+  --project="${PROJECT_ID}" --region="${REGION}" --format=json \
+  | SERVICE_NAME="${SERVICE}" python3 -c 'import json,os,sys; rows=json.load(sys.stdin); assert isinstance(rows,list); print("true" if any((row.get("metadata") or {}).get("name")==os.environ["SERVICE_NAME"] for row in rows) else "false")')"
+previous_revision=""
+# Cloud Run limits service name + '-' + traffic tag to 46 characters. Base36
+# preserves the full numeric GitHub run ID without a collision-prone truncation.
+traffic_tag="$(python3 - "${SERVICE}" "${RELEASE_RUN_ID}" <<'PY'
+import sys
+
+service, raw_run_id = sys.argv[1:]
+run_id = int(raw_run_id)
+if not 0 < run_id <= 2**64 - 1:
+    raise SystemExit("Drive worker release run ID is outside the supported 64-bit range")
+alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+encoded = ""
+while run_id:
+    run_id, digit = divmod(run_id, 36)
+    encoded = alphabet[digit] + encoded
+tag = f"d-{encoded}"
+if len(service) + 1 + len(tag) > 46:
+    raise SystemExit("Drive worker traffic tag exceeds the Cloud Run 46-character limit")
+print(tag)
+PY
+)"
+traffic_flags=(--tag="${traffic_tag}")
+prior_worker_url=""
+if [[ "${service_exists}" == true ]]; then
+  # Bind rollback traffic and scheduler capture to one service snapshot.
+  service_snapshot="$(gcloud run services describe "${SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" --format=json)"
+  serving_state="$(python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; positive=[item for item in traffic if item.get("percent",0)>0]; print("empty" if not positive else "serving:"+str(positive[0].get("revisionName")) if len(positive)==1 and positive[0].get("percent")==100 and positive[0].get("revisionName") else "ambiguous")' <<< "${service_snapshot}")"
+  prior_worker_url="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("status") or {}).get("url") or "")' <<< "${service_snapshot}")"
+  case "${serving_state}" in
+    serving:*)
+      previous_revision="${serving_state#serving:}"
+      traffic_flags=(--no-traffic "${traffic_flags[@]}")
+      ;;
+    empty)
+      # A failed first creation leaves an IAM-private service but no serving
+      # revision. The next verified candidate is still a first real release.
+      ;;
+    *)
+      echo "Existing Drive worker has no unambiguous serving revision; refusing release" >&2
+      exit 1
+      ;;
+  esac
+fi
+scheduler_snapshot="$(mktemp)"
+capture_args=(capture --snapshot "${scheduler_snapshot}")
+if [[ -n "${prior_worker_url}" ]]; then
+  capture_args+=(--worker-origin "${prior_worker_url}")
+fi
+if ! python3 "${SCHEDULER_STATE_HELPER}" "${capture_args[@]}"; then
+  rm -f "${scheduler_snapshot}"
+  echo "Drive scheduler pre-release state is unavailable; refusing worker release" >&2
+  exit 1
+fi
+promoted=false
+retargeted=false
+worker_url=""
+rollback() {
+  local status="$?"
+  local restore_failed=0
+  local actual_revision
+  trap - EXIT
+  # A second cancellation must not interrupt scheduler/traffic restoration.
+  trap '' INT TERM
+  if [[ "${retargeted}" == true ]]; then
+    if ! python3 "${SCHEDULER_STATE_HELPER}" restore \
+      --snapshot "${scheduler_snapshot}" --worker-origin "${worker_url}" >&2; then
+      restore_failed=1
+      echo "Drive scheduler restoration could not be verified" >&2
+      # A failed restore can leave one or more jobs pointed at a new worker.
+      # Disable those fixed jobs and revoke only this worker invoker grant.
+      python3 "${SCHEDULER_STATE_HELPER}" quarantine >&2 || restore_failed=1
+      gcloud run services remove-iam-policy-binding "${SERVICE}" \
+        --project="${PROJECT_ID}" --region="${REGION}" \
+        --member="serviceAccount:${SCHEDULER_ID}" \
+        --role=roles/run.invoker --quiet >/dev/null 2>&1 || restore_failed=1
+    fi
+  fi
+  if [[ "${promoted}" == true && -n "${previous_revision}" ]]; then
+    GCP_PROJECT_ID="${PROJECT_ID}" bash scripts/ci/cloudrun-rollback.sh "${SERVICE}" "${REGION}" "${previous_revision}" >&2 || restore_failed=1
+    actual_revision="$(gcloud run services describe "${SERVICE}" \
+      --project="${PROJECT_ID}" --region="${REGION}" --format=json 2>/dev/null \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); t=(d.get("status") or {}).get("traffic") or []; r=[x.get("revisionName") for x in t if x.get("percent")==100]; print(r[0] if len(r)==1 else "")' 2>/dev/null)" || restore_failed=1
+    if [[ "${actual_revision}" != "${previous_revision}" ]]; then
+      echo "Drive worker traffic restoration could not be verified" >&2
+      restore_failed=1
+    fi
+  elif [[ "${promoted}" == true ]]; then
+    # A first-ever service has no prior serving revision to restore. It remains
+    # IAM-private and unreachable by the scheduler after target restoration.
+    echo "First Drive worker release has no previous revision; leave the idle private candidate for investigation" >&2
+  fi
+  if [[ "${restore_failed}" != 0 ]]; then
+    echo "CRITICAL: Drive worker rollback is incomplete; investigate scheduler and traffic before enabling connectors" >&2
+  fi
+  rm -f "${scheduler_snapshot}"
+  echo "Drive worker candidate failed; connector execution must remain disabled" >&2
+  exit "${status}"
+}
+trap rollback EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+payment_secret_bindings=""
+stripe_secret_ready=true
+for payment_secret in "${STRIPE_UAT_KEY_SECRET}" "${STRIPE_UAT_WEBHOOK_SECRET}" APP_FRONTEND_ORIGIN; do
+  if ! gcloud secrets describe "${payment_secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    stripe_secret_ready=false
+  fi
+done
+if [[ ( "${DRIVE_REQUEST_PAYMENTS_UAT_ENABLED:-false}" == "true" \
+     || "${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true" ) \
+  && "${stripe_secret_ready}" != true ]]; then
+  echo "Drive payment and owner payout reconciliation require the UAT Stripe and origin secrets" >&2
+  exit 1
+fi
+if [[ "${stripe_secret_ready}" == true ]]; then
+  payment_secret_bindings=",STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest,STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest,APP_FRONTEND_ORIGIN=APP_FRONTEND_ORIGIN:latest"
+fi
+connect_key_ready=false
+connect_webhook_ready=false
+test_webhook_ready=false
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_KEY_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_key_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_webhook_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  test_webhook_ready=true
+fi
+# Keep recovery credentials after new enrollment is disabled: an accepted or
+# uncertain redemption remains an obligation until provider reconciliation.
+if [[ "${connect_key_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_SECRET_KEY=${STRIPE_UAT_CONNECT_KEY_SECRET}:latest"
+fi
+if [[ "${connect_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest"
+fi
+if [[ "${test_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_TEST_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}:latest"
+fi
+
+# Both budgeted instances stay warm (service-level --min=2). A cold instance
+# takes about 2.5 minutes to become ready (the ClamAV signature and E5 model
+# checks gate readiness), and each instance runs one drain at a time, so without
+# a warm second instance a lane that arrives while another lane runs waits for
+# that start. The service-level floor follows the traffic split: a tagged
+# no-traffic candidate or a retired revision is never kept warm, and the
+# revision-level minimum stays 0 for the same reason. The connection budget
+# counts every retained revision at maxScale x workers x pool (2 x 1 x 3), so
+# the floor reserves no extra connections. Concurrency stays 1:
+# LocalDocumentProcessor's memory-heavy child limits are per request, and every
+# Drive store transaction shares the process's one SQLAlchemy connection.
+stage_started=${SECONDS}
+gcloud --quiet run deploy "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
+  --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+  --ingress=internal --no-allow-unauthenticated \
+  --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
+  --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
+  --concurrency=1 --timeout=240 --max-instances=2 --min-instances=0 \
+  --max=2 --min=2 "${traffic_flags[@]}" \
+  --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
+  --container=drive-worker \
+  --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \
+  --command=gunicorn \
+  --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
+  --depends-on=clamav \
+  --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
+  --set-env-vars="^|^ENVIRONMENT=uat|HUSHH_UAT_MANAGED_TEXT_PROVIDER=${MANAGED_TEXT_PROVIDER}|HUSHH_UAT_MANAGED_AI_PROVIDER=${MANAGED_TEXT_PROVIDER}|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}|STRIPE_MODE=${STRIPE_UAT_MODE}|PROTECTED_DOCUMENT_DELIVERY_ENABLED=${PROTECTED_DOCUMENT_DELIVERY_ENABLED}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=${DRIVE_WORK_DRAIN_ENABLED}|DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}|DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}|DRIVE_REQUEST_ACTIVITY_UNION_ENABLED=${DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED}|DRIVE_REQUEST_ACTIVITY_UNION_PAUSED=${DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED}|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=BACKEND_RUNTIME_CONFIG_JSON:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
+  --container=clamav \
+  --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
+  --startup-probe=tcpSocket.port=3310,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
+  --set-env-vars=CLAMD_STARTUP_TIMEOUT=180,FRESHCLAM_CHECKS=24
+record_stage_timing candidate_deploy "${stage_started}"
+
+stage_started=${SECONDS}
+candidate_revision="$(gcloud run services describe "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.latestCreatedRevisionName)')"
+if [[ ! "${candidate_revision}" =~ ^consent-protocol-drive-worker-[a-z0-9-]+$ ]]; then
+  echo "Drive worker candidate revision is invalid" >&2
+  exit 1
+fi
+gcloud run revisions describe "${candidate_revision}" \
+  --project="${PROJECT_ID}" --region="${REGION}" --format=json \
+  | EXPECTED_SHA="${DEPLOY_SHA}" EXPECTED_APP_IMAGE="${IMAGE_REFERENCE}" \
+      EXPECTED_SCANNER_INDEX_DIGEST="${CLAMAV_IMAGE#*@}" \
+      EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
+      EXPECTED_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED}" \
+      EXPECTED_SEMANTIC_MODEL_PROVIDER="${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" \
+      EXPECTED_ACTIVITY_UNION_ENABLED="${DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED}" \
+      EXPECTED_ACTIVITY_UNION_PAUSED="${DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED}" \
+      EXPECTED_MANAGED_TEXT_PROVIDER="${MANAGED_TEXT_PROVIDER}" \
+      EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
+      python3 deploy/drive/verify_worker_revision.py
+record_stage_timing candidate_attestation "${stage_started}"
+
+# The private service admits only this scheduler identity. The route repeats
+# the exact issuer/email/audience check after Cloud Run IAM verification.
+stage_started=${SECONDS}
+gcloud run services add-iam-policy-binding "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --member="serviceAccount:${SCHEDULER_ID}" --role=roles/run.invoker --quiet >/dev/null
+record_stage_timing scheduler_invoker "${stage_started}"
+stage_started=${SECONDS}
+promoted=true
+gcloud run services update-traffic "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --to-revisions="${candidate_revision}=100" --quiet
+record_stage_timing traffic_promotion "${stage_started}"
+
+worker_url="$(gcloud run services describe "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.url)')"
+if [[ "${worker_url}" != https://*.run.app ]]; then
+  echo "Drive worker origin is invalid" >&2
+  false
+fi
+retargeted=true
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
+  # A paused release must not resume or explicitly dispatch the retained jobs.
+  # The worker's existing drain admission also rejects work while this is false.
+  python3 "${SCHEDULER_STATE_HELPER}" quarantine
+  trap - EXIT INT TERM
+  rm -f "${scheduler_snapshot}"
+  echo "Verified private Drive worker ${candidate_revision}, SHA ${DEPLOY_SHA}; background processing paused"
+  exit 0
+fi
+stage_started=${SECONDS}
+scheduler_repairs="$(python3 "${SCHEDULER_STATE_HELPER}" plan-configuration --worker-origin "${worker_url}")"
+if [[ -n "${scheduler_repairs}" ]]; then
+  while IFS= read -r fixed_job; do
+    case "${fixed_job}" in
+      drive-work-drain-uat) fixed_stage=documents ;;
+      drive-work-suggestions-uat) fixed_stage=suggestions ;;
+      drive-work-sharing-uat) fixed_stage=sharing ;;
+      *) echo "Unreviewed Drive scheduler repair" >&2; false ;;
+    esac
+    JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON='* * * * *' \
+      BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
+      bash deploy/drive/setup_work_drain_scheduler.sh </dev/null
+  done <<< "${scheduler_repairs}"
+  python3 "${SCHEDULER_STATE_HELPER}" verify-configuration --worker-origin "${worker_url}"
+fi
+echo "Verified all three complete Drive worker scheduler configurations"
+record_stage_timing scheduler_configuration "${stage_started}"
+
+stage_started=${SECONDS}
+for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
+  triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  gcloud scheduler jobs run "${fixed_job}" \
+    --project="${PROJECT_ID}" --location="${REGION}" --quiet
+  verified=false
+  # Scheduler and Cloud Run each allow a 240-second attempt; wait through the
+  # full bounded execution plus log-delivery margin before declaring failure.
+  # Cloud Logging requires the RFC3339 timestamp to be a quoted string literal.
+  for _attempt in $(seq 1 55); do
+    if gcloud logging read \
+      "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${fixed_job}\" AND timestamp>=\"${triggered_at}\"" \
+      --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
+      | EXPECTED_URL="${worker_url}/api/internal/drive-work/drain" \
+          EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${fixed_job}" \
+          python3 -c 'import json,os,sys; rows=json.load(sys.stdin); expected_url=os.environ["EXPECTED_URL"]; expected_job=os.environ["EXPECTED_JOB"]; sys.exit(0 if any((payload:=row.get("jsonPayload") or {}).get("@type")=="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" and payload.get("jobName")==expected_job and payload.get("url")==expected_url and "URL_CRAWLED. Original HTTP response code number = 200" in str(payload.get("debugInfo") or "") for row in rows if isinstance(row,dict)) else 1)'
+    then
+      verified=true
+      break
+    fi
+    sleep 5
+  done
+  if [[ "${verified}" != true ]]; then
+    echo "Drive scheduler ${fixed_job} produced no fresh 200 completion" >&2
+    false
+  fi
+done
+record_stage_timing scheduler_completions "${stage_started}"
+trap - EXIT INT TERM
+rm -f "${scheduler_snapshot}"
+echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; all three schedulers returned 200"

@@ -121,6 +121,17 @@ describe("computeRuntimeSecretRetryDelayMs", () => {
 });
 
 describe("runRuntimeSecretCommitWithRetry", () => {
+  it("never replays stale artifacts when conflict recovery has a network failure", async () => {
+    const failure = new TypeError("Failed to fetch");
+    const send = vi.fn().mockResolvedValue({ success: false, conflict: true });
+    const { hooks, pause } = makeHooks({
+      send,
+      rebuildAfterConflict: vi.fn().mockRejectedValue(failure),
+    });
+    await expect(runRuntimeSecretCommitWithRetry(hooks)).rejects.toBe(failure);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(pause).not.toHaveBeenCalled();
+  });
   it("returns immediately on first success without pausing or rebuilding", async () => {
     const { hooks, pause, rebuildAfterConflict } = makeHooks({
       send: vi.fn(async () => ({ success: true, message: "ok" })),

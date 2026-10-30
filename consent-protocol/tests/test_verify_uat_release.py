@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import httpx
+import pytest
 import requests
 
 
@@ -38,13 +40,14 @@ def test_http_probe_returns_structured_failure_on_transport_error(monkeypatch) -
     }
 
 
-def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_path) -> None:
+def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_path) -> None:
     verifier = _load_verifier()
     request_paths: list[str] = []
 
     class _Response:
         def __init__(self, payload: dict[str, object]) -> None:
             self._payload = payload
+            self.status_code = 200
 
         def json(self) -> dict[str, object]:
             return self._payload
@@ -61,21 +64,15 @@ def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_p
         def _firebase_auth_headers(self) -> dict[str, str]:
             return {"Authorization": "Bearer test-token"}
 
+        def _vault_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer vault-owner-token"}
+
         def _request(self, method: str, path: str, **_kwargs) -> _Response:
             request_paths.append(f"{method} {path}")
             if path == "/api/kai/gmail/status/uat-user":
                 return _Response({"configured": True, "connected": False})
-            if path == "/api/one/adk/relay-session":
-                return _Response(
-                    {
-                        "relay_ticket": "opaque-ticket",
-                        "expires_at": 1,
-                        "model": "adk",
-                        "tier": "full",
-                    }
-                )
-            if path == "/api/ria/onboarding/verify-name":
-                return _Response({"status": "verified", "crd_number": "5838118"})
+            if path == "/api/one/action-proposals":
+                return _Response({"commands": []})
             raise AssertionError(f"Unexpected UAT verifier request: {method} {path}")
 
     monkeypatch.setattr(verifier, "UatKaiSmoke", _Smoke)
@@ -100,7 +97,305 @@ def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_p
     )
 
     assert verifier.main() == 0
-    assert "POST /api/one/adk/relay-session" in request_paths
-    assert all("/api/kai/voice/" not in path for path in request_paths)
+    assert "GET /api/one/action-proposals" in request_paths
+    assert "POST /api/ria/onboarding/verify-name" not in request_paths
+    assert all("/api/one/adk/" not in path for path in request_paths)
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert {check["name"] for check in report["checks"]} >= {"voice_relay_session"}
+    assert {check["name"] for check in report["checks"]} >= {"location_command_recovery"}
+    assert report["run_live_model_checks"] is False
+    ria_check = next(
+        check for check in report["checks"] if check["name"] == "ria_stage1_query_only"
+    )
+    assert ria_check == {
+        "name": "ria_stage1_query_only",
+        "ok": None,
+        "skipped": True,
+        "reason": "live_model_checks_not_requested",
+    }
+
+
+def _run_verifier_with_ria(
+    monkeypatch,
+    tmp_path,
+    ria_payload: dict[str, object] | requests.RequestException,
+    *,
+    proposal_status: int = 200,
+    proposal_detail: str = "AGENT_PRIVATE_RUNTIME_REQUIRED",
+    proposal_mode: str | None = None,
+) -> tuple[int, dict]:
+    """Drive the verifier end to end with one configurable RIA Stage-1 answer."""
+    verifier = _load_verifier()
+
+    class _Response:
+        def __init__(self, payload: dict[str, object], status_code: int = 200) -> None:
+            self._payload = payload
+            self.status_code = status_code
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _Smoke:
+        user_id = "uat-user"
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def authenticate(self) -> None:
+            pass
+
+        def _firebase_auth_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer test-token"}
+
+        def _vault_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer vault-owner-token"}
+
+        def _request(self, method: str, path: str, **_kwargs) -> _Response:
+            if path == "/api/kai/gmail/status/uat-user":
+                return _Response({"configured": True, "connected": False})
+            if path == "/api/one/action-proposals":
+                if proposal_status != 200:
+                    detail = {"code": proposal_detail}
+                    if proposal_mode is not None:
+                        detail.update(
+                            {"hostingMode": proposal_mode, "message": "Open your private agent."}
+                        )
+                    return _Response({"detail": detail}, proposal_status)
+                return _Response({"commands": []})
+            if path == "/api/ria/onboarding/verify-name":
+                assert method == "POST"
+                assert _kwargs["json_body"]["force_live_verification"] is True
+                if isinstance(ria_payload, requests.RequestException):
+                    raise ria_payload
+                return _Response(ria_payload)
+            raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(verifier, "UatKaiSmoke", _Smoke)
+    monkeypatch.setattr(
+        verifier, "_http_probe", lambda url: {"url": url, "status_code": 200, "ok": True}
+    )
+    report_path = tmp_path / "uat-release.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_uat_release.py",
+            "--backend-url",
+            "https://backend.example",
+            "--frontend-url",
+            "https://frontend.example",
+            "--report-path",
+            str(report_path),
+            "--run-live-model-checks",
+            "true",
+        ],
+    )
+    code = verifier.main()
+    return code, json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def test_provider_outage_degrades_the_release_instead_of_blocking_it(monkeypatch, tmp_path) -> None:
+    """An upstream Gemini outage must not withhold a healthy build.
+
+    This is the 2026-08-20 case: RIA Stage-1 returned provider_unavailable
+    because its Gemini calls were denied by a billing hold. The release was
+    marked blocked, even though the candidate was fine.
+    """
+    code, report = _run_verifier_with_ria(
+        monkeypatch, tmp_path, {"status": "provider_unavailable", "provider": "ria_stage1"}
+    )
+
+    assert code == 0, "a provider outage must not fail the release"
+    assert report["status"] == "degraded"
+    assert report["degraded"] == ["ria_stage1_query_only"]
+    assert report["failures"] == []
+
+
+def test_a_real_negative_result_still_blocks(monkeypatch, tmp_path) -> None:
+    """not_verified means the provider answered and the answer was wrong.
+
+    That is a genuine regression signal and must keep blocking, otherwise this
+    change would trade one broken gate for a useless one.
+    """
+    code, report = _run_verifier_with_ria(
+        monkeypatch, tmp_path, {"status": "not_verified", "crd_number": None}
+    )
+
+    assert code == 1, "a genuine verification failure must still block"
+    assert report["status"] == "blocked"
+    assert "ria_stage1_query_only" in report["failures"]
+    assert report["degraded"] == []
+
+
+def test_healthy_release_reports_no_degradation(monkeypatch, tmp_path) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch, tmp_path, {"status": "verified", "crd_number": "5838118"}
+    )
+
+    assert code == 0
+    assert report["status"] == "healthy"
+    assert report["degraded"] == []
+    assert report["run_live_model_checks"] is True
+    ria_check = next(
+        check for check in report["checks"] if check["name"] == "ria_stage1_query_only"
+    )
+    assert ria_check["ok"] is True
+    assert not ria_check.get("skipped")
+
+
+def test_shared_runtime_private_boundary_is_healthy_without_claiming_recovery(
+    monkeypatch, tmp_path
+) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=409,
+    )
+
+    check = next(item for item in report["checks"] if item["name"] == "location_command_recovery")
+    assert code == 0
+    assert check["ok"] is True
+    assert check["private_runtime_required"] is True
+    assert check["recovery_verified"] is False
+
+
+def test_other_proposal_conflict_still_blocks(monkeypatch, tmp_path) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=409,
+        proposal_detail="UNRELATED_CONFLICT",
+    )
+
+    assert code == 1
+    assert "location_command_recovery" in report["failures"]
+
+
+@pytest.mark.parametrize("mode", ["byoc", "pending", "hussh_pods", "unplaced"])
+def test_current_private_refusal_proves_boundary_without_claiming_recovery(
+    monkeypatch, tmp_path, mode
+) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=409,
+        proposal_mode=mode,
+    )
+    check = next(item for item in report["checks"] if item["name"] == "location_command_recovery")
+    assert code == 0
+    assert check["private_runtime_required"] is True
+    assert check["recovery_verified"] is False
+    assert check["status_code"] == 409
+    assert check["error_code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert check["hosting_mode"] == mode
+
+
+@pytest.mark.parametrize(
+    "status,detail,mode",
+    [
+        (409, "AGENT_PRIVATE_RUNTIME_REQUIRED", "shared"),
+        (409, "AGENT_PRIVATE_RUNTIME_REQUIRED", "unknown"),
+        (409, "UNRELATED_CONFLICT", "byoc"),
+        (503, "AGENT_HOSTING_UNAVAILABLE", "unknown"),
+        (401, "AGENT_PRIVATE_RUNTIME_REQUIRED", "byoc"),
+    ],
+)
+def test_invalid_or_unavailable_proposal_refusal_still_blocks(
+    monkeypatch, tmp_path, status, detail, mode
+) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch,
+        tmp_path,
+        {"status": "verified", "crd_number": "5838118"},
+        proposal_status=status,
+        proposal_detail=detail,
+        proposal_mode=mode,
+    )
+    assert code == 1
+    assert "location_command_recovery" in report["failures"]
+
+
+def test_requested_live_probe_transport_timeout_still_blocks(monkeypatch, tmp_path) -> None:
+    code, report = _run_verifier_with_ria(
+        monkeypatch, tmp_path, requests.exceptions.ReadTimeout("Provider response timed out")
+    )
+
+    assert code == 1
+    assert report["status"] == "blocked"
+    assert report["failures"] == ["ria_stage1_query_only"]
+    assert report["degraded"] == []
+
+
+def _load_email_release_verifier():
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/email_auth_uat_release.py"
+    spec = importlib.util.spec_from_file_location("email_auth_release", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_enabled_candidate_must_offer_email_sign_in_before_promotion(monkeypatch, available):
+    module = _load_email_release_verifier()
+    monkeypatch.setattr(
+        module.httpx,
+        "get",
+        lambda *args, **kwargs: httpx.Response(200, json={"enabled": available}),
+    )
+    url = "https://candidate---consent-protocol-example-uc.a.run.app"
+    if available:
+        assert module.verify_candidate(url)["candidate_ready"]
+    else:
+        with pytest.raises(module.ReleaseError, match="candidate_capabilities"):
+            module.verify_candidate(url)
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError])
+def test_candidate_readiness_retries_only_bounded_transport_reads(monkeypatch, recovers, failure):
+    module = _load_email_release_verifier()
+    calls, sleeps = [], []
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        if recovers and len(calls) == 2:
+            return httpx.Response(200, json={"enabled": True})
+        raise failure("private diagnostic must not escape")
+
+    monkeypatch.setattr(module.httpx, "get", get)
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+    url = "https://candidate---consent-protocol-example-uc.a.run.app"
+    if recovers:
+        assert module.verify_candidate(url)["candidate_ready"]
+    else:
+        stage = "candidate_timeout" if failure is httpx.ReadTimeout else "candidate_transport"
+        with pytest.raises(module.ReleaseError, match=f"^{stage}$"):
+            module.verify_candidate(url)
+    assert len(calls) == 2
+    assert all(call == (url + "/api/auth/email/capabilities", {"timeout": 30}) for call in calls)
+    assert sleeps == [2]
+
+
+@pytest.mark.parametrize(
+    "response,stage",
+    [
+        (httpx.Response(200, content=b"not json"), "candidate_response"),
+        (httpx.Response(200, json=[]), "candidate_response"),
+        (httpx.Response(200, json={"enabled": "true"}), "candidate_capabilities"),
+        (httpx.Response(503), "candidate_capabilities"),
+    ],
+)
+def test_candidate_invalid_readiness_is_refused_without_retry(monkeypatch, response, stage):
+    module = _load_email_release_verifier()
+    calls = []
+
+    def get(*args, **kwargs):
+        calls.append(args)
+        return response
+
+    monkeypatch.setattr(module.httpx, "get", get)
+    with pytest.raises(module.ReleaseError, match=f"^{stage}$"):
+        module.verify_candidate("https://candidate---consent-protocol-example-uc.a.run.app")
+    assert len(calls) == 1

@@ -6,12 +6,15 @@
 ```mermaid
 flowchart LR
   statement["Statement Import"]
-  plaid["Plaid Read-only Connect"]
+  device["Kai client<br/>vault unlocked in memory"]
+  relay["Plaid vault API<br/>transient request processing"]
+  plaid["Plaid"]
   financial["Encrypted financial PKM"]
   source["Active Source Selection"]
   surfaces["Dashboard / Analysis / Optimize"]
   statement --> financial
-  plaid --> financial
+  device --> relay --> plaid
+  plaid --> relay --> device --> financial
   financial --> source --> surfaces
 ```
 
@@ -21,7 +24,8 @@ Founder-language framing:
 
 - this surface is governed by `Separation of Duties`: brokerage transport, app-facing context, and future execution adapters stay intentionally split
 - `Capability Tokens` gate portfolio access and source selection
-- `Cryptographic Primitives` keep private investor context encrypted while Plaid server-state stays outside PKM
+- `Cryptographic Primitives` protect financial PKM; the device seals returned Plaid state,
+  while the backend transiently processes tokens and readable provider responses
 - future execution requires stronger approval flows beyond today's PCHP-backed read path
 
 ## North Stars
@@ -38,7 +42,7 @@ Founder-language framing:
 ### Current
 
 - Statement import: editable
-- Plaid: read-only holdings, accounts, investment transactions, refresh, OAuth resume
+- Plaid: read-only holdings, accounts, transactions, refresh on unlock, relink, OAuth return; connections sealed in the person's vault
 - Combined: comparison-only rollup, not a direct analysis or execution source
 
 ### Not Current
@@ -53,12 +57,15 @@ Future trade execution must use a separate broker-adapter layer and distinct con
 
 Current implementation shape is intentional:
 
-- backend integration mechanics live under `hushh_mcp/integrations/plaid/`
-- Kai-facing brokerage orchestration stays in `hushh_mcp/services/plaid_portfolio_service.py`
+- Plaid provider and vault-passthrough mechanics live under `hushh_mcp/integrations/plaid/`
+- the vault-backed API lives in `api/routes/kai/plaid_vault.py`; device orchestration seals
+  the returned connection and snapshots into the owner's vault
 - agent-facing pure brokerage logic belongs in `hushh_mcp/operons/kai/brokerage.py`
 - frontend brokerage runtime helpers live under `hushh-webapp/lib/kai/brokerage/`
 
-This keeps Link/OAuth/webhook plumbing out of ADK/A2A/MCP while still giving Kai a clean brokerage context layer for future agent and execution work.
+This keeps Link/OAuth provider calls out of ADK/A2A/MCP. The new vault route does not use
+webhooks or persist its request payloads; backend memory still handles tokens and readable
+provider responses during each call.
 
 ## Source Model
 
@@ -80,56 +87,45 @@ Kai exposes three portfolio views:
 ### Editable PKM contract
 
 - `financial.sources.statement`
-- `financial.sources.plaid`
+- `financial.sources.active_source`
 - `financial.rollups.combined_summary`
 - `financial.portfolio`
 - `financial.analytics`
 
 `financial.portfolio` and `financial.analytics` remain the app-consumed shape and are derived from the active source.
 
-### Server-side Plaid storage
+### Vault-backed Plaid flow
 
-- `kai_plaid_items`
-  - encrypted Plaid access token envelope
-  - normalized accounts, holdings, securities, transactions
-  - connection health and latest sync metadata
-- `kai_plaid_refresh_runs`
-  - refresh lifecycle and webhook-driven completion
-- `kai_plaid_link_sessions`
-  - short-lived OAuth resume sessions
-- `kai_portfolio_source_preferences`
-  - active source selection
+The device seals the Plaid access token and returned snapshots in the owner's encrypted
+financial memory (`connections_v1`, `accounts_v1`, `holdings_v1`, `securities_v1`,
+`transactions_v1`, `derived_v1`). The backend vault route handles those values transiently
+and does not persist them in its database. Only the contracted financial summary is
+shareable through consent policy.
 
-Plaid access tokens never live in the PKM.
+The current branch removes the old server routes and services and includes migration 239.
+Existing server-held rows and linked Plaid Items still require successful per-environment
+retirement and migration evidence. Code removal on this branch does not prove deployed
+cleanup. See [Plaid Vault Passthrough](./plaid-vault-passthrough.md) for the route contract and
+retirement procedure.
 
 ## OAuth and Web Callback Model
 
-Callback path:
+Callback path: `/one/kai/plaid/oauth/return` (behind the vault unlock screen).
 
-- `/one/kai/plaid/oauth/return`
-
-Runtime rules:
-
-1. Client requests a Link token with a frontend-derived absolute `redirect_uri`.
-2. Backend validates the origin against `APP_FRONTEND_ORIGIN` and the path against `PLAID_REDIRECT_PATH`.
-3. Backend persists an opaque `resume_session_id` in `kai_plaid_link_sessions`.
-4. Browser stores only that opaque session id, never the vault key or a persisted vault token.
-5. On return from the institution, Kai re-issues a fresh `VAULT_OWNER` token, fetches the stored Link token, resumes Link with `receivedRedirectUri`, exchanges the `public_token`, and clears the session.
+1. The device requests a vault link token with a frontend-derived https `redirect_uri`
+   (none on native Android, where the SDK hands the login back).
+2. Native shells run Link in their own process, so the bank's return lands back in Link.
+3. On the web the bank takes the whole page away. Before Link opens, the device stores only the
+   link token, redirect URI and return path in tab session storage (30 minutes, single use).
+4. On return, after unlock, the page re-opens Link with `receivedRedirectUri`, exchanges the
+   `public_token`, and seals the connection in the vault.
 
 ## Refresh and Freshness
 
-Manual refresh flow:
-
-1. User clicks `Refresh`
-2. Backend creates a refresh run
-3. `/investments/refresh` when supported
-4. Wait for `HOLDINGS: DEFAULT_UPDATE`
-5. Pull fresh holdings and transactions
-6. Update aggregate freshness + sync state
-
-Fallback:
-
-- If `/investments/refresh` is unsupported, Kai falls back to `holdings/get` and preserves stale/freshness messaging.
+- The device refreshes sealed connections once per vault session on unlock (single-flight),
+  and on an explicit Refresh. There are no webhooks and no server refresh runs.
+- A connection that needs a new login shows "needs relink"; relink uses Plaid update mode with
+  the sealed token, then forces a refresh.
 
 ## Multiple Accounts and Institutions
 

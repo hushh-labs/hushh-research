@@ -305,7 +305,7 @@ def validate_token(token_str, expected_scope=None):
 const unlockVault = useCallback(
   (key: string, token: string, expiresAt: number) => {
     // SECURITY: Both key and token stored in React state (memory only)
-    // XSS attacks cannot access React component state
+    // This avoids storage persistence; it does not make runtime state XSS-safe.
     setVaultKey(key);
     setVaultOwnerToken(token);
     setTokenExpiresAt(expiresAt);
@@ -500,7 +500,19 @@ vault.owner (Master - satisfies ALL scopes)
 
 ### consent_audit (PRIMARY TABLE)
 
-The `consent_audit` table is the **single source of truth** for all consent token operations. It uses an event-sourcing pattern where each action (REQUESTED, CONSENT_GRANTED, CONSENT_DENIED, REVOKED) creates a new row, and the latest row per scope determines current state.
+The `consent_audit` table is the **single source of truth** for all consent token operations. It uses an event-sourcing pattern where each action creates a new row, and the latest **state-transition** row per request (or per scope, for scope-keyed reads) determines current state.
+
+Action catalogue:
+
+- `REQUESTED`: a request was opened; the row carries `request_id`, `scope_description` and `poll_timeout_at`.
+- `CONSENT_GRANTED`: the owner approved; the row carries the token and `expires_at`.
+- `CONSENT_DENIED`: the owner declined the request.
+- `CANCELLED`: the requester withdrew the request before the owner answered; it is terminal, and a withdrawn request never gains a later `TIMEOUT` row.
+- `REVOKED`: the owner (or the expiry worker) withdrew a grant that had been issued.
+- `TIMEOUT`: the timeout job closed a `REQUESTED` row that passed `poll_timeout_at` with no resolving action; a request already carrying `CANCELLED`, `CONSENT_DENIED`, `CONSENT_GRANTED`, `REVOKED` or `TIMEOUT` is skipped.
+- `EXPORT_READ`: the requester opened a live grant; it is an audit record, not a state transition.
+
+State rule: `EXPORT_READ` is a non-transition audit row. `get_request_status`, `get_recent_consent_events` and the background-action set (`_BACKGROUND_CONSENT_ACTIONS`) exclude it, so a read of a live grant never shadows the `CONSENT_GRANTED` row that is the request's current state.
 
 ```sql
 CREATE TABLE consent_audit (
@@ -509,7 +521,7 @@ CREATE TABLE consent_audit (
   user_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,          -- 'self' for VAULT_OWNER, agent name otherwise
   scope TEXT NOT NULL,             -- 'vault.owner', 'agent.kai.analyze', etc.
-  action TEXT NOT NULL,            -- 'REQUESTED', 'CONSENT_GRANTED', 'CONSENT_DENIED', 'REVOKED'
+  action TEXT NOT NULL,            -- see the action catalogue above
   issued_at BIGINT NOT NULL,
   expires_at BIGINT,
   revoked_at BIGINT,
@@ -561,11 +573,11 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 ### 5. XSS Protection (Memory-Only Storage)
 
-**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This prevents XSS attacks from stealing credentials.
+**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This limits persistence and exposure through browser storage; it does not prevent malicious same-origin JavaScript from accessing the running application.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MEMORY ONLY (XSS Protected)              │
+│                    MEMORY ONLY (not persisted)              │
 ├─────────────────────────────────────────────────────────────┤
 │  Vault Key        → React State (VaultContext / Zustand)    │
 │  VAULT_OWNER Token → React State (VaultContext / Zustand)   │
@@ -577,8 +589,9 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 **Why this matters**:
 - XSS attacks can read `sessionStorage` and `localStorage`
-- XSS attacks CANNOT read React component state
-- Sensitive credential theft via storage APIs is prevented by memory-only key/token handling
+- React component state is not an isolation boundary against XSS
+- Storage reads cannot retrieve keys or tokens that the application never persisted; memory-only handling does not protect against malicious same-origin JavaScript.
+- Script admission, output sanitization and other XSS defenses remain necessary
 
 **Service layer pattern**:
 - Services MUST receive token as explicit parameter
@@ -586,6 +599,35 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 - Components with `useVault()` access pass token to services
 
 ---
+
+### 6. Consent inside One chat
+
+A person asks One about someone else; One offers what that person can share and
+the asker sends the request from the chat. The asking turn shows `Waiting for
+{name}'s approval`. The owner gets a bare push (`{Name} asked to see your
+information`) and reviews the details in their app after unlock. Approving
+encrypts the export in the owner's browser to the requester's connector key
+(`X25519-AES256-GCM` wrapped key; the server stores ciphertext and the wrapped
+key only, `export_key` is null). When the ledger shows the answer, the
+requester's own device decrypts the export and One's follow-up turn in the same
+conversation reads it as a one-turn, in-memory block. That turn runs no tools
+(enforced in code), so it can only answer in words. One's answer is part of the
+requester's conversation, sealed with their chat key like any message they
+received; it is not withdrawn when the grant later ends or is revoked. Declines
+and expiries continue the chat with an honest outcome and carry no values.
+
+What reaches the model:
+
+- **The person's own memory**, sensitive categories included (Health,
+  Financial), decrypted on their device and sent as the per-turn packet. The
+  packet is filled fairly across sections, shallow facts first, so one large
+  category cannot crowd others out. Credentials, regulated identifiers, raw
+  source material and quarantined records stay excluded, as before.
+- **Another person's information only through an approved grant**: the server
+  admits it only for the requester who owns the bundle, only in the
+  conversation that sent the request, only when the ledger's current outcome is
+  an approval, and only once. The decrypted text is never persisted or logged,
+  and no tool runs in that turn, so it cannot be saved to the requester's memory.
 
 ## Compliance
 
@@ -639,3 +681,27 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 - [Agent Development](./agent-development.md) -- Building new agents and operons
 - [Kai Agents](./kai-agents.md) -- Multi-agent financial analysis system
 - [Environment Variables](./env-vars.md) -- Backend configuration reference
+
+### First-party Calendar workspace authority
+
+`POST /api/one/calendar/schedule/today`,
+`POST /api/one/calendar/schedule/availability`,
+`POST /api/one/calendar/invitations`, and
+`POST /api/one/calendar/board/day` use verified Firebase identity
+plus the owner's active, scoped Google Calendar OAuth consent grant instead of
+a VAULT_OWNER token. The server derives the owner from the bearer and verifies
+the selected owner-bound Calendar connection/grant before and after provider reads. Firebase
+alone, a Mail-only grant, or a disconnected Calendar never authorizes a read.
+The direct Calendar workspace also has explicit Firebase-authenticated mutation
+routes: `/attendance/rsvp/review|confirm` for mail-free accept/decline,
+`/attendance/workspace/review|confirm` for owner-reviewed organizer Mail and
+alternative times, and `/conflicts/workspace/review|confirm` for reviewed
+cross-account resolution. These use the selected owner's active Google Calendar
+and, where needed, Gmail OAuth grants. Sealed, short-lived review plans bind
+the exact owner, account, event version, recipient and message; confirmation
+claims the review once and reports Calendar and Mail outcomes separately.
+The RSVP confirm route rejects a plan with Mail or proposed-time effects.
+None of these routes grants vault/PKM or delegated-agent authority or mints a
+broad owner token. Vault lock/HCT revocation does not revoke this first-party
+workspace grant; Calendar disconnect and Firebase invalidation do. Responses
+are private/no-store. Legacy chat, pod and delegated routes retain their HCT gates.

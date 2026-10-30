@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import {
   BarChart3,
   FileText,
   Landmark,
   MapPin,
   ScrollText,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+} from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
 
 const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
   { label: "Portfolio Management", icon: BarChart3 },
@@ -229,7 +229,7 @@ export function OnboardingStepServices({
                   id={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
                   checked={selected}
                   onCheckedChange={() => toggleService(label)}
-                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:border-[color:var(--ria-select-fill)] data-[state=checked]:bg-[color:var(--ria-select-fill)]"
+                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:!border-white data-[state=checked]:!bg-white data-[state=checked]:!text-black"
                 />
               </label>
             );
@@ -238,7 +238,7 @@ export function OnboardingStepServices({
         {showServiceError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one service to continue.
           </p>
@@ -260,10 +260,10 @@ export function OnboardingStepServices({
                 style={
                   selected
                     ? {
-                        background: "rgba(242,223,192,0.5)",
-                        borderColor: "rgba(201,139,46,0.5)",
+                        background: "var(--app-accent-tint)",
+                        borderColor: "var(--app-accent)",
                         borderWidth: "1.5px",
-                        color: "var(--ria-fee-active)",
+                        color: "var(--app-accent)",
                         fontWeight: 600,
                       }
                     : {
@@ -282,7 +282,7 @@ export function OnboardingStepServices({
         {showFeeError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one fee structure to continue.
           </p>
@@ -308,9 +308,9 @@ export function OnboardingStepServices({
 
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
-        <RiaAiActionPill onClick={onDraftBio}>
-          Ask Kai to draft a bio
-        </RiaAiActionPill>
+        <AskOneButton onClick={onDraftBio} showIcon={false}>
+          Ask One to draft a bio
+        </AskOneButton>
         {hasBio && !bioEditing ? (
           <button
             type="button"

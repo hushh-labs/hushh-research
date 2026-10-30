@@ -23,6 +23,9 @@ class _FakeLocationService:
     def list_state(self, *, user_id: str) -> dict:  # noqa: ARG002
         return self._state
 
+    def list_consent_state(self, *, user_id: str) -> dict:
+        return self._state
+
 
 def _contributor(state: dict) -> OneLocationCenterContributor:
     return OneLocationCenterContributor(location_service=_FakeLocationService(state))

@@ -15,6 +15,7 @@ For local, this will start a Cloud SQL proxy automatically when the
 active backend profile includes CLOUDSQL_INSTANCE_CONNECTION_NAME.
 
 Options:
+  --profile-fixture  Use isolated local profile databases and recorded model responses
   --reload       Start backend with uvicorn autoreload enabled (slower)
   --no-reload    Start backend without autoreload (default, faster)
 USAGE
@@ -27,6 +28,8 @@ fi
 
 RAW_PROFILE="${1:-}"
 shift || true
+PROFILE_FIXTURE=false
+PROFILE_WORKER=false
 SKIP_ACTIVATE=false
 PREFLIGHT_ONLY=false
 SKIP_PREFLIGHT=false
@@ -34,6 +37,12 @@ BACKEND_RELOAD="${BACKEND_RELOAD:-false}"
 
 for arg in "$@"; do
   case "$arg" in
+    --profile-worker)
+      PROFILE_WORKER=true
+      ;;
+    --profile-fixture)
+      PROFILE_FIXTURE=true
+      ;;
     --skip-activate)
       SKIP_ACTIVATE=true
       ;;
@@ -72,6 +81,31 @@ if [ "$(runtime_profile_backend_mode "$PROFILE")" != "local" ]; then
   exit 1
 fi
 
+if [ "$PROFILE_WORKER" = "true" ] && [ "$PROFILE_FIXTURE" != "true" ]; then
+  echo "--profile-worker requires --profile-fixture" >&2
+  exit 1
+fi
+
+if [ "$PROFILE_FIXTURE" = "true" ]; then
+  export KAI_MARKET_BACKGROUND_REFRESH=false
+  export HUSHH_UAT_PHONE_TEST_NUMBERS=+12025550101 HUSHH_UAT_PHONE_TEST_CODE=123456
+  export ENVIRONMENT=development DB_HOST=127.0.0.1 DB_PORT="${PROFILE_FIXTURE_DB_PORT:-5432}"
+  export DB_NAME="${PROFILE_FIXTURE_DB_NAME:-hushh_profile_fixture_app}"
+  export DB_USER="${PROFILE_FIXTURE_DB_USER:-$(whoami)}" DB_PASSWORD="${PROFILE_FIXTURE_DB_PASSWORD:-local-fixture-unused}"
+  export DB_UNIX_SOCKET="" CLOUDSQL_INSTANCE_CONNECTION_NAME=""
+  export ONE_PUBLIC_PROFILE_FIXTURE_MODE=true ONE_PUBLIC_PROFILE_DISCOVERY_ENABLED=true ONE_PUBLIC_PROFILE_PROTOCOL=a2a
+  export INTELLIGENCE_API_BASE_URL="${PROFILE_FIXTURE_ONE_URL:-http://127.0.0.1:3001}"
+  export INTELLIGENCE_API_KEY="local-fixture-service-key"
+  cd "$REPO_ROOT/consent-protocol"
+  if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    exec .venv/bin/python -c 'from scripts.profile_discovery_fixture_backend import validate_fixture_environment; validate_fixture_environment(); print("Isolated fixture configuration validated")'
+  fi
+  if [ "$PROFILE_WORKER" = "true" ]; then
+    exec .venv/bin/python -m scripts.profile_discovery_worker
+  fi
+  exec .venv/bin/python -m scripts.profile_discovery_fixture_backend
+fi
+
 if [ "$SKIP_ACTIVATE" != "true" ]; then
   bash "$REPO_ROOT/scripts/env/use_profile.sh" "$PROFILE"
 fi
@@ -83,9 +117,25 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
 fi
 
 BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
-if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
-  echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
-  echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ ! -f "$BACKEND_VENV_PYTHON" ]; then
+  if [ -x "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ] || [ -f "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ]; then
+    BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe"
+  else
+    echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
+    echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+    exit 1
+  fi
+fi
+
+# A virtualenv can survive a branch sync while its pinned dependencies do not.
+# Fail before importing the app, with the exact repair command, instead of
+# turning a missing package into a long Uvicorn traceback and health timeout.
+if ! (
+  cd "$REPO_ROOT/consent-protocol"
+  uv sync --frozen --group dev --check >/dev/null
+); then
+  echo "Backend virtualenv is out of sync with consent-protocol/uv.lock." >&2
+  echo "Run: cd consent-protocol && uv sync --frozen --group dev" >&2
   exit 1
 fi
 
@@ -110,6 +160,10 @@ else:
     print("")
 PY
 }
+
+# Resolved before any port check so a peer worktree on another port is never stopped.
+BACKEND_PORT="${BACKEND_PORT:-$(read_env_value "$BACKEND_ENV_FILE" 'BACKEND_PORT')}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
 
 wait_for_port() {
   local host="$1"
@@ -154,7 +208,7 @@ listener_pids() {
 
 stop_existing_repo_backend() {
   local pids
-  pids="$(listener_pids 8000 || true)"
+  pids="$(listener_pids "${BACKEND_PORT:-8000}" || true)"
   if [ -z "$pids" ]; then
     return 0
   fi
@@ -214,6 +268,8 @@ run_preflight() {
     PYTHONPATH=. "$BACKEND_VENV_PYTHON" -c \
       "from hushh_mcp.runtime_readiness import assert_pinned_google_adk; assert_pinned_google_adk()"
   )
+  echo "Verifying local managed Gemini authorization..."
+  bash "$REPO_ROOT/scripts/env/doctor.sh" "$profile"
   verify_iam_readiness "$profile"
 
   if port_is_listening 127.0.0.1 8000; then
@@ -234,7 +290,13 @@ cleanup() {
   fi
   cleanup_proxy_credentials
 }
-trap cleanup EXIT INT TERM
+if [ "${HUSHH_SUPERVISED_RUNTIME:-}" = "1" ]; then
+  # run_local_fast.sh owns signal ordering; preserve its ignored SIGINT
+  # disposition so the proxy remains available while backend requests drain.
+  trap cleanup EXIT TERM
+else
+  trap cleanup EXIT INT TERM
+fi
 
 DB_HOST="$(read_env_value "$BACKEND_ENV_FILE" 'DB_HOST')"
 DB_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'DB_PORT')"
@@ -252,27 +314,17 @@ cleanup_proxy_credentials() {
   fi
 }
 
-if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
-  if python3 - "$PROXY_PORT" <<'PY'
-import socket
-import sys
-port = int(sys.argv[1])
-with socket.socket() as sock:
-    sock.settimeout(0.2)
-    sys.exit(0 if sock.connect_ex(("127.0.0.1", port)) == 0 else 1)
-PY
-  then
-    echo "Assuming an existing DB listener is already running on 127.0.0.1:${PROXY_PORT} for ${INSTANCE}."
-  else
-    if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
-      echo "local requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
-      echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env." >&2
-      exit 1
-    fi
-    proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
-    if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
-      PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
-      python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
+start_cloud_sql_proxy() {
+  if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
+    echo "local requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
+    echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env." >&2
+    exit 1
+  fi
+
+  local proxy_credentials_file="$PROXY_CREDENTIALS_FILE"
+  if [ -z "$proxy_credentials_file" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
+    PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
+    python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
 import json
 import sys
 
@@ -282,27 +334,41 @@ data = json.loads(raw)
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(data, fh)
 PY
-      chmod 600 "$PROXY_CREDENTIALS_TEMP"
-      PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
-    fi
-    if [ -z "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
-      echo "Refusing to fall back to local gcloud/ADC credentials." >&2
-      exit 1
-    fi
-    if [ ! -f "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "Cloud SQL proxy credentials file not found: $PROXY_CREDENTIALS_FILE" >&2
-      exit 1
-    fi
-    proxy_cmd+=(--credentials-file "$PROXY_CREDENTIALS_FILE")
-    echo "Starting Cloud SQL proxy for ${INSTANCE} on 127.0.0.1:${PROXY_PORT} using credentials file ${PROXY_CREDENTIALS_FILE}..."
-    proxy_cmd+=("$INSTANCE")
-    "${proxy_cmd[@]}" >/tmp/hushh-cloud-sql-proxy.log 2>&1 &
-    PROXY_PID=$!
-    if ! wait_for_port 127.0.0.1 "$PROXY_PORT"; then
-      echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
-      exit 1
-    fi
+    chmod 600 "$PROXY_CREDENTIALS_TEMP"
+    PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
+    proxy_credentials_file="$PROXY_CREDENTIALS_TEMP"
+  fi
+  if [ -z "$proxy_credentials_file" ]; then
+    echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
+    echo "Refusing to fall back to local gcloud/ADC credentials." >&2
+    exit 1
+  fi
+  if [ ! -f "$proxy_credentials_file" ]; then
+    echo "Cloud SQL proxy credentials file not found: $proxy_credentials_file" >&2
+    exit 1
+  fi
+
+  local proxy_cmd=(
+    cloud-sql-proxy
+    --address 127.0.0.1
+    --port "$PROXY_PORT"
+    --credentials-file "$proxy_credentials_file"
+    "$INSTANCE"
+  )
+  echo "Starting Cloud SQL proxy for ${INSTANCE} on 127.0.0.1:${PROXY_PORT} using credentials file ${proxy_credentials_file}..."
+  "${proxy_cmd[@]}" >/tmp/hushh-cloud-sql-proxy.log 2>&1 &
+  PROXY_PID=$!
+  if ! wait_for_port 127.0.0.1 "$PROXY_PORT"; then
+    echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
+    exit 1
+  fi
+}
+
+if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if port_is_listening 127.0.0.1 "$PROXY_PORT"; then
+    echo "Assuming an existing DB listener is already running on 127.0.0.1:${PROXY_PORT} for ${INSTANCE}."
+  else
+    start_cloud_sql_proxy
   fi
 fi
 
@@ -319,14 +385,40 @@ if [ "$SKIP_PREFLIGHT" != "true" ]; then
   run_preflight "$PROFILE"
 fi
 
+# Preflight deliberately stops the old local backend after using the database
+# for readiness checks. That backend may own the listener we just reused; its
+# EXIT trap then removes the proxy during the handoff. Revalidate after the old
+# backend has stopped so the new backend cannot start healthy and immediately
+# lose every account/session database call.
+if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if ! port_is_listening 127.0.0.1 "$PROXY_PORT"; then
+    echo "The reused DB listener exited during backend handoff; starting a replacement proxy."
+    start_cloud_sql_proxy
+  fi
+fi
+
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
   echo "Backend preflight passed for runtime mode ${PROFILE}."
   exit 0
 fi
 
-echo "Starting backend on :8000 for runtime mode ${PROFILE}..."
+# Local development shares the UAT Cloud SQL instance with other contributors.
+# Keep one local backend well below the instance connection budget: asyncpg can
+# otherwise open 20 connections and SQLAlchemy another 15 by default. Four
+# async connections still leave ample headroom on the shared UAT instance, but
+# allow One's concurrent vault/bootstrap requests to complete without waiting
+# behind a three-connection ceiling.
+export DB_POOL_MIN_SIZE="${DB_POOL_MIN_SIZE:-0}"
+export DB_POOL_MAX_SIZE="${DB_POOL_MAX_SIZE:-4}"
+export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
+export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
+echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
+
+BACKEND_PORT="${BACKEND_PORT:-$(read_env_value "$BACKEND_ENV_FILE" 'BACKEND_PORT')}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+echo "Starting backend on :${BACKEND_PORT} for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"
-uvicorn_args=(server:app --port 8000)
+uvicorn_args=(server:app --port "$BACKEND_PORT")
 reload_mode="$(printf '%s' "$BACKEND_RELOAD" | tr '[:upper:]' '[:lower:]')"
 case "$reload_mode" in
   1|true|yes|on)

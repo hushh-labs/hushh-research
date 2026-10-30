@@ -28,10 +28,9 @@ coverage.xml
 **/.coverage
 **/coverage.xml
 
-# Development files
-.env
-.env.local
-.env.*.local
+# Development environment files must never enter uploaded build contexts.
+.env*
+**/.env*
 
 # IDE
 .vscode/
@@ -55,9 +54,14 @@ docs/
 .gemini/
 *.md
 !README.md
+# Runtime prompts must survive upload before Docker applies its own filter.
+!consent-protocol/hushh_mcp/agents/*.md
+!consent-protocol/hushh_mcp/agents/**/*.md
 tmp/
 temp/
-data/
+# Local generated data at the repository root; backend runtime assets may live
+# under consent-protocol/hushh_mcp/data/ and must reach the Docker build context.
+/data/
 **/backend.log
 **/artifacts/
 
@@ -79,6 +83,42 @@ capacitor.config.ts
 
 # Large Assets/Misc
 assets/
+# Approved Wallet artwork is runtime content, including its nested asset folder.
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/**
 # deploy/
 *.sh
 *.ps1
+
+# ...except the backend deploy step, which MUST be uploaded.
+#
+# Cloud Build caps a single build-step arg at 10,000 characters, and that step's body
+# outgrew it (2026-07-28, commit 363a9932d), breaking every backend deploy on all three
+# lanes. It now lives in a file, so it has to reach /workspace. `*.sh` above would
+# silently exclude it and the step would die on "No such file or directory".
+#
+# Re-inclusion has to come AFTER the `*.sh` that excludes it -- gitignore semantics are
+# last-match-wins -- so do not move this above that line.
+!scripts/deploy/backend-deploy.sh
+!scripts/deploy/backend-capacity-settings.sh
+!scripts/deploy/backend-app-surface-settings.sh
+!scripts/deploy/backend-phone-rollback.sh
+!scripts/deploy/verify-managed-vertex-runtime.sh
+!scripts/deploy/frontend-google-native-config.sh
+!scripts/deploy/backend-model-settings.sh
+!scripts/deploy/backend-drive-search-settings.sh
+!scripts/deploy/backend-drive-secret-settings.sh
+!scripts/deploy/commerce-preview-bindings.sh
+!scripts/deploy/scope-commerce-secrets.sh
+!scripts/deploy/pod-release-env.sh
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json
+
+# Cloud Build sources these helpers before deploying the backend.
+!deploy/drive/verify_hashcoin_config.sh
+!deploy/sso/bind_workos.sh
+!deploy/email-auth/bind_secrets.sh
+!deploy/plg/bind_secrets.sh
+!scripts/deploy/resolve-google-sign-in-client.sh

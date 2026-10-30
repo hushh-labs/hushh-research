@@ -1,0 +1,290 @@
+name: Validate PLG Source
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact source SHA in the main-owned PLG source record
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-plg-source-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: PLG Source Validation Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        # Match the canonical backend CI server, including its vector extension.
+        image: mirror.gcr.io/pgvector/pgvector@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
+        env:
+          POSTGRES_USER: command_test
+          POSTGRES_PASSWORD: command_test
+          POSTGRES_DB: command_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U command_test -d command_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Require main workflow dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+
+      - name: Checkout main validation authority
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: authority
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require governed production actor
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 authority/scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+          python3 authority/scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
+
+      - name: Admit exact PLG source before checkout
+        id: admit
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          record = json.loads(Path("authority/deploy/plg/production-source.json").read_bytes())
+          if record.get("sourceSha") != os.environ["REQUESTED_SHA"]:
+              raise SystemExit("Source differs from the main-owned PLG record")
+          PY
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+            git -C authority fetch --no-tags origin "$REQUESTED_SHA"
+          unset authorization
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, os, subprocess
+          from pathlib import Path
+          authority = Path("authority").resolve()
+          if subprocess.check_output(["git", "-C", str(authority), "rev-parse", "HEAD"], text=True).strip() != os.environ["GITHUB_SHA"]:
+              raise SystemExit("Main validation authority changed")
+          spec = importlib.util.spec_from_file_location("plg_authority", authority / "deploy/plg/release_source.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          proof = module.qualify_source(os.environ["REQUESTED_SHA"])
+          if proof["sourceQualified"] is not True or proof["trafficAuthorized"] is not False:
+              raise SystemExit("Source qualification must not grant traffic authority")
+          files = [
+              "deploy/plg/production-source.json", ".github/workflows/validate-plg-source.yml",
+              "deploy/plg/release_source.py", "scripts/ci/assert-governed-actor.py",
+              "config/ci-governance.json", "scripts/ci/check-dco-signoff.sh",
+              ".gitleaks.toml", "consent-protocol/.github/actions/setup-python-uv/action.yml",
+          ]
+          envelope = {"proof": proof, "authorityFiles": {
+              path: hashlib.sha256((authority / path).read_bytes()).hexdigest() for path in files}}
+          folder = Path(os.environ["RUNNER_TEMP"]) / "plg-source-validation"
+          folder.mkdir()
+          (folder / "admission.json").write_text(json.dumps(envelope), encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f'sha={proof["sourceSha"]}\nbaseline={proof["baselineSha"]}\nrecord_sha256={proof["recordSha256"]}\n')
+          PY
+
+      - name: Checkout admitted source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.admit.outputs.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan exact source changes for secrets
+        shell: bash
+        env:
+          BASELINE: ${{ steps.admit.outputs.baseline }}
+          SOURCE_SHA: ${{ steps.admit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz \
+            --output "$directory/gitleaks.tar.gz"
+          tar -xzf "$directory/gitleaks.tar.gz" -C "$directory" gitleaks
+          "$directory/gitleaks" git --redact --no-banner \
+            --config "$GITHUB_WORKSPACE/authority/.gitleaks.toml" \
+            --log-opts="$BASELINE..$SOURCE_SHA" source
+
+      - name: Verify exact source DCO signoffs
+        shell: bash
+        working-directory: source
+        env:
+          BASELINE: ${{ steps.admit.outputs.baseline }}
+          SOURCE_SHA: ${{ steps.admit.outputs.sha }}
+        run: bash "$GITHUB_WORKSPACE/authority/scripts/ci/check-dco-signoff.sh" "$BASELINE" "$SOURCE_SHA"
+
+      - name: Install locked source Python environment
+        uses: ./authority/consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./source/consent-protocol
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Prepare native PostgreSQL prerequisites
+        shell: bash
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-16-pgvector=0.6.0-1
+          test -x /usr/lib/postgresql/16/bin/initdb
+          test -f /usr/share/postgresql/16/extension/vector.control
+          echo 'HUSHH_TEST_PG_BIN=/usr/lib/postgresql/16/bin' >> "$GITHUB_ENV"
+
+      - name: Run full canonical source backend manifest
+        shell: bash
+        working-directory: source/consent-protocol
+        timeout-minutes: 32
+        env:
+          TESTING: "true"
+          DB_OFFLINE: "1"
+          GOOGLE_CLOUD_PROJECT: hushh-ci-test
+          ONE_COMMAND_TEST_DATABASE_URL: postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test
+          APP_SIGNING_KEY: test_secret_key_for_ci_only_32chars_min
+          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          HUSHH_DEVELOPER_TOKEN: test_hushh_developer_token_for_ci
+          PYTEST_XDIST_AUTO_NUM_WORKERS: "2"
+          PYTEST_ADDOPTS: ""
+        run: |
+          set -euo pipefail
+          export PLG_REAL_PYTHON="$PWD/.venv/bin/python"
+          export PLG_REPORTS="$RUNNER_TEMP/plg-source-validation/reports"
+          mkdir "$PLG_REPORTS"
+          export PYTHON_BIN="$RUNNER_TEMP/plg-source-pytest-python"
+          cat > "$PYTHON_BIN" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "$#" -ge 2 && "$1" == -m && "$2" == pytest ]]; then
+            for argument in "$@"; do
+              if [[ "$argument" == --collect-only || "$argument" == --co || "$argument" == --collect-only=* ]]; then
+                exec "$PLG_REAL_PYTHON" "$@"
+              fi
+            done
+            report="$PLG_REPORTS/pytest-$BASHPID.xml"
+            [[ ! -e "$report" ]]
+            exec "$PLG_REAL_PYTHON" "$@" "--junitxml=$report"
+          fi
+          exec "$PLG_REAL_PYTHON" "$@"
+          SH
+          chmod 700 "$PYTHON_BIN"
+          bash scripts/run-test-ci.sh
+
+      - name: Verify executed PostgreSQL case and backend reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          folder = Path(os.environ["RUNNER_TEMP"]) / "plg-source-validation"
+          reports = sorted((folder / "reports").glob("pytest-*.xml"))
+          if not reports:
+              raise SystemExit("Full backend execution reports are missing")
+          totals = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+          regression = []
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for suite in root.iter("testsuite"):
+                  if int(suite.get("failures", "0")) or int(suite.get("errors", "0")):
+                      raise SystemExit("A backend suite failed")
+              for case in root.iter("testcase"):
+                  flags = [case.find(name) is not None for name in ("failure", "error", "skipped")]
+                  if sum(flags) > 1:
+                      raise SystemExit("Ambiguous backend case status")
+                  key = ("failed", "errors", "skipped")[flags.index(True)] if any(flags) else "passed"
+                  totals[key] += 1
+                  name = case.get("name")
+                  module = case.get("classname", "")
+                  if name == "test_memory_revision_lookup_on_disposable_postgres":
+                      if module not in {"tests.test_plg_memory_query_postgres", "test_plg_memory_query_postgres"}:
+                          raise SystemExit("PostgreSQL regression came from a different module")
+                      file = case.get("file", "").replace("\\", "/")
+                      if file and not (file == "tests/test_plg_memory_query_postgres.py" or file.endswith("/tests/test_plg_memory_query_postgres.py")):
+                          raise SystemExit("PostgreSQL regression path differs")
+                      regression.append(key)
+          if totals["failed"] or totals["errors"] or totals["passed"] < 1 or regression != ["passed"]:
+              raise SystemExit("The canonical PostgreSQL regression must execute once and pass")
+          (folder / "backend-counts.json").write_text(json.dumps(totals), encoding="utf-8")
+          PY
+
+      - name: Recheck exact source and record validation receipt
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.admit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          for checkout in source authority; do
+            git -C "$checkout" diff --quiet
+            git -C "$checkout" diff --cached --quiet
+            [[ -z "$(git -C "$checkout" ls-files --others --exclude-standard)" ]]
+          done
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, os
+          from pathlib import Path
+          folder = Path(os.environ["RUNNER_TEMP"]) / "plg-source-validation"
+          original = json.loads((folder / "admission.json").read_bytes())
+          authority = Path("authority").resolve()
+          for path, digest in original["authorityFiles"].items():
+              if hashlib.sha256((authority / path).read_bytes()).hexdigest() != digest:
+                  raise SystemExit("Main validation authority bytes changed")
+          spec = importlib.util.spec_from_file_location("plg_authority_final", authority / "deploy/plg/release_source.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          proof = module.qualify_source(os.environ["SOURCE_SHA"])
+          if proof != original["proof"] or proof["trafficAuthorized"] is not False:
+              raise SystemExit("Final source qualification differs from admission")
+          counts = json.loads((folder / "backend-counts.json").read_bytes())
+          receipt = {
+              "schemaVersion": 1, "status": "passed", "candidateSha": proof["sourceSha"],
+              "baselineSha": proof["baselineSha"], "workflowSha": os.environ["GITHUB_SHA"],
+              "recordSha256": proof["recordSha256"], "repository": os.environ["GITHUB_REPOSITORY"],
+              "runId": int(os.environ["GITHUB_RUN_ID"]), "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "checks": ["source-identity", "source-secret-scan", "source-dco", "full-backend",
+                         "postgres-memory-regression", "frontend-native-continuity", "source-recheck"],
+              "postgresRegression": {"path": "consent-protocol/tests/test_plg_memory_query_postgres.py",
+                                     "passed": 1, "failed": 0, "skipped": 0},
+              "backendTests": counts,
+          }
+          (folder / "acceptance.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload exact source validation receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: plg-source-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/plg-source-validation/acceptance.json
+          if-no-files-found: error
+          retention-days: 14

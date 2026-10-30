@@ -4,6 +4,8 @@
  * Supported TypeScript surface for the current PKM runtime contract.
  */
 
+import type { LocationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
+import type { KycReplyAuthorizationV1 } from "@/lib/personal-knowledge-model/mutation-plan";
 import { registerPlugin } from "@capacitor/core";
 
 export interface PkmSyncCheckpointPluginMetadata {
@@ -217,16 +219,22 @@ export interface HushhPersonalKnowledgeModelPlugin {
       complete: boolean;
     };
     mutationPlan?: Record<string, unknown>;
+    locationFinalizeAuthorization?: LocationFinalizeWire;
+    /** Opaque KYC reply capability (reserved-branches.v1.json); forwarded unchanged. */
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
     manifestRevision?: number;
     commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     archivedRevisionId?: string;
     preservationReceipt?: {
       schemaVersion: "pkm_preservation_receipt.v1";

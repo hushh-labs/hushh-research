@@ -10,20 +10,32 @@ for name in "${required_env[@]}"; do
 done
 
 job_name="uat-pkm-eval-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
-job_name="${job_name,,}"
+job_name="$(printf '%s' "$job_name" | tr '[:upper:]' '[:lower:]')"
 job_name="${job_name:0:63}"
 
 image="$(gcloud run revisions describe "$BACKEND_REVISION" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \
   --format='value(spec.containers[0].image)')"
+cpu="$(gcloud run revisions describe "$BACKEND_REVISION" \
+  --project "$GCP_PROJECT_ID" \
+  --region "$GCP_REGION" \
+  --format='value(spec.containers[0].resources.limits.cpu)')"
+memory="$(gcloud run revisions describe "$BACKEND_REVISION" \
+  --project "$GCP_PROJECT_ID" \
+  --region "$GCP_REGION" \
+  --format='value(spec.containers[0].resources.limits.memory)')"
 runtime_service_account="$(gcloud run services describe "$BACKEND_SERVICE" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \
   --format='value(spec.template.spec.serviceAccountName)')"
 
-if [ -z "$image" ] || [ -z "$runtime_service_account" ]; then
-  echo "Unable to resolve the candidate image or runtime service account." >&2
+if [ -z "$image" ] || [ -z "$cpu" ] || [ -z "$memory" ] || [ -z "$runtime_service_account" ]; then
+  echo "Unable to resolve the candidate image, resources or runtime service account." >&2
+  exit 1
+fi
+if ! [[ "$cpu" =~ ^[1-9][0-9]*m?$ ]] || ! [[ "$memory" =~ ^[1-9][0-9]*(Ki|Mi|Gi|K|M|G)?$ ]]; then
+  echo "Candidate CPU or memory limits are invalid for evaluator resource inheritance." >&2
   exit 1
 fi
 
@@ -39,6 +51,8 @@ gcloud run jobs create "$job_name" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \
   --image "$image" \
+  --cpu "$cpu" \
+  --memory "$memory" \
   --service-account "$runtime_service_account" \
   --tasks 1 \
   --parallelism 1 \
@@ -46,10 +60,12 @@ gcloud run jobs create "$job_name" \
   --task-timeout 45m \
   --set-env-vars "^|^ENVIRONMENT=uat|HUSHH_DEPLOY_ENV=uat|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu" \
   --command python \
-  --args "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json" \
+  --args "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--reps,3,--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json" \
   --quiet
 
-echo "Running synthetic candidate PKM upgrade evaluator..."
+# Three repetitions: --enforce-gates fails a run whose variance is unmeasured
+# (n < 3) or whose gated rates spread by more than 0.10 across repetitions.
+echo "Running synthetic candidate PKM upgrade evaluator (n=3)..."
 gcloud run jobs execute "$job_name" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \

@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
-describe("Feed sticky section-label contract", () => {
-  it("pins day labels below the live top-chrome boundary", () => {
+describe("Feed section-label contract", () => {
+  it("keeps day labels in the feed flow instead of pinning a second header", () => {
     const feedPage = fs.readFileSync(
       path.join(WEBAPP_ROOT, "components/feed/feed-page.tsx"),
       "utf8",
@@ -16,7 +16,7 @@ describe("Feed sticky section-label contract", () => {
       "utf8",
     );
 
-    expect(feedPage).toContain("sticky top-[var(--top-shell-live-height)]");
+    expect(feedPage).not.toContain("sticky top-[var(--top-shell-live-height)]");
     expect(feedPage).not.toContain("sticky top-0");
     expect(styles).toContain("--top-shell-live-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");

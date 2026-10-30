@@ -452,3 +452,12 @@ def test_upsert_preserves_postgres_array_params():
 
     assert connection.committed is True
     assert connection.params["v0_top_level_scope_paths"] == ["analytics", "profile"]
+
+
+def test_table_query_error_log_omits_bound_values(sqlite_engine, caplog):
+    marker = "synthetic-private-bound-value"
+    query = TableQuery("missing_table", sqlite_engine)
+    with pytest.raises(DatabaseExecutionError):
+        query.select("*").eq("user_id", marker).execute()
+    assert "Database operation failed" in caplog.text
+    assert marker not in caplog.text

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/morphy";

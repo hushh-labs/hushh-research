@@ -1,0 +1,108 @@
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+
+import { AppBottomShell } from "../../components/app-ui/app-bottom-shell";
+import { useVoiceSessionStore } from "../../lib/one-voice/session-store";
+import { INITIAL_VOICE_SESSION_STATE } from "../../lib/one-voice/session-types";
+import { AgentDockProvider, AgentDockPortal } from "../../components/agent/agent-dock";
+import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
+import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
+import { NativeAccentChoice } from "../../components/app-ui/native-accent-choice";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { useAccent } from "../../lib/theme/accent";
+import { AudioLines, Send } from "../../components/icons";
+
+/**
+ * The persistent bottom chrome exactly as `app/providers.tsx` mounts it: the
+ * production `AppBottomShell` with its "Talk to One" slot and navigation pill.
+ *
+ * `<html>` data attributes pick the state before the script runs:
+ *   data-agent="live"      One Live Voice dock instead of the command bar
+ *   data-voice="expanded"  a live session with its conversation panel open
+ *   data-command="working" the command bar mid-task (transcript above it)
+ *   data-path="/one/location" the route the navigation resolves against
+ */
+const dataset = document.documentElement.dataset;
+
+function PublicColorPreference() {
+  const value = useAccent();
+  return <SettingsGroup><SettingsRow title="Accent" description="Choose the app accent."
+    trailing={<NativeAccentChoice value={value} owner="fixture-owner" context="preferences" eligible />}
+    stackTrailingOnMobile /></SettingsGroup>;
+}
+
+if (dataset.voice === "expanded") {
+  useVoiceSessionStore.setState({
+    state: {
+      ...INITIAL_VOICE_SESSION_STATE,
+      phase: "listening",
+      conversationId: "fixture",
+      sessionId: "fixture",
+      transcript: [
+        {
+          id: "t1",
+          role: "you",
+          text: "Who is in my trusted circle?",
+          final: true,
+          turnId: "turn-1",
+        },
+        {
+          id: "t2",
+          role: "one",
+          text: "Three people: Alex, Jordan and Casey.",
+          final: true,
+          turnId: "turn-1",
+        },
+      ],
+    },
+  });
+}
+
+function Page() {
+  const [chat, setChat] = useState(dataset.composer === "true");
+  const [voice, setVoice] = useState(false);
+  const [draft, setDraft] = useState("");
+  const field = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    if (!field.current) return;
+    field.current.style.height = "0px";
+    const ceiling = Number.parseFloat(getComputedStyle(field.current).maxHeight);
+    field.current.style.height = `${Math.min(field.current.scrollHeight, ceiling)}px`;
+  }, [draft, chat]);
+  return (
+    <AgentDockProvider>
+      <main
+        data-fixture-page=""
+        style={{ minHeight: "180vh", padding: "24px 16px" }}
+        className="bg-background text-foreground"
+      >
+        {dataset.preferences === "true" ? <PublicColorPreference /> : null}
+        {Array.from({ length: 12 }, (_, index) => (
+          <p key={index} className="py-3">
+            Route content row {index + 1}
+          </p>
+        ))}
+        {dataset.composer === "true" ? <div>
+          <button data-testid="fixture-route" onClick={() => setChat(value => !value)}>Switch route</button>
+          <button data-testid="fixture-mode" onClick={() => setVoice(value => !value)}>Switch input mode</button>
+        </div> : null}
+      </main>
+      <AppBottomShell model={{ navigationHidden: false, agentBarHidden: chat || dataset.reserveFullDock === "true", includeComposerHeight: dataset.reserveFullDock === "true" }} />
+      {chat ? <AgentDockPortal enabled visible={!voice}>
+        <form data-agent-chat-composer-form="root" onSubmit={event => event.preventDefault()}>
+          <AgentBarSurface embedded className="agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2 overflow-hidden">
+            <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
+              <textarea ref={field} aria-label="Message One" placeholder="Message One" rows={1} value={draft} onChange={event => setDraft(event.target.value)} className="agent-chat-composer-field block w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 break-words [overflow-wrap:anywhere]" />
+            </div>
+            <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1">
+              {draft.length === 0 ? <ShellActionSurface data-agent-composer-action="mic" data-agent-composer-primary="true" className="text-[color:var(--app-accent-fg)]" aria-label="Start voice mode"><AudioLines className="size-5" /></ShellActionSurface>
+                : <ShellActionSurface data-agent-composer-action="send" data-agent-composer-primary="true" type="submit" className="text-[color:var(--app-accent-fg)]" aria-label="Send message"><Send className="size-4" /></ShellActionSurface>}
+            </div>
+          </AgentBarSurface>
+        </form>
+      </AgentDockPortal> : null}
+    </AgentDockProvider>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<Page />);

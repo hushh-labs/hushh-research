@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
   gmailReceiptsService: {
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
+    recordConsentFailure: vi.fn(),
+    recordConnectCompletion: vi.fn(),
   },
+  beginGmailOAuthCompletion: vi.fn(),
+  failGmailOAuthCompletion: vi.fn(),
+  primeConnectorStatus: vi.fn(),
   syncOnboardingJourney: vi.fn(),
   bootstrapState: vi.fn(),
 }));
@@ -39,7 +44,9 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 }));
 
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
-  primeConnectorStatus: vi.fn(),
+  beginGmailOAuthCompletion: mocks.beginGmailOAuthCompletion,
+  failGmailOAuthCompletion: mocks.failGmailOAuthCompletion,
+  primeConnectorStatus: mocks.primeConnectorStatus,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -84,6 +91,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         uid: "user-123",
         getIdToken: vi.fn().mockResolvedValue("token-abc"),
       },
+      userId: "user-123",
       loading: false,
     });
     mocks.gmailReceiptsService.completeConnect.mockResolvedValue({
@@ -137,7 +145,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
 
-    expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+    expect(screen.queryByText("Mail connection needs attention")).toBeNull();
   });
 
   it("uses live search params when the initial server props are empty", async () => {
@@ -155,8 +163,234 @@ describe("ProfileGmailOAuthReturnPage", () => {
         userId: "user-123",
         code: "live-code-123",
         state: "live-state-123",
+      }, { recordTelemetry: false });
+    });
+  });
+
+  it("opens Gmail immediately while a direct OAuth completion continues in memory", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "slow-code";
+      if (key === "state") return "slow-state";
+      return null;
+    });
+    let resolveCompletion:
+      | ((value: {
+          configured: boolean;
+          connected: boolean;
+          status: string;
+          scope_csv: string;
+          last_sync_status: string;
+          auto_sync_enabled: boolean;
+          revoked: boolean;
+        }) => void)
+      | undefined;
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.beginGmailOAuthCompletion).toHaveBeenCalledWith("user-123");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+
+    expect(mocks.primeConnectorStatus).not.toHaveBeenCalled();
+    resolveCompletion?.({
+      configured: true,
+      connected: true,
+      status: "connected",
+      scope_csv: "gmail.readonly gmail.send",
+      last_sync_status: "queued",
+      auto_sync_enabled: true,
+      revoked: false,
+    });
+    await waitFor(() => expect(mocks.primeConnectorStatus).toHaveBeenCalled());
+  });
+
+  it("records one success when a timed-out completion is confirmed by reconciliation", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.searchParamsGet.mockImplementation((key: string) => {
+        if (key === "code") return "slow-code";
+        if (key === "state") return "slow-state";
+        return null;
+      });
+      mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      );
+
+      render(<ProfileGmailOAuthReturnPage />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(35_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        force: true,
+      });
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledOnce();
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledWith("success");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not accept a read-only status as a completed send-permission upgrade", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(window, "close").mockImplementation(() => undefined);
+      window.sessionStorage.setItem(
+        "one_gmail_oauth_popup_attempt_v1",
+        JSON.stringify({
+          version: 1,
+          attemptId: "gmail-send-upgrade",
+          startedAt: Date.now(),
+          ownerId: "user-123",
+          purpose: "send",
+        }),
+      );
+      mocks.searchParamsGet.mockImplementation((key: string) => {
+        if (key === "code") return "slow-send-code";
+        if (key === "state") return "slow-send-state";
+        return null;
+      });
+      mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+        () => new Promise(() => undefined),
+      );
+      mocks.gmailReceiptsService.getStatus.mockResolvedValue({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        send_permission_granted: false,
+        auto_sync_enabled: true,
+        revoked: false,
+      });
+
+      const view = render(<ProfileGmailOAuthReturnPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).toHaveBeenCalledExactlyOnceWith("error");
+      expect(
+        mocks.gmailReceiptsService.recordConnectCompletion,
+      ).not.toHaveBeenCalledWith("success");
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("suppresses a late callback outcome after the authenticated owner changes", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      scope_csv: string;
+      auto_sync_enabled: boolean;
+      revoked: boolean;
+    }) => void;
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "owner-a-code";
+      if (key === "state") return "owner-a-state";
+      return null;
+    });
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveCompletion = resolve;
+      }),
+    );
+    const view = render(<ProfileGmailOAuthReturnPage />);
+    await waitFor(() =>
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalled(),
+    );
+
+    mocks.useAuth.mockReturnValue({
+      user: {
+        uid: "user-456",
+        getIdToken: vi.fn().mockResolvedValue("token-def"),
+      },
+      userId: "user-456",
+      loading: false,
+    });
+    view.rerender(<ProfileGmailOAuthReturnPage />);
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
       });
     });
+
+    expect(
+      mocks.gmailReceiptsService.recordConnectCompletion,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a detached callback outcome after unmount", async () => {
+    let resolveCompletion!: (value: {
+      configured: boolean;
+      connected: boolean;
+      status: string;
+      scope_csv: string;
+      auto_sync_enabled: boolean;
+      revoked: boolean;
+    }) => void;
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "unmounted-code";
+      if (key === "state") return "unmounted-state";
+      return null;
+    });
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    const view = render(<ProfileGmailOAuthReturnPage />);
+    await waitFor(() =>
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalled(),
+    );
+
+    view.unmount();
+    await act(async () => {
+      resolveCompletion({
+        configured: true,
+        connected: true,
+        status: "connected",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+      });
+    });
+
+    expect(
+      mocks.gmailReceiptsService.recordConnectCompletion,
+    ).not.toHaveBeenCalled();
   });
 
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
@@ -175,6 +409,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         version: 1,
         attemptId: "gmail-popup-test",
         startedAt: Date.now(),
+        ownerId: "user-123",
       }),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {
@@ -236,11 +471,65 @@ describe("ProfileGmailOAuthReturnPage", () => {
         expectedJourneyUpdatedAt: 123,
         expectedCallbackAttemptId: "connector-test",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();
+  });
+
+  it("opens Gmail before a slow setup acknowledgement finishes", async () => {
+    window.sessionStorage.setItem(
+      "one_onboarding_connector_intent_v1",
+      JSON.stringify({
+        version: 1,
+        capability: "gmail",
+        returnTo: "/one/setup",
+        correlationId: "connector-slow-setup",
+        startedAt: Date.now(),
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-slow-setup";
+      if (key === "state") return "state-slow-setup";
+      return null;
+    });
+    const pendingJourney = {
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-slow-setup",
+      onboardingJourneyUpdatedAt: 456,
+    };
+    let resolveJourney: ((value: typeof pendingJourney) => void) | undefined;
+    mocks.bootstrapState
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof pendingJourney>((resolve) => {
+            resolveJourney = resolve;
+          }),
+      )
+      .mockResolvedValue(pendingJourney);
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+
+    resolveJourney?.(pendingJourney);
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "capability_setup",
+        activeCapability: "gmail",
+        callbackState: "succeeded",
+        expectedJourneyUpdatedAt: 456,
+        expectedCallbackAttemptId: "connector-slow-setup",
+      });
+    });
   });
 
   it("recovers setup acknowledgement from the durable journey when the browser correlation is missing", async () => {
@@ -266,7 +555,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         userId: "user-123",
         code: "code-setup-ios",
         state: "state-setup-ios",
-      });
+      }, { recordTelemetry: false });
       expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
         userId: "user-123",
         phase: "capability_setup",
@@ -275,7 +564,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         expectedJourneyUpdatedAt: 789,
         expectedCallbackAttemptId: "connector-ios-durable",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
   });
 
@@ -315,6 +604,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
             code: "code-setup-storage-blocked",
             state: "state-setup-storage-blocked",
           },
+          { recordTelemetry: false },
         );
         expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
           userId: "user-123",
@@ -324,7 +614,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
           expectedJourneyUpdatedAt: 987,
           expectedCallbackAttemptId: "connector-storage-blocked",
         });
-        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
       });
     } finally {
       if (sessionStorageDescriptor) {
@@ -345,9 +635,13 @@ describe("ProfileGmailOAuthReturnPage", () => {
 
     render(<ProfileGmailOAuthReturnPage />);
 
-    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+      { code: "USER_CANCELLED" },
+      "user-123",
+    );
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
-    expect(screen.getByText("Gmail connection needs attention")).toBeTruthy();
+    expect(screen.getByText("Mail connection needs attention")).toBeTruthy();
   });
 
   it("does not mark a callback without the matching browser correlation", async () => {
@@ -358,7 +652,39 @@ describe("ProfileGmailOAuthReturnPage", () => {
 
     render(<ProfileGmailOAuthReturnPage />);
 
-    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).toHaveBeenCalledWith(
+      { code: "MALFORMED_CALLBACK" },
+      "user-123",
+    );
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+  });
+
+  it("does not attribute an earlier owner's provider failure to the active owner", async () => {
+    const closeSpy = vi
+      .spyOn(window, "close")
+      .mockImplementation(() => undefined);
+    window.sessionStorage.setItem(
+      "one_gmail_oauth_popup_attempt_v1",
+      JSON.stringify({
+        version: 1,
+        attemptId: "gmail-previous-owner",
+        startedAt: Date.now(),
+        ownerId: "previous-owner",
+        purpose: "read",
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) =>
+      key === "error" ? "access_denied" : null,
+    );
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => expect(window.sessionStorage.getItem(
+      "one_gmail_oauth_popup_attempt_v1",
+    )).toBeNull());
+    await waitFor(() => expect(closeSpy).toHaveBeenCalled());
+    expect(mocks.gmailReceiptsService.recordConsentFailure).not.toHaveBeenCalled();
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 
@@ -395,7 +721,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     await waitFor(() => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
-    expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+    expect(screen.queryByText("Mail connection needs attention")).toBeNull();
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();

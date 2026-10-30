@@ -23,6 +23,7 @@ from hushh_mcp.consent.export_projection import (
 )
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
+from mcp_modules.commercial_projection import export_receipt_fields
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_api_headers
 from mcp_modules.flat_contract import LOCAL_INFORMATION_JSON_MAX_CHARS
@@ -31,7 +32,7 @@ from mcp_modules.transport_context import is_local_stdio_transport
 logger = logging.getLogger("hushh-mcp-server")
 
 
-# The local stdio server decrypts+narrows locally before this ever reaches the
+# For legacy free sharing, local stdio decrypts+narrows before this reaches the
 # LLM, so the result is plain decrypted JSON, not base64 ciphertext - roughly
 # 3x denser per byte of real data than the base64 contract above, and the
 # whole point of local decrypt is to let a sandboxed LLM host (no route to
@@ -202,22 +203,14 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     if status_value != "success":
         return [TextContent(type="text", text=json.dumps(export_payload))]
 
-    base_fields = {
-        "status": "success",
-        "user_id": user_id,
-        "scope": granted_scope,
-        **({"expected_scope": expected_scope} if expected_scope else {}),
-        "consent_verified": True,
-        "granted_scope": export_payload.get("granted_scope", granted_scope),
-        "coverage_kind": export_payload.get("coverage_kind"),
-        "expires_at": export_payload.get("expires_at"),
-        "export_revision": export_payload.get("export_revision"),
-        "export_generated_at": export_payload.get("export_generated_at"),
-        "export_refresh_status": export_payload.get("export_refresh_status"),
-        "message": export_payload.get("message"),
-    }
+    base_fields = export_receipt_fields(
+        export_payload,
+        user_id=user_id,
+        granted_scope=granted_scope,
+        expected_scope=expected_scope,
+    )
 
-    if is_local_stdio_transport():
+    if is_local_stdio_transport() and export_payload.get("commercial_required") is not True:
         decrypted_response, local_error = await _try_build_local_decrypted_response(
             base_fields,
             export_payload=export_payload,

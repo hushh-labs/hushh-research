@@ -42,6 +42,16 @@ const manifest = {
 };
 
 describe("buildConsentExportForScope", () => {
+  it("rechecks current posture and never exports a private section through a wildcard", async () => {
+    pkmMocks.getDomainManifest.mockResolvedValue({
+      ...manifest,
+      scope_registry: [{ scope_handle: "synthetic", scope_label: "Seat preferences", segment_ids: ["seat_preferences"], visibility_posture: "private", summary_projection: { top_level_scope_path: "seat_preferences" } }],
+    });
+    await expect(buildConsentExportForScope({ userId: "user_1", scope: "attr.travel.*", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" })).rejects.toBeInstanceOf(ConsentExportNoDataError);
+    expect(pkmMocks.getDomainManifest).toHaveBeenCalledWith("user_1", "travel", "vault-owner", true);
+    expect(pkmMocks.loadDomainData).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     pkmMocks.getDomainManifest.mockResolvedValue(manifest);
@@ -53,6 +63,22 @@ describe("buildConsentExportForScope", () => {
       },
     });
     pkmMocks.resolveSegmentIdsForPaths.mockReturnValue(["seat_preferences"]);
+  });
+
+  it.each(["one_memory", "one_living_sources", "one_todos"])("refuses private-agent branch %s before loading a stale exposed manifest", async domain => {
+    pkmMocks.getDomainManifest.mockResolvedValue({ ...manifest, domain, externalizable_paths: ["markdown.text"] });
+    await expect(buildConsentExportForScope({ userId: "user_1", scope: `attr.${domain}.markdown`, vaultKey: "vault-key", vaultOwnerToken: "vault-owner" })).rejects.toBeInstanceOf(ConsentExportNoDataError);
+    expect(pkmMocks.getDomainManifest).not.toHaveBeenCalled();
+    expect(pkmMocks.loadDomainData).not.toHaveBeenCalled();
+  });
+
+  it("excludes private-agent memory from a root export while retaining approved ordinary information", async () => {
+    pkmMocks.getEncryptedData.mockResolvedValue(null);
+    pkmMocks.loadFullBlob.mockResolvedValue({ one_memory: { markdown: "must stay private" }, " OnE_LiViNg_SoUrCeS ": { records: "must stay private" }, " WaLLeT ": { secrets: { pan: "must stay private" } }, travel: { seat: "aisle" } });
+    const built = await buildConsentExportForScope({ userId: "user_1", scope: "pkm.read", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" });
+    expect(built.payload).toMatchObject({ travel: { seat: "aisle" } });
+    expect(built.payload).not.toHaveProperty("one_memory");
+    expect(built.payload.__export_metadata).toMatchObject({ available_domains: ["travel"] });
   });
 
   it("exports broad domain scopes without forcing the root segment", async () => {
@@ -67,7 +93,7 @@ describe("buildConsentExportForScope", () => {
       "user_1",
       "travel",
       "vault-owner",
-      []
+      [],
     );
     expect(pkmMocks.loadDomainData).toHaveBeenCalledWith({
       userId: "user_1",
@@ -104,7 +130,7 @@ describe("buildConsentExportForScope", () => {
       "user_1",
       "travel",
       "vault-owner",
-      ["seat_preferences"]
+      ["seat_preferences"],
     );
     expect(built.payload).toMatchObject({
       travel: {
@@ -120,7 +146,9 @@ describe("buildConsentExportForScope", () => {
 
   it("falls back to whole-domain read when a path segment lookup misses", async () => {
     pkmMocks.resolveSegmentIdsForPaths.mockReturnValue(["root"]);
-    pkmMocks.getDomainData.mockResolvedValueOnce(null).mockResolvedValueOnce({ dataVersion: 13 });
+    pkmMocks.getDomainData
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ dataVersion: 13 });
 
     const built = await buildConsentExportForScope({
       userId: "user_1",
@@ -134,14 +162,14 @@ describe("buildConsentExportForScope", () => {
       "user_1",
       "travel",
       "vault-owner",
-      ["root", "seat_preferences"]
+      ["root", "seat_preferences"],
     );
     expect(pkmMocks.getDomainData).toHaveBeenNthCalledWith(
       2,
       "user_1",
       "travel",
       "vault-owner",
-      []
+      [],
     );
     expect(pkmMocks.loadDomainData).toHaveBeenCalledWith({
       userId: "user_1",
@@ -198,7 +226,7 @@ describe("buildConsentExportForScope", () => {
       "user_1",
       "financial",
       "vault-owner",
-      ["root", "portfolio"]
+      ["root", "portfolio"],
     );
     expect(pkmMocks.loadDomainData).toHaveBeenCalledWith({
       userId: "user_1",
@@ -225,7 +253,115 @@ describe("buildConsentExportForScope", () => {
         scope: "attr.travel.seat_preferences.*",
         vaultKey: "vault-key",
         vaultOwnerToken: "vault-owner",
-      })
+      }),
     ).rejects.toBeInstanceOf(ConsentExportNoDataError);
+  });
+
+  it.each(["seat_preferences_extra", "cash_positions"])(
+    "never substitutes a similar stored field for missing scope %s",
+    async (path) => {
+      pkmMocks.getDomainManifest.mockResolvedValue({
+        ...manifest,
+        externalizable_paths: ["seat_preferences.summary", "bank.balance"],
+        paths: [
+          ...manifest.paths,
+          {
+            json_path: "bank.balance",
+            path_type: "leaf",
+            exposure_eligibility: true,
+          },
+        ],
+      });
+      await expect(
+        buildConsentExportForScope({
+          userId: "user_1",
+          scope: `attr.travel.${path}`,
+          vaultKey: "vault-key",
+          vaultOwnerToken: "vault-owner",
+        }),
+      ).rejects.toBeInstanceOf(ConsentExportNoDataError);
+      expect(pkmMocks.getDomainData).not.toHaveBeenCalled();
+      expect(pkmMocks.loadDomainData).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rechecks leaf eligibility and internal exclusions for domain-wide exports", async () => {
+    const excluded = [
+      "seat_preferences.private_note",
+      "seat_preferences.api_key",
+      "seat_preferences._hidden",
+    ];
+    pkmMocks.getDomainManifest.mockResolvedValue({
+      ...manifest,
+      externalizable_paths: [
+        ...manifest.externalizable_paths,
+        "seat_preferences",
+        ...excluded,
+      ],
+      paths: [
+        ...manifest.paths,
+        ...excluded.map((json_path) => ({
+          json_path,
+          path_type: "leaf",
+          exposure_eligibility: !json_path.endsWith("private_note"),
+        })),
+      ],
+    });
+    pkmMocks.loadDomainData.mockResolvedValue({
+      seat_preferences: {
+        summary: "Synthetic allowed value",
+        private_note: "excluded",
+        api_key: "excluded",
+        _hidden: "excluded",
+      },
+    });
+    const built = await buildConsentExportForScope({
+      userId: "user_1",
+      scope: "attr.travel.*",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    expect(built.payload.travel).toEqual({
+      seat_preferences: { summary: "Synthetic allowed value" },
+    });
+  });
+
+  it("preserves collection paths and excludes unselected sibling fields", async () => {
+    const selected = "employment.entities._entities.summary";
+    const sibling = "employment.entities._entities.private_note";
+    pkmMocks.getDomainManifest.mockResolvedValue({
+      ...manifest,
+      externalizable_paths: [selected, sibling],
+      paths: [selected, sibling].map((json_path) => ({
+        json_path,
+        path_type: "leaf",
+        exposure_eligibility: true,
+      })),
+    });
+    pkmMocks.loadDomainData.mockResolvedValue({
+      employment: {
+        entities: {
+          synthetic: {
+            summary: "Synthetic employer",
+            private_note: "not selected",
+          },
+        },
+      },
+    });
+    const built = await buildConsentExportForScope({
+      userId: "user_1",
+      scope: `attr.travel.${selected}`,
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    expect(built.payload.travel).toEqual({
+      employment: {
+        entities: { synthetic: { summary: "Synthetic employer" } },
+      },
+    });
+    expect(built.payload.__export_metadata).toMatchObject({
+      scope: `attr.travel.${selected}`,
+      approved_paths: [selected],
+    });
   });
 });

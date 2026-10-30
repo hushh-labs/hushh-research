@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Awaitable, Callable
 
-from db.connection import get_pool
+from db.connection import dedicated_connection, get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -234,9 +234,8 @@ class MarketCacheStoreService:
         lock_key: int,
         callback: Callable[[], Awaitable[None]],
     ) -> bool:
-        """Run callback only if advisory lock was acquired on this DB connection."""
-        pool = await get_pool()
-        async with pool.acquire() as conn:
+        """Run callback under a session lock without reserving the request pool."""
+        async with dedicated_connection() as conn:
             acquired = await conn.fetchval("SELECT pg_try_advisory_lock($1)", int(lock_key))
             if not acquired:
                 return False

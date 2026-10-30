@@ -1,15 +1,91 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.routes.one import location
+from api.routes.one import router as one_router
+from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 CIRCLE_ID = "550e8400-e29b-41d4-a716-446655440000"
 INVITE_ID = "550e8400-e29b-41d4-a716-446655440002"
 MEMBER_ID = "member-user"
+
+
+@pytest.mark.parametrize(
+    "method,path,operation",
+    [
+        ("PATCH", f"/circles/{CIRCLE_ID}", "update_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}", "delete_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}/members/me", "leave_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}/members/{MEMBER_ID}", "remove_member"),
+        ("POST", f"/circle-member-invites/{INVITE_ID}/accept", "accept_member_invite"),
+        ("POST", f"/circle-member-invites/{INVITE_ID}/decline", "decline_member_invite"),
+    ],
+)
+def test_circle_command_body_and_receipt_use_existing_routes(monkeypatch, method, path, operation):
+    client, service, _ = _client(monkeypatch)
+    calls = []
+    receipt = {"operationReceipt": {"operation_id": "ab" * 32, "result": "fixture"}}
+
+    def execute(**kwargs):
+        calls.append(kwargs)
+        return receipt
+
+    monkeypatch.setattr(service, operation, execute)
+    binding = {"owner": "owner-user", "circleId": CIRCLE_ID}
+    response = client.request(
+        method,
+        f"/api/one/location{path}",
+        json={
+            "commandOperationId": "ab" * 32,
+            "commandBinding": binding,
+            **({"name": "New name"} if method == "PATCH" else {}),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == receipt
+    assert calls[0]["command_operation_id"] == "ab" * 32
+    assert calls[0]["command_binding"] == binding
+    assert calls[0].get("user_id", calls[0].get("owner_user_id")) == "owner-user"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_custom_type_policy_and_create_payload(monkeypatch):
+    client, service, _ = _client(monkeypatch)
+    assert client.get("/api/one/location/circles").json()["customTypePolicy"] == {
+        "version": 1,
+        "maxTypes": 3,
+    }
+    response = client.post(
+        "/api/one/location/circles",
+        json={"name": "Investments", "kind": "other", "customTypeLabel": "Finance"},
+    )
+    assert response.status_code == 200
+    assert service.calls[-1] == (
+        "create",
+        {
+            "owner_user_id": "owner-user",
+            "name": "Investments",
+            "kind": "other",
+            "custom_type_label": "Finance",
+        },
+    )
+
+
+def test_custom_type_delete_uses_authenticated_owner_and_private_response(monkeypatch):
+    client, service, _ = _client(monkeypatch)
+    response = client.request(
+        "DELETE", "/api/one/location/circle-types", json={"customTypeLabel": "Finance"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"updatedCircleCount": 2}
+    assert service.calls[-1] == ("delete_type", {"owner_user_id": "owner-user", "label": "Finance"})
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 class FakeNamedCircleService:
@@ -54,9 +130,44 @@ class FakeNamedCircleService:
         self._record("list", **kwargs)
         return [{key: value for key, value in self.circle.items() if key != "members"}]
 
+    def delete_custom_type(self, **kwargs):
+        self._record("delete_type", **kwargs)
+        return {"updatedCircleCount": 2}
+
     def get_circle(self, **kwargs):
         self._record("get", **kwargs)
         return self.circle
+
+    def get_circle_overview(self, **kwargs):
+        self._record("overview", **kwargs)
+        return {key: value for key, value in self.circle.items() if key != "members"}
+
+    def list_circle_members_page(self, **kwargs):
+        self._record("members_page", **kwargs)
+        return {
+            "items": [
+                {
+                    "userId": "owner-user",
+                    "displayName": "Owner",
+                    "photoUrl": None,
+                    "role": "owner",
+                    "joinedAt": None,
+                    "phoneVerified": True,
+                    "secureLocationReady": False,
+                    "keyId": None,
+                    "publicKeyJwk": None,
+                    "keyAlgorithm": "ECDH-P256-AES256-GCM",  # gitleaks:allow
+                    "keyRegisteredAt": None,
+                    "canReceiveLocation": False,
+                    "relationship": "self",
+                    "canConnect": False,
+                    "connectedFromContacts": False,
+                }
+            ],
+            "page": kwargs["page"],
+            "hasMore": True,
+            "totalCount": 5000,
+        }
 
     def create_circle(self, **kwargs):
         self._record("create", **kwargs)
@@ -65,6 +176,14 @@ class FakeNamedCircleService:
     def update_circle(self, **kwargs):
         self._record("update", **kwargs)
         return {**self.circle, "name": kwargs.get("name") or self.circle["name"]}
+
+    def bootstrap_first_circle(self, **kwargs):
+        self._record("bootstrap", **kwargs)
+        return {
+            "circleId": CIRCLE_ID,
+            "circleName": self.circle["name"],
+            "code": "2345-6789-ABCD",
+        }
 
     def create_invite_code(self, **kwargs):
         self._record("create_code", **kwargs)
@@ -84,6 +203,16 @@ class FakeNamedCircleService:
             "memberCount": 1,
             "expiresAt": "2026-07-27T00:00:00+00:00",
             "alreadyMember": False,
+        }
+
+    def preview_public_invite_code(self, **kwargs):
+        self._record("public_preview", **kwargs)
+        # Deliberately add internal metadata: the route model must not leak it.
+        return {
+            "name": "Meena Family",
+            "ownerDisplayName": "Owner",
+            "alreadyMember": True,
+            "ownerUserId": "private-owner",
         }
 
     def join_circle(self, **kwargs):
@@ -113,6 +242,19 @@ class FakeNamedCircleService:
                 "connectedAt": "2026-07-20T00:00:00+00:00",
             }
         ]
+
+    def list_eligible_direct_connections_page(self, **kwargs):
+        self._record("eligible_page", **kwargs)
+        return {
+            "items": self.list_eligible_direct_connections(**kwargs),
+            "page": kwargs["page"],
+            "hasMore": True,
+            "totalCount": 5000,
+        }
+
+    def ensure_trusted_system_circle(self, **kwargs):
+        self._record("trusted", **kwargs)
+        return {key: value for key, value in self.circle.items() if key != "members"}
 
     def list_member_invites(self, **kwargs):
         self._record("list_member_invites", **kwargs)
@@ -198,6 +340,42 @@ def test_named_circle_create_list_detail_and_code_routes(monkeypatch) -> None:
             "kind": "family",
         },
     ) in service.calls
+
+
+def test_circle_overview_members_eligible_and_trusted_summary_are_bounded(monkeypatch) -> None:
+    client, service, _current_user = _client(monkeypatch)
+
+    overview = client.get(f"/api/one/location/circles/{CIRCLE_ID}/overview")
+    members = client.get(
+        f"/api/one/location/circles/{CIRCLE_ID}/members?page=2&limit=100&query=own"
+    )
+    eligible = client.get(
+        f"/api/one/location/circles/{CIRCLE_ID}/eligible-connections?page=2&limit=100&query=mem"
+    )
+    trusted = client.post("/api/one/location/circles/trusted?summaryOnly=true")
+
+    assert overview.status_code == 200
+    assert "members" not in overview.json()["circle"]
+    assert members.status_code == 200
+    assert members.json()["totalCount"] == 5000
+    assert members.json()["page"] == 2
+    assert eligible.status_code == 200
+    assert eligible.json()["totalCount"] == 5000
+    assert eligible.json()["page"] == 2
+    assert eligible.headers["cache-control"] == "private, no-store"
+    assert trusted.status_code == 200
+    assert "members" not in trusted.json()["circle"]
+    assert (
+        "members_page",
+        {
+            "user_id": "owner-user",
+            "circle_id": CIRCLE_ID,
+            "query": "own",
+            "page": 2,
+            "limit": 100,
+        },
+    ) in service.calls
+    assert ("trusted", {"owner_user_id": "owner-user", "summary_only": True}) in service.calls
 
 
 def test_named_circle_code_join_is_immediate_but_returns_no_location_authority(
@@ -327,3 +505,397 @@ def test_grant_source_circle_requires_a_real_uuid() -> None:
                 "durationHours": 1,
             }
         )
+
+
+def _bootstrap_client(monkeypatch, *, authenticated: bool = True):
+    """Bootstrap is the one Circle route authenticated by Firebase, not the vault.
+
+    So it gets its own client: overriding require_vault_owner_token here would
+    prove nothing, and leaving Firebase unoverridden is how the unauthenticated
+    case is exercised.
+    """
+
+    service = FakeNamedCircleService()
+    app = FastAPI()
+    app.include_router(one_router)
+    if authenticated:
+        app.dependency_overrides[location.require_firebase_auth] = lambda: "owner-user"
+    monkeypatch.setattr(location, "_circle_service", lambda: service)
+    return TestClient(app, raise_server_exceptions=False), service
+
+
+def test_circle_bootstrap_mints_a_code_for_a_caller_with_no_vault(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch)
+
+    response = client.post(
+        "/api/one/location/circles/bootstrap",
+        json={"name": "Meena's Circle"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["invite"] == {
+        "circleId": CIRCLE_ID,
+        "circleName": "Meena Family",
+        "code": "2345-6789-ABCD",
+    }
+    # The Firebase uid is the owner: onboarding runs before any vault token
+    # exists, so the uid is the only identity the route has to work from.
+    assert service.calls == [
+        ("bootstrap", {"user_id": "owner-user", "name": "Meena's Circle"}),
+    ]
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_circle_bootstrap_rejects_an_unauthenticated_caller(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+
+    response = client.post(
+        "/api/one/location/circles/bootstrap",
+        json={"name": "Meena's Circle"},
+    )
+
+    assert response.status_code == 401
+    assert service.calls == []
+
+
+def test_circle_bootstrap_cannot_be_pointed_at_another_circle(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch)
+
+    response = client.post(
+        "/api/one/location/circles/bootstrap",
+        json={"name": "Meena's Circle", "circleId": CIRCLE_ID, "rotate": True},
+    )
+
+    assert response.status_code == 200
+    # The request body carried a circle id and a rotate flag; neither reaches the
+    # service, which is the whole point of the request model having no such field.
+    assert service.calls == [
+        ("bootstrap", {"user_id": "owner-user", "name": "Meena's Circle"}),
+    ]
+
+
+def test_circle_bootstrap_requires_a_usable_name(monkeypatch) -> None:
+    client, _service = _bootstrap_client(monkeypatch)
+
+    # A single character is a usable name; only nothing at all, or something
+    # longer than the column, is refused.
+    assert (
+        client.post(
+            "/api/one/location/circles/bootstrap",
+            json={"name": ""},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/one/location/circles/bootstrap",
+            json={"name": "x" * 81},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/one/location/circles/bootstrap",
+            json={"name": "x"},
+        ).status_code
+        != 422
+    )
+
+
+def _bootstrap_probe(owned_circles: list[dict]):
+    """Drive the real bootstrap_first_circle over stubbed primitives.
+
+    Instantiating the service would need a database; bootstrap composes only
+    list_circles / create_circle / create_invite_code, so stubbing those three
+    exercises the find-or-create decision that is the method's whole substance.
+    """
+
+    service = object.__new__(OneLocationCircleService)
+    calls: list[tuple[str, dict]] = []
+
+    def _list(**kwargs):
+        calls.append(("list", kwargs))
+        return owned_circles
+
+    def _create(**kwargs):
+        calls.append(("create", kwargs))
+        return {"id": CIRCLE_ID, "name": kwargs["name"], "role": "owner"}
+
+    def _code(**kwargs):
+        calls.append(("code", kwargs))
+        return {"code": "2345-6789-ABCD"}
+
+    service.list_circles = _list
+    service.create_circle = _create
+    service.create_invite_code = _code
+    return service, calls
+
+
+def test_bootstrap_creates_a_first_circle_when_the_caller_owns_none() -> None:
+    service, calls = _bootstrap_probe([])
+
+    invite = service.bootstrap_first_circle(user_id="owner-user", name="Meena's Circle")
+
+    assert invite == {
+        "circleId": CIRCLE_ID,
+        "circleName": "Meena's Circle",
+        "code": "2345-6789-ABCD",
+    }
+    assert [name for name, _ in calls] == ["list", "create", "code"]
+    assert calls[2][1]["rotate"] is False
+
+
+def test_bootstrap_reuses_an_owned_circle_and_never_rotates_its_code() -> None:
+    service, calls = _bootstrap_probe([{"id": CIRCLE_ID, "name": "Meena Family", "role": "owner"}])
+
+    invite = service.bootstrap_first_circle(user_id="owner-user", name="Ignored Name")
+
+    # A second onboarding run must hand back the same Circle and the code the
+    # owner may already have shared -- rotating it would break every invite
+    # already in someone's messages.
+    assert invite["circleId"] == CIRCLE_ID
+    assert invite["circleName"] == "Meena Family"
+    assert [name for name, _ in calls] == ["list", "code"]
+    assert calls[1][1]["rotate"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_owned_circle", [False, True])
+async def test_onboarding_adapter_uses_the_real_bootstrap_contract(monkeypatch, has_owned_circle):
+    from hushh_mcp.services import one_location_circle_service
+    from hushh_mcp.services.location_onboarding_runtime import OneLocationCircleProvisioningAdapter
+
+    owned = (
+        [{"id": CIRCLE_ID, "name": "Existing Family", "role": "owner"}] if has_owned_circle else []
+    )
+    service, calls = _bootstrap_probe(owned)
+    monkeypatch.setattr(one_location_circle_service, "OneLocationCircleService", lambda: service)
+    adapter = OneLocationCircleProvisioningAdapter(hmac_key="synthetic-circle-evidence-key")
+
+    result = await adapter.provision_personal_circle(user_id="owner-user", run_id="run_synthetic")
+
+    assert result.status == "verified"
+    assert result.evidence_digest
+    assert [name for name, _ in calls] == (
+        ["list", "code"] if has_owned_circle else ["list", "create", "code"]
+    )
+    assert calls[-1][1]["rotate"] is False
+
+
+def test_bootstrap_ignores_circles_the_caller_only_joined() -> None:
+    service, calls = _bootstrap_probe(
+        [{"id": "joined-circle", "name": "Someone Else", "role": "member"}]
+    )
+
+    invite = service.bootstrap_first_circle(user_id="owner-user", name="Meena's Circle")
+
+    # Membership of someone else's Circle is not a Circle of your own, and
+    # minting a code there would hand out an invite the caller does not own.
+    assert invite["circleId"] == CIRCLE_ID
+    assert [name for name, _ in calls] == ["list", "create", "code"]
+    assert calls[1][1] == {
+        "owner_user_id": "owner-user",
+        "name": "Meena's Circle",
+        "kind": "family",
+    }
+
+
+def test_circle_code_preview_shows_the_circle_before_joining(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch)
+
+    response = client.post(
+        "/api/one/location/circle-codes/preview",
+        json={"code": "2345-6789-ABCD"},
+    )
+
+    assert response.status_code == 200
+    circle = response.json()["circle"]
+    # Name, owner and member count are the whole point: someone deciding whether
+    # to share their location needs to see who is asking.
+    assert circle["name"] == "Meena Family"
+    assert circle["ownerDisplayName"] == "Owner"
+    assert circle["memberCount"] == 1
+    assert circle["alreadyMember"] is False
+    assert response.headers["cache-control"] == "private, no-store"
+    assert service.calls == [
+        ("resolve", {"user_id": "owner-user", "code": "2345-6789-ABCD"}),
+    ]
+
+
+def test_circle_code_preview_rejects_an_unauthenticated_caller(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+
+    response = client.post(
+        "/api/one/location/circle-codes/preview",
+        json={"code": "2345-6789-ABCD"},
+    )
+
+    assert response.status_code == 401
+    assert service.calls == []
+
+
+def test_public_circle_preview_has_an_exact_anonymous_allowlist(monkeypatch) -> None:
+    from hushh_mcp.services.app_intelligence_runtime import (
+        _discover_service_api_endpoints_from_router,
+    )
+
+    # Exercise the canonical One mount, but keep guest presentation outside
+    # the protected workflow catalog so existing setup runs stay compatible.
+    assert not any(
+        endpoint["path"] == "/api/one/location/circle-codes/public-preview"
+        for endpoint in _discover_service_api_endpoints_from_router("location", location.router)
+    )
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+    response = client.post(
+        "/api/one/location/circle-codes/public-preview", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"circle": {"name": "Meena Family", "ownerDisplayName": "Owner"}}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert service.calls == [("public_preview", {"code": "2345-6789-ABCD"})]
+
+
+@pytest.mark.parametrize("action", ["resolve", "join"])
+def test_public_preview_does_not_make_circle_mutations_anonymous(monkeypatch, action) -> None:
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+    response = client.post(
+        f"/api/one/location/circle-codes/{action}", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 401
+    assert service.calls == []
+
+
+def test_public_preview_reads_valid_ordinary_codes_without_viewer_or_mutation(monkeypatch) -> None:
+    calls = []
+
+    def read(query, params):
+        calls.append((query, params))
+        return SimpleNamespace(
+            data=[
+                {
+                    "name": "Family",
+                    "owner_display_name": "Alex",
+                    "owner_user_id": "private-id",
+                    "member_count": 3,
+                    "already_member": True,
+                }
+            ]
+        )
+
+    service = object.__new__(OneLocationCircleService)
+    service._db = SimpleNamespace(execute_raw=read)
+    monkeypatch.setattr(service, "_code_hash", lambda code: "hashed-code")
+    assert service.preview_public_invite_code(code="2345-6789-ABCD") == {
+        "name": "Family",
+        "ownerDisplayName": "Alex",
+    }
+    assert len(calls) == 1
+    query, params = calls[0]
+    assert params == {"code_hash": "hashed-code", "user_id": None}
+    for guard in [
+        "circle.status = 'active'",
+        "code.status = 'active'",
+        "code.expires_at > NOW()",
+        "code.use_count < code.max_uses",
+        "NOT circle.is_system",
+        "circle.system_kind IS NULL",
+    ]:
+        assert guard in query
+    assert not any(word in query.upper() for word in ["UPDATE ", "INSERT ", "DELETE "])
+
+
+def test_public_preview_unavailable_code_discloses_no_metadata(monkeypatch) -> None:
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+
+    def unavailable(**kwargs):
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_CODE_INVALID",
+            "That Circle code is invalid or no longer available.",
+            status_code=404,
+        )
+
+    monkeypatch.setattr(service, "preview_public_invite_code", unavailable)
+    response = client.post(
+        "/api/one/location/circle-codes/public-preview", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 404
+    assert "circle" not in response.json()
+    assert (
+        client.post(
+            "/api/one/location/circle-codes/public-preview", json={"code": "short"}
+        ).status_code
+        == 422
+    )
+
+
+def test_circle_code_preview_rejects_a_malformed_code(monkeypatch) -> None:
+    client, _service = _bootstrap_client(monkeypatch)
+
+    assert (
+        client.post(
+            "/api/one/location/circle-codes/preview",
+            json={"code": "short"},
+        ).status_code
+        == 422
+    )
+
+
+def test_join_push_tells_the_sharer_their_code_was_used(monkeypatch) -> None:
+    import hushh_mcp.services.push_notifications as push_module
+
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_circle_code_joined_push",
+        lambda **kwargs: sent.append(kwargs) or 1,
+    )
+
+    push_module.send_circle_code_joined_push(
+        inviter_user_id="owner-user",
+        joiner_display_name="Member",
+        circle_id=CIRCLE_ID,
+        circle_name="Meena Family",
+    )
+
+    assert sent == [
+        {
+            "inviter_user_id": "owner-user",
+            "joiner_display_name": "Member",
+            "circle_id": CIRCLE_ID,
+            "circle_name": "Meena Family",
+        }
+    ]
+
+
+def test_join_push_names_the_joiner_and_deep_links_to_people(monkeypatch) -> None:
+    import hushh_mcp.services.push_notifications as push_module
+
+    captured: dict = {}
+
+    def _fake_send(user_id, **kwargs):
+        captured["user_id"] = user_id
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+
+    push_module.send_circle_code_joined_push(
+        inviter_user_id="owner-user",
+        joiner_display_name="Meena",
+        circle_id=CIRCLE_ID,
+        circle_name="Meena Family",
+    )
+
+    # Addressed to whoever shared the code -- they did the inviting, and they
+    # are the one person for whom a redemption is news.
+    assert captured["user_id"] == "owner-user"
+    assert captured["notification_type"] == "location_circle_code_joined"
+    # Named, because "someone joined" is exactly what the sender already knew.
+    assert captured["body"] == "Meena joined using your code."
+    assert captured["title"] == "Meena Family"
+    assert captured["deep_link"] == (
+        f"/one/location?view=people&action=circle-detail&circleId={CIRCLE_ID}"
+    )
+    assert captured["notification_category"] == "ONE_LOCATION"

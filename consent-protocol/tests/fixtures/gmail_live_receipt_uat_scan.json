@@ -1,0 +1,31 @@
+{
+  "items": [],
+  "page": 1,
+  "per_page": 6,
+  "returned_count": 0,
+  "has_more": true,
+  "coverage": {
+    "source": "gmail_live",
+    "listed_count": 6,
+    "candidate_count": 6,
+    "matched_count": 0,
+    "pages_scanned": 1,
+    "max_messages": 6,
+    "max_pages": 50,
+    "max_scan_messages": 300,
+    "window_start": "2025-10-14T17:51:59+00:00",
+    "window_end": "2026-10-14T17:51:59+00:00",
+    "reached_limit": false,
+    "query_scope": "receipt_signals_all_mail_except_spam_trash",
+    "rejection_counts": {"missing_receipt_signal": 1, "extractor_not_receipt": 5},
+    "evidence_counts": {
+      "gmail_category": 0,
+      "subject_signal": 5,
+      "body_signal": 0,
+      "verified_merchant": 0,
+      "order_candidate": 0,
+      "total_candidate": 0
+    }
+  },
+  "next_cursor": "synthetic-owner-bound-signed-cursor"
+}

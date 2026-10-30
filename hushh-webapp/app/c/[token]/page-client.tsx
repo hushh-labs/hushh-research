@@ -6,20 +6,23 @@
  * A stranger scans the QR on someone's Hussh One Wallet pass and lands here
  * with no session, no app, and no prior relationship. The route is
  * unauthenticated by design and resolves a share token to the owner-selected
- * projection; the token itself is never logged or echoed into the UI.
+ * projection; the token is never logged or shown as raw text. Its authorized
+ * public URL can be rendered as the profile's QR code.
  *
  * Structure mirrors the repo's proven public route,
- * `app/one/location/request/[token]` — thin server page, all state in a client
+ * `app/one/location/view/[token]` — thin server page, all state in a client
  * component, one service call, explicit terminal states.
  *
  * This page emits no analytics.
  */
 
+import { AppPageShell, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import {
   normalizePublicWalletCard,
   PublicWalletCardSkeleton,
@@ -113,18 +116,19 @@ function CardMessage({
       >
         <AlertTriangle className="size-5" />
       </div>
-      <h1 className="text-[22px] font-medium leading-[1.2] tracking-tight sm:text-[24px]">
+      <h1 className="font-[family-name:var(--font-app-display)] text-[28px] font-semibold leading-[36px] tracking-tight">
         {title}
       </h1>
       {body ? (
-        <p className="text-sm leading-6 text-muted-foreground">{body}</p>
+        <p className="text-sm leading-5 text-[color:var(--app-secondary-label)]">{body}</p>
       ) : null}
       {onRetry ? (
         <Button
           type="button"
           variant="outline"
+          size="compact"
           onClick={onRetry}
-          className="h-11 px-5"
+          className={presentationStyles.quietAction}
         >
           <RefreshCw className="size-4" aria-hidden="true" />
           Try again
@@ -196,10 +200,11 @@ export default function PublicWalletCardPageClient() {
 
   return (
     <main className="min-h-[100dvh] bg-background text-foreground">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col justify-center px-4 py-8 sm:max-w-lg sm:px-6 sm:py-12">
+      <AppPageShell as="div" width="agent" fitContent className="pt-[max(env(safe-area-inset-top),var(--page-inline-gutter-standard))]">
+        <AppPageContentRegion>
         {status === "loading" ? <PublicWalletCardSkeleton /> : null}
 
-        {status === "ready" && card ? <PublicWalletCardView card={card} /> : null}
+        {status === "ready" && card ? <PublicWalletCardView card={card} profileUrl={typeof window === "undefined" ? null : `${window.location.origin}/c/${shareToken}`} /> : null}
 
         {status === "revoked" ? (
           <CardMessage title="This profile is no longer shared." />
@@ -223,7 +228,8 @@ export default function PublicWalletCardPageClient() {
             onRetry={retry}
           />
         ) : null}
-      </div>
+        </AppPageContentRegion>
+      </AppPageShell>
     </main>
   );
 }

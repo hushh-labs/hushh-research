@@ -1,3 +1,5 @@
+import { executeOneCommandInvocation } from "@/lib/agent/one-system-action-executor";
+import { observeDispatch } from "@/lib/observability/product-activity-client";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import {
@@ -7,19 +9,20 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { resolveSearchActionTarget } from "@/lib/search/search-route-context";
 import {
   parseVoiceCard,
   publishVoiceCard,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
-} from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -223,6 +226,13 @@ function buildLocalHandlerResult(input: {
  * tap. The returned promise represents the provider's eventual settlement.
  */
 export function executeTrustedActivationGatewayAction(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
+  // Invoke synchronously first: observation cannot consume the trusted tap.
+  return observeDispatch(input.actionId, executeTrustedActivationGatewayActionImpl(input));
+}
+
+function executeTrustedActivationGatewayActionImpl(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
@@ -488,6 +498,12 @@ function executeConnectedSystemAgentAction(
 export async function executeAgentGatewayAction(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
+  return observeDispatch(input.actionId, executeAgentGatewayActionImpl(input));
+}
+
+async function executeAgentGatewayActionImpl(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
   if (!isActionInActiveInventory(input)) {
     return unavailableOnActiveSurfaceResult(input);
@@ -507,9 +523,23 @@ export async function executeAgentGatewayAction(
       actionId: input.actionId,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "Agent could not find that Kai action.",
+      resultSummary: "Agent could not find that action.",
       reason: "missing_action",
     });
+  }
+
+  if (action.command?.domain === "location" && action.execution_target.status === "wired" && action.execution_target.path === "local_handler"
+    && !input.executionContext?.operationId) {
+    if (input.signal?.aborted) return buildResult({ status: "failed", actionId: action.action_id,
+      routeBefore: routeBefore.pathname, resultSummary: "Action was interrupted." });
+    // Chat and typed app actions use the same preparation/confirmation owner.
+    // The command's post-claim call carries operationId and bypasses this handoff.
+    const slots = input.slots || {};
+    if (Object.values(slots).some((value) => !["string", "number", "boolean"].includes(typeof value)))
+      return buildResult({ status: "invalid", actionId: action.action_id, routeBefore: routeBefore.pathname,
+        resultSummary: "This Location action needs typed inputs." });
+    return executeOneCommandInvocation({ id: crypto.randomUUID(), actionId: action.action_id,
+      slots: slots as Record<string, string | number | boolean>, expectedOwner: input.userId });
   }
 
   let effectiveRuntimeState = input.appRuntimeState;
@@ -569,7 +599,7 @@ export async function executeAgentGatewayAction(
       resultSummary:
         availability.blocked_guidance ||
         availability.reason ||
-        "That Kai action is not available right now.",
+        "That action is not available right now.",
       reason: availability.status,
     });
   }
@@ -581,23 +611,52 @@ export async function executeAgentGatewayAction(
       label: action.label,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "That Kai action is not wired for execution yet.",
+      resultSummary: "That action is not wired for execution yet.",
       reason: action.execution_target.status,
     });
   }
 
   if (action.execution_target.path === "route") {
-    input.router.push(action.execution_target.target);
+    // A template segment (`/people/[personRef]`) needs an entity this runtime
+    // does not have; pushing it literally opens a broken or wrong screen.
+    if (/\[[^\]]+\]/.test(action.execution_target.target)) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Say who, and I'll open it.",
+        reason: "route_needs_entity",
+      });
+    }
+    const currentHref = typeof window !== "undefined" && window.location.pathname === routeBefore.pathname
+      ? window.location.href : routeBefore.pathname;
+    const target = resolveSearchActionTarget(action.execution_target.target, currentHref, action.surface_id);
+    input.router.push(target);
     return buildResult({
       status: "started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
-      routeAfter: action.execution_target.target,
+      routeAfter: target,
       screenBefore: routeBefore.screen,
-      resultSummary: `${action.label} opened in Kai.`,
+      // The label alone, deliberately -- no destination named.
+      //
+      // This used to say `${label} opened in Finance.` from when this runtime
+      // was Kai-only, so asking for Voice Settings answered "Open Voice
+      // Settings opened in Finance." The action's own `surface_id` is no
+      // better: it names where the action is *authored*, not where it lands,
+      // so route.voice_settings would have claimed "Agents".
+      //
+      // Prefixing instead ("Opened X") does not survive the real labels --
+      // only 39 of 70 route actions start with "Open", and the rest would
+      // read "Opened Share my location" or "Opened Continue". The label is
+      // already an accurate name for what happened, and the card renders it
+      // against a completion tick, which is what supplies the past tense.
+      resultSummary: `${action.label}.`,
       data: {
-        target: action.execution_target.target,
+        target,
         goal_id: action.goal.goal_id,
       },
     });
@@ -617,6 +676,17 @@ export async function executeAgentGatewayAction(
     }
 
     const handler = await waitForLocalOnboardingHandler(action.action_id);
+    if (input.signal?.aborted) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Action was interrupted.",
+        reason: "execution_aborted",
+      });
+    }
     if (!handler) {
       return buildResult({
         status: "blocked",
@@ -631,15 +701,17 @@ export async function executeAgentGatewayAction(
 
     try {
       // A local handler may begin an external mutation (for example, sending a
-      // connection request). The handler contract has no cancellation signal,
-      // and its backing services do not promise rollback on abort. Racing it
+      // connection request). Its backing services do not promise rollback on
+      // abort. Racing it
       // against a local timeout or a later voice utterance would therefore
       // report a false terminal failure while the request can still succeed.
       // Once invocation begins, wait for the authoritative handler outcome;
       // the pre-invocation abort check above still avoids starting new work.
       const handlerResult = await handler(
         input.slots || {},
-        input.executionContext,
+        input.signal
+          ? { ...input.executionContext, signal: input.signal }
+          : input.executionContext,
       );
 
       return buildLocalHandlerResult({
@@ -674,7 +746,9 @@ export async function executeAgentGatewayAction(
     try {
       const handlerResult = await mountedHandler(
         input.slots || {},
-        input.executionContext,
+        input.signal
+          ? { ...input.executionContext, signal: input.signal }
+          : input.executionContext,
       );
       return buildLocalHandlerResult({
         actionId: action.action_id,

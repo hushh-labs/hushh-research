@@ -1,0 +1,76 @@
+.panel { display: grid; gap: 24px; min-width: 0; container: circle-wars / inline-size; color: var(--foreground); }
+.hero.hero { gap: 0; overflow: hidden; padding: 0; border: 0; border-radius: var(--app-card-radius-feature); background: var(--app-card-surface-default-solid); box-shadow: none; }
+.heroTop { display: flex; align-items: center; justify-content: flex-end; padding: 18px 24px 0; }
+.countdown { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: var(--type-row-description-size); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.countdown svg { width: 15px; height: 15px; }
+.heroBody { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 20px; align-items: center; padding: 14px 24px 24px; }
+.heroCopy { min-width: 0; }
+.title.title { margin: 0; overflow-wrap: anywhere; }
+.title > span { color: var(--app-accent-deep); }
+.support { max-width: 330px; margin: 12px 0 0; color: var(--muted-foreground); font-size: var(--type-row-label-size); line-height: 1.6; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.joinButton.joinButton { min-height: 44px; padding-inline: 14px; font-size: var(--type-helper-text-size); }
+.rankLabel { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; color: var(--app-accent-deep); font-size: var(--type-row-description-size); }
+.liveDot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--app-success); }
+.teamScore { display: flex; align-items: center; gap: 12px; margin: 20px 0 0; }
+.teamScore strong { font-size: var(--type-large-page-title-size); line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.teamScore > span { color: var(--muted-foreground); font-size: var(--type-row-description-size); line-height: 1.5; }
+.rankMovement { margin: 16px 0 0; color: var(--app-accent-deep); font-size: var(--type-row-description-size); line-height: 1.5; }
+.emblem { position: relative; width: 150px; aspect-ratio: 1; justify-self: center; isolation: isolate; color: var(--app-accent-deep); }
+.orbitOuter, .orbitInner { position: absolute; border: 1px solid color-mix(in srgb, var(--app-accent) 18%, transparent); border-radius: 50%; }
+.orbitOuter { inset: 3px; border-style: dashed; }
+.orbitInner { inset: 21px; background: color-mix(in srgb, var(--app-accent) 4%, transparent); }
+.emblemCore { position: absolute; inset: 39px; display: grid; place-items: center; border: 1px solid var(--app-accent-border); border-radius: 50%; background: var(--app-accent-surface); outline: 8px solid color-mix(in srgb, var(--app-accent) 5%, transparent); }
+.emblemCore svg { width: 37px; height: 37px; }
+.orbitNode { position: absolute; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-card-border-standard)); border-radius: var(--app-radius-md); background: var(--app-card-surface-default-solid); }
+.orbitNode svg { width: 18px; height: 18px; }
+.crownNode { top: -2px; left: 58px; transform: rotate(-10deg); }
+.targetNode { top: 86px; left: -1px; transform: rotate(-12deg); }
+.trophyNode { top: 91px; right: -1px; transform: rotate(10deg); }
+.orbitDot { position: absolute; top: 35px; right: 6px; width: 5px; height: 5px; border: 1px solid var(--app-card-surface-default-solid); border-radius: 50%; background: var(--app-accent); }
+.standings { min-width: 0; }
+.standingsHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.standingsHeader h3 { margin: 0; }
+.emptyBoard { margin: 0; padding: 24px; border: 0; border-radius: var(--app-card-radius-standard); color: var(--muted-foreground); font-size: var(--type-row-description-size); text-align: center; }
+.boardFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; color: var(--muted-foreground); font-size: var(--type-helper-text-size); }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pageNumber { margin-right: 4px; }
+.pickerIntro { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding-right: 24px; text-align: left; }
+.pickerIcon { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: var(--app-radius-lg); background: var(--app-accent-tint); color: var(--app-accent-deep); }
+.pickerIcon svg { width: 25px; height: 25px; }
+.pickerIntro h2 { margin: 0 0 6px; }
+.choices { display: grid; gap: 10px; min-width: 0; }
+.choice { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 16px; border: 1px solid var(--app-card-border-standard); border-radius: var(--app-card-radius-compact); cursor: pointer; }
+.choice:has(input:checked) { border-color: var(--app-accent); background: var(--app-accent-tint); }
+.choice:has(input:focus-visible) { outline: 2px solid var(--app-accent); outline-offset: 3px; }
+.choice:has(input:disabled) { cursor: default; opacity: .65; }
+.choice input { width: 18px; height: 18px; flex: none; margin-left: auto; accent-color: var(--app-accent); }
+.choiceCopy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.choiceCopy > span { display: block; }
+.choiceCopy > span:last-child { margin-top: 3px; color: var(--muted-foreground); font-size: var(--type-row-description-size); }
+.joinNote { display: flex; align-items: flex-start; gap: 9px; padding-top: 16px; color: var(--muted-foreground); font-size: var(--type-row-description-size); line-height: 1.6; }
+.joinNote svg { width: 17px; height: 17px; flex: none; margin-top: 3px; }
+.joinNote p { margin: 0; }
+.pickerEmpty { padding: 24px 16px; border: 1px dashed var(--app-card-border-strong); border-radius: var(--app-card-radius-standard); color: var(--muted-foreground); text-align: center; font-size: var(--type-row-description-size); line-height: 1.6; }
+@container circle-wars (max-width: 520px) {
+  .heroTop { padding: 16px 20px 0; }
+  .heroBody { grid-template-columns: minmax(0, 1fr) 112px; gap: 12px; padding: 12px 20px 20px; }
+  .emblem { width: 112px; align-self: start; margin-top: 10px; }
+  .orbitOuter { inset: 0; }
+  .orbitInner { inset: 14px; }
+  .emblemCore { inset: 28px; outline-width: 6px; }
+  .emblemCore svg { width: 30px; height: 30px; }
+  .orbitNode { width: 28px; height: 28px; border-radius: 10px; }
+  .orbitNode svg { width: 16px; height: 16px; }
+  .crownNode { top: -6px; left: 42px; }
+  .targetNode { top: 66px; left: -5px; }
+  .trophyNode { top: 72px; right: -3px; }
+  .orbitDot { top: 24px; right: 2px; }
+  .support { font-size: var(--type-row-description-size); }
+  .actions { margin-top: 14px; }
+
+}
+@container circle-wars (max-width: 300px) {
+  .heroBody { grid-template-columns: minmax(0, 1fr); }
+  .emblem { display: none; }
+}

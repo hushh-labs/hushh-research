@@ -1,0 +1,161 @@
+/**
+ * Geometry for one person's row in the Circle roster, and for the roster the
+ * rows stack into.
+ *
+ * Reported from phone QA as "scattered" and "not looking good". Measured, the
+ * ragged right edge was structural rather than a matter of taste: every row
+ * sized its own trailing cluster to whatever that row happened to offer, and
+ * one roster offers four different combinations of the same two controls --
+ *
+ *   the owner, not removable   -> relationship control, kebab
+ *   a member you can share to  -> relationship control, kebab
+ *   a member you cannot        -> relationship control, no kebab
+ *   you                        -> neither
+ *
+ * -- so the same control landed at three different x positions down four rows,
+ * and the kebab column existed on some rows and not others. Nothing was
+ * mis-specified in CSS. There was no column to align to.
+ *
+ * The trailing edge is now two fixed slots. The menu slot is ALWAYS rendered
+ * at one width, occupied by an inert spacer on the rows that have no menu, so
+ * a row can never move sideways because of what the row above it can do.
+ *
+ * Values live here rather than inline so a real-browser layout contract can
+ * measure the strings the screen actually ships, the same way
+ * `circle-name-row-layout.ts` is measured by
+ * `e2e/connect-circle-cta.layout.spec.ts`. A fixture that hand-copies them
+ * stops proving anything the first time one changes.
+ */
+
+/** The kebab, and the spacer that holds its column open. 44px is the platform
+ *  minimum touch target, so the slot cannot be narrowed to tighten the row. */
+export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
+
+/**
+ * Desktop/tablet member actions stay attached to the row that opened them.
+ *
+ * A bottom-aligned popper puts both action rows over the next member, so the
+ * menu appears to belong to that person instead. Place it immediately outside
+ * the row, to the right of the kebab, and centre it on the selected row. That
+ * keeps both the member identity and any Connect/Respond/Cancel control visible
+ * on the wide layouts where an anchored pointer menu is appropriate. Radix may
+ * collision-flip the surface on a narrower pointer viewport; its accessible
+ * name keeps the selected member's identity available to assistive technology.
+ *
+ * These values are exported because the real-browser layout contract measures
+ * the same placement that the component passes to Radix.
+ */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE = "right" as const;
+export const CIRCLE_MEMBER_ACTIONS_MENU_ALIGN = "center" as const;
+/** The trigger ends 16px inside the padded row; 22px leaves a 6px visual gap
+ *  between the card edge and the menu rather than merely clearing the icon. */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX = 22;
+export const CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX = 12;
+
+/** One-line and two-line rows share this floor, so the list keeps a beat even
+ *  where a member has no second line to show. */
+export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;
+
+/**
+ * `items-center`, not `items-start`.
+ *
+ * The avatar is 40px and the text block is 21px + 18px, so top-aligning the
+ * two left the name sitting ~3px proud of the avatar's cap height on every
+ * row -- the "not aligned" half of the report, repeated once per member.
+ */
+export const CIRCLE_MEMBER_ROW_CLASSNAME =
+  "grid grid-cols-[40px_minmax(0,1fr)_auto] min-h-[72px] items-center gap-x-3 gap-y-2 px-2 py-3 sm:flex sm:gap-3 sm:px-4";
+
+/** A relationship action gets its own line on phones, leaving identity readable. */
+export const CIRCLE_MEMBER_ACTION_COPY_CLASSNAME = "col-span-2 sm:col-span-1";
+export const CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME =
+  "col-start-2 col-span-2 row-start-2 justify-end sm:col-auto sm:col-span-1 sm:row-auto";
+
+export const CIRCLE_MEMBER_AVATAR_CLASSNAME = "h-10 w-10 shrink-0";
+
+/** Names stay on one line. The full identity remains in the DOM and title. */
+export const CIRCLE_MEMBER_NAME_ROW_CLASSNAME =
+  "min-w-0 text-[16px] font-medium leading-[21px] text-foreground";
+
+export const CIRCLE_MEMBER_NAME_CLASSNAME =
+  "block min-w-0 truncate";
+
+export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
+  "whitespace-normal [overflow-wrap:anywhere]";
+
+/** Circle detail titles share their row with Edit. The copy column must be
+ * shrinkable and the title must wrap so neither can push the other off-screen. */
+export const CIRCLE_DETAIL_HEADER_CLASSNAME =
+  "circle-detail-header flex items-start justify-between gap-4 px-1";
+
+export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
+  "min-w-0 flex-1 [&_h1]:whitespace-normal [&_h1]:[overflow-wrap:anywhere]";
+
+/** The menu column stays fixed; relationship actions form one trailing cluster. */
+export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
+  "flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1";
+
+/**
+ * An actionable relationship control (Connect / Respond).
+ *
+ * Set height AND minimum height: `Button`'s size variants set both, and `h-` and
+ * `min-h-` are separate tailwind-merge groups, so a caller passing only height
+ * keeps whatever `min-h-` the variant brought and the control renders taller
+ * than it asked for. Same trap `circle-name-row-layout.ts` documents.
+ */
+export const CIRCLE_MEMBER_ACTION_CLASSNAME =
+  "ui-text-compact-button-label h-11 min-h-11 shrink-0 rounded-full px-3";
+
+/** The kebab trigger, and the invisible spacer standing in for it. */
+export const CIRCLE_MEMBER_MENU_CLASSNAME = "h-11 w-11 shrink-0 rounded-full";
+
+/**
+ * Visual treatment for the actionable kebab only.
+ *
+ * Keep the 44px hit target from `CIRCLE_MEMBER_MENU_CLASSNAME`, but do not
+ * paint that entire target. The generic ghost button uses the product accent
+ * tint on hover, which turned this quiet row affordance into a large sky-blue
+ * disc in Circle detail (including the same flow hosted by Connect). The
+ * focus ring remains for keyboard users; pointer hover/open states stay bare.
+ */
+export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
+  "h-11 w-11 shrink-0 rounded-full border-0 bg-transparent text-[color:var(--app-secondary-label)] shadow-none hover:bg-transparent hover:text-[color:var(--app-primary-label)] data-[state=open]:bg-transparent data-[state=open]:text-[color:var(--app-primary-label)]";
+
+/**
+ * A row inside the desktop member-actions menu.
+ *
+ * The dropdown primitive's generic focus state pairs an accent background
+ * with accent-foreground text. This menu replaces only that background with a
+ * neutral fill, so leaving the generic text rule in place made the first item
+ * white/grey and apparently disabled on hover. Own both halves of the state,
+ * while preserving destructive red for the remove action.
+ */
+export const CIRCLE_MEMBER_MENU_ITEM_CLASSNAME =
+  "flex min-h-[52px] w-full items-center gap-3 rounded-[10px] px-4 py-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
+
+/**
+ * Phones retain one page scroll so touch gestures cannot get trapped inside a
+ * nested roster. On larger screens, rosters can be capped for fast access to
+ * actions below them.
+ */
+export const CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME =
+  "flex flex-col sm:max-h-[60vh]";
+
+export const CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME =
+  "min-h-0 flex-1 sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";
+
+/**
+ * The SMS handoff follows the complete roster in reading order. It is the same
+ * accent pill as "Share location" on the Location hub, centred under the
+ * roster and capped at 244px on every screen width.
+ */
+export const CIRCLE_PROCEED_TO_SMS_CLASSNAME =
+  "h-12 min-h-12 w-full max-w-[244px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]";
+
+/**
+ * A member's destructive exit stays easy to tap on a phone without becoming a
+ * full-width desktop banner. It uses the same 320px responsive cap as the
+ * Circle handoff CTA and is centered beneath the roster.
+ */
+export const CIRCLE_LEAVE_ACTION_CLASSNAME =
+  "ui-text-button-label h-11 min-h-11 w-full max-w-[320px] rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";

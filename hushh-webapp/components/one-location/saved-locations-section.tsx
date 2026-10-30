@@ -3,27 +3,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
+  ChevronRight,
   Home,
   Loader2,
   MapPin,
   Pencil,
-  Plus,
   RefreshCw,
   ShieldCheck,
+  Star,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
   duplicateSavedLocationMessage,
-
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
+  favoriteSavedLocation,
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
@@ -31,53 +34,82 @@ import {
   type SavedLocationCategory,
   updateSavedLocation,
   updateSavedLocationAddress,
+  LOCATION_PKM_DOMAIN,
 } from "@/lib/one-location/saved-locations";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
+import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import {
   buildSavedLocationAddress,
   inferPostalCode,
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
-import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import { SUBCARD_SURFACE } from "@/components/one-location/redesign/tokens";
+import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
-  const Icon =
-    category === "home" ? Home : category === "work" ? Briefcase : MapPin;
-  const tone =
-    category === "home"
-      ? "bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15"
-      : category === "work"
-        ? "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
-        : "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15";
+  const config: {
+    Icon: typeof Home;
+    bg: string;
+    fg: string;
+  } = category === "home"
+    ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
+    : category === "work"
+      ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
+      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[color:var(--app-accent-deep)]" };
   return (
     <span
       className={cn(
-        "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
-        tone,
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
+        config.bg,
+        config.fg,
       )}
+      data-testid={`saved-location-icon-${category}`}
       aria-hidden="true"
     >
-      <Icon className="h-[17px] w-[17px]" strokeWidth={1.9} />
+      <config.Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
     </span>
   );
 }
 
 export function SavedLocationsSection() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const userId = user?.uid ?? null;
+  const pkmChangeRevision = usePkmDomainChangeRevision(
+    userId,
+    LOCATION_PKM_DOMAIN,
+  );
+  const {
+    preferences: mapPreferences,
+    refresh: refreshMapPreferences,
+    commit: commitMapPreferences,
+  } = useOneLocationMapPreferences({
+    userId,
+    vaultOwnerToken,
+  });
   const locationControl = useOneLocationControlState(userId);
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [favoritingId, setFavoritingId] = useState<string | null>(null);
+  const [resolvedAddresses, setResolvedAddresses] = useState<
+    Record<string, string | null>
+  >({});
+  const addressLookupsRef = useRef(new Set<string>());
+  // One row open at a time: this is a short list a person scans, not a set of
+  // panels they compare, and several open rows push the rest off the screen.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [repairingId, setRepairingId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
@@ -96,40 +128,37 @@ export function SavedLocationsSection() {
   );
   const [rendererDisclosureAccepted, setRendererDisclosureAccepted] =
     useState(false);
+  // A chat offer ("Add as Home in Location") hands its category and name over
+  // in memory (lib/pkm/reserved-offer.ts). The owner still pins the place and
+  // saves it here, with this screen's own writer.
+  const [offerPrefill, setOfferPrefill] = useState<{
+    category: SavedLocationCategory;
+    label: string;
+  } | null>(null);
 
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
   const addressResolutionIdRef = useRef(0);
+  const reloadRequestIdRef = useRef(0);
+  const pkmRevisionMountedRef = useRef(false);
+  const reconcileTaskRef = useRef<Promise<void> | null>(null);
+  const reconcileQueuedRef = useRef(false);
 
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
   // satisfy the react-hooks/refs rule.
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+    addressLookupsRef.current.clear();
+    setResolvedAddresses({});
   }, [userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    let cancelled = false;
-    setRendererDisclosureAccepted(false);
-    if (!vaultOwnerToken) return () => undefined;
-
-    void OneLocationService.getMapState(vaultOwnerToken)
-      .then((state) => {
-        if (cancelled) return;
-        setRendererDisclosureAccepted(
-          state.preferences.rendererConsentVersion ===
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-        );
-      })
-      .catch(() => {
-        // Fail closed: show the disclosure again when canonical state cannot
-        // be read instead of assuming a prior acceptance.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
+    setRendererDisclosureAccepted(
+      mapPreferences?.rendererConsentVersion ===
+        GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    );
+  }, [mapPreferences]);
 
   const hasVaultAccess = Boolean(
     isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -151,6 +180,7 @@ export function SavedLocationsSection() {
   );
 
   const reload = useCallback(async () => {
+    const requestId = ++reloadRequestIdRef.current;
     if (!userId) {
       setLocations([]);
       setLoadedUserId(null);
@@ -173,14 +203,22 @@ export function SavedLocationsSection() {
         vaultKey,
         vaultOwnerToken,
       });
-      if (!isCurrentVaultSession(session)) return;
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLocations(sortSavedLocationsForDisplay(list));
     } catch {
-      if (!isCurrentVaultSession(session)) return;
-      setLocations([]);
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLoadError("Saved locations could not be loaded. Try again.");
     } finally {
-      if (isCurrentVaultSession(session)) {
+      if (
+        requestId === reloadRequestIdRef.current &&
+        isCurrentVaultSession(session)
+      ) {
         setLoadedUserId(userId);
         setLoading(false);
       }
@@ -190,6 +228,94 @@ export function SavedLocationsSection() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!pkmRevisionMountedRef.current) {
+      pkmRevisionMountedRef.current = true;
+      return;
+    }
+    if (hasVaultAccess) void reload();
+  }, [hasVaultAccess, pkmChangeRevision, reload]);
+
+  // Legacy checkout saves omitted addresses. Resolve them on load, rather than
+  // requiring a row click. These read-only results stay in the vault session.
+  useEffect(() => {
+    if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId) return;
+    const session = { userId, vaultKey, vaultOwnerToken };
+    const pending = locations.filter((location) => {
+      if (location.address || (location.savedFrom !== "check_in" && !location.placeName)) return false;
+      const key = `${location.id}:${location.latitude}:${location.longitude}`;
+      if (addressLookupsRef.current.has(key)) return false;
+      addressLookupsRef.current.add(key);
+      return true;
+    });
+    // Bound provider traffic even when an owner has many older check-ins.
+    const resolve = async () => {
+      for (let location = pending.shift(); location; location = pending.shift()) {
+        if (!isCurrentVaultSession(session)) return;
+        try {
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: location.latitude,
+            lng: location.longitude,
+          });
+          const address = place.formattedAddress?.trim();
+          if (!address) addressLookupsRef.current.delete(`${location.id}:${location.latitude}:${location.longitude}`);
+          if (isCurrentVaultSession(session)) {
+            const id = location.id;
+            setResolvedAddresses((current) => ({ ...current, [id]: address || null }));
+          }
+        } catch {
+          // The saved label's address remains visible if provider recovery fails.
+          addressLookupsRef.current.delete(`${location.id}:${location.latitude}:${location.longitude}`);
+          if (isCurrentVaultSession(session)) {
+            const id = location.id;
+            setResolvedAddresses((current) => ({ ...current, [id]: null }));
+          }
+        }
+      }
+    };
+    void Promise.all([resolve(), resolve(), resolve()]);
+  }, [hasVaultAccess, isCurrentVaultSession, loadedUserId, locations, userId, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!hasVaultAccess) return;
+    const reconcile = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) return;
+      if (reconcileTaskRef.current) {
+        reconcileQueuedRef.current = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          reconcileQueuedRef.current = false;
+          await reload();
+          await refreshMapPreferences();
+        } while (reconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (reconcileTaskRef.current === task) reconcileTaskRef.current = null;
+      });
+      reconcileTaskRef.current = task;
+    };
+    window.addEventListener("focus", reconcile);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        reconcile();
+      }
+    });
+    return () => {
+      window.removeEventListener("focus", reconcile);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+      removeLifecycle();
+    };
+  }, [hasVaultAccess, refreshMapPreferences, reload]);
 
   useEffect(() => {
     if (hasVaultAccess) return;
@@ -203,6 +329,7 @@ export function SavedLocationsSection() {
     setSaveLocationSaving(false);
     setCapturing(false);
     setRemovingId(null);
+    setFavoritingId(null);
     setRepairingId(null);
     setLoading(false);
   }, [hasVaultAccess]);
@@ -236,7 +363,12 @@ export function SavedLocationsSection() {
     captureRequestIdRef.current = captureRequestId;
     const session = { userId, vaultKey, vaultOwnerToken };
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      // Saving a place records where the user is standing right now — a fix
+      // from the last few seconds says the same thing and costs nothing.
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+        requireMeasurement: true,
+      });
       if (
         captureRequestIdRef.current !== captureRequestId ||
         !isCurrentVaultSession(session) ||
@@ -244,6 +376,12 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
+      // A successful explicit acquisition uses the same per-owner switch
+      // state as the hub. A later pause was rejected by the guards above.
+      updateOneLocationControlState(userId, (current) => ({
+        ...current,
+        selfPreviewEnabled: true,
+      }));
       setSaveLocationPoint(point);
       setSaveLocationAddress(null);
       setSaveLocationAddressLoading(true);
@@ -293,9 +431,7 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
-      toast.error(
-        "We could not read your current location. Check location permission and try again.",
-      );
+      toast.error("Check location permission and try again.");
     } finally {
       if (
         captureRequestIdRef.current === captureRequestId &&
@@ -313,23 +449,43 @@ export function SavedLocationsSection() {
     vaultOwnerToken,
   ]);
 
+  useEffect(() => {
+    if (!userId || !hasVaultAccess || capturing || saveLocationModalOpen) return;
+    const staged = takeReservedOfferPrefill({
+      ownerUserId: userId,
+      ownerFeature: "location",
+      kind: "location_saved_place",
+    });
+    if (!staged) return;
+    setEditingLocation(null);
+    setOfferPrefill({ category: staged.category, label: staged.label });
+    void handleAdd();
+  }, [capturing, handleAdd, hasVaultAccess, saveLocationModalOpen, userId]);
+
   const handleSave = useCallback(
     async (
       category: SavedLocationCategory,
       label: string,
       details?: SavedLocationAddressDetails,
+      addressLine?: string | null,
     ) => {
       if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
         toast.error("Unlock your vault and capture the location again.");
         return;
       }
 
-      // Fold the structured entrance details into the single encrypted address
-      // string (same contract onboarding uses), so Home/Work/Other saved from
-      // Settings carry the house/flat, landmark and postal code too.
+      // Compose from the Address field the person just confirmed, NOT from
+      // this component's `saveLocationAddress`. On an edit the latter holds
+      // the previously composed line, so folding the details in again
+      // prepended them to a string that already began with them -- "Flat 5C,
+      // Flat 4B, Blue gate building, ..." growing on every save until it hit
+      // the 300-character ceiling. The base is stored alongside so the next
+      // edit rebuilds from parts instead of from the result.
+      const baseAddress =
+        addressLine === undefined ? saveLocationAddress : addressLine;
       const composedAddress = details
-        ? buildSavedLocationAddress(saveLocationAddress, details)
-        : saveLocationAddress;
+        ? buildSavedLocationAddress(baseAddress, details)
+        : baseAddress;
 
       const editing = editingLocation;
       // Only guard against a *different* saved place occupying the same spot.
@@ -354,6 +510,8 @@ export function SavedLocationsSection() {
           latitude: saveLocationPoint.latitude,
           longitude: saveLocationPoint.longitude,
           address: composedAddress,
+          addressBase: baseAddress,
+          addressDetails: details ?? null,
         };
         const next = editing
           ? await updateSavedLocation({
@@ -366,12 +524,35 @@ export function SavedLocationsSection() {
               input,
             });
         if (!isCurrentVaultSession(session)) return;
+        // Confirming a pin turns the live preview on, exactly as the onboarding
+        // save path already does.
+        //
+        // Saving a place is the one action in the product where the owner has
+        // just granted permission, let the device take a fix, dragged a pin to
+        // their own doorstep and named it -- and then landed back on a hub whose
+        // header switch read "Location off". Nothing here had ever gone through
+        // `activateMyLocation`, so `selfPreviewEnabled` stayed false; a person
+        // with no grants and no nearby presence has all three disjuncts behind
+        // `locationEnabled` false, and the screen contradicted what they had
+        // just done.
+        //
+        // Only the preview flag is written. `paused` is left exactly as it is,
+        // so this can never resume a Location the owner deliberately paused --
+        // `updateOneLocationControlState` already forces the preview back off
+        // while paused, which keeps this fail-closed rather than fail-friendly.
+        updateOneLocationControlState(userId, (current) => ({
+          ...current,
+          selfPreviewEnabled: true,
+        }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
-        toast.success(editing ? "Location updated." : "Location saved securely.");
+        setOfferPrefill(null);
+        toast.success(
+          editing ? "Location updated." : "Location saved securely.",
+        );
       } catch (error) {
         if (!isCurrentVaultSession(session)) return;
         toast.error(
@@ -414,13 +595,15 @@ export function SavedLocationsSection() {
         capturedAt: new Date().toISOString(),
         sourcePlatform: "web",
       });
-      setSaveLocationAddress(location.address ?? null);
+      // The street address on its own where it was recorded. Places saved
+      // before that was kept fall back to their composed line, which is the
+      // closest thing they have to a base and is at least editable.
+      setSaveLocationAddress(location.addressBase ?? location.address ?? null);
       setSaveLocationAddressLoading(false);
       setSaveLocationModalOpen(true);
     },
     [hasVaultAccess],
   );
-
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -446,6 +629,23 @@ export function SavedLocationsSection() {
     },
     [isCurrentVaultSession, removingId, userId, vaultKey, vaultOwnerToken],
   );
+
+  const handleFavorite = async (location: SavedLocation) => {
+    if (!hasVaultAccess || !userId || !vaultKey || !vaultOwnerToken || favoritingId) return;
+    setFavoritingId(location.id);
+    const session = { userId, vaultKey, vaultOwnerToken };
+    try {
+      const next = await favoriteSavedLocation({ context: session, id: location.id });
+      if (!isCurrentVaultSession(session)) return;
+      setLocations(sortSavedLocationsForDisplay(next));
+      setExpandedId(null);
+      toast.success("Added to favorites.");
+    } catch {
+      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.");
+    } finally {
+      if (isCurrentVaultSession(session)) setFavoritingId(null);
+    }
+  };
 
   const handleRepairAddress = useCallback(
     async (location: SavedLocation) => {
@@ -499,10 +699,13 @@ export function SavedLocationsSection() {
     setSaveLocationAddressLoading(false);
   }, []);
 
-  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  // "Locate me" inside the map picker — re-centre on a current fix.
   const locateMeForSavedLocation = useCallback(async () => {
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+        requireMeasurement: true,
+      });
       return { latitude: point.latitude, longitude: point.longitude };
     } catch {
       return null;
@@ -535,167 +738,247 @@ export function SavedLocationsSection() {
       vaultOwnerToken,
       rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     });
+    commitMapPreferences(next);
     setRendererDisclosureAccepted(
       next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     );
-  }, [vaultOwnerToken]);
+  }, [commitMapPreferences, vaultOwnerToken]);
 
   if (!userId || loadedUserId !== userId) return null;
+
+  const placeGroups = [
+    {
+      key: "favorite",
+      title: "Favorite Places",
+      locations: locations.filter((location) => location.savedFrom !== "check_in"),
+    },
+    {
+      key: "checked-in",
+      title: "Checked In Places",
+      locations: locations.filter((location) => location.savedFrom === "check_in"),
+    },
+  ].filter(
+    (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
+  );
 
   return (
     <>
       <section
         aria-label="Saved Locations"
-        className="w-full min-w-0"
+        className="w-full min-w-0 space-y-6"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
-          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-            Saved Locations
-          </p>
-          <button
-            type="button"
-            onClick={() => void handleAdd()}
-            disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {capturing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-            )}
-            Add place
-          </button>
-        </div>
+        {placeGroups.map((group) => (
+          <section key={group.key} aria-label={group.title} className="min-w-0">
+            <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
+              {/* Same SectionLabel as the Automatic approval / Safety sections
+                  above: one hierarchy, one size. items-center keeps the action
+                  vertically centered with the label at every width. */}
+              <SectionLabel as="p" compact>
+                {group.title}
+              </SectionLabel>
+              {group.key === "favorite" ? (
+                <button
+                  type="button"
+                  data-location-type-role="utility-action" onClick={() => void handleAdd()}
+                  disabled={!hasVaultAccess || locationControl.paused || capturing}
+                  className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {capturing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : null}
+                  Add place
+                </button>
+              ) : null}
+            </div>
 
-        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
-          {!hasVaultAccess ? (
-            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-                <ShieldCheck className="h-[17px] w-[17px]" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  Unlock your vault to view saved places
-                </p>
-                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
-                  Exact locations stay encrypted and are available only while
-                  your vault is unlocked.
-                </p>
-              </div>
-            </div>
-          ) : loading ? (
-            <div
-              className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
-              role="status"
-            >
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Loading saved places…
-            </div>
-          ) : loadError ? (
-            <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
-              <p className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
-                {loadError}
-              </p>
-              <button
-                type="button"
-                onClick={() => void reload()}
-                className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
-              >
-                Retry
-              </button>
-            </div>
-          ) : locations.length === 0 ? (
-            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  No saved places yet
-                </p>
-                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
-                  Add Home, Work, or another place to see it here.
-                </p>
-              </div>
-            </div>
-          ) : (
-            locations.map((location, index) => (
-              <div
-                key={location.id}
-                className={cn(
-                  "flex min-h-[60px] items-center gap-3.5 p-3.5",
-                  index > 0 &&
-                    "border-t border-[color:var(--app-separator)]",
-                )}
-              >
-                <CategoryIcon category={location.category} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
-                    {location.label}
-                  </p>
-                  <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
-                    {location.address || "Address unavailable"}
-                  </p>
+            <div className="overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-none">
+              {!hasVaultAccess ? (
+                <div className="flex min-h-[72px] items-center gap-3 px-4 py-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white">
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p data-location-type-role="row-title" className="text-[17px] font-normal leading-[22px] text-foreground">
+                      Unlock your vault to view saved places
+                    </p>
+                    <p data-location-type-role="row-description" className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                      Exact locations stay encrypted and are available only while
+                      your vault is unlocked.
+                    </p>
+                  </div>
                 </div>
-                {!location.address ? (
+              ) : loading ? (
+                <div
+                  className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
+                  role="status" data-location-type-role="status"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Loading saved places…
+                </div>
+              ) : loadError ? (
+                <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
+                  <p data-location-type-role="helper" className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
+                    {loadError}
+                  </p>
                   <button
-                    type="button"
-                    aria-label={`Find address for ${location.label}`}
-                    title="Find address"
-                    onClick={() => void handleRepairAddress(location)}
-                    disabled={repairingId !== null}
-                    className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
+                    data-location-type-role="utility-action" type="button"
+                    onClick={() => void reload()}
+                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
-                    <RefreshCw
-                      className={cn(
-                        "h-[17px] w-[17px]",
-                        repairingId === location.id && "animate-spin",
-                      )}
-                      strokeWidth={2}
-                    />
+                    Retry
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label={`Edit ${location.label}`}
-                  title="Edit place"
-                  onClick={() => handleEditSavedLocation(location)}
-                  disabled={
-                    removingId !== null ||
-                    repairingId !== null ||
-                    capturing ||
-                    locationControl.paused
-                  }
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
-                >
-                  <Pencil className="h-[17px] w-[17px]" strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${location.label}`}
-                  onClick={() => void handleRemove(location.id)}
-                  disabled={removingId !== null}
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-[color:var(--app-destructive)]/10 hover:text-[color:var(--app-destructive)] disabled:opacity-45"
-                >
+                </div>
+              ) : group.locations.length === 0 ? (
+                <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
+                  <div>
+                    <p data-location-type-role="section-heading" className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
+                      {group.key === "favorite" ? "No places yet" : "No checked-in places yet"}
+                    </p>
+                    <p data-location-type-role="row-description" className={group.key === "favorite" ? "sr-only" : "mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]"}>
+                      {group.key === "favorite"
+                        ? "Add Home, Work, or another place to see it here."
+                        : "Save a place after checking out to find it here."}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                group.locations.map((location, index) => {
+                  const expanded = expandedId === location.id;
+                  const checkedIn = location.savedFrom === "check_in";
+                  const venue = checkedIn || location.placeName
+                    ? splitCheckInPlaceLabel(location.label)
+                    : null;
+                  const name = location.category === "other"
+                    ? location.placeName || venue?.name || location.label
+                    : location.label;
+                  const address = location.address || resolvedAddresses[location.id] || venue?.address;
+                  const findingAddress = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+                  const dateValue = location.checkedInAt || location.savedAt;
+                  const visitDate = checkedIn && Number.isFinite(Date.parse(dateValue))
+                    ? new Date(dateValue)
+                    : null;
+                  return (
+                    <div
+                      key={location.id}
+                      className={cn(
+                        index > 0 && "border-t border-[color:var(--app-separator)]",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedId((current) =>
+                            current === location.id ? null : location.id,
+                          )
+                        }
+                        aria-expanded={expanded}
+                        className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
+                      >
+                        <CategoryIcon category={location.category} />
+                        <div className="min-w-0 flex-1">
+                          <p data-location-type-role="row-title" className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+                            {name}
+                          </p>
+                          <p data-location-type-role="row-description" className={cn("mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]", checkedIn ? "break-words" : "truncate")}>
+                            {address || (findingAddress ? "Finding address…" : "Address unavailable")}
+                          </p>
+                        </div>
+                        {visitDate ? (
+                          <time data-location-type-role="row-description"
+                            dateTime={dateValue}
+                            title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
+                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                          >
+                            {!location.checkedInAt ? <span className="block">Saved</span> : null}
+                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                            <span className="block">{visitDate.getFullYear()}</span>
+                          </time>
+                        ) : null}
+                        <ChevronRight
+                          className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
+                          strokeWidth={1.9}
+                          aria-hidden
+                        />
+                      </button>
 
-                  {removingId === location.id ? (
-                    <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                  ) : (
-                    <Trash2 className="h-[18px] w-[18px]" strokeWidth={2} />
-                  )}
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-        {hasVaultAccess ? (
-          <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
-            {locationControl.paused
-              ? "Resume Location before capturing another saved place."
-              : "Saved places are encrypted in your vault and shared only when you explicitly approve location access."}
-          </p>
-        ) : null}
+                      {expanded ? (
+                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
+                          {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
+                            <button
+                              type="button"
+                              data-location-type-role="utility-action" onClick={() => void handleRepairAddress(location)}
+                              disabled={repairingId !== null}
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            >
+                              <RefreshCw
+                                className={cn(
+                                  "h-[15px] w-[15px]",
+                                  repairingId === location.id && "animate-spin",
+                                )}
+                                strokeWidth={2}
+                                aria-hidden
+                              />
+                              Find address
+                            </button>
+                          ) : null}
+                          {checkedIn ? (
+                            <button
+                              type="button"
+                              data-location-type-role="compact-action" onClick={() => void handleFavorite(location)}
+                              disabled={favoritingId !== null || removingId !== null}
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground transition-colors hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                            >
+                              {favoritingId === location.id ? <Loader2 className="h-[15px] w-[15px] animate-spin" aria-hidden /> : <Star className="h-[15px] w-[15px]" aria-hidden />}
+                              Add to favorites
+                            </button>
+                          ) : <button
+                            type="button"
+                            data-location-type-role="utility-action" onClick={() => handleEditSavedLocation(location)}
+                            disabled={
+                              removingId !== null ||
+                              repairingId !== null ||
+                              capturing ||
+                              locationControl.paused
+                            }
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                          >
+                            <Pencil
+                              className="h-[15px] w-[15px]"
+                              strokeWidth={2}
+                              aria-hidden
+                            />
+                            Edit
+                          </button>}
+                          <button
+                            type="button"
+                            data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
+                            disabled={removingId !== null || favoritingId !== null}
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
+                          >
+                            {removingId === location.id ? (
+                              <Loader2
+                                className="h-[15px] w-[15px] animate-spin"
+                                aria-hidden
+                              />
+                            ) : (
+                              <Trash2
+                                className="h-[15px] w-[15px]"
+                                strokeWidth={2}
+                                aria-hidden
+                              />
+                            )}
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ))}
       </section>
 
       <SaveLocationModal
@@ -718,24 +1001,38 @@ export function SavedLocationsSection() {
         onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
         collectAddressDetails
         startWithMapPicker
-        initialCategory={editingLocation?.category ?? null}
+        initialCategory={editingLocation?.category ?? offerPrefill?.category ?? null}
+        // Excluding the place being edited: its own label is still free to it.
+        existingLocations={
+          editingLocation
+            ? locations.filter((location) => location.id !== editingLocation.id)
+            : locations
+        }
 
         initialCustomLabel={
-          editingLocation?.category === "other" ? editingLocation.label : null
+          editingLocation?.category === "other"
+            ? editingLocation.placeName || editingLocation.label
+            : !editingLocation && offerPrefill?.category === "other"
+              ? offerPrefill.label
+              : null
         }
+        // What the person actually typed last time. This used to hand back an
+        // empty houseOrFlat on every edit, which the modal required before it
+        // would enable its own button -- so "Update location" was permanently
+        // dead on a screen that gave no reason.
         initialDetails={
           editingLocation
-            ? {
+            ? (editingLocation.addressDetails ?? {
                 houseOrFlat: "",
                 buildingColor: "",
                 landmark: "",
                 postalCode: inferPostalCode(editingLocation.address),
-              }
+              })
             : null
         }
         saveLabel={editingLocation ? "Update location" : "Save location"}
-        onSave={(category, label, details) =>
-          void handleSave(category, label, details)
+        onSave={(category, label, details, addressLine) =>
+          void handleSave(category, label, details, addressLine)
         }
         onSkip={() => {
           if (saveLocationSaving) return;
@@ -745,9 +1042,9 @@ export function SavedLocationsSection() {
           setSaveLocationAddress(null);
           setSaveLocationAddressLoading(false);
           setEditingLocation(null);
+          setOfferPrefill(null);
         }}
       />
-
     </>
   );
 }

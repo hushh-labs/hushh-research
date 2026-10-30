@@ -1,25 +1,222 @@
 "use client";
 
-// One Live is the only interactive audio owner. Other surfaces may request a
-// session, but only the persistent Agent Bar can acquire the microphone,
-// create the Live transport, or render native-audio playback.
-export const AGENT_CONVERSATION_REQUEST_EVENT = "hushh:agent-conversation-request";
+// The persistent Agent Bar is the single command-capture owner. Other
+// surfaces may request a command, but they never acquire the microphone.
+export const AGENT_CONVERSATION_REQUEST_EVENT =
+  "hushh:agent-conversation-request";
+export const AGENT_CONVERSATION_READY_EVENT = "hushh:agent-conversation-ready";
+/**
+ * An explicit STOP, not the toggle.
+ *
+ * `requestAgentConversation` asks the owner to toggle, which starts a session
+ * when none is running and no-ops during the window where the mic lease is
+ * held but the transport is not live yet. Neither is what a caller means when
+ * it needs a live One session to end, so the broker carries its own verb. The
+ * caller still owns no audio: this is the same window-event shape.
+ */
+export const AGENT_CONVERSATION_STOP_EVENT = "hushh:agent-conversation-stop";
+export const AGENT_CONVERSATION_OUTCOME_EVENT =
+  "hushh:agent-conversation-outcome";
+export const AGENT_CONVERSATION_CANCEL_EVENT =
+  "hushh:agent-conversation-cancel";
+
+export type AgentConversationRequestSource = "agent_chat" | "siri_app_shortcut";
+
+export type AgentConversationRequest = {
+  source?: AgentConversationRequestSource;
+  requestId?: string;
+  /**
+   * A one-time request captured by a trusted native handoff. This remains in
+   * memory and is submitted through the same command runtime; it is never
+   * treated as app-composed speech.
+   */
+  initialRequestText?: string;
+};
+
+export type AgentConversationOutcome = {
+  source: AgentConversationRequestSource;
+  requestId: string;
+  outcome: "accepted" | "failed";
+};
+
+export type AgentConversationCancellation = {
+  source: "siri_app_shortcut";
+  requestId: string;
+};
+
+export type AgentConversationDispatchResult =
+  "dispatched" | "queued" | "duplicate";
+
+let ownerReady = false;
+let queuedRequest: AgentConversationRequest | null = null;
+let routeHandoffRequest: {
+  pathname: string;
+  request: AgentConversationRequest;
+  expiresAt: number;
+} | null = null;
+const knownRequestIds = new Set<string>();
+const ROUTE_HANDOFF_TTL_MS = 15_000;
+
+function normalizedRequest(
+  request: AgentConversationRequest = {},
+): AgentConversationRequest {
+  const initialRequestText = request.initialRequestText?.trim();
+  return {
+    source: request.source ?? "agent_chat",
+    requestId: request.requestId?.trim() || undefined,
+    ...(initialRequestText ? { initialRequestText } : {}),
+  };
+}
+
+function dispatchRequest(request: AgentConversationRequest): void {
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationRequest>(
+      AGENT_CONVERSATION_REQUEST_EVENT,
+      { detail: request },
+    ),
+  );
+}
 
 /**
- * Ask the persistent Agent Bar to toggle One Live. The event deliberately
- * carries no text, credentials, or audio and cannot start a fallback STT/TTS
- * pipeline.
+ * Ask the persistent Agent Bar to start a Talk to One command. Existing
+ * no-argument callers remain compatible. A request received before the sole owner mounts is held
+ * as one metadata-only slot; duplicate ids are coalesced.
  */
-export function requestAgentConversation(): void {
+export function requestAgentConversation(
+  request: AgentConversationRequest = {},
+): AgentConversationDispatchResult {
+  if (typeof window === "undefined") return "queued";
+  const normalized = normalizedRequest(request);
+  if (normalized.requestId && knownRequestIds.has(normalized.requestId)) {
+    return "duplicate";
+  }
+  if (normalized.requestId) knownRequestIds.add(normalized.requestId);
+
+  if (!ownerReady) {
+    queuedRequest = normalized;
+    return "queued";
+  }
+  dispatchRequest(normalized);
+  return "dispatched";
+}
+
+/**
+ * Carry a Talk to One request across a client-side navigation without starting
+ * capture on the source screen. The request stays in memory, expires quickly,
+ * and is delivered by the persistent voice owner only after the target route
+ * has committed.
+ */
+export function requestAgentConversationAfterRoute(
+  pathname: string,
+  request: AgentConversationRequest = {},
+): void {
+  const targetPathname = pathname.trim();
+  if (!targetPathname.startsWith("/")) return;
+  routeHandoffRequest = {
+    pathname: targetPathname,
+    request: normalizedRequest(request),
+    expiresAt: Date.now() + ROUTE_HANDOFF_TTL_MS,
+  };
+}
+
+/** Deliver a pending route handoff only on its exact destination route. */
+export function dispatchAgentConversationAfterRoute(
+  pathname: string | null | undefined,
+): AgentConversationDispatchResult | null {
+  const pending = routeHandoffRequest;
+  if (!pending) return null;
+  if (Date.now() >= pending.expiresAt) {
+    routeHandoffRequest = null;
+    return null;
+  }
+  if (pathname !== pending.pathname) return null;
+  routeHandoffRequest = null;
+  return requestAgentConversation(pending.request);
+}
+
+/**
+ * Ask the persistent Agent Bar to cancel the active command now.
+ *
+ * Unqueued and unconditional on purpose. It is a no-op when nothing is
+ * running, and being unconditional is the only shape that also covers the
+ * window between the microphone lease being acquired and the transport coming
+ * active, where the shared capture store still reads "idle".
+ */
+export function requestAgentConversationStop(): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(AGENT_CONVERSATION_REQUEST_EVENT));
+  window.dispatchEvent(new Event(AGENT_CONVERSATION_STOP_EVENT));
+}
+
+export function markAgentConversationOwnerReady(): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  ownerReady = true;
+  window.dispatchEvent(new Event(AGENT_CONVERSATION_READY_EVENT));
+  if (queuedRequest) {
+    const pending = queuedRequest;
+    queuedRequest = null;
+    queueMicrotask(() => {
+      if (ownerReady) dispatchRequest(pending);
+      else queuedRequest = pending;
+    });
+  }
+  return () => {
+    ownerReady = false;
+  };
+}
+
+export function isAgentConversationOwnerReady(): boolean {
+  return ownerReady;
+}
+
+export function acknowledgeAgentConversation(
+  outcome: AgentConversationOutcome,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationOutcome>(
+      AGENT_CONVERSATION_OUTCOME_EVENT,
+      { detail: outcome },
+    ),
+  );
+}
+
+/**
+ * Cancel a pending external handoff before the sole voice owner accepts it.
+ * This is an in-memory signal only: the native coordinator remains the
+ * authority for the one-time request claim and completion record.
+ */
+export function cancelAgentConversationRequest(
+  cancellation: AgentConversationCancellation,
+): void {
+  if (typeof window === "undefined") return;
+  if (queuedRequest?.requestId === cancellation.requestId) {
+    queuedRequest = null;
+  }
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationCancellation>(
+      AGENT_CONVERSATION_CANCEL_EVENT,
+      { detail: cancellation },
+    ),
+  );
+}
+
+/** Test-only reset for the module-scoped metadata broker. */
+export function resetAgentConversationBrokerForTests(): void {
+  ownerReady = false;
+  queuedRequest = null;
+  routeHandoffRequest = null;
+  knownRequestIds.clear();
 }
 
 const DISABLED_FLAG_VALUES = new Set(["0", "false", "off", "disabled", "no"]);
 
-export function isAgentGeminiVoiceEnabled(): boolean {
-  const configured = process.env.NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED;
-  if (configured === undefined || configured === null || String(configured).trim() === "") {
+export function isAgentCommandEnabled(): boolean {
+  const configured = process.env.NEXT_PUBLIC_AGENT_COMMAND_ENABLED;
+  if (
+    configured === undefined ||
+    configured === null ||
+    String(configured).trim() === ""
+  ) {
     return true;
   }
   return !DISABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());

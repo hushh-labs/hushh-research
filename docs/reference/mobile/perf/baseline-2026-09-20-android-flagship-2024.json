@@ -1,0 +1,212 @@
+{
+  "schema_version": "hushh-render-perf-baseline-v1",
+  "label": "android-flagship-2024 first reading (feed launch, one rep; full run pending the phone unlock)",
+  "source_sha": "8cec9a006",
+  "captured_at": "2026-09-20T17:11:10.023Z",
+  "device": {
+    "tier": "android-flagship-2024",
+    "certifies": false,
+    "configuration": "Debug",
+    "test_mode": true,
+    "raf_hz": {
+      "raw": 91.4,
+      "nominal": 90,
+      "budget_ms": 11.1,
+      "samples": 92
+    },
+    "platform": "android",
+    "ua_family": "Linux Chrome/152",
+    "supported_entry_types": [
+      "element",
+      "event",
+      "first-input",
+      "interaction-contentful-paint",
+      "largest-contentful-paint",
+      "layout-shift",
+      "long-animation-frame",
+      "longtask",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource",
+      "soft-navigation",
+      "visibility-state"
+    ],
+    "display": {
+      "active_mode_id": "1",
+      "render_frame_rate": 120.00001,
+      "source": "dumpsys display while the app was in the foreground"
+    },
+    "web_engine": "Linux Chrome/152",
+    "pipeline": "Skia (Vulkan)",
+    "certifies_reason": "Debug build; native test bridge on (350 ms status poll, reviewer bootstrap)"
+  },
+  "runs": [
+    {
+      "run_id": "3dc96dca",
+      "windows": 20,
+      "hud": false
+    }
+  ],
+  "gestures": [
+    {
+      "name": "feed-flick",
+      "windows": 10,
+      "frames": 808,
+      "p95_ms_median": 8,
+      "p99_ms_median": 8,
+      "max_ms": 83.2,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 0,
+      "longtask_count": null,
+      "verdict": "critical",
+      "gfxinfo": {
+        "total_frames": 445,
+        "janky_frames": 17,
+        "janky_pct": 3.82,
+        "p50_ms": 10,
+        "p90_ms": 17,
+        "p95_ms": 18,
+        "p99_ms": 20,
+        "frames_over_50_ms": 0,
+        "missed_vsync": 1,
+        "slow_ui_thread": 0
+      }
+    },
+    {
+      "name": "bottom-nav-switch",
+      "windows": 3,
+      "frames": 425,
+      "p95_ms_median": 9,
+      "p99_ms_median": 33,
+      "max_ms": 58.2,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 75,
+      "longtask_count": null,
+      "verdict": "critical",
+      "gfxinfo": {
+        "total_frames": 210,
+        "janky_frames": 8,
+        "janky_pct": 3.81,
+        "p50_ms": 12,
+        "p90_ms": 16,
+        "p95_ms": 21,
+        "p99_ms": 36,
+        "frames_over_50_ms": 0,
+        "missed_vsync": 1,
+        "slow_ui_thread": 1
+      }
+    },
+    {
+      "name": "profile-pane-open-dismiss",
+      "windows": 2,
+      "frames": 315,
+      "p95_ms_median": 8,
+      "p99_ms_median": 41,
+      "max_ms": 50,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 61.2,
+      "longtask_count": null,
+      "verdict": "critical",
+      "gfxinfo": {
+        "total_frames": 76,
+        "janky_frames": 7,
+        "janky_pct": 9.21,
+        "p50_ms": 11,
+        "p90_ms": 17,
+        "p95_ms": 20,
+        "p99_ms": 42,
+        "frames_over_50_ms": 0,
+        "missed_vsync": 0,
+        "slow_ui_thread": 1
+      }
+    },
+    {
+      "name": "chat-stream-30s",
+      "windows": 0,
+      "frames": 0,
+      "p95_ms_median": null,
+      "p99_ms_median": null,
+      "max_ms": 0,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": null,
+      "longtask_count": null,
+      "verdict": "good",
+      "gfxinfo": {
+        "total_frames": 1,
+        "janky_frames": 1,
+        "janky_pct": 100,
+        "p50_ms": 19,
+        "p90_ms": 19,
+        "p95_ms": 19,
+        "p99_ms": 19,
+        "frames_over_50_ms": 0,
+        "missed_vsync": 0,
+        "slow_ui_thread": 0
+      }
+    }
+  ],
+  "idle_by_route": [
+    {
+      "route": "idle:/login/",
+      "frames": 2,
+      "p95_ms": 8,
+      "max_ms": 8.4,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/feed/",
+      "frames": 1922,
+      "p95_ms": 8,
+      "max_ms": 108.2,
+      "over_50_count": 5
+    },
+    {
+      "route": "idle:/one/",
+      "frames": 373,
+      "p95_ms": 8,
+      "max_ms": 25,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/connect/",
+      "frames": 324,
+      "p95_ms": 8,
+      "max_ms": 49.9,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/consent/",
+      "frames": 287,
+      "p95_ms": 8,
+      "max_ms": 25,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/",
+      "frames": 2007,
+      "p95_ms": 8,
+      "max_ms": 33.4,
+      "over_50_count": 0
+    }
+  ],
+  "reference_gfxinfo": [],
+  "lane_line": "certifies=false simulator=false test_mode=true configuration=Debug",
+  "skipped": [
+    "name=chat-stream-30s reason=composer_not_found"
+  ],
+  "reference_threads": null,
+  "reference_x": null,
+  "certifying": null,
+  "status": {
+    "gesture_card": "feed launch only, one rep; the full three-launch run was interrupted by the phone's secure lock",
+    "truth_lane": "AttachedRenderPerfTest compiles for debug and perf build types; first phone run pending",
+    "display": {
+      "active_mode_id": "1",
+      "render_frame_rate": 120.0,
+      "probe_boot_raf_hz": 91.4,
+      "probe_steady_state_p95_ms": 8
+    }
+  }
+}

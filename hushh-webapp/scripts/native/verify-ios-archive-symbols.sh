@@ -72,6 +72,17 @@ APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_P
 APP_BINARY="$APP_PATH/$APP_EXECUTABLE"
 FRAMEWORKS_DIR="$APP_PATH/Frameworks"
 
+# These Google frameworks are static archive binaries wrapped in a .framework
+# directory. They are linked into App and do not ship as separate images, and
+# the upstream XCFrameworks do not contain dSYMs. Keep the exception explicit so
+# any separately shipped framework still requires matching symbols.
+ALLOWED_WITHOUT_DSYM=(
+  FirebaseAnalytics
+  GoogleAppMeasurement
+  GoogleAppMeasurementIdentitySupport
+  GoogleAdsOnDeviceConversion
+)
+
 if [ ! -d "$DSYM_DIR" ]; then
   echo "Missing dSYMs directory in archive: $ARCHIVE_PATH" >&2
   exit 1
@@ -148,6 +159,14 @@ verify_framework_if_embedded() {
   if [ ! -d "$framework_path" ]; then
     return 0
   fi
+
+  local allowed
+  for allowed in "${ALLOWED_WITHOUT_DSYM[@]}"; do
+    if [ "$framework_name" = "$allowed" ]; then
+      echo "dSYM exception: ${framework_name}.framework is an upstream static vendor binary"
+      return 0
+    fi
+  done
 
   if ! verify_uuid_match "$framework_name.framework" "$binary_path" "$dsym_path"; then
     if [ "$REPAIR" != "true" ]; then

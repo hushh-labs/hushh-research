@@ -158,13 +158,22 @@ const agentforceManifest = {
   ),
 };
 
-fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
-fs.writeFileSync(agentforceOutputPath, `${JSON.stringify(agentforceManifest, null, 2)}\n`);
-fs.writeFileSync(
-  mulesoftExchangeOutputPath,
-  `${JSON.stringify(mulesoftExchangeManifest, null, 2)}\n`,
-);
+for (const [target, projection] of [
+  [outputPath, manifest],
+  [agentforceOutputPath, agentforceManifest],
+  [mulesoftExchangeOutputPath, mulesoftExchangeManifest],
+]) {
+  const rendered = `${JSON.stringify(projection, null, 2)}\n`;
+  if (process.argv.includes("--check")) {
+    if (!fs.existsSync(target) || fs.readFileSync(target, "utf8") !== rendered) {
+      console.error(`Stale or missing MCP projection: ${path.basename(target)}`);
+      process.exitCode = 1;
+    }
+  } else {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, rendered);
+  }
+}
 
 if (process.argv.includes("--print")) {
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);

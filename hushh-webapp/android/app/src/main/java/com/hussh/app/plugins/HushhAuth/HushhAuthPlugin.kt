@@ -1,10 +1,17 @@
 package com.hussh.app.plugins.HushhAuth
 
 import android.content.Intent
+import android.app.Activity
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.auth.AuthTabIntent
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.getcapacitor.JSObject
@@ -16,8 +23,14 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.OAuthProvider
@@ -40,10 +53,70 @@ import org.json.JSONObject
 @CapacitorPlugin(name = "HushhAuth")
 class HushhAuthPlugin : Plugin() {
 
+    private enum class TokenRefreshRejection(val bridgeCode: String, val bridgeMessage: String) {
+        USER_NOT_FOUND("auth/user-not-found", "The account no longer exists."),
+        USER_DISABLED("auth/user-disabled", "The account has been disabled."),
+        INVALID_USER_TOKEN("auth/invalid-user-token", "The current Firebase session is no longer valid."),
+        USER_TOKEN_EXPIRED("auth/user-token-expired", "The current Firebase session is no longer valid."),
+        NETWORK_REQUEST_FAILED(
+            "auth/network-request-failed",
+            "Firebase could not be reached to validate the session."
+        ),
+        INTERNAL_ERROR("auth/internal-error", "Firebase could not validate the current session.")
+    }
+
     private val TAG = "HushhAuth"
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
+    private var googleSignInSettlement: GoogleSignInSettlement? = null
+    private val googleSignInHandler = Handler(Looper.getMainLooper())
+    private var googleSignInTimeout: Runnable? = null
+    private var pendingGmailConnectCall: PluginCall? = null
+    private var pendingCalendarConnectCall: PluginCall? = null
+    private var pendingDriveConnectCall: PluginCall? = null
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
+    private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
+    private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>
+    private lateinit var identityLauncher: ActivityResultLauncher<Intent>
+    private lateinit var driveAuthorizationLauncher: ActivityResultLauncher<Intent>
+    private val identityHandler = Handler(Looper.getMainLooper())
+    private val driveAuthorizationHandler = Handler(Looper.getMainLooper())
+    /**
+     * Connection and selected-file Picker handoffs share exactly one browser
+     * slot. Their callback paths stay distinct so a credential return cannot
+     * settle a staged Picker candidate (or vice versa).
+     */
+    private enum class DriveAuthorizationKind(val returnPath: String) {
+        CONNECTION("/return"),
+        PICKER("/picker-return")
+    }
+    private class IdentityReauthentication(
+        val call: PluginCall,
+        val user: FirebaseUser,
+        val googleSubject: String
+    ) {
+        val fence = GoogleIdentityReauthenticationFence(user.uid, SystemClock.elapsedRealtime())
+    }
+    private var identityReauthentication: IdentityReauthentication? = null
+    private class DriveAuthorization(
+        val call: PluginCall,
+        val user: FirebaseUser,
+        val fence: NativeDriveAuthorizationFence,
+        val kind: DriveAuthorizationKind
+    ) {
+        var timeout: Runnable? = null
+        var fallbackCancellation: Runnable? = null
+    }
+    private var driveAuthorization: DriveAuthorization? = null
+    private data class GoogleContactsSignupAccount(val user: FirebaseUser, val account: GoogleSignInAccount)
+    private class GoogleContactsOperation(val call: PluginCall, val captured: GoogleContactsSignupAccount) {
+        val fence = GoogleIdentityReauthenticationFence(captured.user.uid, SystemClock.elapsedRealtime())
+        var timeout: Runnable? = null
+    }
+    private var googleContactsSignupAccount: GoogleContactsSignupAccount? = null
+    private var googleContactsOperation: GoogleContactsOperation? = null
+    private lateinit var googleContactsLauncher: ActivityResultLauncher<IntentSenderRequest>
+    private val contactsScope = "https://www.googleapis.com/auth/contacts.readonly"
 
     // Current user data
     private var currentIdToken: String? = null
@@ -52,9 +125,15 @@ class HushhAuthPlugin : Plugin() {
 
     // Firebase Auth instance
     private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private var deletionPhoneProof: DeletionPhoneProof? = null
+    private var appleIdentityReauthentication: AppleIdentityReauthentication? = null
 
     override fun load() {
         super.load()
+        activity.runOnUiThread {
+            deletionPhoneProof = try { DeletionPhoneProof(activity, firebaseAuth) } catch (_: Exception) { null }
+            appleIdentityReauthentication = AppleIdentityReauthentication(activity, firebaseAuth)
+        }
         Log.d(TAG, "🤖 [HushhAuth] Plugin loaded")
 
         // Configure Google Sign-In
@@ -67,12 +146,46 @@ class HushhAuthPlugin : Plugin() {
             .build()
 
         googleSignInClient = GoogleSignIn.getClient(activity, gso)
+        googleContactsLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { result ->
+            val operation = googleContactsOperation ?: return@registerForActivityResult
+            operation.fence.drainProvider()
+            if (operation.fence.settled) {
+                if (googleContactsOperation === operation) googleContactsOperation = null
+            } else if (result.resultCode != Activity.RESULT_OK || result.data == null) {
+                finishGoogleContacts(operation, "USER_CANCELLED")
+            } else {
+                try {
+                    resolveGoogleContacts(operation, Identity.getAuthorizationClient(activity)
+                        .getAuthorizationResultFromIntent(result.data))
+                } catch (_: Exception) {
+                    finishGoogleContacts(operation, "contacts_authorization_unavailable")
+                }
+            }
+        }
 
         // Register activity result launcher
         signInLauncher = activity.registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             handleSignInResult(result.resultCode, result.data)
+        }
+        gmailConnectLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleGmailConnectResult(result.data)
+        }
+        calendarConnectLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleCalendarConnectResult(result.data)
+        }
+        identityLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result -> handleIdentityResult(result.data) }
+        driveAuthorizationLauncher = AuthTabIntent.registerActivityResultLauncher(activity) { result ->
+            handleDriveAuthorizationResult(result.resultCode, result.resultUri)
         }
     }
 
@@ -100,56 +213,122 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun signIn(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signIn(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
+        googleContactsSignupAccount = null
         Log.d(TAG, "🤖 [HushhAuth] signIn() CALLED - Native plugin invoked!")
 
         pendingCall = call
+        val settlement = GoogleSignInSettlement()
+        googleSignInSettlement = settlement
 
-        activity.runOnUiThread {
-            val signInIntent = googleSignInClient.signInIntent
-            signInLauncher.launch(signInIntent)
+        try {
+            signInLauncher.launch(googleSignInClient.signInIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [HushhAuth] Could not open Google Sign-In: ${e.message}")
+            finishGoogleSignIn(call, settlement) {
+                call.reject("Google sign-in could not be opened.", GoogleSignInSettlement.FAILED)
+            }
         }
+    }
+
+    /**
+     * The only way a Google sign-in answers JS. It releases the in-progress
+     * slot and the exchange deadline, so a late or duplicate callback is a
+     * no-op instead of a second settlement.
+     */
+    private fun finishGoogleSignIn(
+        call: PluginCall,
+        settlement: GoogleSignInSettlement,
+        answer: () -> Unit
+    ) {
+        if (!settlement.settle()) return
+        googleSignInTimeout?.let(googleSignInHandler::removeCallbacks)
+        googleSignInTimeout = null
+        if (googleSignInSettlement === settlement) googleSignInSettlement = null
+        if (pendingCall === call) pendingCall = null
+        answer()
     }
 
     private fun handleSignInResult(resultCode: Int, data: Intent?) {
         val call = pendingCall
-        if (call == null) {
-            Log.e(TAG, "❌ [HushhAuth] No pending call!")
+        val settlement = googleSignInSettlement
+        if (call == null || settlement == null || settlement.isSettled) {
+            Log.e(TAG, "❌ [HushhAuth] No pending Google sign-in for result $resultCode")
             return
         }
 
-        try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            val account = task.getResult(ApiException::class.java)
-
-            Log.d(TAG, "✅ [HushhAuth] Got Google account: ${account.email}")
-
-            // Exchange for Firebase credential
-            firebaseAuthWithGoogle(account, call)
-
+        val account = try {
+            GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
         } catch (e: ApiException) {
             Log.e(TAG, "❌ [HushhAuth] Google Sign-In failed: ${e.statusCode} - ${e.message}")
-            when (e.statusCode) {
-                12501 -> call.reject("User cancelled sign-in", "USER_CANCELLED")
-                else -> call.reject("Sign-in failed: ${e.message}")
+            val code = GoogleSignInSettlement.codeForGoogleStatus(e.statusCode)
+            finishGoogleSignIn(call, settlement) {
+                when (code) {
+                    GoogleSignInSettlement.CANCELLED -> call.reject("User cancelled sign-in", code)
+                    GoogleSignInSettlement.NETWORK ->
+                        call.reject("Network error. Check your connection and try again.", code)
+                    else -> call.reject("Google sign-in failed (${e.statusCode}).", code)
+                }
             }
-            pendingCall = null
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [HushhAuth] Google Sign-In result unreadable: ${e.message}")
+            finishGoogleSignIn(call, settlement) {
+                call.reject("Google sign-in failed.", GoogleSignInSettlement.FAILED)
+            }
+            return
         }
+
+        Log.d(TAG, "✅ [HushhAuth] Got Google account")
+
+        // Exchange for Firebase credential
+        firebaseAuthWithGoogle(account, call, settlement)
     }
 
-    private fun firebaseAuthWithGoogle(account: GoogleSignInAccount, call: PluginCall) {
+    private fun firebaseAuthWithGoogle(
+        account: GoogleSignInAccount,
+        call: PluginCall,
+        settlement: GoogleSignInSettlement
+    ) {
         Log.d(TAG, "🔥 [HushhAuth] Exchanging Google credential for Firebase credential...")
 
         val idToken = account.idToken
         if (idToken == null) {
-            call.reject("No ID token received from Google")
-            pendingCall = null
+            finishGoogleSignIn(call, settlement) {
+                call.reject("No ID token received from Google", GoogleSignInSettlement.FAILED)
+            }
             return
         }
 
         val credential = GoogleAuthProvider.getCredential(idToken, null)
 
+        // Firebase's native HTTP client has no IPv4 fallback race. On a network
+        // that advertises IPv6 but drops it, each Firebase request waits out
+        // per-address connect timeouts (observed: 4m12s on a Play build) while
+        // the WebView showed "Signing in with Google..." forever. Always answer
+        // JS within a bound instead.
+        val timeout = Runnable {
+            Log.e(TAG, "❌ [HushhAuth] Firebase exchange did not complete in time")
+            finishGoogleSignIn(call, settlement) {
+                call.reject(
+                    "Google sign-in is taking too long. Check your connection and try again.",
+                    GoogleSignInSettlement.TIMEOUT
+                )
+            }
+        }
+        googleSignInTimeout = timeout
+        googleSignInHandler.postDelayed(timeout, GoogleSignInSettlement.FIREBASE_EXCHANGE_TIMEOUT_MS)
+
+        // Not Activity-scoped: an Activity-scoped Task listener is removed at
+        // onStop, so a slow exchange finishing while the app is backgrounded
+        // would never answer JS.
         firebaseAuth.signInWithCredential(credential)
-            .addOnCompleteListener(activity) { task ->
+            .addOnCompleteListener { task ->
+                if (settlement.isSettled) return@addOnCompleteListener
                 if (task.isSuccessful) {
                     val firebaseUser = firebaseAuth.currentUser
                     if (firebaseUser != null) {
@@ -159,6 +338,7 @@ class HushhAuthPlugin : Plugin() {
                         // Get Firebase ID Token
                         firebaseUser.getIdToken(true)
                             .addOnCompleteListener { tokenTask ->
+                                if (settlement.isSettled) return@addOnCompleteListener
                                 if (tokenTask.isSuccessful) {
                                     val firebaseIdToken = tokenTask.result?.token
                                     Log.d(TAG, "✅ [HushhAuth] Got Firebase ID token: ${firebaseIdToken?.take(20)}...")
@@ -182,7 +362,9 @@ class HushhAuthPlugin : Plugin() {
                                     saveCredentialsToSecureStorage(firebaseIdToken ?: "", idToken, authUser)
 
                                     // Return result
+                                    googleContactsSignupAccount = GoogleContactsSignupAccount(firebaseUser, account)
                                     val response = JSObject().apply {
+                                        put("isNewUser", task.result?.additionalUserInfo?.isNewUser ?: false)
                                         put("idToken", firebaseIdToken)
                                         put("accessToken", idToken)
                                         put("user", JSObject().apply {
@@ -191,32 +373,728 @@ class HushhAuthPlugin : Plugin() {
                                             put("displayName", authUser.displayName)
                                             put("photoUrl", authUser.photoUrl)
                                             put("emailVerified", authUser.emailVerified)
+                                            put("phoneNumber", authUser.phoneNumber)
                                         })
                                     }
 
-                                    call.resolve(response)
+                                    finishGoogleSignIn(call, settlement) { call.resolve(response) }
                                     Log.d(TAG, "✅ [HushhAuth] call.resolve() completed with Firebase UID and Token")
                                 } else {
-                                    call.reject("Failed to get Firebase ID token: ${tokenTask.exception?.message}")
+                                    rejectFirebaseExchange(call, settlement, tokenTask.exception)
                                 }
-                                pendingCall = null
                             }
                     } else {
-                        call.reject("No Firebase user returned")
-                        pendingCall = null
+                        finishGoogleSignIn(call, settlement) {
+                            call.reject("No Firebase user returned", GoogleSignInSettlement.FAILED)
+                        }
                     }
                 } else {
                     Log.e(TAG, "❌ [HushhAuth] Firebase sign-in failed: ${task.exception?.message}")
-                    call.reject("Firebase sign-in failed: ${task.exception?.message}")
-                    pendingCall = null
+                    rejectFirebaseExchange(call, settlement, task.exception)
                 }
             }
+    }
+
+    private fun rejectFirebaseExchange(
+        call: PluginCall,
+        settlement: GoogleSignInSettlement,
+        exception: Exception?
+    ) {
+        val network = exception is FirebaseNetworkException ||
+            exception?.cause is FirebaseNetworkException
+        finishGoogleSignIn(call, settlement) {
+            if (network) {
+                call.reject(
+                    "Network error. Check your connection and try again.",
+                    GoogleSignInSettlement.NETWORK
+                )
+            } else {
+                call.reject(
+                    "Firebase sign-in failed: ${exception?.message ?: "unknown error"}",
+                    GoogleSignInSettlement.FAILED
+                )
+            }
+        }
+    }
+
+    // ==================== Gmail Connect ====================
+
+    /**
+     * Requests Gmail consent separately from Firebase sign-in. The platform SDK
+     * returns a one-time server authorization code; no Gmail credential is
+     * persisted by this plugin.
+     */
+    @PluginMethod
+    fun connectGmail(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectGmail(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
+        val serverClientId = call.getString("serverClientId")?.trim()
+        val purpose = call.getString("purpose")?.trim() ?: "read"
+        if (serverClientId.isNullOrEmpty()) {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        if (pendingGmailConnectCall != null) {
+            call.reject("Mail connection is already in progress")
+            return
+        }
+
+        pendingGmailConnectCall = call
+        val gmailScopes = mutableListOf(Scope("https://www.googleapis.com/auth/gmail.readonly"))
+        if (purpose == "send") {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.send"))
+        } else if (purpose == "compose") {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.compose"))
+            if (call.getBoolean("preserveSend") == true) {
+                gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.send"))
+            }
+        } else if (purpose != "read") {
+            pendingGmailConnectCall = null
+            call.reject("Unsupported Mail access level")
+            return
+        }
+        // The backend refuses a grant that drops a scope the connection already
+        // holds, so carry a modify grant made on the web through any reconnect.
+        if (call.getBoolean("preserveModify") == true) {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.modify"))
+        }
+        val gmailOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestServerAuthCode(serverClientId, true)
+            .requestEmail()
+            .requestScopes(gmailScopes.first(), *gmailScopes.drop(1).toTypedArray())
+            .build()
+        val gmailSignInClient = GoogleSignIn.getClient(activity, gmailOptions)
+
+        activity.runOnUiThread {
+            gmailConnectLauncher.launch(gmailSignInClient.signInIntent)
+        }
+    }
+
+    private fun handleGmailConnectResult(data: Intent?) {
+        val call = pendingGmailConnectCall ?: run {
+            Log.e(TAG, "❌ [HushhAuth] No pending Gmail connection call")
+            return
+        }
+
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            val serverAuthCode = account.serverAuthCode
+            if (serverAuthCode.isNullOrBlank()) {
+                call.reject("Google did not return a Mail authorization code")
+            } else {
+                call.resolve(JSObject().put("serverAuthCode", serverAuthCode))
+            }
+        } catch (error: ApiException) {
+            Log.e(TAG, "❌ [HushhAuth] Gmail connection failed: ${error.statusCode} - ${error.message}")
+            if (error.statusCode == 12501) {
+                call.reject("Mail connection was cancelled", "USER_CANCELLED")
+            } else {
+                call.reject("Mail sign-in failed: ${error.message}")
+            }
+        } finally {
+            pendingGmailConnectCall = null
+        }
+    }
+
+    // ==================== Calendar Connect ====================
+
+    /** Requests the least-privileged Calendar scope set for the selected action. */
+    @PluginMethod
+    fun connectCalendar(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectCalendar(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
+        val serverClientId = call.getString("serverClientId")?.trim()
+        val accessLevel = call.getString("accessLevel")?.trim() ?: "read"
+        if (serverClientId.isNullOrEmpty()) {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        if (accessLevel != "read" && accessLevel != "manage") {
+            call.reject("Unsupported Calendar access level")
+            return
+        }
+        if (pendingCalendarConnectCall != null) {
+            call.reject("Calendar connection is already in progress")
+            return
+        }
+
+        pendingCalendarConnectCall = call
+        val calendarScopes = mutableListOf(
+            Scope(
+                if (accessLevel == "manage") {
+                    "https://www.googleapis.com/auth/calendar.events"
+                } else {
+                    "https://www.googleapis.com/auth/calendar.events.readonly"
+                }
+            ),
+            Scope("https://www.googleapis.com/auth/calendar.freebusy")
+        )
+        if (call.getBoolean("includeCalendarList", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/calendar.calendarlist.readonly"))
+        }
+        if (call.getBoolean("includeGuestPhotos", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/contacts.readonly"))
+        }
+        if (call.getBoolean("includeMeetingFiles", false) == true) {
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/meetings.space.readonly"))
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/drive.meet.readonly"))
+            calendarScopes.add(Scope("https://www.googleapis.com/auth/drive.metadata.readonly"))
+        }
+        val calendarOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestServerAuthCode(serverClientId, true)
+            .requestEmail()
+            .requestScopes(calendarScopes.first(), *calendarScopes.drop(1).toTypedArray())
+            .build()
+        val calendarSignInClient = GoogleSignIn.getClient(activity, calendarOptions)
+        activity.runOnUiThread {
+            calendarConnectLauncher.launch(calendarSignInClient.signInIntent)
+        }
+    }
+
+    private fun handleCalendarConnectResult(data: Intent?) {
+        val call = pendingCalendarConnectCall ?: run {
+            Log.e(TAG, "❌ [HushhAuth] No pending Calendar connection call")
+            return
+        }
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            val serverAuthCode = account.serverAuthCode
+            if (serverAuthCode.isNullOrBlank()) {
+                call.reject("Google did not return a Calendar authorization code")
+            } else {
+                call.resolve(JSObject().put("serverAuthCode", serverAuthCode))
+            }
+        } catch (error: ApiException) {
+            Log.e(TAG, "❌ [HushhAuth] Calendar connection failed: ${error.statusCode} - ${error.message}")
+            if (error.statusCode == 12501) {
+                call.reject("Calendar connection was cancelled", "USER_CANCELLED")
+            } else {
+                call.reject("Calendar sign-in failed: ${error.message}")
+            }
+        } finally {
+            pendingCalendarConnectCall = null
+        }
+    }
+
+    // ==================== Native Drive OAuth ====================
+
+    @PluginMethod
+    fun connectDrive(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectDrive(call) }
+            return
+        }
+        startDriveAuthorization(call, DriveAuthorizationKind.CONNECTION)
+    }
+
+    /**
+     * Opens Google's server-authored selected-file browser flow. It returns
+     * only the opaque attempt reference/outcome; candidate metadata stays
+     * staged server-side until the owner explicitly confirms it in One.
+     */
+    @PluginMethod
+    fun pickDriveFiles(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { pickDriveFiles(call) }
+            return
+        }
+        startDriveAuthorization(call, DriveAuthorizationKind.PICKER)
+    }
+
+    private fun startDriveAuthorization(
+        call: PluginCall,
+        kind: DriveAuthorizationKind
+    ) {
+        if (googleContactsOperation != null || driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
+            pendingGmailConnectCall != null || pendingCalendarConnectCall != null
+        ) {
+            call.reject("Another identity action is already in progress.", "identity_busy")
+            return
+        }
+        val authorizeUri = call.getString("authorizeUrl")?.let(Uri::parse)
+        val attemptId = call.getString("attemptId")
+        val expectedUserId = call.getString("expectedUserId")
+        val expiresAt = call.getDouble("expiresAt")?.toLong()
+        val user = firebaseAuth.currentUser
+        val now = System.currentTimeMillis()
+        if (authorizeUri == null || !isTrustedDriveAuthorizeUri(authorizeUri) ||
+            attemptId.isNullOrBlank() || !isOpaqueDriveAttemptId(attemptId) ||
+            expectedUserId.isNullOrBlank() || user == null || user.uid != expectedUserId ||
+            expiresAt == null || expiresAt <= now || expiresAt > now + 11 * 60_000L
+        ) {
+            call.reject(
+                if (kind == DriveAuthorizationKind.PICKER) {
+                    "Drive file selection is unavailable."
+                } else {
+                    "Drive connection is unavailable."
+                },
+                if (kind == DriveAuthorizationKind.PICKER) {
+                    "drive_picker_unavailable"
+                } else {
+                    "drive_connection_unavailable"
+                }
+            )
+            return
+        }
+
+        val operation = DriveAuthorization(
+            call,
+            user,
+            NativeDriveAuthorizationFence(expectedUserId, attemptId, expiresAt),
+            kind
+        )
+        driveAuthorization = operation
+        val timeout = Runnable {
+            finishDriveAuthorization(operation, "failed", drainProvider = false)
+        }
+        operation.timeout = timeout
+        driveAuthorizationHandler.postDelayed(timeout, maxOf(0L, expiresAt - now))
+        try {
+            AuthTabIntent.Builder().build().launch(
+                driveAuthorizationLauncher,
+                authorizeUri,
+                "hushh"
+            )
+        } catch (_: Exception) {
+            finishDriveAuthorization(operation, "failed", drainProvider = true)
+        }
+    }
+
+    override fun handleOnNewIntent(intent: Intent) {
+        super.handleOnNewIntent(intent)
+        val operation = driveAuthorization ?: return
+        val result = parseNativeDriveReturn(intent.data, operation.kind) ?: return
+        if (operation.fence.settled) {
+            operation.fence.drainProvider()
+            if (operation.fence.canRelease && driveAuthorization === operation) {
+                driveAuthorization = null
+            }
+            return
+        }
+        // A stale custom scheme can arrive from an older browser tab. It must
+        // not drain or terminate the current attempt; wait for its own return
+        // (or the bounded fallback cancellation/deadline).
+        if (
+            claimDriveAuthorization(operation, result.first) !=
+                NativeDriveAuthorizationFence.Claim.ACCEPTED
+        ) return
+        operation.fallbackCancellation?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation = null
+        if (!operation.fence.drainProvider()) return
+        finishDriveAuthorization(operation, result.second, drainProvider = false)
+    }
+
+    private fun handleDriveAuthorizationResult(resultCode: Int, resultUri: Uri?) {
+        val operation = driveAuthorization ?: return
+        // Browser 1.9.0 automatically falls back to Custom Tabs on older
+        // browsers. That fallback returns RESULT_CANCELED when its tab closes,
+        // while its real custom-scheme completion arrives through
+        // handleOnNewIntent. Give that intent a short turn before declaring a
+        // user cancellation; otherwise a valid staged grant is stranded.
+        if (resultCode == AuthTabIntent.RESULT_CANCELED) {
+            scheduleDriveFallbackCancellation(operation)
+            return
+        }
+        if (operation.fence.settled) {
+            operation.fence.drainProvider()
+            if (operation.fence.canRelease && driveAuthorization === operation) {
+                driveAuthorization = null
+            }
+            return
+        }
+        if (resultCode != AuthTabIntent.RESULT_OK) {
+            if (!operation.fence.drainProvider()) return
+            finishDriveAuthorization(
+                operation,
+                "failed",
+                drainProvider = false
+            )
+            return
+        }
+        val result = parseNativeDriveReturn(resultUri, operation.kind)
+        if (result == null) {
+            if (!operation.fence.drainProvider()) return
+            finishDriveAuthorization(operation, "failed", drainProvider = false)
+            return
+        }
+        if (
+            claimDriveAuthorization(operation, result.first) !=
+                NativeDriveAuthorizationFence.Claim.ACCEPTED
+        ) return
+        if (!operation.fence.drainProvider()) return
+        finishDriveAuthorization(operation, result.second, drainProvider = false)
+    }
+
+    private fun scheduleDriveFallbackCancellation(operation: DriveAuthorization) {
+        if (operation.fence.settled || operation.fallbackCancellation != null) return
+        val cancellation = Runnable {
+            operation.fallbackCancellation = null
+            if (driveAuthorization !== operation || operation.fence.settled) return@Runnable
+            finishDriveAuthorization(operation, "cancelled", drainProvider = true)
+        }
+        operation.fallbackCancellation = cancellation
+        driveAuthorizationHandler.postDelayed(
+            cancellation,
+            NativeDriveOAuthPolicy.FALLBACK_RETURN_GRACE_MS
+        )
+    }
+
+    private fun isTrustedDriveAuthorizeUri(uri: Uri): Boolean =
+        uri.scheme == "https" && uri.host == "accounts.google.com" &&
+            uri.path == "/o/oauth2/v2/auth" && uri.userInfo == null && uri.port == -1 &&
+            uri.fragment == null
+
+    private fun isOpaqueDriveAttemptId(value: String): Boolean =
+        value.matches(Regex("^[A-Za-z0-9_-]{16,128}$"))
+
+    private fun parseNativeDriveReturn(
+        uri: Uri?,
+        kind: DriveAuthorizationKind
+    ): Pair<String, String>? {
+        if (uri?.scheme != "hushh" || uri.host != "connectors" || uri.path != kind.returnPath ||
+            uri.userInfo != null || uri.port != -1 || uri.fragment != null ||
+            uri.queryParameterNames != setOf("attemptId", "outcome")
+        ) return null
+        val attemptIds = uri.getQueryParameters("attemptId")
+        val outcomes = uri.getQueryParameters("outcome")
+        val attemptId = attemptIds.singleOrNull() ?: return null
+        val outcome = outcomes.singleOrNull() ?: return null
+        if (!isOpaqueDriveAttemptId(attemptId) || outcome !in setOf("ready", "cancelled", "failed")) {
+            return null
+        }
+        return attemptId to outcome
+    }
+
+    private fun claimDriveAuthorization(
+        operation: DriveAuthorization,
+        attemptId: String
+    ): NativeDriveAuthorizationFence.Claim {
+        if (driveAuthorization !== operation) return NativeDriveAuthorizationFence.Claim.IGNORED
+        val user = firebaseAuth.currentUser
+        return operation.fence.claim(
+            attemptId,
+            user?.uid,
+            user === operation.user,
+            System.currentTimeMillis()
+        )
+    }
+
+    private fun finishDriveAuthorization(
+        operation: DriveAuthorization,
+        outcome: String,
+        drainProvider: Boolean
+    ) {
+        if (drainProvider) operation.fence.drainProvider()
+        if (!operation.fence.settle()) return
+        operation.timeout?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation = null
+        if (operation.fence.canRelease && driveAuthorization === operation) {
+            driveAuthorization = null
+        }
+        operation.call.resolve(
+            JSObject().put("attemptId", operation.fence.expectedAttemptId).put("outcome", outcome)
+        )
+    }
+
+    // ==================== Fresh same-user Google proof ====================
+
+    @PluginMethod
+    fun authorizeGoogleContacts(call: PluginCall) {
+        activity.runOnUiThread {
+            if (rejectWhileVerifyingIdentity(call)) return@runOnUiThread
+            val user = firebaseAuth.currentUser
+            // The Google SDK retains its own signed-in account across process restarts.
+            // Recover only that account; never open a picker or replace Firebase identity.
+            val signedInAccount = googleContactsSignupAccount?.takeIf { it.user === user }?.account
+                ?: GoogleSignIn.getLastSignedInAccount(context)
+            val subject = signedInAccount?.id
+            val account = signedInAccount?.account
+            if (user == null || signedInAccount == null || user.uid != call.getString("expectedUserId") ||
+                subject.isNullOrBlank() || account == null ||
+                user.providerData.none { it.providerId == "google.com" && it.uid == subject }
+            ) {
+                call.reject("Google Contacts access is unavailable.", "contacts_authorization_unavailable")
+                return@runOnUiThread
+            }
+            val captured = GoogleContactsSignupAccount(user, signedInAccount)
+            val operation = GoogleContactsOperation(call, captured)
+            googleContactsOperation = operation
+            operation.timeout = Runnable { finishGoogleContacts(operation, "contacts_authorization_timeout") }
+            googleSignInHandler.postDelayed(operation.timeout!!, 120_000L)
+            try {
+            val request = AuthorizationRequest.builder().setAccount(account)
+                .setRequestedScopes(listOf(Scope(contactsScope)))
+                .setOptOutIncludingGrantedScopes(true).build()
+            Identity.getAuthorizationClient(activity).authorize(request)
+                .addOnSuccessListener { result ->
+                    if (googleContactsOperation !== operation) return@addOnSuccessListener
+                    if (SystemClock.elapsedRealtime() >= operation.fence.deadline) {
+                        operation.fence.drainProvider()
+                        finishGoogleContacts(operation, "contacts_authorization_timeout")
+                        return@addOnSuccessListener
+                    }
+                    if (operation.fence.settled || !googleContactsSessionMatches(operation)) {
+                        operation.fence.drainProvider()
+                        finishGoogleContacts(operation, "session_changed")
+                    } else if (result.hasResolution()) {
+                        try {
+                            val intent = result.pendingIntent ?: throw IllegalStateException()
+                            googleContactsLauncher.launch(IntentSenderRequest.Builder(intent.intentSender).build())
+                        } catch (_: Exception) {
+                            operation.fence.drainProvider()
+                            finishGoogleContacts(operation, "contacts_authorization_unavailable")
+                        }
+                    } else {
+                        operation.fence.drainProvider()
+                        resolveGoogleContacts(operation, result)
+                    }
+                }
+                .addOnFailureListener {
+                    operation.fence.drainProvider()
+                    finishGoogleContacts(operation, "contacts_authorization_unavailable")
+                }
+            } catch (_: Exception) {
+                operation.fence.drainProvider()
+                finishGoogleContacts(operation, "contacts_authorization_unavailable")
+            }
+        }
+    }
+
+    private fun googleContactsSessionMatches(operation: GoogleContactsOperation): Boolean {
+        val user = firebaseAuth.currentUser
+        return user != null && googleContactsOperation === operation && user === operation.captured.user &&
+            user.uid == operation.fence.expectedUserId && user.providerData.any {
+                it.providerId == "google.com" && it.uid == operation.captured.account.id
+            }
+    }
+
+    private fun resolveGoogleContacts(operation: GoogleContactsOperation, result: AuthorizationResult) {
+        val claim = operation.fence.claim(0, firebaseAuth.currentUser?.uid,
+            googleContactsSessionMatches(operation), SystemClock.elapsedRealtime())
+        if (claim == GoogleIdentityReauthenticationFence.Claim.IGNORED) {
+            if (operation.fence.canRelease && googleContactsOperation === operation) googleContactsOperation = null
+            return
+        }
+        if (claim != GoogleIdentityReauthenticationFence.Claim.ACCEPTED) {
+            finishGoogleContacts(operation, "session_changed")
+            return
+        }
+        val scopes = result.grantedScopes.toSet()
+        val token = result.accessToken
+        if (token.isNullOrBlank() || scopes != setOf(contactsScope)) {
+            finishGoogleContacts(operation, "contacts_not_granted")
+            return
+        }
+        operation.timeout?.let(googleSignInHandler::removeCallbacks)
+        operation.fence.settle()
+        googleContactsOperation = null
+        operation.call.resolve(JSObject().apply {
+            put("accessToken", token)
+            put("googleSubject", operation.captured.account.id)
+            put("grantedScopes", org.json.JSONArray(scopes.toList()))
+            put("authority", "android-contacts-only")
+            put("expiresAt", JSONObject.NULL)
+        })
+    }
+
+    private fun finishGoogleContacts(operation: GoogleContactsOperation, code: String) {
+        val shouldReject = operation.fence.settle()
+        operation.timeout?.let(googleSignInHandler::removeCallbacks)
+        if (operation.fence.canRelease && googleContactsOperation === operation) googleContactsOperation = null
+        if (shouldReject) operation.call.reject("Google Contacts access did not complete.", code)
+    }
+
+    private fun rejectWhileVerifyingIdentity(call: PluginCall): Boolean {
+        if (googleContactsOperation == null && driveAuthorization == null && identityReauthentication == null && pendingCall == null &&
+            pendingGmailConnectCall == null && pendingCalendarConnectCall == null && appleIdentityReauthentication?.busy != true
+        ) return false
+        call.reject("Identity verification is already in progress.", "identity_busy")
+        return true
+    }
+
+    @PluginMethod
+    fun reauthenticateAppleIdentity(call: PluginCall) {
+        activity.runOnUiThread {
+            if (rejectWhileVerifyingIdentity(call)) return@runOnUiThread
+            appleIdentityReauthentication?.start(call)
+                ?: call.reject("Identity verification is unavailable.", "native_identity_unavailable")
+        }
+    }
+
+    @PluginMethod
+    fun reauthenticateGoogleIdentity(call: PluginCall) {
+        activity.runOnUiThread {
+            if (googleContactsOperation != null || driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
+                pendingGmailConnectCall != null || pendingCalendarConnectCall != null || appleIdentityReauthentication?.busy == true
+            ) {
+                call.reject("Identity verification is already in progress.", "identity_busy")
+                return@runOnUiThread
+            }
+            val expectedUserId = call.getString("expectedUserId")
+            val user = firebaseAuth.currentUser
+            val google = user?.providerData?.firstOrNull { it.providerId == "google.com" }
+            if (expectedUserId.isNullOrBlank() || user == null ||
+                user.uid != expectedUserId || google == null
+            ) {
+                call.reject("Verify the current Google identity.", "google_identity_required")
+                return@runOnUiThread
+            }
+            if (getWebClientId().isNullOrBlank()) {
+                call.reject("Identity verification is unavailable.", "identity_verification_failed")
+                return@runOnUiThread
+            }
+            val operation = IdentityReauthentication(call, user, google.uid)
+            identityReauthentication = operation
+            identityHandler.postDelayed({ finishIdentity(operation, "identity_timeout") }, 120_000L)
+            try {
+                identityLauncher.launch(googleSignInClient.signInIntent)
+            } catch (_: Exception) {
+                operation.fence.drainProvider()
+                finishIdentity(operation, "identity_verification_failed")
+            }
+        }
+    }
+
+    private fun handleIdentityResult(data: Intent?) {
+        val operation = identityReauthentication ?: return // A restarted activity has no authority.
+        if (!operation.fence.drainProvider()) return
+        if (operation.fence.settled) {
+            identityReauthentication = null // Drain the quarantined launcher; never use its result.
+            return
+        }
+        if (!claimIdentity(operation, 0)) return
+        val account = try {
+            GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
+        } catch (error: ApiException) {
+            finishIdentity(operation, if (error.statusCode == 12501) "identity_cancelled" else "identity_verification_failed")
+            return
+        } catch (_: Exception) {
+            finishIdentity(operation, "identity_verification_failed")
+            return
+        }
+        if (account.id != operation.googleSubject) {
+            finishIdentity(operation, "identity_mismatch")
+            return
+        }
+        val idToken = account.idToken
+        if (idToken.isNullOrBlank()) {
+            finishIdentity(operation, "identity_verification_failed")
+            return
+        }
+        // Never use signInWithCredential: it would replace the current owner.
+        operation.user.reauthenticate(GoogleAuthProvider.getCredential(idToken, null))
+            .addOnCompleteListener { task ->
+                if (!claimIdentity(operation, 1)) return@addOnCompleteListener
+                if (!task.isSuccessful) {
+                    finishIdentity(operation, "identity_verification_failed")
+                    return@addOnCompleteListener
+                }
+                operation.user.getIdToken(true).addOnCompleteListener tokenResult@{ tokenTask ->
+                    if (!claimIdentity(operation, 2)) return@tokenResult
+                    val token = if (tokenTask.isSuccessful) tokenTask.result?.token else null
+                    if (token.isNullOrBlank()) {
+                        finishIdentity(operation, "identity_verification_failed")
+                        return@tokenResult
+                    }
+                    if (!operation.fence.settle()) return@tokenResult
+                    identityReauthentication = null
+                    // No new credential persistence, cached fallback, or auth publication.
+                    operation.call.resolve(JSObject().put("userId", operation.user.uid).put("idToken", token))
+                }
+            }
+    }
+
+    private fun claimIdentity(operation: IdentityReauthentication, phase: Int): Boolean {
+        if (identityReauthentication !== operation) return false
+        val current = firebaseAuth.currentUser
+        return when (operation.fence.claim(
+            phase, current?.uid, current === operation.user, SystemClock.elapsedRealtime()
+        )) {
+            GoogleIdentityReauthenticationFence.Claim.ACCEPTED -> true
+            GoogleIdentityReauthenticationFence.Claim.IGNORED -> false
+            GoogleIdentityReauthenticationFence.Claim.STALE -> {
+                finishIdentity(operation, "session_changed")
+                false
+            }
+        }
+    }
+
+    private fun finishIdentity(operation: IdentityReauthentication, code: String) {
+        if (!operation.fence.settle()) return
+        // Activity results have no request ID. Never reuse the slot until an
+        // outstanding result drains, even after timeout/sign-out rejects JS.
+        if (operation.fence.canRelease && identityReauthentication === operation) {
+            identityReauthentication = null
+        }
+        operation.call.reject("Google identity verification did not complete.", code)
+    }
+
+    override fun handleOnDestroy() {
+        deletionPhoneProof?.invalidate()
+        appleIdentityReauthentication?.close()
+        googleContactsSignupAccount = null
+        googleContactsOperation?.let { it.fence.drainProvider(); finishGoogleContacts(it, "session_changed") }
+        identityReauthentication?.let { finishIdentity(it, "session_changed") }
+        driveAuthorization?.let { finishDriveAuthorization(it, "failed", drainProvider = false) }
+        identityHandler.removeCallbacksAndMessages(null)
+        driveAuthorizationHandler.removeCallbacksAndMessages(null)
+        googleSignInHandler.removeCallbacksAndMessages(null)
+        super.handleOnDestroy()
+    }
+
+    @PluginMethod
+    fun startPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.start(call) ?: call.reject("Phone verification is unavailable.", "phone_verification_failed")
+    }
+
+    @PluginMethod
+    fun startPhoneVerificationProof(call: PluginCall) {
+        deletionPhoneProof?.start(call, manualOnly = true) ?: call.reject("Phone verification is unavailable.", "phone_verification_failed")
+    }
+
+    @PluginMethod
+    fun confirmPhoneVerificationProof(call: PluginCall) {
+        deletionPhoneProof?.confirm(call) ?: call.reject("Request a new verification code.", "auth/session-expired")
+    }
+
+    @PluginMethod
+    fun cancelPhoneVerificationProof(call: PluginCall) {
+        deletionPhoneProof?.cancel(call) ?: call.resolve()
+    }
+
+    @PluginMethod
+    fun confirmPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.confirm(call) ?: call.reject("Request a new verification code.", "auth/session-expired")
+    }
+
+    @PluginMethod
+    fun cancelPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.cancel(call) ?: call.resolve()
     }
 
     // ==================== Sign Out ====================
 
     @PluginMethod
     fun signOut(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signOut(call) }
+            return
+        }
+        deletionPhoneProof?.invalidate()
+        appleIdentityReauthentication?.invalidate()
+        identityReauthentication?.let { finishIdentity(it, "session_changed") }
+        googleContactsSignupAccount = null
+        googleContactsOperation?.let { finishGoogleContacts(it, "session_changed") }
+        driveAuthorization?.let { finishDriveAuthorization(it, "failed", drainProvider = false) }
         Log.d(TAG, "🤖 [HushhAuth] signOut() called")
 
         // Sign out from Firebase
@@ -239,27 +1117,81 @@ class HushhAuthPlugin : Plugin() {
 
     // ==================== Get ID Token ====================
 
+    private fun tokenRefreshRejection(exception: Exception?): TokenRefreshRejection {
+        val firebaseCode = (exception as? FirebaseAuthException)?.errorCode
+        return when (firebaseCode) {
+            "ERROR_USER_NOT_FOUND" -> TokenRefreshRejection.USER_NOT_FOUND
+            "ERROR_USER_DISABLED" -> TokenRefreshRejection.USER_DISABLED
+            "ERROR_INVALID_USER_TOKEN" -> TokenRefreshRejection.INVALID_USER_TOKEN
+            "ERROR_USER_TOKEN_EXPIRED" -> TokenRefreshRejection.USER_TOKEN_EXPIRED
+            "ERROR_NETWORK_REQUEST_FAILED" -> TokenRefreshRejection.NETWORK_REQUEST_FAILED
+            else -> if (
+                exception is FirebaseNetworkException ||
+                exception?.cause is FirebaseNetworkException
+            ) {
+                TokenRefreshRejection.NETWORK_REQUEST_FAILED
+            } else {
+                TokenRefreshRejection.INTERNAL_ERROR
+            }
+        }
+    }
+
+    private fun rejectForcedTokenRefresh(call: PluginCall, exception: Exception?) {
+        val rejection = if (exception == null) {
+            TokenRefreshRejection.INVALID_USER_TOKEN
+        } else {
+            tokenRefreshRejection(exception)
+        }
+
+        // Localized SDK details are diagnostic-only. The bridge exposes a
+        // stable code plus a non-localized message for deterministic handling.
+        Log.w(
+            TAG,
+            "⚠️ [HushhAuth] Firebase token refresh failed [${rejection.bridgeCode}]: " +
+                (exception?.localizedMessage ?: "no live Firebase token")
+        )
+        call.reject(rejection.bridgeMessage, rejection.bridgeCode)
+    }
+
     @PluginMethod
     fun getIdToken(call: PluginCall) {
         val user = firebaseAuth.currentUser
+        val forceRefresh = call.getBoolean("forceRefresh", false) ?: false
         
         if (user != null) {
-            // Priority 1: Get fresh token from Firebase SDK (auto-refreshes if needed)
-            user.getIdToken(false).addOnCompleteListener(activity) { task ->
+            // Firebase owns forced-refresh authority. In that mode, a failed
+            // refresh must not be hidden by the Keystore's unexpired token.
+            // Not Activity-scoped: a token read while the Activity is stopped
+            // must still answer JS rather than be dropped at onStop.
+            user.getIdToken(forceRefresh).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val token = task.result?.token
-                    currentIdToken = token
-                    // Update storage with fresh token
-                    if (token != null && currentUser != null) {
-                        saveCredentialsToSecureStorage(token, currentAccessToken ?: "", currentUser!!)
+                    if (!token.isNullOrBlank()) {
+                        currentIdToken = token
+                        // Update storage with fresh token
+                        if (currentUser != null) {
+                            saveCredentialsToSecureStorage(token, currentAccessToken ?: "", currentUser!!)
+                        }
+                        call.resolve(JSObject().put("idToken", token))
+                    } else if (forceRefresh) {
+                        rejectForcedTokenRefresh(call, null)
+                    } else {
+                        resolveFromStorage(call)
                     }
-                    call.resolve(JSObject().put("idToken", token))
                 } else {
-                    Log.w(TAG, "⚠️ [HushhAuth] Failed to refresh token: ${task.exception?.message}")
-                    // Fallback to storage if network fails
-                    resolveFromStorage(call)
+                    if (forceRefresh) {
+                        rejectForcedTokenRefresh(call, task.exception)
+                    } else {
+                        Log.w(TAG, "⚠️ [HushhAuth] Failed to refresh token: ${task.exception?.message}")
+                        // Normal reads retain the offline secure-storage fallback.
+                        resolveFromStorage(call)
+                    }
                 }
             }
+        } else if (forceRefresh) {
+            // A forced validation request with no live Firebase principal must
+            // be terminal; returning null lets callers resurrect cached state.
+            rejectForcedTokenRefresh(call, null)
         } else {
             // Priority 2: Fallback to Secure Storage/Memory if SDK isn't ready
             resolveFromStorage(call)
@@ -324,6 +1256,12 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun signInWithApple(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signInWithApple(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
+        googleContactsSignupAccount = null
         Log.d(TAG, "🍎 [HushhAuth] signInWithApple() CALLED - Using Firebase OAuthProvider")
 
         pendingCall = call
@@ -340,7 +1278,7 @@ class HushhAuthPlugin : Plugin() {
                 // There's already a pending sign-in, handle it
                 pendingResultTask
                     .addOnSuccessListener { authResult ->
-                        handleAppleSignInSuccess(authResult.user, call)
+                        handleAppleSignInSuccess(authResult.user, call, authResult.additionalUserInfo?.isNewUser ?: false)
                     }
                     .addOnFailureListener { e ->
                         Log.e(TAG, "❌ [HushhAuth] Apple sign-in pending result failed: ${e.message}")
@@ -351,7 +1289,7 @@ class HushhAuthPlugin : Plugin() {
                 // Start new sign-in flow
                 firebaseAuth.startActivityForSignInWithProvider(activity, provider)
                     .addOnSuccessListener { authResult ->
-                        handleAppleSignInSuccess(authResult.user, call)
+                        handleAppleSignInSuccess(authResult.user, call, authResult.additionalUserInfo?.isNewUser ?: false)
                     }
                     .addOnFailureListener { e ->
                         Log.e(TAG, "❌ [HushhAuth] Apple sign-in failed: ${e.message}")
@@ -370,7 +1308,7 @@ class HushhAuthPlugin : Plugin() {
         }
     }
 
-    private fun handleAppleSignInSuccess(firebaseUser: FirebaseUser?, call: PluginCall) {
+    private fun handleAppleSignInSuccess(firebaseUser: FirebaseUser?, call: PluginCall, isNewUser: Boolean) {
         if (firebaseUser == null) {
             call.reject("No Firebase user returned from Apple Sign-In")
             pendingCall = null
@@ -407,12 +1345,14 @@ class HushhAuthPlugin : Plugin() {
                     // Return result
                     val response = JSObject().apply {
                         put("idToken", firebaseIdToken)
+                        put("isNewUser", isNewUser)
                         put("user", JSObject().apply {
                             put("uid", authUser.id)
                             put("email", authUser.email)
                             put("displayName", authUser.displayName)
                             put("photoUrl", authUser.photoUrl)
                             put("emailVerified", authUser.emailVerified)
+                            put("phoneNumber", authUser.phoneNumber)
                         })
                     }
 

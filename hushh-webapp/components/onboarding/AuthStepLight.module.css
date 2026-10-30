@@ -1,0 +1,270 @@
+/* Auth follows the accepted white welcome visual family on web and iOS WebView. */
+.shell {
+  --auth-control-radius: 16px;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #fff;
+  color: #1d1d1f;
+  color-scheme: light;
+  font-family: var(--font-app-body);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+.frame {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 1160px;
+  min-height: 100%;
+  margin-inline: auto;
+  padding:
+    max(56px, calc(var(--app-safe-area-top-effective, 0px) + 42px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(24px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+}
+.frame *, .frame *::before, .frame *::after { box-sizing: border-box; }
+
+.back {
+  position: absolute;
+  z-index: 5;
+  top: max(6px, calc(var(--app-safe-area-top-effective, 0px) + 6px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #f5f5f7;
+  color: #515158;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.back:hover { background: #ececf0; }
+.back:disabled { opacity: .4; pointer-events: none; }
+.back:focus-visible, .providerButton:focus-visible {
+  outline: 3px solid var(--app-accent-deep);
+  outline-offset: 3px;
+}
+
+.artwork {
+  width: min(100%, 500px);
+  min-width: 0;
+  display: grid;
+  place-items: center;
+}
+.artwork :global([data-welcome-scene]) { width: 100%; padding: 0; }
+.artwork :global([data-welcome-artwork]) { width: min(50vw, 190px); }
+
+.content {
+  width: min(100%, 430px);
+  min-width: 0;
+  margin-top: 5px;
+  color: #1d1d1f;
+}
+.clusters { gap: 16px; padding: 0; }
+.hero { gap: 0; }
+.title {
+  --foundation-title1-size: 30px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -.5px;
+  margin: 0;
+  color: #1d1d1f;
+  font-family: var(--font-app-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -.5px;
+}
+.title > span { color: var(--app-accent-deep); }
+.actions { width: 100%; max-width: 430px; transform: none; }
+.contacts {
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+.contacts label { color: #1d1d1f; font-weight: 600; }
+.contacts p { margin: 0; }
+.contacts :global([data-slot="checkbox"]) {
+  width: 18px;
+  height: 18px;
+  border-color: #86868b;
+}
+.contacts :global([data-slot="checkbox"][data-state="checked"]) {
+  border-color: var(--app-accent-deep);
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+}
+
+.providerButton {
+  position: relative;
+  width: 100%;
+  height: 53px !important;
+  min-height: 53px !important;
+  padding: 0 18px !important;
+  border: 1px solid #d8d8dc !important;
+  border-radius: var(--auth-control-radius) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 22px !important;
+  letter-spacing: 0 !important;
+  touch-action: manipulation;
+}
+@layer base {
+  .providerButton {
+    background: #fff !important;
+    color: #1d1d1f !important;
+  }
+  .title {
+    font-size: 30px !important;
+    font-weight: 600 !important;
+    line-height: 36px !important;
+  }
+}
+.providerButton:hover { background: #f8f8fa !important; }
+.providerButton [data-auth-provider-content] {
+  display: grid;
+  width: 240px;
+  max-width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  text-align: left;
+}
+/* Match Google's painted mark while preserving each logo's proportions. */
+.appleProviderIcon { width: 26.4px; height: 26.4px; }
+.emailProviderIcon { width: 27.1px; height: 27.1px; }
+.appleProviderIcon, .emailProviderIcon { flex-shrink: 0; max-width: none; }
+.microsoftProviderIcon { width: 22px; height: 22px; }
+.providerButton [data-auth-provider-content] > span:last-child {
+  font-family: var(--font-app-body) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 22px !important;
+  white-space: normal;
+}
+.actions :global(#enterprise-sso-email) {
+  height: 53px;
+  border-radius: 16px;
+  background: #fff;
+  color: #1d1d1f;
+  font-family: var(--font-app-body);
+  font-size: 16px;
+}
+.footer {
+  display: flex;
+  justify-content: center;
+  width: min(100%, 430px);
+  margin-top: auto;
+  padding-top: 20px;
+}
+.legalRow { width: 100%; justify-content: center; text-align: center; }
+.legalRow p, .legalRow a {
+  font-family: var(--font-app-body) !important;
+  font-size: 13px !important;
+  line-height: 18px !important;
+  letter-spacing: 0 !important;
+}
+.legalRow p { margin: 0; color: #6e6e73; font-weight: 400; }
+.legalRow a { color: var(--app-accent-deep); font-weight: 600; }
+
+@media (min-width: 800px) {
+  .frame {
+    display: grid;
+    grid-template-columns: minmax(0, 1.04fr) minmax(0, 430px);
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: clamp(44px, 6vw, 88px);
+    padding:
+      max(48px, var(--app-safe-area-top-effective, 0px))
+      max(40px, env(safe-area-inset-right, 0px))
+      max(32px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px))
+      max(40px, env(safe-area-inset-left, 0px));
+  }
+  .back { top: max(14px, calc(var(--app-safe-area-top-effective, 0px) + 6px)); left: max(40px, env(safe-area-inset-left, 0px)); }
+  .artwork { grid-column: 1; grid-row: 1 / 3; justify-self: center; }
+  .artwork :global([data-welcome-artwork]) { width: min(100%, 440px, max(300px, calc((100svh - 100px) * .858369))); }
+  .content { grid-column: 2; grid-row: 1; justify-self: stretch; margin-top: 0; }
+  .footer { grid-column: 2; grid-row: 2; justify-self: stretch; margin-top: 0; padding-top: 16px; }
+}
+
+@media (max-width: 350px) {
+  .frame { padding-inline: max(18px, env(safe-area-inset-left, 0px)); }
+  .artwork :global([data-welcome-artwork]) { width: min(50vw, 160px); }
+}
+@media (max-height: 650px) and (max-width: 799px) {
+  .frame { padding-top: max(52px, calc(var(--app-safe-area-top-effective, 0px) + 42px)); padding-bottom: 16px; }
+  .artwork :global([data-welcome-artwork]) { width: min(42vw, 155px); }
+  .clusters { gap: 12px; }
+  .footer { padding-top: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame *, .frame *::before, .frame *::after { animation: none !important; transition: none !important; }
+}
+
+/* The welcome surface stays light in both themes. Its form primitives need
+   the same local palette as its provider buttons, rather than the app theme. */
+.emailSection {
+  --foreground: #1d1d1f;
+  --muted-foreground: #6e6e73;
+  --app-label: #1d1d1f;
+  --app-secondary-label: #6e6e73;
+  --destructive: #b42318;
+  --app-secondary-surface: #fff;
+  --app-separator: #d8d8dc;
+  --app-input-radius: var(--auth-control-radius);
+  /* Accent and focus inherit the owner-selected app palette. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--app-form-related-gap);
+  color: var(--foreground);
+  text-align: left;
+}
+.emailForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--app-form-field-gap);
+}
+.emailLabel {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.emailInput {
+  height: 53px;
+  font-family: var(--font-app-body);
+  font-size: 16px;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+}
+.emailSection .emailCode {
+  --type-input-value-size: 24px;
+  text-align: center;
+  letter-spacing: .4em !important;
+  font-variant-numeric: tabular-nums;
+}
+.emailSubmit { margin-top: var(--app-form-related-gap); }
+.emailHint {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.emailQuietAction {
+  width: 100%;
+  min-height: 44px;
+  font-size: 14px;
+}

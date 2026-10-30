@@ -12,7 +12,9 @@
  * For web/cloud deployment, use the existing API routes instead.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import type { NativeDeletionPhoneProofPlugin, NativeGoogleContactsAuthorization } from "./types/auth";
+export type { NativeGoogleContactsAuthorization } from "./types/auth";
 
 import type {
   // Consent types
@@ -54,7 +56,44 @@ export interface AuthUser {
   phoneNumber?: string | null;
 }
 
-export interface HushhAuthPlugin {
+export interface HushhAuthGetIdTokenOptions {
+  /**
+   * Require Firebase to validate and mint the token again. A forced refresh
+   * must never fall back to a token cached in memory or secure storage.
+   */
+  forceRefresh?: boolean;
+}
+
+/**
+ * Stable rejection codes emitted by HushhAuth token validation on every
+ * platform. Human-readable SDK error details stay in native logs; callers
+ * make session decisions from these machine-readable values only.
+ */
+export const HUSHH_AUTH_TOKEN_ERROR_CODE = {
+  userNotFound: "auth/user-not-found",
+  userDisabled: "auth/user-disabled",
+  invalidUserToken: "auth/invalid-user-token",
+  userTokenExpired: "auth/user-token-expired",
+  networkRequestFailed: "auth/network-request-failed",
+  internalError: "auth/internal-error",
+} as const;
+
+export type HushhAuthTokenErrorCode =
+  (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
+
+export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
+  /** One invocation, bound to the selected signup account; no Firebase exchange. */
+  authorizeGoogleContacts(options: {
+    expectedUserId: string;
+    requestMissingScope?: boolean;
+  }): Promise<NativeGoogleContactsAuthorization>;
+  /** Fresh Google proof for the current Firebase user; never replaces sign-in. */
+  reauthenticateGoogleIdentity(options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }>;
+  /** Fresh Apple proof for the current Firebase user; never replaces sign-in. */
+  reauthenticateAppleIdentity(options: { expectedUserId: string }): Promise<{ userId: string; idToken: string }>;
+
   /**
    * Sign in with Google using native iOS/Android UI
    * Returns ID token + access token for Firebase credential exchange
@@ -63,6 +102,72 @@ export interface HushhAuthPlugin {
     idToken: string;
     accessToken: string;
     user: AuthUser;
+    isNewUser?: boolean;
+  }>;
+
+  /**
+   * Requests Gmail consent through the platform Google Sign-In SDK.
+   *
+   * The result is a single-use server authorization code. It is handed to the
+   * authenticated backend immediately and is never persisted by the app.
+   */
+  connectGmail(options: {
+    serverClientId: string;
+    purpose: "read" | "send" | "compose";
+    preserveSend?: boolean;
+    preserveModify?: boolean;
+  }): Promise<{
+    serverAuthCode: string;
+  }>;
+
+  /**
+   * Requests Calendar consent through the platform Google Sign-In SDK.
+   * The server authorization code is exchanged only by the authenticated API.
+   */
+  connectCalendar(options: {
+    serverClientId: string;
+    accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
+    includeGuestPhotos?: boolean;
+    includeMeetingFiles?: boolean;
+  }): Promise<{
+    serverAuthCode: string;
+  }>;
+
+  /** Read-only Drive consent; never changes the app's Firebase identity. */
+  connectDrive(options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }>;
+
+  /**
+   * Opens the server-authored Drive authorization URL in a native browser
+   * surface. The backend receives the provider callback and the bridge returns
+   * only the opaque attempt reference and terminal outcome.
+   */
+  connectDrive(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+
+  /**
+   * Opens the server-authored Google selected-file Picker in the native
+   * browser surface. The bridge returns no file identifiers, OAuth material,
+   * or provider metadata; the owner-protected backend stages candidates until
+   * the person explicitly confirms them in One.
+   */
+  pickDriveFiles(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
   }>;
 
   /**
@@ -75,6 +180,7 @@ export interface HushhAuthPlugin {
    * Note: Apple may return hidden email (relay address) if user chose to hide it
    */
   signInWithApple(): Promise<{
+    isNewUser?: boolean;
     idToken: string;
     accessToken?: string;
     rawNonce?: string; // iOS only - needed for JS SDK sync if required
@@ -87,9 +193,12 @@ export interface HushhAuthPlugin {
   signOut(): Promise<void>;
 
   /**
-   * Get cached ID token (from memory or Keychain/Keystore)
+   * Get the current ID token. Normal reads may use memory or secure storage;
+   * forced reads require an authoritative Firebase refresh.
    */
-  getIdToken(): Promise<{ idToken: string | null }>;
+  getIdToken(
+    options?: HushhAuthGetIdTokenOptions,
+  ): Promise<{ idToken: string | null }>;
 
   /**
    * Get currently signed-in user
@@ -167,12 +276,14 @@ export interface HushhConsentPlugin {
    */
   issueVaultOwnerToken(options: {
     userId: string;
+    renewalOfToken?: string; // Prior owner grant; renewal must not bypass revocation.
     authToken?: string; // Firebase ID token (legacy name)
     idToken?: string; // Firebase ID token (preferred)
   }): Promise<{
     token: string;
     expiresAt: number;
     scope: string;
+    renewalValidated?: boolean;
   }>;
 
   /**
@@ -181,6 +292,7 @@ export interface HushhConsentPlugin {
    */
   publishIMessageSession(options: {
     userId: string;
+    sessionGeneration: number;
     vaultOwnerToken?: string;
     accessToken?: string; // Legacy alias for vaultOwnerToken.
     vaultKey?: string;
@@ -194,7 +306,10 @@ export interface HushhConsentPlugin {
   }): Promise<{ published: boolean }>;
 
   /** Clear the shared iMessage session when the vault locks or user signs out. */
-  clearIMessageSession(): Promise<{ cleared: boolean }>;
+  clearIMessageSession(): Promise<{
+    cleared: boolean;
+    sessionGeneration: number;
+  }>;
 
   getPending(options: {
     userId: string;
@@ -228,6 +343,7 @@ export interface HushhConsentPlugin {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }>;
@@ -246,6 +362,7 @@ export interface HushhConsentPlugin {
   revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }>;
 }
@@ -383,6 +500,7 @@ export interface HushhVaultPlugin {
     passkeyDeviceLabel?: string;
     passkeyLastUsedAt?: number;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }>;
 
   deleteVaultWrapper(options: {
@@ -401,6 +519,7 @@ export interface HushhVaultPlugin {
     primaryMethod: string;
     primaryWrapperId?: string;
     authToken?: string;
+    vaultOwnerToken: string;
   }): Promise<{ success: boolean }>;
 
   isPasskeyAvailable(options?: { rpId?: string }): Promise<{
@@ -412,6 +531,8 @@ export interface HushhVaultPlugin {
     userId: string;
     displayName: string;
     rpId: string;
+    /** Opaque UI attempt token used only to scope cancellation. */
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     prfSalt: string;
@@ -423,10 +544,21 @@ export interface HushhVaultPlugin {
     rpId: string;
     credentialId?: string;
     prfSalt: string;
+    /** Opaque UI attempt token used only to scope cancellation. */
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     vaultKeyHex: string;
   }>;
+
+  /**
+   * Dismiss the active native passkey ceremony, if this request owns it.
+   * Native implementations keep their in-flight lease until the original
+   * system callback settles so a replacement sheet cannot race dismissal.
+   */
+  cancelPasskeyAuthentication(options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }>;
 
   // Consents (New)
   /**
@@ -533,12 +665,23 @@ export interface HushhKeychainPlugin {
     options: KeychainSetOptions & { promptMessage: string },
   ): Promise<void>;
 
+  /** Delete the separate biometric-protected value for this key. */
+  deleteBiometric(options: KeychainDeleteOptions): Promise<void>;
+
   /**
    * Retrieve a biometric-protected value
    */
   getBiometric(
-    options: KeychainGetOptions & { promptMessage: string },
+    options: KeychainGetOptions & { promptMessage: string; requestId?: string },
   ): Promise<KeychainGetResult>;
+
+  /**
+   * Dismiss the active biometric prompt. A requestId only cancels the matching
+   * UI attempt; no active request is a successful no-op.
+   */
+  cancelBiometricAuthentication(options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }>;
 }
 
 export const HushhKeychain = registerPlugin<HushhKeychainPlugin>(
@@ -549,39 +692,9 @@ export const HushhKeychain = registerPlugin<HushhKeychainPlugin>(
   },
 );
 
-// ==================== HushhSettingsPlugin ====================
-// Settings management - DEV defaults to remote
-
-export interface HushhSettingsData {
-  useRemoteSync: boolean;
-  syncOnWifiOnly: boolean;
-  useRemoteLLM: boolean;
-  preferredLLMProvider: "local" | "mlx" | "openai" | "anthropic" | "google";
-  requireBiometricUnlock: boolean;
-  autoLockTimeout: number;
-  theme: "system" | "light" | "dark";
-  hapticFeedback: boolean;
-  showDebugInfo: boolean;
-  verboseLogging: boolean;
-}
-
-export interface HushhSettingsPlugin {
-  getSettings(): Promise<HushhSettingsData>;
-  updateSettings(
-    options: Partial<HushhSettingsData>,
-  ): Promise<{ success: boolean }>;
-  resetSettings(): Promise<{ success: boolean }>;
-  shouldUseLocalAgents(): Promise<{ value: boolean }>;
-  shouldSyncToCloud(): Promise<{ value: boolean }>;
-}
-
-export const HushhSettingsNative = registerPlugin<HushhSettingsPlugin>(
-  "HushhSettings",
-  {
-    web: () =>
-      import("./plugins/settings-web").then((m) => new m.HushhSettingsWeb()),
-  },
-);
+// Compatibility exports share the same registration as native haptics.
+export { HushhSettingsNative } from "./settings";
+export type { HushhSettingsData, HushhSettingsPlugin } from "./settings";
 
 // ==================== HushhDatabasePlugin ====================
 // Local SQLite/IndexedDB storage
@@ -610,13 +723,9 @@ export interface HushhDatabasePlugin {
   close(): Promise<{ success: boolean }>;
 }
 
-export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
-  "HushhDatabase",
-  {
-    web: () =>
-      import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  },
-);
+// Database persistence is owned by the shared vault service. Keep the web
+// adapter contract available for legacy unit fixtures, but do not register a
+// Capacitor plugin until iOS and Android implementations exist.
 
 // ==================== HushhAgentPlugin ====================
 // Local agent runtime
@@ -664,9 +773,9 @@ export interface HushhAgentPlugin {
   }>;
 }
 
-export const HushhAgent = registerPlugin<HushhAgentPlugin>("HushhAgent", {
-  web: () => import("./plugins/agent-web").then((m) => new m.HushhAgentWeb()),
-});
+// The local intent runtime is a shared TypeScript service, not a native
+// Capacitor plugin. Registration here would advertise an iOS/Android contract
+// with no corresponding native implementation.
 
 // ==================== HushhSyncPlugin ====================
 // Handles local-cloud data synchronization
@@ -727,6 +836,19 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 // Push notification token registration (FCM/APNs)
 
 export interface HushhNotificationsPlugin {
+  /** OS presentation settings only; registered tokens do not prove audible alerts. */
+  getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean; chatAlertsEnabled?: boolean; chatSoundsEnabled?: boolean; emergencyAlarmSupported?: boolean; emergencyAlarmAuthorized?: boolean }>;
+  requestEmergencySmsAlarmPermission(): Promise<{ supported: boolean; authorized: boolean }>;
+  getPendingEmergencySmsAlarms(options: { userId: string; grantIds?: string[] }): Promise<{ grantIds: string[]; acknowledgedGrantIds: string[] }>;
+  addListener(eventName: "emergencySmsAcknowledged", listener: (event: { userId: string; grantId: string }) => void): Promise<PluginListenerHandle>;
+  /** expiresAt admits a fresh bridge start. An admitted alarm ends on acknowledgement or owner disposal. Legacy alarmExpiresAt is ignored. */
+  playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number; alarmExpiresAt?: number }): Promise<{ played: boolean; acknowledged?: boolean }>;
+  stopEmergencySmsCue(options: { userId?: string; grantId?: string }): Promise<void>;
+  setActiveChat(options: { tag: string; keyId: string }): Promise<void>;
+  deletePushToken(): Promise<void>;
+  prepareNotificationKey(options: { userId: string; deviceId: string }): Promise<{ deviceId: string; keyId: string; publicKey: string }>;
+  clearNotificationKey(options: { userId: string; deleteAlarmReceipts?: boolean }): Promise<void>;
+  clearChatNotifications(options: { threadId: string; keyId: string; sequence?: number; before?: number; messageId?: string; badgeCount?: number; badgeVersion?: number }): Promise<void>;
   /**
    * Register push notification token for consent notifications.
    * Next.js source of truth: POST /api/notifications/register
@@ -738,7 +860,10 @@ export interface HushhNotificationsPlugin {
     platform: "web" | "ios" | "android";
     idToken: string; // Firebase ID token
     backendUrl?: string;
-  }): Promise<{ success: boolean }>;
+    deviceId?: string;
+    previewKeyId?: string;
+    previewPublicKey?: string;
+  }): Promise<{ success: boolean; registered?: boolean; degraded?: boolean }>;
 
   /**
    * Unregister push notification token(s).
@@ -750,6 +875,7 @@ export interface HushhNotificationsPlugin {
     idToken: string; // Firebase ID token
     platform?: "web" | "ios" | "android";
     backendUrl?: string;
+    deviceId?: string;
   }): Promise<{ success: boolean }>;
 }
 
@@ -788,6 +914,10 @@ export type BackgroundShareSession = {
 };
 
 export interface HushhLocationPlugin {
+  addListener(
+    eventName: "backgroundShareStopped",
+    listenerFunc: () => void,
+  ): Promise<PluginListenerHandle>;
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
   /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
@@ -847,10 +977,13 @@ export interface HushhLocationPlugin {
   stopBackgroundShare(): Promise<void>;
 }
 
-
-export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
-  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
-});
+export const HushhLocation = registerPlugin<HushhLocationPlugin>(
+  "HushhLocation",
+  {
+    web: () =>
+      import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+  },
+);
 
 // ==================== HushhContactsPlugin ====================
 // Contact-book permission and read-only contact lookup for Connect matching.
@@ -863,12 +996,7 @@ export type HushhContactsPermissionState = {
    * route forward is `openAppSettings`.
    */
   state:
-    | "granted"
-    | "limited"
-    | "denied"
-    | "prompt"
-    | "restricted"
-    | "unavailable";
+    "granted" | "limited" | "denied" | "prompt" | "restricted" | "unavailable";
 };
 
 export type HushhContactRecord = {
@@ -876,11 +1004,23 @@ export type HushhContactRecord = {
   displayName?: string | null;
   phoneNumbers: string[];
   emailAddresses?: string[];
+  /** Local source provenance: invalid phone entries are not email-only cards. */
+  hasPhoneEntries?: boolean;
 };
 
 export type HushhContactsReadResult = {
   contacts: HushhContactRecord[];
-  sourcePlatform: "web" | "ios" | "android" | "native";
+  /**
+   * Where the contacts came from.
+   *
+   * `google` is not a platform in the Capacitor sense — it is a different
+   * ACCOUNT on the same platform, read in the browser through the People API.
+   * It is a member here because everything downstream keys off this field, and
+   * folding a Google read into `web` would route it to the partial-read remedy
+   * ("Check more"), whose action re-runs the picker and returns the identical
+   * set.
+   */
+  sourcePlatform: "web" | "ios" | "android" | "native" | "google";
   /**
    * ISO-3166 alpha-2 region the device believes it is in (SIM, then network,
    * then locale). National-format contact numbers are meaningless without it —
@@ -908,9 +1048,13 @@ export interface HushhContactsPlugin {
   readContacts(options?: { limit?: number }): Promise<HushhContactsReadResult>;
 }
 
-export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
-  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
-});
+export const HushhContacts = registerPlugin<HushhContactsPlugin>(
+  "HushhContacts",
+  {
+    web: () =>
+      import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+  },
+);
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management

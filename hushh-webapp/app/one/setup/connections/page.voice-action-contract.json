@@ -13,7 +13,7 @@
     {
       "action_id": "setup.finish_connections",
       "label": "Finish AI access setup",
-      "meaning": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "meaning": "Keeps the person's selected AI connection and returns to the One setup hub.",
       "aliases": [
         "finish AI access setup",
         "finish AI access",
@@ -26,7 +26,7 @@
         "screens": ["one_setup_connections"],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A Gemini runtime has been explicitly selected and saved."
+          "A supported AI connection has been explicitly selected and saved."
         ]
       },
       "guard_ids": ["auth_signed_in"],
@@ -38,10 +38,11 @@
         "target": "setup.finish_connections"
       },
       "control_ids": ["one-setup-connections-terminal"],
-      "state_exposure": ["Gemini runtime selection state"],
+      "state_exposure": ["AI connection selection state"],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
       ]
     }
-  ]
+  ],
+  "search": {}
 }

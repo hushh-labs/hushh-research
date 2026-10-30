@@ -13,7 +13,7 @@
 
 export const RIA_COPY = {
   home: {
-    eyebrow: "RIA Home",
+    eyebrow: "Advisor Home",
     title: "Trusted advisor ops",
     description: "See what's ready and what needs you.",
     verification: {
@@ -64,7 +64,7 @@ export const RIA_COPY = {
       open: "Open",
     },
     iam: {
-      title: "RIA home needs the IAM rollout",
+      title: "Advisor home needs the IAM rollout",
       description: "This environment needs the IAM schema first.",
     },
   },
@@ -72,16 +72,16 @@ export const RIA_COPY = {
   clients: {
     eyebrow: "Clients",
     title: "Client roster",
-    description: "One workspace per client — status, access, Kai, explorer.",
+    description: "One workspace per client — status, access, research, explorer.",
     section: {
       title: "Connected investors",
-      description: "Status, access, Kai, and explorer in one place.",
+      description: "Status, access, research, and explorer in one place.",
     },
     loading: "Loading clients…",
     empty: "No connected investors yet.",
     browse: "Browse the marketplace",
     setupGate: {
-      title: "Complete RIA onboarding",
+      title: "Complete Advisor onboarding",
       description: "Finish onboarding to open the roster.",
     },
     verifyGate: {
@@ -89,13 +89,14 @@ export const RIA_COPY = {
       title: "Verify your advisor account first",
       description: "Finish verification in onboarding to access investors.",
       body: "Locked until verification is complete.",
+      cta: "Complete verification",
     },
   },
 
   picks: {
     eyebrow: "Picks",
     title: "Stock universe",
-    description: "Switch Kai's package and yours — avoid and screening stay.",
+    description: "Switch between the suggested package and yours — avoid and screening stay.",
     screening: {
       investable: {
         title: "Investable requirements",
@@ -112,27 +113,13 @@ export const RIA_COPY = {
     },
     emptyMyList: {
       title: "Build your live package",
-      description:
-        "Shape the package your investors debate. Start from Kai, edit tiers, or upload a CSV.",
+      description: "Start from the suggested list, edit tiers, or upload a CSV.",
     },
     avoidEmpty: {
       title: "Avoid list is empty",
-      description: "Add names for Kai to exclude from debates.",
+      description: "Add names for One to exclude from debates.",
     },
     unlockRail: "Unlock the vault to edit or publish.",
-  },
-
-  debate: {
-    eyebrow: "Debate",
-    title: "Debate config",
-    description: "The rules Kai's investor debate runs on.",
-    banner: {
-      title: "This is your debate config",
-      description:
-        "Kai's multi-agent debate scores every name against these screening rules and conviction bands.",
-    },
-    disclaimer:
-      "Agent Kai is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
   },
 
   connect: {

@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+import packageJson from "./package.json";
+import { execFileSync } from "node:child_process";
+import { HUSHH_MARK_PATH } from "./lib/brand/hushh-mark";
+
+// Covers direct Next builds, including native exports that skip npm hooks.
+execFileSync(process.execPath, [path.resolve("scripts/prepare-wallet-ocr.mjs")], { stdio: "pipe" });
+
 /**
  * Next.js Configuration
  *
@@ -14,11 +21,37 @@ import path from "path";
  */
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
+const brandMarkUrl = new URL(HUSHH_MARK_PATH, "https://one.hushh.ai");
+
+/**
+ * Stamp a real app version into the client bundle.
+ *
+ * `NEXT_PUBLIC_*` is inlined at build time, and nothing was supplying
+ * `NEXT_PUBLIC_CLIENT_VERSION`, so every observability event on every platform
+ * reported `app_version: "unknown"`. That makes it impossible to tell whether
+ * a release moved a metric, whether an old build is still in the wild, or
+ * whether new instrumentation actually shipped.
+ *
+ * An explicitly supplied value still wins. The package version is the floor,
+ * so the worst case is a real version instead of "unknown".
+ */
+const clientVersion =
+  String(process.env.NEXT_PUBLIC_CLIENT_VERSION || "").trim() ||
+  String(packageJson.version || "").trim() ||
+  "unknown";
+const vaultWriteProtocolVersion =
+  String(process.env.NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION || "").trim() ||
+  "2.0.0";
 
 const config: NextConfig = {
-  // Native static exports may run while the local web dev server is active.
-  // Keep their compiler caches isolated so `next build` cannot corrupt the
-  // live `.next` module graph and turn local API routes into transient 500s.
+  env: {
+    NEXT_PUBLIC_CLIENT_VERSION: clientVersion,
+    NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION: vaultWriteProtocolVersion,
+  },
+
+  // This selects the native export destination, not an isolated compiler cache:
+  // Next's static-export build still uses `.next` internally. Serialize native
+  // exports with same-worktree dev/CI compilation and verify fresh native CSS.
   distDir: process.env.NEXT_DIST_DIR || ".next",
 
   // Keep file tracing and workspace discovery scoped to this monorepo.
@@ -48,6 +81,11 @@ const config: NextConfig = {
     // Optimized for cloud (Web)
     unoptimized: isCapacitorBuild,
     formats: ["image/webp", "image/avif"],
+    // Keep Next's query-free local image policy, with one exact brand cache revision.
+    localPatterns: [
+      { pathname: "**", search: "" },
+      { pathname: brandMarkUrl.pathname, search: brandMarkUrl.search },
+    ],
     // Standard device sizes
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -81,7 +119,10 @@ const config: NextConfig = {
     parallelServerCompiles: false,
     parallelServerBuildTraces: false,
     optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
-    preloadEntriesOnStart: false,
+    // UAT serves from an immutable Cloud Run image. Preload server entries so
+    // unreadable image-layer chunks fail during startup instead of on a user's
+    // first request, and keep cold-route latency out of the request path.
+    preloadEntriesOnStart: true,
     serverSourceMaps: false,
     serverComponentsHmrCache: true,
     webpackMemoryOptimizations: true,

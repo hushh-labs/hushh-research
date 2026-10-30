@@ -5,7 +5,7 @@
 
 Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-Status as of: May 25, 2026
+Status as of: September 5, 2026
 
 Founder-language note: this report is evidence for `Separation of Duties`, not a new architecture concept. It tracks whether the mobile delivery boundary stays aligned with the shared platform contract.
 
@@ -13,7 +13,7 @@ Founder-language note: this report is evidence for `Separation of Duties`, not a
 
 Current status: cold route-parity gate implemented. The dated simulator/emulator reports below are historical cold-start evidence; they are not proof of normal-session vault or route continuity.
 
-Fresh route evidence:
+Historical route evidence (not current release proof):
 
 - iOS simulator: `native-ios-parity-report.json`, generated `2026-05-25T06:27:59.825Z`, destination `platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C`, 36 audited / 36 passed / 0 failed.
 - Android emulator: `native-android-parity-report.json`, generated `2026-05-25T06:34:59.304Z`, device `emulator-5554`, 36 audited / 36 passed / 0 failed.
@@ -31,11 +31,46 @@ The native gate now includes:
 
 Continuity is separately rehearsed against an already-installed normal session with `ios:continuity:local` or `android:continuity:local`; it must not inherit evidence from a cold audit.
 
+## Android Agents Rendered-UI Rehearsal — September 9, 2026
+
+The Pixel 8 emulator running Android 17 and WebView 152.0.7977.64 reproduced
+agent-grid pixels above Search while the DOM contained one correctly positioned
+grid. Chromium's screenshot and Android's display capture disagreed. Removing
+backdrop filters, disabling native overscroll, and disabling HWUI partial redraws
+did not resolve the reproduction; those diagnostic overrides were removed.
+
+The same rebuilt APK reproduced the overlap with the emulator's ANGLE/SwiftShader
+software renderer and cleared it with the host GPU renderer (Apple M5/Metal).
+The affected local AVD now uses `hw.gpu.mode=host`. This is an emulator rendering
+configuration correction, not an application spacing or stacking-order fix.
+When diagnosing this failure, compare the actual renderer reported by
+`adb shell dumpsys SurfaceFlinger`, rather than assuming AVD `auto` selected
+hardware rendering. A cold emulator launch with `-gpu host -no-snapshot-load`
+allows comparison without wiping app storage.
+
+The Android-only roster clipping/paint-containment workaround was removed.
+The header, view controls, and Search remain outside the replaced content subtree.
+After rebuilding and installing the APK, two touch-driven cycles covered both
+views and returns from Connect, Feed, and the Search overlay. Sixteen Android
+display captures were collected. The header/Search region matched across all
+twelve return captures within each view. Component tests separately verify that
+Grid/List replacement preserves the same header, search, and control nodes.
+
+This is dated emulator evidence, not a physical-device or fresh iOS parity claim.
+Do not introduce route-local clipping, offsets, or forced redraw timers to mask
+an emulator compositor defect.
+
 ## Blockers
 
 Current tracked evidence blockers:
 
-- None.
+- `verify:capacitor:reports` fails against the current 103-route inventory on the
+  audited local revision. The tracked iOS report declares 91 audited routes but has
+  only 13 results, including a failed `/register-phone`; Android has 76 results.
+- Updated simulator/emulator runs are required to establish route parity. Static
+  plugin checks and historical May results do not replace those runs.
+- iOS background location sharing exists; Android explicitly reports it unavailable.
+  Treat this as a behavioral gap, not proof of full native parity.
 
 The repo now hard-fails when:
 

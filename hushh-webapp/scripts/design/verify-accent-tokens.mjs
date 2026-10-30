@@ -58,6 +58,12 @@ const FORBIDDEN_HEXES = [
   "#006fe6",
   "#1a85ff",
   "#005bb5",
+  // Legacy Apple-marketing blues the migration guide (app-surface-design-system.md)
+  // names as targets; they must never silently return anywhere the accent flows.
+  "#0071e3",
+  "#0066cc",
+  "#2997ff",
+  "#3b82f6",
 ];
 
 const SCAN_DIRS = ["app", "components", "lib"];
@@ -70,6 +76,13 @@ const ALLOWLIST = new Set([
   // var(--app-accent); the remaining rainbow stops (incl. one warm gold) are
   // atmosphere, not the accent identity.
   "components/agent/agent-voice-edge-glow.tsx",
+  // Email HTML, not app UI. Mail clients do not resolve CSS custom
+  // properties -- Gmail and Outlook strip or ignore them -- so a token here
+  // renders as no colour at all. The accent has to be a literal hex in a
+  // message body, and the message is inlined-style-only for the same reason.
+  // Keep this entry limited to the mail renderer; nothing that paints a
+  // screen belongs on this list.
+  "app/api/one/location/sos-email/route.ts",
 ]);
 
 function isAllowed(repoPath) {
@@ -123,6 +136,36 @@ for (const scanDir of SCAN_DIRS) {
           `${repoPath}:${line} contains raw accent hex ${hex}; use the --app-accent-* token family instead`,
         );
       }
+    }
+  }
+}
+
+// The canonical document pipeline is the one lane that renders founder-facing PDFs and
+// artifacts, and it must resolve every accent from globals.css — never a raw hex. The
+// dir/extension scan above misses it twice: the formatter is a .mjs (skipped by the
+// .ts/.tsx/.css filter) and the exporter lives under scripts/ (not in SCAN_DIRS). So it is
+// scanned explicitly here; a hardcoded accent in the pipeline that ships every brief could
+// otherwise never trip a gate. (Code-syntax palettes like Monokai are not accent hexes and
+// are not in FORBIDDEN_HEXES, so they pass.)
+const CANONICAL_PIPELINE_FILES = [
+  "lib/morphy-ux/pdf-document-formatter.mjs",
+  "scripts/reports/export-markdown-pdf.mjs",
+  // The PR-governance contributor dashboard is a second PDF exporter (Molten Gold variant);
+  // it must resolve its palette from globals.css too, never a frozen hex copy. Repo-root path.
+  "../.agents/skills/pr-governance-review/scripts/export_contributor_impact_pdf.mjs",
+];
+for (const repoPath of CANONICAL_PIPELINE_FILES) {
+  const full = path.join(repoRoot, repoPath);
+  if (!fs.existsSync(full)) {
+    failures.push(`${repoPath} is missing; the canonical document pipeline must exist`);
+    continue;
+  }
+  const source = fs.readFileSync(full, "utf8").toLowerCase();
+  for (const hex of FORBIDDEN_HEXES) {
+    if (source.includes(hex)) {
+      failures.push(
+        `${repoPath} contains raw accent hex ${hex}; the document pipeline must read the accent from globals.css, not hardcode it`,
+      );
     }
   }
 }

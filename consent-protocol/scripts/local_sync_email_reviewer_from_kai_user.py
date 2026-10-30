@@ -106,9 +106,7 @@ DELETE_TARGET_SQL = [
     "DELETE FROM marketplace_public_profiles WHERE user_id = $1",
     "DELETE FROM runtime_persona_state WHERE user_id = $1",
     "DELETE FROM one_kyc_client_connectors WHERE user_id = $1",
-    "DELETE FROM actor_profiles WHERE user_id = $1",
     "DELETE FROM vault_key_wrappers WHERE user_id = $1",
-    "DELETE FROM vault_keys WHERE user_id = $1",
 ]
 
 
@@ -164,6 +162,25 @@ async def _mirror_local_surface(conn: asyncpg.Connection, users: MirrorUsers) ->
               $3
             FROM vault_keys
             WHERE user_id = $1
+            ON CONFLICT (user_id) DO UPDATE
+            SET vault_status = EXCLUDED.vault_status,
+                vault_key_hash = EXCLUDED.vault_key_hash,
+                primary_method = EXCLUDED.primary_method,
+                primary_wrapper_id = EXCLUDED.primary_wrapper_id,
+                recovery_encrypted_vault_key = EXCLUDED.recovery_encrypted_vault_key,
+                recovery_salt = EXCLUDED.recovery_salt,
+                recovery_iv = EXCLUDED.recovery_iv,
+                first_login_at = EXCLUDED.first_login_at,
+                last_login_at = EXCLUDED.last_login_at,
+                login_count = EXCLUDED.login_count,
+                setup_completed = EXCLUDED.setup_completed,
+                setup_skipped = EXCLUDED.setup_skipped,
+                setup_completed_at = EXCLUDED.setup_completed_at,
+                nav_setup_completed_at = EXCLUDED.nav_setup_completed_at,
+                nav_setup_skipped_at = EXCLUDED.nav_setup_skipped_at,
+                setup_state_updated_at = EXCLUDED.setup_state_updated_at,
+                updated_at = EXCLUDED.updated_at,
+                user_email = EXCLUDED.user_email
             """,
             users.source_uid,
             users.target_uid,
@@ -421,6 +438,12 @@ async def _mirror_local_surface(conn: asyncpg.Connection, users: MirrorUsers) ->
               $3
             FROM actor_profiles
             WHERE user_id = $1
+            ON CONFLICT (user_id) DO UPDATE
+            SET personas = EXCLUDED.personas,
+                last_active_persona = EXCLUDED.last_active_persona,
+                investor_marketplace_opt_in = EXCLUDED.investor_marketplace_opt_in,
+                updated_at = EXCLUDED.updated_at,
+                user_email = EXCLUDED.user_email
             """,
             users.source_uid,
             users.target_uid,

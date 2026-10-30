@@ -100,6 +100,30 @@ FROM connections connection
 WHERE connection.source IN ('request', 'circle_invite', 'import')
 ON CONFLICT (connection_id, origin_key) DO NOTHING;
 
+-- A Trusted Circle is NOT a Circle for this purpose (#5458).
+--
+-- Everything below manufactures a connection between every pair of people who
+-- share a Circle, on the reading that being put in a Circle together IS the
+-- introduction. That holds for a Circle somebody curated: they chose those
+-- people and those people can see each other's names.
+--
+-- A Trusted Circle is a projection of the connection graph -- everyone you are
+-- connected to, automatically. Meshing it would mean every pair of YOUR
+-- connections becomes connected to each other, having never met: 19,900 rows
+-- for an account with 200 connections, re-asserted on every deploy because
+-- replay runs this file every time. And these are `connections` rows, so they
+-- satisfy the CONNECTION arm of location eligibility, which the Circle-side
+-- narrowing in 163's commit deliberately does not touch. The ON CONFLICT below
+-- would also flip a deliberately revoked connection back to active.
+--
+-- Read through `to_jsonb` because this file runs before 163 adds the column on
+-- a fresh database, where a missing key yields NULL -- and NULL is the right
+-- answer there, since no Trusted Circle can exist yet.
+--
+-- The SMS Circle is deliberately left as it is: it meshes its ten members
+-- today on `main`, and changing that here would alter behaviour this issue did
+-- not ask about.
+
 -- Migration 125 can already be live with active memberships. Materialize every
 -- existing active co-member pair now (at most 190 pairs per 20-member Circle)
 -- so deployment does not make the new behavior apply only to future joins.
@@ -116,6 +140,7 @@ WITH active_circle_pairs AS (
    AND second_member.status = 'active'
    AND first_member.user_id < second_member.user_id
   WHERE circle.status = 'active'
+    AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'
 )
 INSERT INTO connections (
   user_a_id,
@@ -173,6 +198,7 @@ JOIN connections connection
   ON connection.user_a_id = first_member.user_id
  AND connection.user_b_id = second_member.user_id
 WHERE circle.status = 'active'
+  AND to_jsonb(circle) ->> 'system_kind' IS DISTINCT FROM 'trusted'
 ON CONFLICT (connection_id, origin_key) DO UPDATE SET
   status = 'active',
   updated_at = NOW(),

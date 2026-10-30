@@ -34,6 +34,16 @@ web_ci_install() {
     rm -rf node_modules
   fi
 
+  # A workflow that already ran this same install in an earlier step (the Web
+  # Targeted lane does, because the Playwright CLI must exist before browsers
+  # can be installed) sets WEB_CI_DEPS_INSTALLED=1 to avoid a second npm ci.
+  # The skip needs npm's own completion marker, so a missing or half-written
+  # node_modules still falls through to a full install.
+  if [ "${WEB_CI_DEPS_INSTALLED:-0}" = "1" ] && [ -f node_modules/.package-lock.json ]; then
+    echo "web_ci_install: dependencies already installed by this job; skipping npm ci."
+    return 0
+  fi
+
   npm ci --prefer-offline --no-audit --progress=false
 }
 
@@ -42,8 +52,11 @@ web_ci_build() {
   web_dir="$(web_ci_dir)"
   cd "$web_dir"
 
-  NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
-  NEXT_PUBLIC_DEVELOPER_API_URL="${NEXT_PUBLIC_DEVELOPER_API_URL:-https://api.example.com}" \
+  BACKEND_URL="${BACKEND_URL:-https://api.example.com}" \
+  PYTHON_API_URL="${PYTHON_API_URL:-${BACKEND_URL:-https://api.example.com}}" \
+  DEVELOPER_API_URL="${DEVELOPER_API_URL:-${BACKEND_URL:-https://api.example.com}}" \
+  NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-${BACKEND_URL:-https://api.example.com}}" \
+  NEXT_PUBLIC_DEVELOPER_API_URL="${NEXT_PUBLIC_DEVELOPER_API_URL:-${DEVELOPER_API_URL:-${BACKEND_URL:-https://api.example.com}}}" \
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
   NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-dummy-project.firebaseapp.com}" \

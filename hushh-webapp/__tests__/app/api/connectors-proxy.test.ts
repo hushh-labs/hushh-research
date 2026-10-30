@@ -1,0 +1,460 @@
+// @vitest-environment node
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+
+vi.mock("@/app/api/_utils/backend", () => ({
+  getPythonApiUrl: () => "https://backend.test",
+}));
+
+import { proxyExternalConnectorRequest } from "@/app/api/connectors/_proxy";
+import { PUT } from "@/app/api/connectors/[...path]/route";
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("connector proxy privacy", () => {
+  it("round-trips opaque ciphertext without JSON or UTF-8 conversion", async () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const objectId = "22222222-2222-4222-8222-222222222222";
+    const bytes = new Uint8Array([0, 255, 254, 128, 13, 10, 0]);
+    const uploadPath = ["google_drive", "sharing", "requests", requestId, "delivery", "uploads", objectId];
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ uploaded: true }))
+      .mockResolvedValueOnce(new Response(bytes, { headers: { "Content-Type": "application/octet-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const uploaded = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${uploadPath.join("/")}`, {
+      method: "PUT", headers: { authorization: "Bearer synthetic-owner", "x-hushh-consent": "synthetic-vault",
+        "content-type": "application/octet-stream" }, body: bytes,
+    }), uploadPath);
+    expect(await uploaded.json()).toEqual({ uploaded: true });
+    expect(new Uint8Array(fetchMock.mock.calls[0][1].body)).toEqual(bytes);
+    expect(fetchMock.mock.calls[0][1].headers.get("x-hushh-consent")).toBe("synthetic-vault");
+    expect(fetchMock.mock.calls[0][1].redirect).toBe("error");
+    const downloadPath = [...uploadPath];
+    downloadPath[5] = "artifacts";
+    const downloaded = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${downloadPath.join("/")}`, {
+      headers: { authorization: "Bearer synthetic-recipient" },
+    }), downloadPath);
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
+    expect(downloaded.headers.get("content-type")).toBe("application/octet-stream");
+    expect(downloaded.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("streams an original One copy byte-exact with private attachment headers", async () => {
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111", "one-copy", "files", "22222222-2222-4222-8222-222222222222", "content"];
+    const bytes = new Uint8Array([0, 255, 13, 10, 128, 60, 62]);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes, { headers: { "Content-Type": "text/html", "Content-Disposition": "inline" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${path.join("/")}?disposition=download`, { headers: { authorization: "Bearer synthetic-owner" } }), path);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(response.headers.get("content-disposition")).toContain("attachment;");
+    expect(response.headers.get("cache-control")).toContain("private, no-store");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(fetchMock.mock.calls[0][1].headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(fetchMock.mock.calls[0][1].redirect).toBe("error");
+  });
+  it("rejects non-PDF preview and anonymous original access", async () => {
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111", "one-copy", "files", "22222222-2222-4222-8222-222222222222", "content"];
+    const fetchMock = vi.fn().mockResolvedValue(new Response("<script>untrusted</script>", { headers: { "Content-Type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = `https://app.test/api/connectors/${path.join("/")}?disposition=preview`;
+    const refused = await proxyExternalConnectorRequest(new NextRequest(url, { headers: { authorization: "Bearer synthetic-owner" } }), path);
+    expect(refused.status).toBe(415);
+    expect(await refused.text()).not.toContain("untrusted");
+    fetchMock.mockClear();
+    expect((await proxyExternalConnectorRequest(new NextRequest(url), path)).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unauthenticated ciphertext access before forwarding", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111",
+      "delivery", "artifacts", "22222222-2222-4222-8222-222222222222"];
+    const response = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${path.join("/")}`), path);
+    expect(response.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("forwards live search frames without buffering and cancels the observer with its caller", async () => {
+    const abort = new AbortController();
+    const path = ["google_drive", "searches", "11111111-1111-4111-8111-111111111111", "stream"];
+    const frame = 'event: status\ndata: {"event":"status","revision":2}\n\n';
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode(frame)); },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(upstream, {
+      headers: { "Content-Type": "text/event-stream" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const response = await proxyExternalConnectorRequest(new NextRequest(
+      `https://app.test/api/connectors/${path.join("/")}`, {
+        method: "GET", headers: { authorization: "Bearer synthetic-owner" }, signal: abort.signal,
+      },
+    ), path);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(frame);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.get("accept")).toBe("text/event-stream");
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(timeout).toHaveBeenCalledWith(60_000);
+    abort.abort();
+    expect(init.signal.aborted).toBe(true);
+    await reader.cancel();
+  });
+
+  it.each([
+    { status: 200, payload: { enabled: true, amountCents: 500, version: 2 } },
+    { status: 409, payload: { detail: "Request price changed. Refresh and try again." } },
+  ])("forwards owner pricing PUT through the actual route and preserves $status", async ({ status, payload }) => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(payload, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "pricing"];
+    const body = JSON.stringify({ enabled: true, amountCents: 500, expectedVersion: 1 });
+    const response = await PUT(
+      new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer synthetic-owner",
+          "x-hushh-consent": "synthetic-vault",
+          "content-type": "application/json",
+        },
+        body,
+      }),
+      { params: Promise.resolve({ path }) },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://backend.test/api/connectors/google_drive/sharing/pricing");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe(body);
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(init.headers.get("x-hushh-consent")).toBe("synthetic-vault");
+    expect(init.headers.get("content-type")).toBe("application/json");
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual(payload);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+  });
+
+  it("forwards an explicitly confirmed bulk retry through the private no-store proxy", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ status: "queued" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const shareId = "11111111-1111-4111-8111-111111111111";
+    const path = ["google_drive", "sharing", "bulk", shareId, "retry"];
+    const body = JSON.stringify({ revision: 4, reviewDigest: "a".repeat(64), confirmed: true });
+    const response = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+      method: "POST", headers: { authorization: "Bearer synthetic-owner", "content-type": "application/json" }, body,
+    }), path);
+    expect(fetchMock.mock.calls[0][0]).toBe(`https://backend.test/api/connectors/${path.join("/")}`);
+    expect(fetchMock.mock.calls[0][1].body).toBe(body);
+    expect(fetchMock.mock.calls[0][1].headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+  it("preserves bodyless OAuth cancellation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    const response = await proxyExternalConnectorRequest(
+      new NextRequest("https://app.test/api/connectors/custom_synthetic/mcp/oauth/cancel", {
+        method: "POST", body: JSON.stringify({ attemptId: "synthetic" }),
+      }),
+      ["custom_synthetic", "mcp", "oauth", "cancel"],
+    );
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("aborts a pending OAuth start when the browser cancels the request", async () => {
+    const requestAbort = new AbortController();
+    const upstream = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal!;
+          const rejectAbort = () =>
+            reject(new DOMException("Aborted", "AbortError"));
+          if (signal.aborted) rejectAbort();
+          else signal.addEventListener("abort", rejectAbort, { once: true });
+        }),
+    );
+    vi.stubGlobal("fetch", upstream);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const pending = proxyExternalConnectorRequest(
+      new NextRequest("https://app.test/api/connectors/google_drive/connect/oauth/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirectUri: "https://app.test/return" }),
+        signal: requestAbort.signal,
+      }),
+      ["google_drive", "connect", "oauth", "start"],
+    );
+
+    await vi.waitFor(() => expect(upstream).toHaveBeenCalledOnce());
+    const upstreamSignal = upstream.mock.calls[0][1].signal as AbortSignal;
+    requestAbort.abort();
+
+    const response = await pending;
+    expect(upstreamSignal.aborted).toBe(true);
+    expect(timeout).toHaveBeenCalledWith(25_000);
+    expect(response.status).toBe(499);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+  it.each(["review", "confirm", "catalog", "oauth/begin", "oauth/complete", "oauth/cancel"])("rejects oversized MCP %s before forwarding it", async operation => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const response = await proxyExternalConnectorRequest(
+      new NextRequest(
+        `https://app.test/api/connectors/custom_synthetic/mcp/${operation}`,
+        { method: "POST", body: "x".repeat(64_001) },
+      ),
+      ["custom_synthetic", "mcp", ...operation.split("/")],
+    );
+    expect(response.status).toBe(413);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it.each(["review", "confirm", "catalog", "oauth/begin", "oauth/complete", "oauth/cancel"])(
+    "forwards MCP %s only through the owner-authenticated no-store path",
+    async (operation) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(Response.json({ receipt: "synthetic-receipt" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const path = ["custom_synthetic", "mcp", ...operation.split("/")];
+      const body = JSON.stringify({
+        conversationId: "synthetic-thread",
+        arguments: { q: "private-fixture" },
+      });
+      const response = await proxyExternalConnectorRequest(
+        new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer synthetic-owner",
+            "x-hushh-consent": "synthetic-vault",
+            "content-type": "application/json",
+          },
+          body,
+        }),
+        path,
+      );
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(`https://backend.test/api/connectors/${path.join("/")}`);
+      expect(url).not.toContain("private-fixture");
+      expect(init.body).toBe(body);
+      expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+      expect(init.headers.get("x-hushh-consent")).toBe("synthetic-vault");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ receipt: "synthetic-receipt" });
+    },
+  );
+
+  it("never caches the short-lived owner-only Picker credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        accessToken: "synthetic-short-lived",
+        sessionId: "opaque",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new NextRequest(
+      "https://app.test/api/connectors/google_drive/picker/session",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer synthetic-owner",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ origin: "https://app.test" }),
+      },
+    );
+    const response = await proxyExternalConnectorRequest(request, [
+      "google_drive",
+      "picker",
+      "session",
+    ]);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(await response.json()).toEqual({
+      accessToken: "synthetic-short-lived",
+      sessionId: "opaque",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "https://backend.test/api/connectors/google_drive/picker/session",
+    );
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(url).not.toContain("synthetic");
+  });
+
+  it("gives an allowed Drive question the same long budget as document preparation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const id = "11111111-1111-4111-8111-111111111111";
+    const post = (path: string[]) =>
+      proxyExternalConnectorRequest(
+        new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ revision: 1 }),
+        }),
+        path,
+      );
+    await post(["google_drive", "sharing", "queries", id, "allow"]);
+    await post(["google_drive", "sharing", "requests", id, "prepare"]);
+    await post(["google_drive", "sharing", "queries", id, "deny"]);
+    await post(["google_drive", "sharing", "queries"]);
+    await post(["google_drive", "searches"]);
+    await post(["google_drive", "sharing", "bulk"]);
+    await post(["google_drive", "searches", id, "stop"]);
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([
+      170_000,
+      170_000,
+      expect.any(Number),
+      expect.any(Number),
+      170_000,
+      170_000,
+      expect.any(Number),
+    ]);
+    expect(timeout.mock.calls[2][0]).toBeLessThan(170_000);
+    expect(timeout.mock.calls[3][0]).toBeLessThan(170_000);
+    expect(timeout.mock.calls[6][0]).toBeLessThan(170_000);
+  });
+
+  it("does not log upstream exception messages containing private material", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValue(
+          new Error("private-provider-response synthetic-secret"),
+        ),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await proxyExternalConnectorRequest(
+      new NextRequest("https://app.test/api/connectors"),
+      [],
+    );
+    expect(response.status).toBe(502);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("synthetic-secret");
+    expect(await response.text()).not.toContain("private-provider-response");
+  });
+
+  describe("streamed document preparation", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const path = ["google_drive", "sharing", "requests", id, "prepare", "stream"];
+    const post = () =>
+      proxyExternalConnectorRequest(
+        new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer synthetic-owner",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+        path,
+      );
+    const frame = (text: string) => new TextEncoder().encode(text);
+
+    function upstream() {
+      let push!: (chunk: Uint8Array) => void;
+      let end!: () => void;
+      let reads = 0;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          push = (chunk) => controller.enqueue(chunk);
+          end = () => controller.close();
+        },
+        pull() {
+          reads += 1;
+        },
+      });
+      return { body, push: (c: Uint8Array) => push(c), end: () => end(), reads: () => reads };
+    }
+
+    it("passes stage frames through unbuffered with private headers", async () => {
+      const source = upstream();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(source.body, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      );
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      const response = await post();
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(response.headers.get("cache-control")).toBe(
+        "private, no-store, no-cache, no-transform",
+      );
+      expect(response.headers.get("x-accel-buffering")).toBe("no");
+      expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([200_000]);
+      const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(init.headers.get("accept")).toBe("text/event-stream");
+      const reader = response.body!.getReader();
+      source.push(frame('event: stage\ndata: {"event":"stage","stage":"starting"}\n\n'));
+      const first = await reader.read();
+      // Delivered before the upstream finished: nothing is buffered.
+      expect(new TextDecoder().decode(first.value)).toContain('"starting"');
+      source.end();
+      expect((await reader.read()).done).toBe(true);
+    });
+
+    it("keeps draining the backend after the browser goes away", async () => {
+      const source = upstream();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(source.body, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      );
+      const response = await post();
+      await response.body!.cancel();
+      source.push(frame("event: stage\ndata: {}\n\n"));
+      source.push(frame("event: complete\ndata: {}\n\n"));
+      source.end();
+      await vi.waitFor(() => expect(source.reads()).toBeGreaterThan(2));
+    });
+
+    it("keeps an owner error from the stream route as buffered JSON", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json({ detail: "Owner authorization required" }, { status: 401 }),
+        ),
+      );
+      const response = await post();
+      expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ detail: "Owner authorization required" });
+    });
+  });
+
+  it("passes owner compilation frames through without retaining work after cancellation", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, {
+      headers: { "content-type": "text/event-stream" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "owner", "compile", "stream"];
+    const request = new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+      method: "POST",
+      headers: { authorization: "Bearer synthetic-owner", "content-type": "application/json" },
+      body: JSON.stringify({ message: "Compile my notes" }),
+    });
+    const response = await proxyExternalConnectorRequest(request, path);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.get("accept")).toBe("text/event-stream");
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, no-cache, no-transform");
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    await response.body!.cancel();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+});

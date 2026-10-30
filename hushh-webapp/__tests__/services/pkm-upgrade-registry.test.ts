@@ -9,9 +9,19 @@ import {
   validateLosslessDomainUpgrade,
 } from "@/lib/personal-knowledge-model/upgrade-registry";
 import {
+  PKM_QUARANTINE_SEGMENT_ID,
   comparePkmSemanticVersions,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+
+const agentEntity = (id: string, text: string, extra: Record<string, unknown> = {}) => ({
+  entity_id: id,
+  kind: "note",
+  summary: text,
+  observations: [text],
+  status: "active",
+  ...extra,
+});
 
 describe("runDomainUpgrade", () => {
   it("treats unversioned data as a bootstrap into the current PKM contract", () => {
@@ -231,5 +241,77 @@ describe("runDomainUpgrade", () => {
         domainData: { source: "unknown_private_source" },
       }).readable_source_label
     ).toBeNull();
+  });
+
+  it("relocates agent entries only for domains that hold a reserved branch, without a version bump", () => {
+    // Shipped builds refuse to write a domain stored at a newer version than
+    // their own, so the relocation is recorded by a manifest marker instead.
+    expect(currentDomainContractVersion("financial")).toBe(4);
+    expect(currentDomainContractVersion("wallet")).toBe(4);
+    expect(currentDomainContractVersion("food")).toBe(4);
+    const financial = runDomainUpgrade({
+      domain: "financial",
+      domainData: { profile: { entities: { mem_eeeeeeeeeeee: agentEntity("mem_eeeeeeeeeeee", "index funds") } } },
+      currentVersion: 4,
+    });
+    expect(financial.newDomainContractVersion).toBe(4);
+    expect(financial.reservedMigration).toMatchObject({ moved: 1 });
+    const food = {
+      preferences: { entities: { mem_aaaaaaaaaaaa: agentEntity("mem_aaaaaaaaaaaa", "likes ramen") } },
+    };
+    const result = runDomainUpgrade({ domain: "food", domainData: food, currentVersion: 4 });
+    expect(result.domainData).toEqual(food);
+    expect(result.reservedMigration).toBeUndefined();
+  });
+
+  it("quarantines instead of moving when the sibling lives in another domain", () => {
+    const wallet = {
+      cards: {
+        entities: { mem_bbbbbbbbbbbb: agentEntity("mem_bbbbbbbbbbbb", "card for travel") },
+        summary: { count: 1 },
+      },
+    };
+    const result = runDomainUpgrade({ domain: "wallet", domainData: wallet, currentVersion: 4 });
+    expect(result.reservedMigration).toMatchObject({ moved: 0, quarantined: 1 });
+    expect(result.reservedMigration?.items[0]?.reason).toBe("sibling_in_other_domain");
+    expect(result.domainData).toEqual({
+      cards: { summary: { count: 1 } },
+      [PKM_QUARANTINE_SEGMENT_ID]: {
+        reserved_branch_migration_v1: {
+          "/cards/entities/mem_bbbbbbbbbbbb": {
+            reason: "sibling_in_other_domain",
+            source_pointer: "/cards/entities/mem_bbbbbbbbbbbb",
+            value: wallet.cards.entities.mem_bbbbbbbbbbbb,
+          },
+        },
+      },
+    });
+    expect(result.losslessValidation.receipt).toMatchObject({ complete: true, rejected: 0 });
+  });
+
+  it("never moves an agent-shaped entry that an app feature's writer label stamped", () => {
+    const location = {
+      saved_places: {
+        entities: {
+          mem_cccccccccccc: agentEntity("mem_cccccccccccc", "home pin", {
+            source: "one_location_saved_place_confirm",
+          }),
+          mem_dddddddddddd: agentEntity("mem_dddddddddddd", "chat note", {
+            source_agent: "pkm_structure_agent",
+          }),
+        },
+      },
+    };
+    const result = runDomainUpgrade({ domain: "location", domainData: location, currentVersion: 4 });
+    const reasons = Object.fromEntries(
+      (result.reservedMigration?.items ?? []).map((item) => [item.sourcePointer, item.reason])
+    );
+    expect(reasons).toEqual({
+      "/saved_places/entities/mem_cccccccccccc": "ambiguous_feature_provenance",
+      "/saved_places/entities/mem_dddddddddddd": "agent_entity_id",
+    });
+    expect(
+      (result.domainData.agent_memory as { entities: Record<string, unknown> }).entities
+    ).toEqual({ mem_dddddddddddd: location.saved_places.entities.mem_dddddddddddd });
   });
 });

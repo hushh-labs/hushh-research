@@ -28,16 +28,24 @@ def test_location_agent_yaml_declares_callable_tools() -> None:
 @pytest.mark.asyncio
 async def test_location_tools_require_hushh_context_before_service_calls() -> None:
     with pytest.raises(PermissionError):
-        await tools.list_location_recipients()
+        await tools.list_public_links()
 
 
 @pytest.mark.asyncio
 async def test_location_tool_uses_context_user_and_service_boundary(monkeypatch) -> None:
     class FakeService:
-        def list_verified_recipients(self, *, owner_user_id: str, limit: int):
-            assert owner_user_id == "user_a"
-            assert limit == 4
-            return [{"userId": "user_b", "maskedPhone": "******8012"}]
+        def list_state(self, *, user_id: str):
+            assert user_id == "user_a"
+            return {
+                "publicInvites": [
+                    {
+                        "id": "link-1",
+                        "status": "active",
+                        "expiresAt": "2026-07-06T15:00:00+00:00",
+                        "publicUrl": "https://hushh.ai/l/link-1",
+                    }
+                ]
+            }
 
     monkeypatch.setattr(tools, "_service", lambda: FakeService())
     token = issue_token(
@@ -54,7 +62,16 @@ async def test_location_tool_uses_context_user_and_service_boundary(monkeypatch)
     monkeypatch.setattr(adk_tools, "validate_token_with_db", _validate_token_with_db)
 
     with HushhContext(user_id="user_a", consent_token=token.token):
-        result = await tools.list_location_recipients(limit=4)
+        result = await tools.list_public_links()
 
-    assert result == {"recipients": [{"userId": "user_b", "maskedPhone": "******8012"}]}
-    assert inspect.iscoroutinefunction(tools.list_location_recipients.__wrapped__)
+    assert result == {
+        "publicLinks": [
+            {
+                "inviteId": "link-1",
+                "status": "active",
+                "expiresAt": "2026-07-06T15:00:00+00:00",
+                "publicUrl": "https://hushh.ai/l/link-1",
+            }
+        ]
+    }
+    assert inspect.iscoroutinefunction(tools.list_public_links.__wrapped__)

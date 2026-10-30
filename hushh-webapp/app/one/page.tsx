@@ -7,15 +7,17 @@ import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
-import { useVault } from "@/lib/vault/vault-context";
+import { useDirectMessagesUnreadCount } from "@/lib/direct-messages/use-direct-messages-unread-count";
 
 export default function OneHomePage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { user, userId, loading, sessionVerificationRequired } = useAuth();
+  const messagesUnreadCount = useDirectMessagesUnreadCount(
+    loading || sessionVerificationRequired ? null : user,
+    userId,
+  );
   // Dashboard stays coarse (no vault/oauth enrichment) to stay cheap, but opts
   // into `enrichRia` — a single cached getOnboardingStatus call — so the
   // "N of 6 ready" count matches the /one/setup hub. Without it, an onboarded
@@ -30,20 +32,14 @@ export default function OneHomePage() {
     }
   }, [loading, router, user]);
 
-  // The One roster reads the same stale-first market cache as Finance. Prime
-  // it from the dashboard too, so its KPI does not depend on visiting /kai.
-  useEffect(() => {
-    if (!user?.uid) return;
-    return scheduleFinanceWorkspaceWarmup({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-      activeTab: "market",
-    });
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
-
-  if (loading || !user) {
-    return <HushhLoader variant="page" label="Opening One…" />;
+  if (loading || !user || !userId) {
+    return (
+      <HushhLoader
+        stage={loading ? "session" : "redirect"}
+        label="Opening One…"
+        holdThroughNavigation={!loading}
+      />
+    );
   }
 
   return (
@@ -55,9 +51,9 @@ export default function OneHomePage() {
         dataState="loaded"
       />
       <OneDashboardPage
-        displayName={user.displayName || user.email}
         capabilityStatusById={byId}
-        userId={user.uid}
+        userId={userId}
+        messagesUnreadCount={messagesUnreadCount}
       />
     </>
   );

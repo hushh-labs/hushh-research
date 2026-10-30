@@ -7,6 +7,7 @@ vi.mock("@/app/api/_utils/backend", () => ({
 
 type PkmRouteModule = {
   GET: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
+  POST: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 };
 
 let pkmRoute: PkmRouteModule;
@@ -17,12 +18,24 @@ beforeEach(async () => {
   pkmRoute = await import("../../../app/api/pkm/[...path]/route");
 });
 
-function createRequest(url: string): NextRequest {
+function createRequest(
+  url: string,
+  options: {
+    method?: "GET" | "POST";
+    body?: Record<string, unknown>;
+    cacheControl?: string;
+    clientVersion?: string;
+  } = {},
+): NextRequest {
   return new NextRequest(url, {
-    method: "GET",
+    method: options.method ?? "GET",
     headers: {
       Authorization: "Bearer vault_owner_token",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.cacheControl ? { "Cache-Control": options.cacheControl } : {}),
+      ...(options.clientVersion ? { "x-hushh-client-version": options.clientVersion } : {}),
     },
+    ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
 }
 
@@ -79,5 +92,176 @@ describe("/api/pkm/[...path] proxy", () => {
       manifest_revision: null,
       segment_ids: [],
     });
+  });
+
+  it("invalidates a cached empty metadata response after a PKM write", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "No PKM data found for user" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          user_id: "user-1",
+          domains: [{ key: "professional" }],
+          total_attributes: 1,
+          model_completeness: 20,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const metadataPath = { params: Promise.resolve({ path: ["metadata", "user-1"] }) };
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1"),
+      metadataPath,
+    );
+    await pkmRoute.POST(
+      createRequest("http://localhost:3000/api/pkm/store-domain", {
+        method: "POST",
+        body: { user_id: "user-1" },
+      }),
+      { params: Promise.resolve({ path: ["store-domain"] }) },
+    );
+    const refreshed = await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1"),
+      metadataPath,
+    );
+
+    await expect(refreshed.json()).resolves.toMatchObject({
+      domains: [{ key: "professional" }],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let a pre-write metadata request restore stale empty state", async () => {
+    let resolveStaleMetadata!: (response: Response) => void;
+    const staleMetadata = new Promise<Response>((resolve) => {
+      resolveStaleMetadata = resolve;
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(staleMetadata)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          user_id: "user-1",
+          domains: [{ key: "professional" }],
+          total_attributes: 1,
+          model_completeness: 20,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const metadataPath = { params: Promise.resolve({ path: ["metadata", "user-1"] }) };
+
+    const preWriteMetadata = pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1"),
+      metadataPath,
+    );
+    await Promise.resolve();
+    await pkmRoute.POST(
+      createRequest("http://localhost:3000/api/pkm/store-domain", {
+        method: "POST",
+        body: { user_id: "user-1" },
+      }),
+      { params: Promise.resolve({ path: ["store-domain"] }) },
+    );
+    resolveStaleMetadata(
+      new Response(JSON.stringify({ detail: "No PKM data found for user" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await preWriteMetadata;
+
+    const refreshed = await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1"),
+      metadataPath,
+    );
+
+    await expect(refreshed.json()).resolves.toMatchObject({
+      domains: [{ key: "professional" }],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses process-local metadata cache for an explicit refresh", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "No PKM data found for user" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          user_id: "user-1",
+          domains: [{ key: "professional" }],
+          total_attributes: 1,
+          model_completeness: 20,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const metadataPath = { params: Promise.resolve({ path: ["metadata", "user-1"] }) };
+
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1"),
+      metadataPath,
+    );
+    const refreshed = await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/metadata/user-1", {
+        cacheControl: "no-cache",
+      }),
+      metadataPath,
+    );
+
+    await expect(refreshed.json()).resolves.toMatchObject({
+      domains: [{ key: "professional" }],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards the PKM client level and never serves an old build a current client's upgrade status", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ user_id: "user-1", upgrade_status: "current" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const statusPath = { params: Promise.resolve({ path: ["upgrade", "status", "user-1"] }) };
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1", { clientVersion: "2.0.0" }),
+      statusPath,
+    );
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1"),
+      statusPath,
+    );
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1", { clientVersion: "not-a-version" }),
+      statusPath,
+    );
+
+    // Current, old, and a malformed level that the proxy drops (so it reads as old, from cache).
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const sent = fetchSpy.mock.calls.map(([, init]) => new Headers(init?.headers).get("x-hushh-client-version"));
+    expect(sent).toEqual(["2.0.0", null]);
   });
 });

@@ -51,12 +51,93 @@ def with_git_repo():
     return tempdir, repo
 
 
+def test_automatic_production_source_is_forward_only_under_serving_lock() -> None:
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "README.md", "base\n")
+        serving = commit_file(repo, "README.md", "serving\n")
+        target = commit_file(repo, "README.md", "target\n")
+        run_git(repo, "checkout", "--detach", base)
+        divergent = commit_file(repo, "other.md", "other lineage\n")
+        cases = [(target, serving, "true", True), (serving, serving, "true", True),
+                 (base, serving, "true", False), (divergent, serving, "true", False),
+                 (target, "", "true", False), (base, serving, "false", True)]
+        for candidate, current, automatic, allowed in cases:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT_PATH), "--requested-scope", "all", "--target-sha", candidate,
+                 "--backend-base-sha", current, "--frontend-base-sha", current, "--forward-only", automatic],
+                cwd=repo, text=True, capture_output=True,
+            )
+            assert (result.returncode == 0) is allowed, result.stderr
+
+
 def test_explicit_scope_overrides_paths() -> None:
     resolver = load_module()
     decision = resolver.explicit_decision("frontend")
     assert decision.scope == "frontend"
     assert decision.deploy_frontend is True
     assert decision.deploy_backend is False
+
+
+def test_narrow_explicit_scope_rejects_account_lifecycle_boundary() -> None:
+    resolver = load_module()
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "README.md", "base\n")
+        target = commit_file(
+            repo,
+            "consent-protocol/db/migrations/201_account_deletion_tombstones.sql",
+            "boundary\n",
+        )
+        previous_cwd = Path.cwd()
+        try:
+            import os
+
+            os.chdir(repo)
+            for requested_scope in ("backend", "frontend"):
+                try:
+                    resolver.resolve_decision(
+                        requested_scope=requested_scope,
+                        target_sha=target,
+                        backend_base_sha=base,
+                        frontend_base_sha=base,
+                    )
+                except ValueError as exc:
+                    assert "choose scope=all" in str(exc)
+                else:
+                    raise AssertionError(
+                        f"{requested_scope} lifecycle deploy should have been rejected"
+                    )
+        finally:
+            os.chdir(previous_cwd)
+
+
+def test_all_explicit_scope_accepts_account_lifecycle_boundary() -> None:
+    resolver = load_module()
+    decision = resolver.resolve_decision(
+        requested_scope="all",
+        target_sha="target",
+        backend_base_sha="backend",
+        frontend_base_sha="frontend",
+    )
+    assert decision.scope == "all"
+    assert decision.deploy_backend is True
+    assert decision.deploy_frontend is True
+
+
+def test_narrow_explicit_scope_rejects_missing_deployed_sha() -> None:
+    resolver = load_module()
+    try:
+        resolver.resolve_decision(
+            requested_scope="frontend",
+            target_sha="target",
+            backend_base_sha="",
+            frontend_base_sha="frontend",
+        )
+    except ValueError as exc:
+        assert "choose scope=all" in str(exc)
+    else:
+        raise AssertionError("unproven narrow deploy should have been rejected")
 
 
 def test_auto_frontend_only_change() -> None:
@@ -88,7 +169,10 @@ def test_auto_backend_only_change() -> None:
     tempdir, repo = with_git_repo()
     with tempdir:
         base = commit_file(repo, "README.md", "base\n")
-        target = commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "deploy/email-auth/bind_secrets.sh", "backend\n")
+        commit_file(repo, "deploy/plg/bind_secrets.sh", "backend\n")
+        target = commit_file(repo, "scripts/ops/email_auth_uat_release.py", "backend\n")
         previous_cwd = Path.cwd()
         try:
             import os
@@ -104,6 +188,31 @@ def test_auto_backend_only_change() -> None:
     assert decision.scope == "backend"
     assert decision.deploy_backend is True
     assert decision.deploy_frontend is False
+    assert not decision.shared_changed_files
+
+
+def test_pod_offer_changes_do_not_redeploy_the_frontend() -> None:
+    resolver = load_module()
+    for path in ("deploy/pod-release.json", "deploy/pod-release-reuse.json"):
+        tempdir, repo = with_git_repo()
+        with tempdir:
+            base = commit_file(repo, "README.md", "base\n")
+            target = commit_file(repo, path, "reviewed offer\n")
+            previous_cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(repo)
+                decision = resolver.auto_decision(
+                    target_sha=target,
+                    backend_base_sha=base,
+                    frontend_base_sha=base,
+                )
+            finally:
+                os.chdir(previous_cwd)
+        assert decision.scope == "backend"
+        assert decision.deploy_backend and not decision.deploy_frontend
+        assert decision.backend_changed_files == (path,)
 
 
 def test_auto_mixed_change_deploys_all() -> None:
@@ -175,6 +284,36 @@ def test_auto_neutral_workflow_plus_frontend_stays_frontend() -> None:
     assert decision.neutral_changed_files == (".github/workflows/deploy-uat.yml",)
 
 
+def test_auto_single_surface_lifecycle_change_deploys_both() -> None:
+    resolver = load_module()
+    for path in (
+        "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+        "hushh-webapp/lib/auth/session-invalidation.ts",
+        "hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts",
+        "hushh-webapp/lib/services/initial-contacts-onboarding-service.ts",
+        "consent-protocol/db/migrations/337_initial_contacts_onboarding.sql",
+    ):
+        tempdir, repo = with_git_repo()
+        with tempdir:
+            base = commit_file(repo, "README.md", "base\n")
+            target = commit_file(repo, path, "lifecycle\n")
+            previous_cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(repo)
+                decision = resolver.auto_decision(
+                    target_sha=target,
+                    backend_base_sha=base,
+                    frontend_base_sha=base,
+                )
+            finally:
+                os.chdir(previous_cwd)
+        assert decision.scope == "all"
+        assert decision.deploy_backend and decision.deploy_frontend
+        assert decision.reason == "auto:account_lifecycle_atomic"
+
+
 def test_auto_missing_deployed_sha_falls_back_to_all() -> None:
     resolver = load_module()
     decision = resolver.auto_decision(
@@ -186,15 +325,30 @@ def test_auto_missing_deployed_sha_falls_back_to_all() -> None:
     assert decision.reason == "auto:fallback_missing_deployed_sha"
 
 
+def test_frontend_image_build_config_is_frontend_scoped() -> None:
+    resolver = load_module()
+    # The build-only web config compiles the frontend image and nothing else;
+    # changing it must not force a backend deploy (and its migration fence).
+    assert resolver.classify_path("deploy/frontend-image.cloudbuild.yaml") == "frontend"
+    assert resolver.classify_path("deploy/frontend.cloudbuild.yaml") == "frontend"
+
+
 def main() -> int:
     tests = [
+        test_automatic_production_source_is_forward_only_under_serving_lock,
         test_explicit_scope_overrides_paths,
+        test_narrow_explicit_scope_rejects_account_lifecycle_boundary,
+        test_all_explicit_scope_accepts_account_lifecycle_boundary,
+        test_narrow_explicit_scope_rejects_missing_deployed_sha,
         test_auto_frontend_only_change,
         test_auto_backend_only_change,
+        test_pod_offer_changes_do_not_redeploy_the_frontend,
         test_auto_mixed_change_deploys_all,
         test_auto_shared_path_deploys_all,
         test_auto_neutral_workflow_plus_frontend_stays_frontend,
         test_auto_missing_deployed_sha_falls_back_to_all,
+        test_auto_single_surface_lifecycle_change_deploys_both,
+        test_frontend_image_build_config_is_frontend_scoped,
     ]
     for test in tests:
         test()

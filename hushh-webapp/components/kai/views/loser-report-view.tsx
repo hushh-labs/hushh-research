@@ -22,7 +22,7 @@ import {
   TrendingDown,
   BarChart3,
   ArrowUpDown,
-} from "lucide-react";
+} from "@/components/icons";
 
 // =============================================================================
 // TYPES
@@ -85,7 +85,7 @@ export function LoserReportView({
           <Icon icon={AlertTriangle} size="md" />
           <span className="font-semibold">{losers.length} Positions Need Attention</span>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">Portfolio Losers</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Portfolio Losers</h1>
         <p className="text-muted-foreground">
           These positions are underperforming. Let's analyze them.
         </p>
@@ -141,7 +141,7 @@ export function LoserReportView({
             variant="none"
             effect="glass"
             showRipple={true}
-            className="cursor-pointer hover:border-red-500/50 transition-all"
+            className="cursor-pointer transition-[border-color] duration-150 hover:border-red-500/50"
             onClick={() => onAnalyzeStock(loser.symbol)}
           >
             <CardContent className="p-6">
@@ -152,7 +152,7 @@ export function LoserReportView({
                     <Icon icon={TrendingDown} size="lg" className="text-red-500" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold">{loser.symbol}</h3>
+                    <h3 className="text-lg font-normal">{loser.symbol}</h3>
                     <p className="text-sm text-muted-foreground line-clamp-1">
                       {loser.name}
                     </p>

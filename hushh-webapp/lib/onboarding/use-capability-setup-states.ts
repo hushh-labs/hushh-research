@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -17,10 +17,11 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { RiaService } from "@/lib/services/ria-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
@@ -70,13 +71,10 @@ export function useCapabilitySetupStates(
   options: UseCapabilitySetupStatesOptions = {}
 ): UseCapabilitySetupStatesResult {
   const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
-  // Last reported "<uid>:<connected ids>" so an unchanged set is not re-posted.
-  const reportedConnectedRef = useRef<string>("");
 
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
-  const userId = user?.uid ?? null;
 
   const cachedPreVaultState = userId
     ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
@@ -108,6 +106,7 @@ export function useCapabilitySetupStates(
   const [locationRecipientKeyReady, setLocationRecipientKeyReady] = useState<
     boolean | undefined
   >(undefined);
+  const [locationReadinessOwner, setLocationReadinessOwner] = useState<string | null>(null);
   // RIA onboarded: undefined until we've fetched (or when not opted in).
   const [riaOnboarded, setRiaOnboarded] = useState<boolean | undefined>(
     undefined
@@ -293,8 +292,8 @@ export function useCapabilitySetupStates(
   }, [enrichOauth, userId]);
 
   // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
-  // One lightweight `getState` once the vault is unlocked, so the Location tile
-  // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
+  // Join the same post-unlock key provisioning as the global warm path. A
+  // state read racing that write must not permanently report missing setup.
   // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
   useEffect(() => {
     if (!userId || !isVaultUnlocked) {
@@ -302,31 +301,57 @@ export function useCapabilitySetupStates(
       setEnrichingLocation(false);
       return;
     }
-    const token = getVaultOwnerToken();
-    if (!token) {
+    if (!getVaultOwnerToken() || !getVaultKey()) {
       setLocationRecipientKeyReady(undefined);
       setEnrichingLocation(false);
       return;
     }
     let cancelled = false;
-    setEnrichingLocation(true);
-    OneLocationService.getState(token)
-      .then((state) => {
-        if (!cancelled) {
-          setLocationRecipientKeyReady(Boolean(state.myRecipientKey?.keyId));
+    let pending = false;
+    let complete = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    setLocationReadinessOwner(userId);
+    setLocationRecipientKeyReady(undefined);
+    const delays = [1_000, 3_000, 10_000];
+    const check = async () => {
+      if (cancelled || pending || complete) return;
+      const token = getVaultOwnerToken();
+      const vaultKey = getVaultKey();
+      if (!token || !vaultKey) return;
+      pending = true;
+      setEnrichingLocation(true);
+      try {
+        if (shouldSkipReviewerBackgroundWritesForAutomation()) {
+          const state = await OneLocationService.getState(token);
+          if (!cancelled) setLocationRecipientKeyReady(Boolean(state.myRecipientKey?.keyId));
+        } else {
+          const key = await bootstrapCurrentUserLocationRecipientKey({ userId, vaultOwnerToken: token, vaultKey, strictRecovery: true });
+          if (!cancelled) setLocationRecipientKeyReady(Boolean(key.keyId && key.publicKeyJwk));
         }
-      })
-      .catch(() => {
-        // Leave undefined → resolver yields "Checking…", never a fabricated state.
-        if (!cancelled) setLocationRecipientKeyReady(undefined);
-      })
-      .finally(() => {
+        complete = true;
+      } catch {
+        if (!cancelled) {
+          // A failed recovery is unknown, never proof that onboarding is absent.
+          setLocationRecipientKeyReady(undefined);
+          if (attempt < delays.length) retryTimer = setTimeout(check, delays[attempt++]);
+        }
+      } finally {
+        pending = false;
         if (!cancelled) setEnrichingLocation(false);
-      });
+      }
+    };
+    const resume = () => { if (document.visibilityState === "visible") void check(); };
+    void check();
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
-  }, [userId, isVaultUnlocked, getVaultOwnerToken]);
+  }, [userId, isVaultUnlocked, getVaultOwnerToken, getVaultKey]);
 
   // ---- OPT-IN: RIA onboarded status ---------------------------------------
   // One lightweight, cached `getOnboardingStatus` so the RIA tile reads "Ready"
@@ -404,7 +429,7 @@ export function useCapabilitySetupStates(
       pendingConsents: pendingConsents ?? 0,
       oauthConnections,
       exploredCapabilityIds: exploredIds,
-      locationRecipientKeyReady,
+      locationRecipientKeyReady: locationReadinessOwner === userId ? locationRecipientKeyReady : undefined,
       riaOnboarded,
     }),
     [
@@ -417,6 +442,7 @@ export function useCapabilitySetupStates(
       oauthConnections,
       exploredIds,
       locationRecipientKeyReady,
+      locationReadinessOwner,
       riaOnboarded,
     ]
   );
@@ -428,65 +454,6 @@ export function useCapabilitySetupStates(
     for (const status of statuses) map[status.id] = status;
     return map;
   }, [statuses]);
-
-  // "unknown" means this pass could not resolve the capability — the dashboard
-  // does not enrich OAuth, so Gmail reads unknown there. Reporting it as
-  // not-connected would later make a months-old link look brand new.
-  const observedIds = useMemo(
-    () =>
-      statuses
-        .filter((status) => status.state !== "unknown")
-        .map((status) => status.id)
-        .sort(),
-    [statuses]
-  );
-
-  const connectedIds = useMemo(
-    () =>
-      statuses
-        .filter((status) => status.state === "completed")
-        .map((status) => status.id)
-        .sort(),
-    [statuses]
-  );
-
-  const connectedSignature = useMemo(
-    () => `${observedIds.join(",")}|${connectedIds.join(",")}`,
-    [observedIds, connectedIds]
-  );
-
-  const isSettled =
-    Boolean(userId) &&
-    bootstrapOwnerId === userId &&
-    (bootstrapResolved || Boolean(cachedPreVaultState)) &&
-    !enrichingVault &&
-    !enrichingOauth &&
-    !enrichingRia &&
-    !enrichingLocation;
-
-  /**
-   * Report the connected set so the server can mail about anything newly
-   * connected.
-   *
-   * Reporting a set beats firing an event per link: there are nine ways to
-   * connect something and hooking each one means the one added next year is
-   * silently missed. The server owns the diff and the durable record, so this
-   * side stays a plain observation with no memory of its own beyond avoiding a
-   * repeat post of an unchanged set.
-   *
-   * Only while settled — a partially enriched pass reports a smaller set, which
-   * is harmless because the server only ever adds, but posting it is noise.
-   */
-  useEffect(() => {
-    if (!isSettled || !userId) return;
-    const key = `${userId}:${connectedSignature}`;
-    if (reportedConnectedRef.current === key) return;
-    reportedConnectedRef.current = key;
-    void ApiService.notifyAuthMail("capabilities_linked", {
-      observed: observedIds,
-      capabilities: connectedIds,
-    });
-  }, [connectedIds, connectedSignature, isSettled, observedIds, userId]);
 
   return {
     statuses,

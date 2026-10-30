@@ -7,14 +7,53 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A7B90100000000000000A1; };
+		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
+		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
 		139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */; };
 		19493A2C811E742D1FAA4874 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */; };
 		3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */; };
+		A82D516E4AF84CBA90283D11 /* DeletionPhoneProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82D516E4AF84CBA90283D12 /* DeletionPhoneProof.swift */; };
+		A82D516E4AF84CBA90283D21 /* AppleIdentityReauthentication.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82D516E4AF84CBA90283D22 /* AppleIdentityReauthentication.swift */; };
+		5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */; };
+		5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */; };
+		5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */; };
+		5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */; };
+		5E5510A1000000000000000A /* HushhNativeDockPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */; };
+		5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A1000000000000000B /* NativePresentationContainer.swift */; };
+		5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510B10000000000000001 /* NativeHistoryQualification.swift */; };
+		5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000001 /* NativeDrawerState.swift */; };
+		5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000007 /* NativeProfileArtwork.swift */; };
+		5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000009 /* NativeProfileNameScene.swift */; };
+		6C1107E975D02B780BB53825 /* NativeDrawerQualificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */; };
+		0170210E5C57FAD25DE97F84 /* NativeOwnedChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */; };
+		CDDD427B288B2FE9E8CE480D /* NativeWalletCardScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */; };
+		5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */; };
+		5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */; };
+		5E5510C100000000000000D5 /* NativeProfileConnectorScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */; };
+		5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */; };
+		5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */; };
+		5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */; };
+		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
+		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
+		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
+		5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000011 /* NativeProfileLegal.swift */; };
+		5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */; };
+		5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */; };
+		5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000017 /* NativeProfilePricingScene.swift */; };
+		5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */; };
+		5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */; };
+		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
+		5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */; };
+		5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */; };
 		43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 56ED1CF703740D03086A7499 /* GoogleService-Info.plist */; };
 		AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
+		5E5510A40000000000000003 /* LinkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5E5510A40000000000000002 /* LinkKit */; };
+		F1A000000000000000000007 /* OneVoiceModelNotices.json in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000009 /* OneVoiceModelNotices.json */; };
+		F1A000000000000000000008 /* OneVoicePrivacyContract.v1.json in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000010 /* OneVoicePrivacyContract.v1.json */; };
 		4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -23,16 +62,30 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E424BC311E720A549078D16 /* NativeTestSupport.swift */; };
+		5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */; };
 		71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */; };
 		84C1C4976C8A006BA2171BFF /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000061 /* HushhLocationPlugin.swift */; };
 		A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */; };
 		A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */; };
 		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
+		A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */; };
+		A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */; };
+		A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A740000000000000001 /* OneVoiceAppIntent.swift */; };
+		A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */; };
+		A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */; };
+		A11C0A730000000000000031 /* OneVoiceMicrophoneCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000032 /* OneVoiceMicrophoneCapture.swift */; };
+		A11C0A730000000000000014 /* OneSystemActionInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */; };
+		A11C0A730000000000000015 /* OneSystemRequestInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */; };
+		A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */; };
+		A11C0A730000000000000023 /* OneSystemActionInvocationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000024 /* OneSystemActionInvocationCoordinatorTests.swift */; };
+		A11C0A730000000000000025 /* OneVoiceHardwareBenchmarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000026 /* OneVoiceHardwareBenchmarkTests.swift */; };
+		A11C0A730000000000000028 /* OneVoiceMicrophonePermissionBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000027 /* OneVoiceMicrophonePermissionBootstrapTests.swift */; };
 		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */; };
 		B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423141872FACCBA5C6BB6BE5 /* AppUITests.swift */; };
+		AA11BB22CC33DD44EE55FF66 /* LocationPickerLocateMeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */; };
 		D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */; };
 		E1F2A3B42F0E966A009FC3FE /* HushhProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F2A3B52F0E966A009FC3FE /* HushhProxyClient.swift */; };
 		E8B31D0870530F4CFA77B50B /* HushhSettingsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */; };
@@ -42,6 +95,18 @@
 		FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */; };
 		FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844A95957616D891DBC4D212 /* NativeSupportTests.swift */; };
 		A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */; };
+		C4A7B9010000000000000002 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000003 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000005 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000004; };
+        51A1A4000000000000000002 = {isa = PBXBuildFile; fileRef = 51A1A4000000000000000001; };
+        51A1A4000000000000000003 = {isa = PBXBuildFile; fileRef = 51A1A4000000000000000001; };
+        C4A7B9010000000000000007 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FA82B4AC0000000000000002 /* NativeWalletWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000001 /* NativeWalletWorkspace.swift */; };
+		FA82B4AC0000000000000004 /* NativeWalletPanelPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000003 /* NativeWalletPanelPresentation.swift */; };
+		FA82B4AC0000000000000006 /* NativeWalletProfileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000005 /* NativeWalletProfileEditor.swift */; };
+		FA82B4AC0000000000000008 /* NativeMapActionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */; };
+		FA82B4AC000000000000000A /* NativeWalletJourney.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000009 /* NativeWalletJourney.swift */; };
+		FA82B4AC000000000000000C /* NativeAuthoredIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,16 +124,24 @@
 			remoteGlobalIDString = 504EC3031FED79650016851F;
 			remoteInfo = App;
 		};
+        C4A7B901000000000000000E = {isa = PBXContainerItemProxy; containerPortal = 504EC2FC1FED79650016851F; proxyType = 1; remoteGlobalIDString = C4A7B9010000000000000009; remoteInfo = ChatNotificationService; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C4A7B90100000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFeedbackPresentation.swift; path = Plugins/NativeFeedbackPresentation.swift; sourceTree = "<group>"; };
+		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
+		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
 		0E424BC311E720A549078D16 /* NativeTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeTestSupport.swift; sourceTree = "<group>"; };
+		5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		21773A44233202A79EA4E97B /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MyViewController.swift; sourceTree = "<group>"; };
 		2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAuthPlugin.swift; path = Plugins/HushhAuthPlugin.swift; sourceTree = "<group>"; };
+		A82D516E4AF84CBA90283D12 /* DeletionPhoneProof.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DeletionPhoneProof.swift; path = Plugins/DeletionPhoneProof.swift; sourceTree = "<group>"; };
+		A82D516E4AF84CBA90283D22 /* AppleIdentityReauthentication.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppleIdentityReauthentication.swift; path = Plugins/AppleIdentityReauthentication.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		423141872FACCBA5C6BB6BE5 /* AppUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUITests.swift; sourceTree = "<group>"; };
+		66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocationPickerLocateMeTests.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -76,9 +149,42 @@
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSessionPrivacyPlugin.swift; path = Plugins/HushhSessionPrivacyPlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeNavigationPlugin.swift; path = Plugins/HushhNativeNavigationPlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePlugin.swift; path = Plugins/HushhNativeChromePlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePresenter.swift; path = Plugins/HushhNativeChromePresenter.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeDockPlugin.swift; path = Plugins/HushhNativeDockPlugin.swift; sourceTree = "<group>"; };
+		5E5510A1000000000000000B /* NativePresentationContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativePresentationContainer.swift; path = Plugins/NativePresentationContainer.swift; sourceTree = "<group>"; };
+		5E5510B10000000000000001 /* NativeHistoryQualification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHistoryQualification.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000001 /* NativeDrawerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerState.swift; path = Plugins/NativeDrawerState.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000009 /* NativeProfileNameScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileNameScene.swift; path = Plugins/NativeProfileNameScene.swift; sourceTree = "<group>"; };
+		916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerQualificationPolicy.swift; path = Plugins/NativeDrawerQualificationPolicy.swift; sourceTree = "<group>"; };
+		99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeOwnedChoice.swift; path = Plugins/NativeOwnedChoice.swift; sourceTree = "<group>"; };
+		6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletCardScene.swift; path = Plugins/NativeWalletCardScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileWorldModelScene.swift; path = Plugins/NativeProfileWorldModelScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileRuntimeScene.swift; path = Plugins/NativeProfileRuntimeScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileConnectorScene.swift; path = Plugins/NativeProfileConnectorScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileMemoryScene.swift; path = Plugins/NativeProfileMemoryScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePaymentsScene.swift; path = Plugins/NativeProfilePaymentsScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWorkspacePresentation.swift; path = Plugins/NativeWorkspacePresentation.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000011 /* NativeProfileLegal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileLegal.swift; path = Plugins/NativeProfileLegal.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePhoneScene.swift; path = Plugins/NativeProfilePhoneScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePasswordScene.swift; path = Plugins/NativeProfilePasswordScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000017 /* NativeProfilePricingScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePricingScene.swift; path = Plugins/NativeProfilePricingScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000007 /* NativeProfileArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileArtwork.swift; path = Plugins/NativeProfileArtwork.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerPresentationController.swift; path = Plugins/NativeDrawerPresentationController.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhNativeDrawersPlugin.swift; path = Plugins/HushhNativeDrawersPlugin.swift; sourceTree = "<group>"; };
+		5E5510A20000000000000001 /* HushhStreamPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhStreamPlugin.swift; path = Plugins/HushhStreamPlugin.swift; sourceTree = "<group>"; };
+		5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhOAuthReturnPlugin.swift; path = Plugins/HushhOAuthReturnPlugin.swift; sourceTree = "<group>"; };
+		5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhPlaidLinkPlugin.swift; path = Plugins/HushhPlaidLinkPlugin.swift; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		56ED1CF703740D03086A7499 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
+		F1A000000000000000000009 /* OneVoiceModelNotices.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; path = OneVoiceModelNotices.json; sourceTree = "<group>"; };
+		F1A000000000000000000010 /* OneVoicePrivacyContract.v1.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; path = OneVoicePrivacyContract.v1.json; sourceTree = "<group>"; };
 		695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSettingsPlugin.swift; path = Plugins/HushhSettingsPlugin.swift; sourceTree = "<group>"; };
 		71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeUiTestRunnerScript.swift; sourceTree = "<group>"; };
 		844A95957616D891DBC4D212 /* NativeSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeSupportTests.swift; sourceTree = "<group>"; };
@@ -91,6 +197,18 @@
 		A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationEnvelopeCrypto.swift; path = Plugins/LocationEnvelopeCrypto.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundLocationPublisher.swift; path = Plugins/BackgroundLocationPublisher.swift; sourceTree = "<group>"; };
 		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
+		A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhCardScannerPlugin.swift; path = Plugins/HushhCardScannerPlugin.swift; sourceTree = "<group>"; };
+		A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhInvitationsPlugin.swift; path = Plugins/HushhInvitationsPlugin.swift; sourceTree = "<group>"; };
+		A11C0A740000000000000001 /* OneVoiceAppIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceAppIntent.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinator.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhVoiceInvocationPlugin.swift; path = Plugins/HushhVoiceInvocationPlugin.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000032 /* OneVoiceMicrophoneCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OneVoiceMicrophoneCapture.swift; path = Plugins/OneVoiceMicrophoneCapture.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemActionInvocationCoordinator.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemRequestInvocationCoordinator.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinatorTests.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000024 /* OneSystemActionInvocationCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemActionInvocationCoordinatorTests.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000026 /* OneVoiceHardwareBenchmarkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceHardwareBenchmarkTests.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000027 /* OneVoiceMicrophonePermissionBootstrapTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceMicrophonePermissionBootstrapTests.swift; sourceTree = "<group>"; };
 		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
 		A280438C2F21B1FC005B42F3 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HusshIMessageSessionStore.swift; path = Plugins/HusshIMessageSessionStore.swift; sourceTree = "<group>"; };
@@ -102,6 +220,16 @@
 		EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSyncPlugin.swift; path = Plugins/HushhSyncPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000001 /* HushhAccountPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAccountPlugin.swift; path = Plugins/HushhAccountPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000004 /* HushhNotificationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNotificationsPlugin.swift; path = Plugins/HushhNotificationsPlugin.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
+        51A1A4000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmergencySmsSystemAlarm.swift; path = App/Plugins/EmergencySmsSystemAlarm.swift; sourceTree = SOURCE_ROOT; };
+        C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA82B4AC0000000000000001 /* NativeWalletWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletWorkspace.swift; path = Plugins/NativeWalletWorkspace.swift; sourceTree = "<group>"; };
+		FA82B4AC0000000000000003 /* NativeWalletPanelPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletPanelPresentation.swift; path = Plugins/NativeWalletPanelPresentation.swift; sourceTree = "<group>"; };
+		FA82B4AC0000000000000005 /* NativeWalletProfileEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWalletProfileEditor.swift; path = Plugins/NativeWalletProfileEditor.swift; sourceTree = "<group>"; };
+		FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeMapActionPresentation.swift; path = Plugins/NativeMapActionPresentation.swift; sourceTree = "<group>"; };
+		FA82B4AC0000000000000009 /* NativeWalletJourney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWalletJourney.swift; sourceTree = "<group>"; };
+		FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeAuthoredIcon.swift; path = Plugins/NativeAuthoredIcon.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +238,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				5E5510A40000000000000003 /* LinkKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,14 +258,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        C4A7B901000000000000000D = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (C4A7B9010000000000000007, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		48256E6A000C130E82C635C2 /* AppUITests */ = {
 			isa = PBXGroup;
 			children = (
 				423141872FACCBA5C6BB6BE5 /* AppUITests.swift */,
+				AC0011223344556677889902 /* CountryPickerTests.swift */,
+				66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */,
 				14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */,
+				A11C0A730000000000000027 /* OneVoiceMicrophonePermissionBootstrapTests.swift */,
+				FA82B4AC0000000000000009 /* NativeWalletJourney.swift */,
 			);
 			path = AppUITests;
 			sourceTree = "<group>";
@@ -144,6 +282,7 @@
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000008,
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				958DCC732DB07C7200EA8C5F /* release.xcconfig */,
 				504EC3061FED79650016851F /* App */,
@@ -157,6 +296,7 @@
 		504EC3051FED79650016851F /* Products */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000006,
 				504EC3041FED79650016851F /* App.app */,
 				E3671E80C56D2FAC01466C11 /* AppTests.xctest */,
 				21773A44233202A79EA4E97B /* AppUITests.xctest */,
@@ -167,20 +307,30 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000001,
+                51A1A4000000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */,
+				A11C0A740000000000000001 /* OneVoiceAppIntent.swift */,
+				A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */,
+				A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */,
+				A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
-				56ED1CF703740D03086A7499 /* GoogleService-Info.plist */,
-				AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */,
+					56ED1CF703740D03086A7499 /* GoogleService-Info.plist */,
+					AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */,
+					F1A000000000000000000009 /* OneVoiceModelNotices.json */,
+					F1A000000000000000000010 /* OneVoicePrivacyContract.v1.json */,
 				23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */,
 				E01327B97C0E35A824E086A8 /* Plugins */,
 				0E424BC311E720A549078D16 /* NativeTestSupport.swift */,
+				5E5510B10000000000000001 /* NativeHistoryQualification.swift */,
 				71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */,
 			);
 			path = App;
@@ -199,6 +349,9 @@
 			children = (
 				844A95957616D891DBC4D212 /* NativeSupportTests.swift */,
 				A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */,
+				A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */,
+				A11C0A730000000000000024 /* OneSystemActionInvocationCoordinatorTests.swift */,
+				A11C0A730000000000000026 /* OneVoiceHardwareBenchmarkTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -211,6 +364,45 @@
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
 				99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */,
 				2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */,
+				A82D516E4AF84CBA90283D12 /* DeletionPhoneProof.swift */,
+				A82D516E4AF84CBA90283D22 /* AppleIdentityReauthentication.swift */,
+				5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */,
+				5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */,
+				5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */,
+				5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */,
+				5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */,
+				5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */,
+				5E5510C10000000000000001 /* NativeDrawerState.swift */,
+				C4A7B90100000000000000A1 /* NativeFeedbackPresentation.swift */,
+				5E5510C10000000000000009 /* NativeProfileNameScene.swift */,
+				916568596D05EAF9607D3609 /* NativeDrawerQualificationPolicy.swift */,
+				6EE49F7770E0A0471A66B741 /* NativeWalletCardScene.swift */,
+				99C1046A10FC334F8F78C4BA /* NativeOwnedChoice.swift */,
+				5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */,
+				5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */,
+				5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */,
+				5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */,
+				5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */,
+				5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */,
+				FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */,
+				FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */,
+				FA82B4AC0000000000000005 /* NativeWalletProfileEditor.swift */,
+				FA82B4AC0000000000000003 /* NativeWalletPanelPresentation.swift */,
+				FA82B4AC0000000000000001 /* NativeWalletWorkspace.swift */,
+				5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */,
+				5E5510C1000000000000000D /* NativeProfileStyleScene.swift */,
+				5E5510C1000000000000000F /* NativeProfileSupportScene.swift */,
+				5E5510C10000000000000011 /* NativeProfileLegal.swift */,
+				5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */,
+				5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */,
+				5E5510C10000000000000017 /* NativeProfilePricingScene.swift */,
+				5E5510C10000000000000007 /* NativeProfileArtwork.swift */,
+				5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */,
+				5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */,
+				5E5510A1000000000000000B /* NativePresentationContainer.swift */,
+				5E5510A20000000000000001 /* HushhStreamPlugin.swift */,
+				5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */,
+				5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */,
 				EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */,
 				695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */,
 				9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */,
@@ -222,6 +414,10 @@
 				A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */,
 				A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */,
 				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
+				A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */,
+				A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */,
+				A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */,
+				A11C0A730000000000000032 /* OneVoiceMicrophoneCapture.swift */,
 			);
 			name = Plugins;
 			sourceTree = "<group>";
@@ -234,6 +430,7 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+        C4A7B9010000000000000008 = {isa = PBXGroup; children = (C4A7B9010000000000000004, ); path = ChatNotificationService; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -259,6 +456,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
 			buildPhases = (
+                C4A7B901000000000000000D,
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
@@ -267,10 +465,12 @@
 			buildRules = (
 			);
 			dependencies = (
+                C4A7B901000000000000000F,
 			);
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				5E5510A40000000000000002 /* LinkKit */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -294,6 +494,7 @@
 			productReference = E3671E80C56D2FAC01466C11 /* AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+        C4A7B9010000000000000009 = {isa = PBXNativeTarget; buildConfigurationList = C4A7B9010000000000000012; buildPhases = (C4A7B901000000000000000A, C4A7B901000000000000000B, C4A7B901000000000000000C, ); buildRules = (); dependencies = (); name = ChatNotificationService; productName = ChatNotificationService; productReference = C4A7B9010000000000000006; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -329,11 +530,13 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                C4A7B9010000000000000009,
 				504EC3031FED79650016851F /* App */,
 				E3C407F7719D0DC2DBB7AE31 /* AppTests */,
 				3658203A687146DA8239820C /* AppUITests */,
@@ -352,8 +555,10 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
-				43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */,
-				AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */,
+					43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */,
+					AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */,
+					F1A000000000000000000007 /* OneVoiceModelNotices.json in Resources */,
+					F1A000000000000000000008 /* OneVoicePrivacyContract.v1.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -371,6 +576,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000C = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -404,6 +610,9 @@
 			files = (
 				FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */,
 				A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */,
+				A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */,
+				A11C0A730000000000000023 /* OneSystemActionInvocationCoordinatorTests.swift in Sources */,
+				A11C0A730000000000000025 /* OneVoiceHardwareBenchmarkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,13 +620,62 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                C4A7B9010000000000000002,
+                51A1A4000000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
+				5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */,
+				A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */,
+				A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */,
+				A11C0A730000000000000031 /* OneVoiceMicrophoneCapture.swift in Sources */,
+				A11C0A730000000000000014 /* OneSystemActionInvocationCoordinator.swift in Sources */,
+				A11C0A730000000000000015 /* OneSystemRequestInvocationCoordinator.swift in Sources */,
 				ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */,
 				D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */,
 				4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */,
 				F368A19E68607FCBA9D2DD32 /* HushhSyncPlugin.swift in Sources */,
 				A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */,
 				3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */,
+				A82D516E4AF84CBA90283D11 /* DeletionPhoneProof.swift in Sources */,
+				A82D516E4AF84CBA90283D21 /* AppleIdentityReauthentication.swift in Sources */,
+				5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */,
+				5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */,
+				5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */,
+				5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */,
+				5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */,
+				5E5510A1000000000000000A /* HushhNativeDockPlugin.swift in Sources */,
+				5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */,
+				5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */,
+				5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */,
+				C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */,
+				5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */,
+				6C1107E975D02B780BB53825 /* NativeDrawerQualificationPolicy.swift in Sources */,
+				CDDD427B288B2FE9E8CE480D /* NativeWalletCardScene.swift in Sources */,
+				0170210E5C57FAD25DE97F84 /* NativeOwnedChoice.swift in Sources */,
+				5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */,
+				5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */,
+				5E5510C100000000000000D5 /* NativeProfileConnectorScene.swift in Sources */,
+				5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */,
+				5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */,
+				5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */,
+				FA82B4AC000000000000000C /* NativeAuthoredIcon.swift in Sources */,
+				FA82B4AC0000000000000008 /* NativeMapActionPresentation.swift in Sources */,
+				FA82B4AC0000000000000006 /* NativeWalletProfileEditor.swift in Sources */,
+				FA82B4AC0000000000000004 /* NativeWalletPanelPresentation.swift in Sources */,
+				FA82B4AC0000000000000002 /* NativeWalletWorkspace.swift in Sources */,
+				5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */,
+				5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */,
+				5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */,
+				5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */,
+				5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */,
+				5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */,
+				5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */,
+				5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */,
+				5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */,
+				5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */,
+				5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */,
+				5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */,
+				5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */,
 				FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */,
 				E8B31D0870530F4CFA77B50B /* HushhSettingsPlugin.swift in Sources */,
 				39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */,
@@ -429,6 +687,8 @@
 				A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */,
 				A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */,
 				A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */,
+				A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */,
+				A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */,
 				6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */,
 				71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */,
 			);
@@ -439,10 +699,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */,
+				AC0011223344556677889901 /* CountryPickerTests.swift in Sources */,
+				AA11BB22CC33DD44EE55FF66 /* LocationPickerLocateMeTests.swift in Sources */,
 				139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */,
+				A11C0A730000000000000028 /* OneVoiceMicrophonePermissionBootstrapTests.swift in Sources */,
+				FA82B4AC000000000000000A /* NativeWalletJourney.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C4A7B9010000000000000003, C4A7B9010000000000000005, 51A1A4000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -458,6 +723,7 @@
 			target = 504EC3031FED79650016851F /* App */;
 			targetProxy = C88238685A567E8796AE7460 /* PBXContainerItemProxy */;
 		};
+        C4A7B901000000000000000F = {isa = PBXTargetDependency; target = C4A7B9010000000000000009; targetProxy = C4A7B901000000000000000E; };
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -529,7 +795,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -581,7 +847,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -596,19 +862,21 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
+				ENABLE_DEBUG_DYLIB = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.7;
+				MARKETING_VERSION = 1.4.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -625,19 +893,20 @@
 			baseConfigurationReference = 958DCC732DB07C7200EA8C5F /* release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.7;
+				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -658,7 +927,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -681,7 +950,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -705,7 +974,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -734,7 +1003,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -752,6 +1021,8 @@
 			};
 			name = Debug;
 		};
+        C4A7B9010000000000000010 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+        C4A7B9010000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -791,6 +1062,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        C4A7B9010000000000000012 = {isa = XCConfigurationList; buildConfigurations = (C4A7B9010000000000000010, C4A7B9010000000000000011, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -800,11 +1072,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/plaid/plaid-link-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.1.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		5E5510A40000000000000002 /* LinkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */;
+			productName = LinkKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

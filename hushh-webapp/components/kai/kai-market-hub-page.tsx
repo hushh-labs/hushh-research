@@ -5,8 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
+  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -19,15 +22,20 @@ import {
 import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
+import { KaiMarketHomeProvider } from "@/components/kai/shared/kai-market-home-context";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
 
 /** Canonical query-tabbed Finance workspace. */
 export function KaiMarketHubPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const router = useRouter();
@@ -52,7 +60,11 @@ export function KaiMarketHubPage() {
       return;
     beginRouteTransition(
       destination.href,
-      () => router.replace(destination.href, { scroll: false }),
+      () => {
+        scrollAppToTop();
+        resetKaiBottomChromeVisibility();
+        router.replace(destination.href);
+      },
       "tap",
       "contextual",
     );
@@ -60,6 +72,8 @@ export function KaiMarketHubPage() {
 
   useEffect(() => {
     setVisibleTab(activeTab);
+    scrollAppToTop();
+    resetKaiBottomChromeVisibility();
   }, [activeTab]);
 
   useEffect(() => {
@@ -77,28 +91,28 @@ export function KaiMarketHubPage() {
   }, [completeStep, flowState, initialized]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!userId) return;
     return scheduleFinanceWorkspaceWarmup({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       // The warmup primes every Finance panel. Do not cancel it merely because
       // a swipe changed the query selection before the browser became idle.
       activeTab: "market",
     });
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [userId, vaultKey, vaultOwnerToken]);
 
-  if (authLoading || !user) return null;
+  if (authLoading || !user || !userId) return null;
 
-  // Finance is a One workspace, not a dashboard canvas. Match Profile's
-  // reading measure and let the shared shell own the only outer gutter.
+  // Finance is a One workspace, not a dashboard canvas. Match Location's
+  // agent column and let the shared shell own the only outer gutter.
   return (
     <AppPageShell
       as="div"
       fitContent
-
-      width="reading"
-      className="relative !px-0 pb-32"
+      width="agent"
+      headerContentSpacing="compact"
+      className="relative"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -107,35 +121,54 @@ export function KaiMarketHubPage() {
         dataState: flowState === "checking" ? "loading" : "loaded",
       }}
     >
+      <AppPageHeaderRegion
+        className="space-y-[var(--page-header-section-gap)]"
+        data-finance-workspace-header="true"
+      >
+        <PageHeader
+          title="Finance"
+          titleRole="agent"
+          titleVisuallyHidden
+        />
+        <TopShellTabs
+          tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
+        />
+      </AppPageHeaderRegion>
+      <KaiMarketHomeProvider>
       <SwipeViews
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={visibleTab}
         options={FINANCE_TAB_DEFINITION.tabs}
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
-        panelInset="page"
+        heightMode="active"
+        holdHeightDuringTransition={false}
+        panelInset="none"
+        viewportMinHeight="fill"
+        className="mt-[var(--page-header-section-gap)]"
       >
-        <div className="h-full w-full">
+        <div className={`w-full ${marketBriefingStyles.typography}`}>
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiFlow
-              userId={user.uid}
+              userId={userId}
               mode="dashboard"
               vaultOwnerToken={vaultOwnerToken ?? ""}
               onStateChange={setFlowState}
             />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
         </div>
       </SwipeViews>
+      </KaiMarketHomeProvider>
     </AppPageShell>
   );
 }

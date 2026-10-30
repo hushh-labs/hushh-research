@@ -7,11 +7,14 @@ import {
   isValidElement,
   useEffect,
   useContext,
+  useId,
   useState,
 } from "react";
-import type { ReactElement, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
-import { ChevronRight, X } from "lucide-react";
+import type { MouseEvent, ReactElement, ReactNode } from "react";
+import {
+  CaretRightIcon as ChevronRight,
+  XIcon as X,
+} from "@/components/icons";
 import { Slot } from "radix-ui";
 
 import {
@@ -23,14 +26,12 @@ import {
 } from "@/components/ui/drawer";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -47,6 +48,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { TaskSheetContent, TaskDialogContent, TaskSurfaceBody, TaskSurfaceFooter } from "@/lib/morphy-ux/ui/task-surfaces";
 import { cn } from "@/lib/utils";
 
 const INTERACTIVE_HTML_TAGS = new Set([
@@ -90,6 +92,35 @@ function isKnownInteractiveComponent(type: unknown): boolean {
   ].includes(normalized);
 }
 
+/**
+ * Props that make an element a control whatever its component is called.
+ *
+ * Component names cannot be relied on: the production build emits components
+ * as anonymous functions (`.s(["Switch",0,function({className:e,...})` in the
+ * Turbopack output), so `Switch.name` is "" there and a name check that works
+ * in development silently fails in production. A row with a trailing <Switch>
+ * then rendered as a <button> wrapped around the switch's own <button>, and
+ * toggling the switch also opened the row. The handler a caller hands a control
+ * survives minification, so it is checked first.
+ */
+const INTERACTIVE_PROP_NAMES = [
+  "onClick",
+  "onChange",
+  "onCheckedChange",
+  "onValueChange",
+  "onPressedChange",
+  "onSelect",
+  "onOpenChange",
+] as const;
+
+function hasInteractiveProps(props: Record<string, unknown>): boolean {
+  if (typeof props.href === "string") return true;
+  if ("checked" in props || "defaultChecked" in props) return true;
+  return INTERACTIVE_PROP_NAMES.some(
+    (name) => typeof props[name] === "function",
+  );
+}
+
 function containsInteractiveNode(node: ReactNode): boolean {
   return Children.toArray(node).some((child) => {
     if (!isValidElement(child)) {
@@ -103,20 +134,70 @@ function containsInteractiveNode(node: ReactNode): boolean {
       return true;
     }
 
+    const childProps = (child.props ?? {}) as Record<string, unknown> & {
+      children?: ReactNode;
+    };
+    if (hasInteractiveProps(childProps)) {
+      return true;
+    }
+
     if (isKnownInteractiveComponent(child.type)) {
       return true;
     }
 
-    const childProps = child.props as { children?: ReactNode };
     return containsInteractiveNode(childProps.children);
   });
 }
 
-export const SettingsSegmentedTabs = SegmentedTabs;
+/**
+ * What counts as a control of its own inside a row with a row action.
+ *
+ * A click whose target sits inside one of these belongs to that control and
+ * never to the row. Kept as one list so the pointer-events rule that lets these
+ * receive the press and the click delegation that ignores them cannot drift.
+ */
+const NESTED_CONTROL_SELECTOR =
+  'a[href],button,input,select,textarea,label,summary,[role="button"],[role="checkbox"],[role="switch"],[role="radio"],[role="combobox"],[role="link"],[role="menuitem"],[role="slider"]';
+
+/**
+ * The row's content layer ignores the pointer so a press anywhere on it lands
+ * on the full-row action beneath; nested controls opt back in. The selector
+ * mirrors NESTED_CONTROL_SELECTOR (Tailwind needs it as a literal).
+ */
+const CONTENT_LAYER_POINTER_CLASSNAME =
+  "pointer-events-none [&_:is(a[href],button,input,select,textarea,label,summary,[role=button],[role=checkbox],[role=switch],[role=radio],[role=combobox],[role=link],[role=menuitem],[role=slider])]:pointer-events-auto";
+
+/** A trailing node that owns its own action keeps every press but the chevron's. */
+const OWNED_TRAILING_POINTER_CLASSNAME =
+  "[&>:not([data-slot=settings-row-chevron])]:pointer-events-auto";
+const OWNED_TRAILING_SELECTOR =
+  '[data-slot="settings-row-trailing"] > :not([data-slot="settings-row-chevron"])';
+
+function isNestedControlClick(
+  target: EventTarget | null,
+  row: HTMLElement,
+  trailingOwnsClicks: boolean,
+): boolean {
+  // React bubbles events through portals, so a menu opened from a trailing
+  // control would otherwise reach the row. Only this row's own DOM counts.
+  if (!(target instanceof Element) || !row.contains(target)) return true;
+  const control = target.closest(NESTED_CONTROL_SELECTOR);
+  if (
+    control &&
+    row.contains(control) &&
+    control.getAttribute("data-slot") !== "settings-row-action"
+  ) {
+    return true;
+  }
+  return trailingOwnsClicks && Boolean(target.closest(OWNED_TRAILING_SELECTOR));
+}
+
+export { SegmentedTabs };
 
 type SettingsPresentation = {
   separatorInset?: boolean;
   density?: "compact" | "comfortable";
+  rowSizing?: "content" | "uniform";
 };
 
 const SettingsPresentationContext = createContext<SettingsPresentation>({});
@@ -129,10 +210,11 @@ const SettingsPresentationContext = createContext<SettingsPresentation>({});
 export function SettingsPresentationProvider({
   separatorInset,
   density,
+  rowSizing,
   children,
 }: SettingsPresentation & { children: ReactNode }) {
   return (
-    <SettingsPresentationContext.Provider value={{ separatorInset, density }}>
+    <SettingsPresentationContext.Provider value={{ separatorInset, density, rowSizing }}>
       {children}
     </SettingsPresentationContext.Provider>
   );
@@ -140,16 +222,30 @@ export function SettingsPresentationProvider({
 
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent:
-    "bg-[color:var(--app-accent)] text-white",
-  blue:
-    "bg-[color:var(--app-accent)] text-white",
-  purple: "bg-[color:var(--app-purple)] text-white",
-  green: "bg-[color:var(--app-success)] text-white",
+    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  blue: "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  purple:
+    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  green:
+    "bg-[rgba(52,199,89,0.12)] text-[#34C759] dark:bg-[rgba(48,209,88,0.20)] dark:text-[#30D158]",
   orange:
-    "bg-[color:var(--app-warning)] text-white",
-  red: "bg-[color:var(--app-destructive)] text-white",
-  gray:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+    "bg-[rgba(255,159,10,0.12)] text-[#FF9F0A] dark:bg-[rgba(255,159,10,0.20)] dark:text-[#FFD60A]",
+  red: "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
+  // People, circles and private sharing. Added because the tone vocabulary was
+  // smaller than the semantics: `accent`, `blue` and `purple` are byte-identical
+  // above, so "these are PEOPLE" had no colour of its own and every row that
+  // meant it rendered as the same action blue as "Share location".
+  //
+  // Reads --app-indigo rather than carrying its own literals: the value already
+  // existed a second time in globals.css (the profile screens' icon-tone
+  // override), so a hardcoded pair here made one colour live in two files with
+  // nothing binding them. Same 12%/20% tile recipe as the rest, and the token
+  // brightens for dark the way --app-warning and --app-destructive do.
+  indigo:
+    "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
+  gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  capability: "bg-transparent text-current shadow-none ring-0",
+  transparent: "bg-transparent text-current shadow-none ring-0",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -157,44 +253,113 @@ type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
 export function SettingsGroup({
   eyebrow,
   title,
+  titleControl,
+  titleAction,
   description,
+  toolbar,
   children,
   embedded = false,
+  density,
   separatorInset,
+  rowSizing,
   className,
+  headingClassName,
   shellClassName,
   contentClassName,
+  contentId,
   testId = "settings-group",
 }: {
   eyebrow?: string;
   title?: ReactNode;
+  /** Replaces the static heading with a section selector, keeping button semantics. */
+  titleControl?: ReactNode;
+  /**
+   * A control that belongs to this section, shown at the end of the heading
+   * row.
+   *
+   * It renders as a SIBLING of the heading, never inside it. The heading
+   * carries `role="heading"`, and a button placed within one is both invalid
+   * and unusable: a screen reader folds the control's label into the heading's
+   * accessible name, and interactive content inside a heading is not something
+   * assistive tech offers a way to reach.
+   *
+   * Optional, and absent by default -- with nothing passed the heading block
+   * renders exactly the markup it always has, so the other consumers of this
+   * component are untouched.
+   */
+  titleAction?: ReactNode;
   description?: ReactNode;
+  /**
+   * A control that acts on THIS group's rows -- a search field over the list
+   * it filters, for instance. It sits between the heading and the card, so the
+   * heading that names the list and the sentence explaining how to use it are
+   * both read before the control they describe. Placed above the heading, the
+   * field arrived before anything had said what it searched, and the
+   * supporting line ("Search by name.") ended up UNDER the box it was
+   * instructing -- pointing backwards at a control the reader had already
+   * passed.
+   */
+  toolbar?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
+  /**
+   * Sets the row/heading density for every SettingsRow in this group. When
+   * omitted, embedded groups use the compact grouped-list recipe while
+   * full-page groups retain the roomier settings-screen rhythm.
+   */
+  density?: "compact" | "comfortable";
   /**
    * Opt-in iOS inset-grouped separators: hairlines that start after the leading
    * icon (aligned to the text) instead of full-width dividers. Default false
    * preserves the existing full-width `divide-y` for all other consumers.
    */
   separatorInset?: boolean;
+  /** Bounded navigation groups share the tallest readable sibling height.
+   * Information-heavy lists retain content sizing; neither policy clips text. */
+  rowSizing?: "content" | "uniform";
   className?: string;
+  /**
+   * Tunes the heading block's own spacing.
+   *
+   * The block carries `mt-7` because a settings SCREEN stacks groups down a
+   * page and 28px is what separates one section from the last. Inside a
+   * bottom sheet there is no previous section -- the group is the first thing
+   * under a header that has already introduced it -- so that 28px lands as a
+   * gap between the sheet's own title and the list it is titling. Reported on
+   * the Add people sheet as "search bahut jyada neeche aa raha".
+   *
+   * A caller-supplied class rather than a `compact` boolean: the value that is
+   * wrong here is a margin, and the surfaces that need to change it are the
+   * ones that own their own vertical rhythm.
+   */
+  headingClassName?: string;
   /** Lets a bounded manager make the shared group shell a flex viewport. */
   shellClassName?: string;
   /** Lets a bounded manager make the shared row stack the scroll owner. */
   contentClassName?: string;
+  /** Id for the rows wrapper, so a group can be the panel of a
+   *  disclosure whose `aria-controls` has to name something stable. */
+  contentId?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
   const resolvedSeparatorInset =
     separatorInset ?? presentation.separatorInset ?? false;
+  const resolvedDensity =
+    density ?? presentation.density ?? (embedded ? "compact" : "comfortable");
+  const resolvedRowSizing = rowSizing ?? presentation.rowSizing ?? "content";
   const shell = (
     <div
       data-ui-role="grouped-card"
       data-slot="settings-group-shell"
+      data-settings-density={resolvedDensity}
       className={cn(
         // Inset settings groups use the compact card radius and flat grouped
         // Apple surfaces; separators inside the card carry the structure.
-        "relative isolate [--settings-group-radius:var(--app-card-radius-standard,24px)] overflow-hidden rounded-[var(--settings-group-radius)]",
+        "relative isolate overflow-hidden rounded-[var(--settings-group-radius)]",
+        resolvedDensity === "compact"
+          ? "[--settings-group-radius:var(--app-card-radius-compact,16px)]"
+          : "[--settings-group-radius:var(--app-card-radius-standard,18px)]",
         "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] ring-0",
         !embedded && "sm:rounded-[var(--settings-group-radius)]",
         shellClassName,
@@ -203,12 +368,15 @@ export function SettingsGroup({
       <div
         className={cn(
           "relative isolate",
+          resolvedRowSizing === "uniform" && "grid auto-rows-fr",
           resolvedSeparatorInset
             ? "group/settings-list"
             : "divide-y divide-border/60",
           contentClassName,
         )}
+        id={contentId}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
+        data-settings-row-sizing={resolvedRowSizing}
       >
         {children}
       </div>
@@ -217,37 +385,72 @@ export function SettingsGroup({
 
   return (
     <section
-      className={cn(
-        "w-full",
-        className,
-      )}
+      className={cn("w-full", className)}
+      data-settings-density={resolvedDensity}
       data-testid={testId}
     >
-      {eyebrow || title || description ? (
-        <div className="mb-2 mt-7 space-y-[var(--settings-heading-stack-gap)] px-[6px]">
-          {eyebrow || title ? (
-            <SectionLabel
-              data-slot="settings-group-heading"
-              role="heading"
-              aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
-            >
-              {eyebrow ? (
-                <span>
-                  {eyebrow}
-                </span>
-              ) : null}
-              {title ? <span>{title}</span> : null}
-            </SectionLabel>
-          ) : null}
-          {description ? (
-            <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
-              {description}
-            </RowDescription>
+      {eyebrow || title || titleControl || description || titleAction ? (
+        <div
+          className={cn(
+            "flex items-start justify-between gap-3 px-1",
+            resolvedDensity === "compact" ? "mb-1.5 mt-4" : "mb-2 mt-7",
+            headingClassName,
+          )}
+        >
+          <div className="min-w-0 flex-1 space-y-[var(--settings-heading-stack-gap)]">
+            {titleControl ??
+              (eyebrow || title ? (
+                <SectionLabel
+                  compact={resolvedDensity === "compact"}
+                  data-slot="settings-group-heading"
+                  role="heading"
+                  aria-level={embedded ? 3 : 2}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
+                >
+                  {eyebrow ? <span>{eyebrow}</span> : null}
+                  {title ? <span>{title}</span> : null}
+                </SectionLabel>
+              ) : null)}
+            {description ? (
+              <RowDescription
+                compact={resolvedDensity === "compact"}
+                data-slot="settings-group-description"
+                className="max-w-2xl [overflow-wrap:anywhere]"
+              >
+                {description}
+              </RowDescription>
+            ) : null}
+          </div>
+          {titleAction ? (
+            // `shrink-0` so the control keeps its full width and the title
+            // wraps instead -- the reverse squeezes a button until its label
+            // truncates, which is how a section action stops being readable at
+            // 320px.
+            <div className="shrink-0">{titleAction}</div>
           ) : null}
         </div>
       ) : null}
-      {shell}
+      {toolbar ? (
+        <div
+          data-slot="settings-group-toolbar"
+          className={cn(
+            resolvedDensity === "compact" ? "mb-2" : "mb-3",
+            // Without a heading above it there is no `mt-7` to sit under, so
+            // the control would hug whatever preceded the group.
+            !(eyebrow || title || titleControl || description) &&
+              (resolvedDensity === "compact" ? "mt-4" : "mt-7"),
+          )}
+        >
+          {toolbar}
+        </div>
+      ) : null}
+      <SettingsPresentationProvider
+        separatorInset={resolvedSeparatorInset}
+        density={resolvedDensity}
+        rowSizing={resolvedRowSizing}
+      >
+        {shell}
+      </SettingsPresentationProvider>
     </section>
   );
 }
@@ -260,12 +463,15 @@ export function SettingsRow({
   title,
   description,
   trailing,
+  trailingInteractive = false,
   onClick,
   chevron = false,
   disabled = false,
   tone = "default",
   iconTone = "gray",
   density,
+  layout = "settings",
+  textOverflow = "wrap",
   stackTrailingOnMobile = false,
   className,
   voiceControlId,
@@ -273,15 +479,19 @@ export function SettingsRow({
   voiceLabel,
   voicePurpose,
   ariaPressed,
+  ariaLabel,
+  describeContent = false,
   testId = "settings-row",
 }: {
   asChild?: boolean;
   children?: ReactNode;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<any>;
   leading?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   trailing?: ReactNode;
+  /** The trailing node owns its own action even when component identity is opaque. */
+  trailingInteractive?: boolean;
   onClick?: () => void;
   chevron?: boolean;
   disabled?: boolean;
@@ -290,6 +500,14 @@ export function SettingsRow({
   iconTone?: SettingsIconTone;
   /** Compact, single-line settings rows for dense grouped menus. */
   density?: "compact" | "comfortable";
+  /** Person lists use a 40px face and a stable 68px text/separator start. */
+  layout?: "settings" | "person";
+  /**
+   * Keeps compact navigation rows to one title and one supporting line while
+   * leaving the complete accessible text in the DOM. Content-heavy settings
+   * rows continue to wrap by default.
+   */
+  textOverflow?: "wrap" | "truncate";
   stackTrailingOnMobile?: boolean;
   className?: string;
   voiceControlId?: string;
@@ -298,15 +516,30 @@ export function SettingsRow({
   voicePurpose?: string;
   /** Selected state for button-backed toggle rows. */
   ariaPressed?: boolean;
+  /**
+   * Explicit accessible name for a row that is itself the control.
+   *
+   * A selectable row's button otherwise takes its name from the title, so
+   * it announces "Trusted B" -- the subject, with no verb. Callers that
+   * turn a whole row into a select/toggle affordance pass the action here
+   * ("Select Trusted B for private sharing") so the control still says
+   * what it does. Omit it and the title-derived name is used, unchanged.
+   */
+  ariaLabel?: string;
+  /** Read the visible description even when an explicit action name is supplied. */
+  describeContent?: boolean;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
+  const contentId = useId();
+  const descriptionId = describeContent && description ? `${contentId}-description` : undefined;
   const resolvedDensity = density ?? presentation.density ?? "comfortable";
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive =
     !disabled && (typeof onClick === "function" || resolvedAsChild);
   const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing);
-  const hasInteractiveTrailing = containsInteractiveNode(trailing);
+  const hasInteractiveTrailing =
+    trailingInteractive || containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(
     !asChild && onClick && hasInteractiveTrailing,
   );
@@ -321,56 +554,122 @@ export function SettingsRow({
     // An inset separator aligns with an icon well. Rows without a leading visual
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
-    icon || leading
-      ? "group-data-[inset-separators=true]/settings-list:after:left-[66px] sm:group-data-[inset-separators=true]/settings-list:after:left-[66px]"
-      : "group-data-[inset-separators=true]/settings-list:after:left-0";
+    layout === "person"
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[68px] group-data-[inset-separators=true]/settings-list:after:right-4"
+      : leading
+        // Custom leading content has caller-owned geometry; retain its existing
+        // separator contract instead of assuming it is the built-in icon size.
+        ? resolvedDensity === "compact"
+          ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] group-data-[inset-separators=true]/settings-list:after:right-4"
+          : "group-data-[inset-separators=true]/settings-list:after:left-[62px] group-data-[inset-separators=true]/settings-list:after:right-4"
+        : icon
+          ? resolvedDensity === "compact"
+            ? "group-data-[inset-separators=true]/settings-list:after:left-[calc(var(--settings-row-px)+28px+var(--settings-row-gap))] group-data-[inset-separators=true]/settings-list:after:right-[var(--settings-row-px)]"
+            : "group-data-[inset-separators=true]/settings-list:after:left-[calc(var(--settings-row-px)+34px+var(--settings-row-gap))] group-data-[inset-separators=true]/settings-list:after:right-[var(--settings-row-px)]"
+          : "group-data-[inset-separators=true]/settings-list:after:left-0 group-data-[inset-separators=true]/settings-list:after:right-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
-    resolvedDensity === "compact" && "[--settings-row-py:10px]",
+    presentation.rowSizing === "uniform" && "h-full",
+    resolvedDensity === "compact" && "[--settings-row-py:8px]",
+    layout === "person" &&
+      "[--settings-row-px:16px] [--settings-row-py:12px] [--settings-row-gap:12px] [--settings-row-stack-indent:52px]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
-    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-4 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
     separatorInsetClassName,
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
     className,
   );
   const resolvedIconTone: SettingsIconTone =
-    tone === "destructive" ? "red" : iconTone;
+    tone === "destructive" && iconTone !== "capability" && iconTone !== "transparent"
+      ? "red"
+      : iconTone;
+  const isCapabilityTone =
+    resolvedIconTone === "capability" || resolvedIconTone === "transparent";
+  // In a split row the full-row action sits BESIDE the content, so it takes
+  // its name from the content by reference -- the same name it had when it
+  // wrapped the content -- and the content itself is hidden from assistive
+  // tech so the row is announced once. Content that holds a control of its own
+  // stays exposed.
+  const hideSplitContent =
+    splitPrimaryAction &&
+    !containsInteractiveNode(title) &&
+    !containsInteractiveNode(description) &&
+    !containsInteractiveNode(leading);
   const mainContent = (
     <div
+      id={splitPrimaryAction ? contentId : undefined}
+      data-slot="settings-row-main"
+      aria-hidden={hideSplitContent || undefined}
       className={cn(
         "relative z-0 flex min-w-0 gap-[var(--settings-row-gap)]",
         shouldStackTrailing ? "items-start sm:items-center" : "items-center",
       )}
     >
       {leading ? (
-        <span className="inline-flex shrink-0 self-center">{leading}</span>
+        <span
+          className={cn(
+            "inline-flex shrink-0 self-center",
+            layout === "person" && "w-10 justify-center",
+          )}
+        >
+          {leading}
+        </span>
       ) : icon ? (
         <span
           data-ui-role="settings-icon"
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            // Keep settings icons as iOS-style rounded-square utility wells.
-            // Agent artwork continues to use AgentSectionIcon, which owns the
-            // larger launcher/menu geometry separately.
-            "inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center self-center rounded-[12px]",
-            resolvedDensity !== "compact" &&
-              "sm:h-[38px] sm:w-[38px] sm:rounded-[12px]",
-            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+            // Keep settings icons as iOS-style rounded-square utility wells,
+            // or clean transparent canvas for capability duotone icons.
+            "inline-flex shrink-0 items-center justify-center self-center",
+            layout === "person"
+              ? "size-10 rounded-full"
+              : resolvedDensity === "compact"
+                ? "h-7 w-7"
+                : "h-[34px] w-[34px]",
+            isCapabilityTone
+              ? "!bg-transparent !shadow-none !ring-0 text-current"
+              : cn(
+                  resolvedDensity === "compact"
+                    ? "rounded-[7px]"
+                    : "rounded-[10px] sm:rounded-[10px]",
+                  SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ),
           )}
         >
-          <Icon icon={icon} size={20} />
+          <Icon
+            icon={icon}
+            // A semantic tone owns both halves of an icon tile: the wrapper
+            // paints the background and the glyph inherits its contrasting
+            // foreground. Registry icons carry authored colours for their
+            // transparent/capability presentation, so explicitly override
+            // those defaults only when the icon sits on a coloured tile.
+            color={isCapabilityTone ? undefined : "currentColor"}
+            size={
+              isCapabilityTone
+                ? resolvedDensity === "compact"
+                  ? 22
+                  : 24
+                : resolvedDensity === "compact"
+                  ? 16
+                  : 17
+            }
+          />
         </span>
       ) : null}
-      <div className="min-w-0 flex-1 space-y-0.5">
+      <div data-slot="settings-row-copy" className="min-w-0 flex-1 space-y-0.5">
         <RowLabel
           as="div"
+          compact={resolvedDensity === "compact"}
           data-slot="settings-row-title"
           className={cn(
-            "[overflow-wrap:anywhere]",
+            textOverflow === "truncate"
+              ? "truncate whitespace-nowrap"
+              : "[overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >
@@ -379,8 +678,14 @@ export function SettingsRow({
         {description ? (
           <RowDescription
             as="div"
+            compact={resolvedDensity === "compact"}
             data-slot="settings-row-description"
-            className="[overflow-wrap:anywhere]"
+            id={descriptionId}
+            className={
+              textOverflow === "truncate"
+                ? "truncate whitespace-nowrap"
+                : "[overflow-wrap:anywhere]"
+            }
           >
             {description}
           </RowDescription>
@@ -397,8 +702,21 @@ export function SettingsRow({
   const trailingContent =
     renderedTrailing || chevron ? (
       <div
+        data-slot="settings-row-trailing"
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          splitPrimaryAction &&
+            trailingInteractive &&
+            OWNED_TRAILING_POINTER_CLASSNAME,
+          // A wide inline trailing value must never squeeze the title into a
+          // one-word-per-line column (a statement label did exactly that on
+          // the phone). The bound lives on the grid track (fit-content(58%),
+          // below), which resolves against the row. It used to be a
+          // max-width here, where 58% resolved against an auto track sized
+          // from this very box: every value was cut to 58% of itself ("Equi…",
+          // "+..") and each chevron landed at a different x. A stacked
+          // trailing owns its own line and is not bounded.
+          !shouldStackTrailing && "min-w-0 shrink justify-self-end [&>*]:min-w-0 [&>*]:truncate sm:shrink-0",
           shouldStackTrailing &&
             "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
@@ -406,6 +724,8 @@ export function SettingsRow({
         {renderedTrailing}
         {chevron ? (
           <ChevronRight
+            aria-hidden
+            data-slot="settings-row-chevron"
             className={cn(
               "h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform",
               isInteractive && "group-hover:translate-x-0.5",
@@ -415,17 +735,53 @@ export function SettingsRow({
       </div>
     ) : null;
 
-  const sharedClassName = cn(
-    "relative isolate grid min-h-[60px] w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+  // One row geometry for every row shape: the padding, minimum height and
+  // grid live here once, so a row with a trailing control is exactly as tall
+  // and as indented as one without.
+  const rowGridClassName = cn(
+    "relative isolate grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left",
+    presentation.rowSizing === "uniform" && "h-full",
+    resolvedDensity === "compact" ? "min-h-[48px]" : "min-h-[60px]",
+    layout === "person" && "min-h-[72px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
-      : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
-    isInteractive &&
-      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
+      : "grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-[var(--settings-row-gap)] sm:grid-cols-[minmax(0,1fr)_auto]",
   );
-  const primaryActionClassName = cn(
-    "relative isolate min-h-[60px] min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+  // The row's focus ring. Inset, at the row's own corners: an outset ring
+  // (the old `ring-offset-2`) is drawn outside the row, where the row's and
+  // the group's `overflow-hidden` clip it away, so keyboard focus was
+  // invisible on a full-width row.
+  const rowFocusRingClassName =
+    "rounded-[inherit] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70";
+  const sharedClassName = cn(
+    rowGridClassName,
+    "appearance-none overflow-hidden border-0 bg-transparent outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+    isInteractive && cn("transition-[box-shadow]", rowFocusRingClassName),
   );
+  const rowActionClassName = cn(
+    // The ONE interactive surface of a row that also holds a control.
+    //
+    // This used to be an inner button wrapped around the title alone, with
+    // padding of its own inside the grid's padding, its own ripple and its own
+    // focus ring, while the trailing controls and chevron sat beside it. It
+    // drew a box inside the row (inset 16px, stopping short of the trailing
+    // side) and only that box was clickable: "a double box ... the entire
+    // thing should be clickable and not layering inside just for the title".
+    //
+    // Now it is laid over the whole row, edge to edge at the row's radius,
+    // beneath a content layer that lets presses fall through to it. Nested
+    // controls opt back into the pointer and sit above it, so they stay
+    // independently operable without a surface of their own.
+    "absolute inset-0 z-[1] block appearance-none border-0 bg-transparent p-0 outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] disabled:cursor-not-allowed",
+    "transition-[box-shadow]",
+    rowFocusRingClassName,
+  );
+  const rowDataProps = {
+    "data-testid": testId,
+    "data-tone": tone,
+    "data-settings-density": resolvedDensity,
+    "data-row-layout": layout,
+  };
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,
     "data-voice-action-id": voiceActionId || undefined,
@@ -446,6 +802,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null,
@@ -453,37 +810,74 @@ export function SettingsRow({
     : children;
 
   if (splitPrimaryAction) {
+    // Clicks are taken at the row, not the action button: a press on the
+    // content falls through to the button in a browser, and the click then
+    // bubbles here either way, so title, empty space, count and chevron all
+    // reach the one action. Keyboard activation of the button arrives here as
+    // the same click. A nested control's click is left to that control.
+    const handleRowClick = (event: MouseEvent<HTMLDivElement>) => {
+      if (disabled || !onClick) return;
+      if (
+        isNestedControlClick(
+          event.target,
+          event.currentTarget,
+          trailingInteractive,
+        )
+      ) {
+        return;
+      }
+      onClick();
+    };
     return (
-      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+      // Not a second control: the keyboard and assistive-tech surface is the
+      // button inside; this only collects its bubbled clicks.
+      <div
+        className={rowShellClassName}
+        {...rowDataProps}
+        data-row-surface="overlay"
+        onClick={handleRowClick}
+      >
+        {/*
+          The same hover surface the non-split row draws. It sits on the shell,
+          so it spans the full row and takes the shell's radius.
+        */}
+        {!disabled ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 z-0 rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
+              "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
+            )}
+          />
+        ) : null}
+        <button
+          type="button"
+          data-slot="settings-row-action"
+          disabled={disabled}
+          aria-pressed={ariaPressed}
+          aria-label={ariaLabel}
+          aria-describedby={descriptionId}
+          aria-labelledby={ariaLabel ? undefined : contentId}
+          className={rowActionClassName}
+          {...voiceProps}
+        >
+          <MaterialRipple
+            variant="none"
+            effect="fade"
+            disabled={disabled}
+            disableHover
+          />
+        </button>
         <div
+          data-slot="settings-row-content"
           className={cn(
-            "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
-            shouldStackTrailing
-              ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
-              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
+            rowGridClassName,
+            "z-[2]",
+            CONTENT_LAYER_POINTER_CLASSNAME,
           )}
         >
-          <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            aria-pressed={ariaPressed}
-            className={primaryActionClassName}
-            {...voiceProps}
-          >
-            {mainContent}
-            <MaterialRipple
-              variant="none"
-              effect="fade"
-              disabled={disabled}
-              className="z-10"
-            />
-          </button>
-          {trailingContent ? (
-            <div role="presentation" onClick={(e) => e.stopPropagation()}>
-              {trailingContent}
-            </div>
-          ) : null}
+          {mainContent}
+          {trailingContent}
         </div>
       </div>
     );
@@ -491,7 +885,7 @@ export function SettingsRow({
 
   if (resolvedAsChild) {
     return (
-      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+      <div className={rowShellClassName} {...rowDataProps}>
         <Comp
           {...(!resolvedAsChild
             ? { "aria-disabled": disabled || undefined }
@@ -506,13 +900,13 @@ export function SettingsRow({
   }
 
   return (
-    <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+    <div className={rowShellClassName} {...rowDataProps}>
       {isInteractive ? (
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
+            "pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
+            "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
           )}
         />
       ) : null}
@@ -523,6 +917,8 @@ export function SettingsRow({
               onClick,
               disabled,
               "aria-pressed": ariaPressed,
+              "aria-label": ariaLabel,
+              "aria-describedby": descriptionId,
             }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}
@@ -537,6 +933,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null}
@@ -548,6 +945,8 @@ export function SettingsRow({
 export type AdaptiveDetailSurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Controlled callers without a DialogTrigger own the surviving return target. */
+  onCloseAutoFocus?: (event: Event) => void;
   leading?: ReactNode;
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -559,16 +958,23 @@ export type AdaptiveDetailSurfaceProps = {
   surfaceClassName?: string;
   contentClassName?: string;
   mobilePresentation?: "fullscreen" | "sheet";
+  /** Guided tasks retain one bottom sheet across responsive breakpoints. */
+  presentation?: "adaptive" | "sheet";
   /** Direct-decision sheets may omit a redundant visual X. */
   showCloseButton?: boolean;
+  /** Draggable mobile sheets can use the handle as their only close affordance. */
+  showMobileCloseButton?: boolean;
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
+  /** Keep record identities complete when the caller cannot safely abbreviate them. */
+  headerTextOverflow?: "truncate" | "wrap";
 };
 
 /** The one cross-app, adaptive record-detail surface. */
 export function AdaptiveDetailSurface({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   leading,
   eyebrow,
   title,
@@ -579,16 +985,16 @@ export function AdaptiveDetailSurface({
   surfaceClassName,
   contentClassName,
   mobilePresentation = "fullscreen",
+  presentation = "adaptive",
   showCloseButton = true,
+  showMobileCloseButton = showCloseButton,
   desktopMaxWidthClassName,
   desktopMaxWidth,
+  headerTextOverflow = "truncate",
 }: AdaptiveDetailSurfaceProps) {
   const isMobile = useIsMobile();
-  // A query-backed selection can mount this surface before the mobile media
-  // query effect has resolved. Rendering the desktop Dialog for that one
-  // frame and then replacing it with the mobile Drawer leaves two portals
-  // briefly visible on iOS. Wait for the client presentation decision before
-  // mounting an open detail surface so every record opens through one owner.
+  // Wait for the media-query decision: switching Dialog to Drawer mid-open
+  // briefly creates two iOS portals for query-backed selections.
   const [presentationReady, setPresentationReady] = useState(false);
 
   useEffect(() => {
@@ -599,51 +1005,71 @@ export function AdaptiveDetailSurface({
     return null;
   }
 
+  const titleOverflowClassName =
+    headerTextOverflow === "wrap"
+      ? "whitespace-normal break-words [overflow-wrap:anywhere]"
+      : "truncate";
+  const descriptionOverflowClassName =
+    headerTextOverflow === "wrap"
+      ? "whitespace-normal break-words [overflow-wrap:anywhere]"
+      : "line-clamp-2";
+
   const closeButton = (
-    <button
+    <button data-slot="task-close"
       type="button"
       aria-label="Close detail panel"
       onClick={() => onOpenChange(false)}
       className={cn(
-        "group absolute right-3 top-3 z-20 isolate inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full",
-        "border border-transparent bg-[color:var(--app-card-surface-compact)] text-muted-foreground opacity-75",
-        "transition-[opacity,transform,color] duration-200 hover:text-foreground hover:opacity-100 active:scale-[0.97]",
+        "group absolute right-4 top-4 z-20 isolate inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full",
+        "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
+        "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
     >
       <Icon icon={X} size="xs" />
-      <MaterialRipple variant="none" effect="fade" className="z-10" />
+      <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
     </button>
   );
 
-  if (isMobile) {
-    if (mobilePresentation === "sheet") {
+  if (isMobile || presentation === "sheet") {
+    if (mobilePresentation === "sheet" || presentation === "sheet") {
       return (
         <Sheet open={open} onOpenChange={onOpenChange} modal>
-          <SheetContent
+          <TaskSheetContent
             side="bottom"
-            showCloseButton={showCloseButton}
+            contentDragDismiss={false}
+            onCloseAutoFocus={onCloseAutoFocus}
+            showCloseButton={showMobileCloseButton}
             className={cn("gap-0", surfaceClassName, contentClassName)}
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 text-left backdrop-blur-[var(--blur-standard)]">
-              <div className="flex min-w-0 items-center gap-3 pr-10">
+            <SheetHeader className="morphy-theme-content">
+              <div
+                className={cn(
+                  "flex min-w-0 items-center gap-3 text-left",
+                  showMobileCloseButton && "pr-10",
+                )}
+              >
                 {leading ? <div className="shrink-0">{leading}</div> : null}
-                <div className="min-w-0">
+                <div className="min-w-0 text-left">
                   {eyebrow ? (
-                    <SectionLabel as="p">
-                      {eyebrow}
-                    </SectionLabel>
+                    <SectionLabel as="p">{eyebrow}</SectionLabel>
                   ) : null}
-                  <SheetTitle className="ui-text-navigation-title truncate">
+                  <SheetTitle
+                    className={cn(
+                      "ui-text-navigation-title",
+                      titleOverflowClassName,
+                    )}
+                  >
                     {title}
                   </SheetTitle>
                   <SheetDescription
                     className={cn(
-                      "ui-text-row-description line-clamp-2",
+                      "ui-text-row-description",
+                      descriptionOverflowClassName,
                       !description && "sr-only",
                     )}
                   >
@@ -652,20 +1078,13 @@ export function AdaptiveDetailSurface({
                 </div>
               </div>
             </SheetHeader>
-            <div
-              className={cn(
-                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-3 sm:px-4 sm:pt-4",
-                bodyClassName,
-              )}
-            >
-              {children}
-            </div>
+            <TaskSurfaceBody className={bodyClassName}>{children}</TaskSurfaceBody>
             {footer ? (
-              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+              <TaskSurfaceFooter>
                 {footer}
-              </div>
+              </TaskSurfaceFooter>
             ) : null}
-          </SheetContent>
+          </TaskSheetContent>
         </Sheet>
       );
     }
@@ -673,6 +1092,7 @@ export function AdaptiveDetailSurface({
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
+          onCloseAutoFocus={onCloseAutoFocus}
           className={cn(
             "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]",
             mobilePresentation === "fullscreen"
@@ -686,21 +1106,23 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:py-4 sm:pr-14">
-            <div className="flex min-w-0 items-center gap-3">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-16 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-16">
+            <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
-              <div className="min-w-0">
-                {eyebrow ? (
-                  <SectionLabel as="p">
-                    {eyebrow}
-                  </SectionLabel>
-                ) : null}
-                <DrawerTitle className="ui-text-navigation-title truncate">
+              <div className="min-w-0 text-left">
+                {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
+                <DrawerTitle
+                  className={cn(
+                    "ui-text-navigation-title",
+                    titleOverflowClassName,
+                  )}
+                >
                   {title}
                 </DrawerTitle>
                 <DrawerDescription
                   className={cn(
-                    "ui-text-row-description line-clamp-2",
+                    "ui-text-row-description",
+                    descriptionOverflowClassName,
                     !description && "sr-only",
                   )}
                 >
@@ -708,11 +1130,11 @@ export function AdaptiveDetailSurface({
                 </DrawerDescription>
               </div>
             </div>
-            {showCloseButton ? closeButton : null}
+            {showMobileCloseButton ? closeButton : null}
           </DrawerHeader>
           <div
             className={cn(
-              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4",
+              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-2 sm:px-4 sm:pt-3",
               bodyClassName,
             )}
           >
@@ -730,8 +1152,9 @@ export function AdaptiveDetailSurface({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal>
-      <DialogContent
+      <TaskDialogContent size="lg"
         data-settings-detail-panel="true"
+        onCloseAutoFocus={onCloseAutoFocus}
         showCloseButton={false}
         style={desktopMaxWidth ? { maxWidth: desktopMaxWidth } : undefined}
         className={cn(
@@ -745,21 +1168,23 @@ export function AdaptiveDetailSurface({
           (e.currentTarget as HTMLElement).focus();
         }}
       >
-        <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 py-4 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
-          <div className="flex min-w-0 items-center gap-3">
+        <DialogHeader className="morphy-theme-content">
+          <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
-            <div className="min-w-0">
-              {eyebrow ? (
-                <SectionLabel as="p">
-                  {eyebrow}
-                </SectionLabel>
-              ) : null}
-              <DialogTitle className="ui-text-navigation-title truncate">
+            <div className="min-w-0 text-left">
+              {eyebrow ? <SectionLabel as="p">{eyebrow}</SectionLabel> : null}
+              <DialogTitle
+                className={cn(
+                  "ui-text-navigation-title",
+                  titleOverflowClassName,
+                )}
+              >
                 {title}
               </DialogTitle>
               <DialogDescription
                 className={cn(
-                  "ui-text-row-description line-clamp-2",
+                  "ui-text-row-description",
+                  descriptionOverflowClassName,
                   !description && "sr-only",
                 )}
               >
@@ -769,20 +1194,13 @@ export function AdaptiveDetailSurface({
           </div>
           {showCloseButton ? closeButton : null}
         </DialogHeader>
-        <div
-          className={cn(
-            "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5",
-            bodyClassName,
-          )}
-        >
-          {children}
-        </div>
+        <TaskSurfaceBody className={bodyClassName}>{children}</TaskSurfaceBody>
         {footer ? (
-          <div className="border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 sm:justify-end">
+          <TaskSurfaceFooter>
             {footer}
-          </div>
+          </TaskSurfaceFooter>
         ) : null}
-      </DialogContent>
+      </TaskDialogContent>
     </Dialog>
   );
 }

@@ -1,0 +1,77 @@
+/* Native-only geometry: keep the browser/UAT composition unchanged. Explicit
+   module rules also survive the native partial export's utility extraction. */
+@media (max-width: 639px) {
+  .shell[data-native="true"] .accentHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 26%);
+    grid-template-areas: "eyebrow portrait" "title portrait" "description portrait";
+    align-content: center;
+    column-gap: 12px;
+    row-gap: 8px;
+    min-height: 180px;
+  }
+
+  .shell[data-native="true"] .accentHeader > * {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .shell[data-native="true"] .accentHeader .portrait {
+    grid-area: portrait;
+    position: relative;
+    align-self: center;
+    width: 100%;
+    height: auto;
+  }
+
+  .shell[data-native="true"] .accentHeader .portrait img {
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+  }
+
+  .shell[data-native="true"] .accentHeader .eyebrow { grid-area: eyebrow; }
+  .shell[data-native="true"] .accentHeader .title {
+    grid-area: title;
+    max-width: none;
+    text-wrap: balance;
+    overflow-wrap: normal;
+  }
+  .shell[data-native="true"] .accentHeader .description {
+    grid-area: description;
+    max-width: none;
+    text-wrap: pretty;
+  }
+
+  .details[data-native="true"] .detailRow > div {
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 0;
+    min-height: 56px;
+  }
+
+  .details[data-native="true"] .detailRow > div > div:last-child {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .details[data-native="true"] .value,
+  .details[data-native="true"] .editable input {
+    text-align: right;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .details[data-native="true"] .editable {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .details[data-native="true"] .editable input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}

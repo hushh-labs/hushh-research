@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { XIcon } from "@/components/icons"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 function Drawer({
   ...props
@@ -32,17 +33,20 @@ function DrawerClose({
 
 function DrawerOverlay({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
+  const overlayRef = useNativeNavigationOverlayRef(ref)
   return (
     <DrawerPrimitive.Overlay
       data-slot="drawer-overlay"
       className={cn(
         // Blur/scrim rides the overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[3px] [-webkit-backdrop-filter:blur(3px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
@@ -53,6 +57,7 @@ function DrawerContent({
   showCloseButton = false,
   overlayClassName,
   overlayStyle,
+  ref,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content> & {
   showCloseButton?: boolean
@@ -69,13 +74,15 @@ function DrawerContent({
    */
   overlayStyle?: React.CSSProperties
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay className={overlayClassName} style={overlayStyle} />
       <DrawerPrimitive.Content
+        ref={contentRef}
         data-slot="drawer-content"
         className={cn(
-          "group/drawer-content bg-background fixed z-[712] flex h-auto flex-col",
+          "group/drawer-content bg-background fixed z-(--z-sheet) flex h-auto flex-col",
           "data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=top]:rounded-b-lg data-[vaul-drawer-direction=top]:border-b",
           // bottom-anchored drawers lift above the on-screen keyboard by
           // --kb-height (KeyboardInsetManager; 0 on desktop → inert). Lifting the
@@ -90,14 +97,14 @@ function DrawerContent({
         )}
         {...props}
       >
-        <div className="bg-muted mx-auto mt-4 hidden h-2 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        <div data-slot="drawer-drag-handle" className="bg-muted mx-auto mt-4 hidden h-2 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
 
       {children}
 
       {showCloseButton && (
         <DrawerPrimitive.Close
           data-slot="drawer-close"
-          className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-30 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+          className="ring-offset-background focus-visible:ring-ring absolute top-4 right-4 z-30 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
         >
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>

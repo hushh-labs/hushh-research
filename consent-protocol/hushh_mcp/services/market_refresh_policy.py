@@ -1,35 +1,107 @@
 """Shared market-session cache cadence for provider-backed quote data.
 
-The policy is deliberately schedule-based rather than a market-status source:
-it controls request cadence only, so an exchange holiday can at worst produce a
-shorter cache window. It has no bearing on the market status presented to a
-person.
+The offline exchange calendar controls cache cadence, including holidays and
+early closes. Provider market status remains the preferred displayed source.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 US_MARKET_OPEN_CACHE_TTL_SECONDS = 120
 US_MARKET_CLOSED_CACHE_TTL_SECONDS = 1_800
+LAST_CLOSE_RETENTION_SECONDS = 7 * 24 * 60 * 60
+PRICE_MARKET_OPERATIONS = frozenset(
+    {"quote", "quotes", "intraday", "session_history", "movers", "most_active", "sector_rotation"}
+)
+_price_refresh_exchange: ContextVar[str | None] = ContextVar("price_refresh_exchange", default=None)
+
+
+def _eastern_now(now: datetime | None = None) -> datetime:
+    zone = ZoneInfo("America/New_York")
+    return (now or datetime.fromtimestamp(time.time(), tz=zone)).astimezone(zone)
+
+
+class MarketPriceRefreshPaused(RuntimeError):
+    """A closed exchange forbids a provider refresh, not a failed provider."""
+
+
+def ensure_market_price_request_allowed() -> None:
+    if _price_refresh_exchange.get() == "US" and not us_market_is_open():
+        raise MarketPriceRefreshPaused("market_closed_no_price_refresh")
+
+
+@contextmanager
+def market_price_refresh_scope(exchange: str = "US"):
+    """Rechecked by each HTTP/SDK send, including work continued in a thread."""
+    token = _price_refresh_exchange.set(exchange.upper())
+    try:
+        ensure_market_price_request_allowed()
+        yield
+        # A refresh may finish with partial results after queued sends were
+        # paused at closing. Preserve the previous complete cached snapshot.
+        ensure_market_price_request_allowed()
+    finally:
+        _price_refresh_exchange.reset(token)
+
+
+def us_market_session_window(now: datetime | None = None) -> tuple[float, float] | None:
+    """Offline XNYS calendar includes exchange holidays and shortened sessions."""
+    import exchange_calendars
+
+    eastern_now = _eastern_now(now)
+    calendar = exchange_calendars.get_calendar("XNYS")
+    day = eastern_now.date().isoformat()
+    if not calendar.is_session(day):
+        return None
+    return calendar.session_open(day).timestamp(), calendar.session_close(day).timestamp()
+
+
+def us_market_session_opened_at(now: datetime | None = None) -> float | None:
+    moment = _eastern_now(now)
+    window = us_market_session_window(moment)
+    timestamp = moment.timestamp()
+    return window[0] if window and window[0] <= timestamp < window[1] else None
+
+
+def seconds_until_us_market_open(now: datetime | None = None) -> float:
+    eastern_now = _eastern_now(now)
+    for offset in range(15):
+        candidate = eastern_now + timedelta(days=offset)
+        window = us_market_session_window(candidate)
+        if window and window[0] > eastern_now.timestamp():
+            return window[0] - eastern_now.timestamp()
+    raise ValueError("exchange_calendar_has_no_upcoming_session")
 
 
 def us_market_is_open(now: datetime | None = None) -> bool:
-    """Return whether the US regular session is currently scheduled open."""
-    try:
-        eastern_now = (
-            now.astimezone(ZoneInfo("America/New_York"))
-            if now is not None
-            else datetime.now(ZoneInfo("America/New_York"))
-        )
-    except Exception:
-        return False
+    return us_market_session_opened_at(now) is not None
 
-    if eastern_now.weekday() >= 5:
-        return False
-    minute_of_day = eastern_now.hour * 60 + eastern_now.minute
-    return 9 * 60 + 30 <= minute_of_day < 16 * 60
+
+def price_cache_retention_seconds(base: int, now: datetime | None = None) -> int:
+    """Keep the last session through weekends/holidays without making it fresh."""
+    return max(
+        base, math.ceil(seconds_until_us_market_open(now)) + US_MARKET_OPEN_CACHE_TTL_SECONDS
+    )
+
+
+def closed_price_snapshot_usable(fetched_at: float, now: datetime | None = None) -> bool:
+    moment = _eastern_now(now)
+    for offset in range(15):
+        window = us_market_session_window(moment - timedelta(days=offset))
+        if window and window[1] <= moment.timestamp():
+            return window[0] <= fetched_at <= moment.timestamp()
+    return False
+
+
+def last_close_snapshot_usable(fetched_at: float, now_ts: float) -> bool:
+    """A shared last-close entry outlives the session calendar and is replaced at the next open."""
+    return now_ts - fetched_at <= LAST_CLOSE_RETENTION_SECONDS
 
 
 def provider_quote_cache_ttl_seconds(

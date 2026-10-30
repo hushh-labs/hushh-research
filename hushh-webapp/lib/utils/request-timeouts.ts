@@ -62,3 +62,37 @@ export function resolveSlowRequestTimeoutMs(
 
   return safeDefaultMs;
 }
+
+/**
+ * Node's AbortSignal.timeout rejects fetch with `TimeoutError`, while some
+ * browser/runtime implementations use `AbortError`. Treat both as a timeout
+ * so server-side proxy routes can apply their bounded retry consistently.
+ */
+export function isRequestTimeoutError(error: unknown): boolean {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name || "")
+      : "";
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+/** Bound a read even when authentication stalls before fetch sees its signal. */
+export async function withAbortDeadline<T>(
+  task: (signal: AbortSignal) => Promise<T>,
+  deadlineMs: number,
+  fallback: () => T,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(fallback());
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([task(controller.signal), deadline]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}

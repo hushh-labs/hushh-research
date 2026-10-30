@@ -6,7 +6,11 @@ import {
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 
-export type SharedBottomNavKey = "dashboard" | "connect" | "search" | "profile";
+export type SharedBottomNavKey =
+  | "dashboard"
+  | "chat"
+  | "connect"
+  | "profile";
 export type InvestorNavKey =
   SharedBottomNavKey | "finance" | "portfolio" | "connect" | "analysis";
 export type RiaNavKey =
@@ -26,7 +30,6 @@ export type AppBottomNavKey = InvestorNavKey | RiaNavKey | OneNavKey;
 export type AppBottomNavScope = "one" | "investor" | "ria";
 export type AppBottomNavAction =
   | { type: "route"; href: string }
-  | { type: "command"; mode: "search" }
   | { type: "none" };
 export type AppBottomNavContext = {
   lastAgentNavScope?: AppBottomNavScope | null;
@@ -89,9 +92,10 @@ export function resolveOneNavSlot(
   pathname: string | null | undefined,
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
   }
@@ -119,7 +123,7 @@ export function resolveOneNavSlot(
     return "gmail";
   }
   if (
-    normalizedPathname === ROUTES.PKM ||
+    isBottomNavRoute(normalizedPathname, ROUTES.PKM) ||
     normalizedPathname === ROUTES.LEGACY_PKM ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname === ROUTES.PROFILE_PKM ||
@@ -146,7 +150,6 @@ export function resolveOneActiveNav(
   pathname: string | null | undefined,
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  if (normalizedPathname === ROUTES.AGENT) return "search";
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
   }
@@ -175,13 +178,13 @@ export function resolveInvestorActiveNav(
   pathname: string | null | undefined,
 ): InvestorNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
   }
-  if (normalizedPathname === ROUTES.AGENT) return "search";
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }
@@ -211,13 +214,13 @@ export function resolveRiaActiveNav(
   pathname: string | null | undefined,
 ): RiaNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
   }
-  if (normalizedPathname === ROUTES.AGENT) return "search";
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }
@@ -234,15 +237,17 @@ export function resolveRiaActiveNav(
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
   _scope: AppBottomNavScope,
+  _searchParams: { get(name: string): string | null } | null = null,
 ): AppBottomNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
+  // People and Circles are One subagents and retain the One footer tab.
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
   }
-  if (normalizedPathname === ROUTES.AGENT) return "search";
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
   }
@@ -272,7 +277,7 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["dashboard", "connect", "feed", "search"];
+  return ["chat", "dashboard", "connect", "feed"];
 }
 
 /** Contextual workspace tabs belong exclusively to the unified top shell. */
@@ -293,8 +298,8 @@ export function resolveBottomNavAction(
       return { type: "route", href: ROUTES.KAI_PORTFOLIO };
     case "dashboard":
       return { type: "route", href: ROUTES.ONE_HOME };
-    case "search":
-      return { type: "command", mode: "search" };
+    case "chat":
+      return { type: "route", href: ROUTES.HOME };
     case "gmail":
       return { type: "route", href: ROUTES.GMAIL };
     case "email":

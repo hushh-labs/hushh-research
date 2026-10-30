@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  matchCircleByName,
-  normalizeSpokenName,
-} from "@/app/one/location/page";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { matchCircleByName } from "@/app/one/location/page";
+import { normalizeSpokenName } from "@/lib/one-location/resolve-spoken-names";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * Circle membership over voice.
@@ -72,8 +70,13 @@ describe("matchCircleByName", () => {
 describe("circle actions are authored and wired", () => {
   const expected = [
     ["location.create_circle", ["name"]],
-    ["location.add_to_circle", ["person", "circle"]],
+    ["location.add_to_circle", ["person", "circle", "audience"]],
     ["location.remove_from_circle", ["person", "circle"]],
+    ["location.rename_circle", ["circle", "name"]],
+    ["location.leave_circle", ["circle"]],
+    ["location.delete_circle", ["circle"]],
+    ["location.accept_circle_invite", ["circle"]],
+    ["location.decline_circle_invite", ["circle"]],
   ] as const;
 
   it.each(expected)("%s runs a local handler", (actionId) => {
@@ -99,9 +102,33 @@ describe("circle actions are authored and wired", () => {
       const inputs = getKaiActionById(actionId)?.goal?.required_inputs ?? [];
       const person = inputs.find((input) => input.slot === "person");
       const circle = inputs.find((input) => input.slot === "circle");
-      expect(person?.required).toBe(true);
+      expect(person?.required).toBe(actionId === "location.remove_from_circle");
       expect(circle?.required).toBe(false);
     }
+  });
+
+  it("never requires the circle slot on a circle-only action", () => {
+    // Naming the circle is only needed to disambiguate; a person with one
+    // circle should never be stalled on "which circle?"
+    for (const actionId of [
+      "location.leave_circle",
+      "location.delete_circle",
+      "location.accept_circle_invite",
+      "location.decline_circle_invite",
+    ]) {
+      const inputs = getKaiActionById(actionId)?.goal?.required_inputs ?? [];
+      const circle = inputs.find((input) => input.slot === "circle");
+      expect(circle?.required).toBe(false);
+    }
+  });
+
+  it("requires the new name on rename, but not which circle", () => {
+    const inputs =
+      getKaiActionById("location.rename_circle")?.goal?.required_inputs ?? [];
+    const circle = inputs.find((input) => input.slot === "circle");
+    const name = inputs.find((input) => input.slot === "name");
+    expect(circle?.required).toBe(false);
+    expect(name?.required).toBe(true);
   });
 
   it("keeps the navigate-only create-circle action separate from the acting one", () => {
@@ -112,5 +139,33 @@ describe("circle actions are authored and wired", () => {
     expect(opener?.execution_target.path).toBe("route");
     expect(actor?.execution_target.path).toBe("local_handler");
     expect(opener?.label).not.toBe(actor?.label);
+  });
+
+  it("does not let a bare 'accept'/'decline' collide between a location request and a circle invite (#6085)", () => {
+    // Regression: location.approve_request/decline_request used to own the
+    // bare words "approve"/"decline" outright, while
+    // accept_circle_invite/decline_circle_invite had no bare form at all --
+    // a person looking at a pending circle invite and saying just "decline"
+    // would land on the wrong action (or, for "accept", a true gap: "accept"
+    // and "approve" are not even the same word).
+    const approveRequest = (getKaiActionById("location.approve_request")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const declineRequest = (getKaiActionById("location.decline_request")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const acceptInvite = (getKaiActionById("location.accept_circle_invite")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+    const declineInvite = (getKaiActionById("location.decline_circle_invite")?.aliases ?? []).map(
+      (a) => a.toLowerCase(),
+    );
+
+    expect(approveRequest).not.toContain("approve");
+    expect(declineRequest).not.toContain("decline");
+    // The circle side gets an explicit form instead of a bare word, resolved
+    // by which item is actually pending in view (see each action's meaning).
+    expect(acceptInvite).toContain("accept the invite");
+    expect(declineInvite).toContain("decline the invite");
   });
 });

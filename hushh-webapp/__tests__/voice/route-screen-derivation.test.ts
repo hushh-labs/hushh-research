@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
+  it.each([
+    ["/one/welcome", "one_welcome"],
+    ["/one/messages", "one_messages"],
+    ["/one/wallet-card", "one_wallet_card"],
+    ["/one/connected-systems/customer-crm", "connected_systems"],
+    ["/one/email", "email_agent"],
+    ["/one/puppy", "puppy_one"],
+  ])("recognizes current interactive screen %s", (route, screen) => {
+    expect(deriveVoiceRouteScreen(route).screen).toBe(screen);
+  });
+
+  it.each(["payouts", "request-pricing"])("derives the %s screen without claiming Memory controls", (panel) => {
+    const expected = { screen: `profile_${panel.replace(/-/g, "_")}`, subview: null };
+    expect(deriveVoiceRouteScreen(`/one/profile/${panel}`)).toEqual(expected);
+    expect(deriveVoiceRouteScreen("/one/profile", `panel=${panel}`)).toEqual(expected);
+  });
+
   it("keeps the public One introduction distinct from authenticated One", () => {
     expect(deriveVoiceRouteScreen("/")).toEqual({
       screen: "one_intro",
@@ -10,6 +27,10 @@ describe("deriveVoiceRouteScreen", () => {
     });
     expect(deriveVoiceRouteScreen("/one")).toEqual({
       screen: "one_agents",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/", undefined, { authenticated: true })).toEqual({
+      screen: "chat",
       subview: null,
     });
   });
@@ -38,6 +59,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "kai_portfolio_performance",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/kai/portfolio/analysis")).toEqual({
+      screen: "kai_portfolio_analysis",
+      subview: null,
+    });
   });
 
   it("keeps legacy dashboard compatibility mapping", () => {
@@ -52,20 +77,38 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_account",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/profile/discovery")).toEqual({
+      screen: "profile_discovery",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/unknown")).toEqual({
       screen: "app",
       subview: null,
     });
   });
 
-  it("maps One KYC to a voice-eligible screen", () => {
-    expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
-      screen: "one_kyc",
+  it("keeps redirect-only connector and RIA routes out of retired profile controls", () => {
+    expect(deriveVoiceRouteScreen("/one/profile/connectors")).toEqual({
+      screen: "profile_connectors",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/one/kyc", "panel=aliases")).toEqual({
-      screen: "one_kyc",
-      subview: "aliases",
+    expect(
+      deriveVoiceRouteScreen("/one/profile/connectors/oauth/return"),
+    ).toEqual({ screen: "profile_connectors", subview: null });
+    expect(deriveVoiceRouteScreen("/ria")).toEqual({
+      screen: "compatibility_redirect",
+      subview: null,
+    });
+  });
+
+  it("does not reintroduce the retired One KYC voice screen through Email", () => {
+    expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
+      screen: "app",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/email", "panel=aliases")).toEqual({
+      screen: "email_agent",
+      subview: null,
     });
   });
 
@@ -140,10 +183,6 @@ describe("deriveVoiceRouteScreen", () => {
     expect(deriveVoiceRouteScreen("/one/profile/security/vault")).toEqual({
       screen: "profile_security_panel",
       subview: "vault",
-    });
-    expect(deriveVoiceRouteScreen("/one/profile/security/devices")).toEqual({
-      screen: "profile_security_devices",
-      subview: null,
     });
     expect(
       deriveVoiceRouteScreen("/one/profile/security/devices/authorize"),

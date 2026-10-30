@@ -33,7 +33,6 @@ from PIL import Image
 
 from hushh_mcp.services.apple_wallet_pass_service import (
     ORGANIZATION_NAME,
-    PASS_DESCRIPTION,
     WalletPassContent,
     WalletPassSigningUnavailableError,
     _build_back_fields,
@@ -150,7 +149,7 @@ def build_pass_request(content: WalletPassContent) -> dict[str, Any]:
     """The JSON body `hushh-wallet-api` expects for one Wallet Profile pass."""
     body: dict[str, Any] = {
         "passType": PASS_STYLE,
-        "description": PASS_DESCRIPTION,
+        "description": content.description,
         "organizationName": ORGANIZATION_NAME,
         "backgroundColor": CARD_BACKGROUND_COLOR,
         "foregroundColor": CARD_FOREGROUND_COLOR,

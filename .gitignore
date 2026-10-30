@@ -45,6 +45,9 @@ firebase-debug.log
 .local-secrets/
 **/.local-secrets/
 node_modules/
+# Local temporary secrets
+/temp_secrets/
+
 
 consent-protocol/.DS_Store
 .DS_Store
@@ -117,6 +120,7 @@ hushh-webapp/native-ios-screenshots/
 **/.pkm-debug/
 
 # Generated native/build artifacts
+/.build/
 hushh-webapp/.next/
 hushh-webapp/.next-prod/
 hushh-webapp/ios/build/
@@ -139,6 +143,10 @@ Personal_Tasks/
 *.key
 *credentials*.json
 *secret*.json
+# Exact-path exception: the shared secret-span PATTERN contract holds regexes and
+# split synthetic fixtures, never a credential. gitleaks still scans it.
+!contracts/pkm/secret-patterns.v1.json
+!hushh-webapp/contracts/pkm/secret-patterns.v1.json
 
 # Private partner gateway handoff material
 deploy/mulesoft/
@@ -177,6 +185,24 @@ ehthumbs_vista.db
 # local scratch space - never commit (may contain credentials/keys)
 /tmp/
 
+# NOTE: `consent-protocol/contracts/` is deliberately NOT ignored.
+#
+# It was, on the pod branch, on the reasoning that deploy/backend.cloudbuild.yaml
+# stages it into the build context so the copy is a pure build artifact. `main`
+# concluded the opposite and COMMITTED the mirror, because the image is built with
+# context `consent-protocol/` and a copy that only exists at build time cannot be
+# verified before the build. Both merged cleanly, which is the trap: git ignores
+# nothing that is already tracked, so the three existing files kept working and the
+# next generated contract would have been silently dropped.
+#
+# Resolved by keeping the mirror tracked AND keeping the staging step -- the mirror
+# lets CI assert the contract ships and matches canonical, the staging step makes a
+# stale mirror unable to reach an image. Guard:
+# consent-protocol/tests/test_generated_contract_packaging.py.
+consent-protocol/.sim/
+
+# Transient validation-harness reports (regenerate with scripts/ops/validate_agent_platform.py)
+consent-protocol/agent-validation-*.json
 # Local dev run logs. These are per-machine noise and a `git add -A` sweeps
 # tens of thousands of lines of them into a commit, which happened once.
 .backend-run.log
@@ -184,4 +210,20 @@ ehthumbs_vista.db
 .backend-*.log
 .frontend-run.log
 .frontend-*.log
+.proxy-run.log
+.proxy-*.log
 *.log.cold.bak
+
+# Local working artifacts (founder evidence registers etc.) — never repo content.
+outputs/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json
+
+# Opt-in local diagnostics (for example KYC_DEBUG_LOGGING=true).
+/logs/
+*.log
+
+# Machine-local host settings stay outside the portable agent framework.
+/.agents/.local/

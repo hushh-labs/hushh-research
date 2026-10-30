@@ -1,42 +1,31 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { ChevronDown, ShieldCheck } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "@/components/icons";
 
-import {
-  SettingsGroup,
-  SettingsRow,
-  SettingsSegmentedTabs,
-} from "@/components/profile/settings-ui";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import {
   WALLET_CARD_COPY,
   WALLET_CARD_OWNER_COPY,
 } from "@/components/wallet-card/wallet-card-copy";
 import {
   WALLET_CARD_FIELD_LIMITS,
-  WALLET_CARD_OPTIONAL_FIELDS,
   WALLET_CARD_PREFERRED_CONTACT_OPTIONS,
   WALLET_CARD_RECOMMENDED_FIELDS,
-  describeSharedFields,
+  countWalletCardMoreDetails,
+  getWalletCardMoreDetailsFields,
+  getWalletCardPreferredField,
   type WalletCardDraft,
   type WalletCardFieldDefinition,
   type WalletCardValidationErrors,
 } from "@/components/wallet-card/wallet-card-fields";
 import type { WalletCardPreferredContact } from "@/lib/services/wallet-card-service";
-
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "1";
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "1";
-}
 
 function DraftField({
   definition,
@@ -52,19 +41,26 @@ function DraftField({
   const inputId = useId();
   const describedBy = `${inputId}-help`;
   const help = error || definition.description;
+  const isUrlField =
+    definition.inputMode === "url" || definition.type === "url" || definition.key === "username";
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={inputId} className="text-[13px] font-medium">
+    <div className="space-y-1.5" data-wallet-field={definition.key}>
+      <Label
+        htmlFor={inputId}
+        className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
+      >
         {definition.label}
       </Label>
       {definition.multiline ? (
         <Textarea
           id={inputId}
+          data-wallet-field-input={definition.key}
           value={value}
           rows={3}
           maxLength={WALLET_CARD_FIELD_LIMITS[definition.key]}
           placeholder={definition.placeholder}
+          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] shadow-none"
           aria-invalid={error ? true : undefined}
           aria-describedby={help ? describedBy : undefined}
           onChange={(event) => onChange(event.target.value)}
@@ -72,8 +68,14 @@ function DraftField({
       ) : (
         <Input
           id={inputId}
+          data-wallet-field-input={definition.key}
           value={value}
+          type={definition.type ?? "text"}
           inputMode={definition.inputMode}
+          autoComplete={definition.autoComplete}
+          autoCapitalize={isUrlField ? "none" : undefined}
+          autoCorrect={isUrlField ? "off" : undefined}
+          spellCheck={isUrlField ? false : undefined}
           maxLength={WALLET_CARD_FIELD_LIMITS[definition.key]}
           placeholder={definition.placeholder}
           aria-invalid={error ? true : undefined}
@@ -84,9 +86,12 @@ function DraftField({
       {help ? (
         <p
           id={describedBy}
+          role={error ? "alert" : undefined}
           className={cn(
-            "text-[11.5px] leading-[1.45]",
-            error ? "text-destructive" : "text-muted-foreground",
+            "",
+            error
+              ? "text-destructive"
+              : "text-[color:var(--app-secondary-label)]",
           )}
         >
           {help}
@@ -107,7 +112,6 @@ function DraftField({
 export function WalletCardSetup({
   draft,
   errors,
-  avatarUrl,
   saving,
   isEditingExisting,
   onChange,
@@ -124,151 +128,145 @@ export function WalletCardSetup({
   onCancel: () => void;
 }) {
   const [optionalOpen, setOptionalOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const preferredMeta = getWalletCardPreferredField(draft.preferredContact);
+  const preferredField = preferredMeta.key;
+  const moreDetailsFields = useMemo(
+    () => getWalletCardMoreDetailsFields(draft.preferredContact),
+    [draft.preferredContact],
+  );
+  const moreDetailsCount = countWalletCardMoreDetails(draft);
+  const preferredFieldError = errors[preferredField] || errors.preferredContact;
 
   // The optional fields are unmounted while collapsed, so an error on one of
   // them would render nowhere and Save would look dead. Open the disclosure so
   // the message the owner has to act on is actually on screen.
-  const hasCollapsedOptionalError = WALLET_CARD_OPTIONAL_FIELDS.some(
-    (definition) => Boolean(errors[definition.key]),
+  const hasCollapsedOptionalError = moreDetailsFields.some((definition) =>
+    Boolean(errors[definition.key]),
   );
   useEffect(() => {
     if (hasCollapsedOptionalError) setOptionalOpen(true);
   }, [hasCollapsedOptionalError]);
 
-  const shared = describeSharedFields(draft);
-  const preferredOption = WALLET_CARD_PREFERRED_CONTACT_OPTIONS.find(
-    (option) => option.value === draft.preferredContact,
-  );
+  useEffect(() => {
+    const firstInvalidKey = preferredFieldError
+      ? preferredField
+      : ((["fullName", "username", "headline"] as const).find((key) => errors[key]) ??
+        moreDetailsFields.find((definition) => errors[definition.key])?.key);
+    if (!firstInvalidKey) return;
+
+    window.requestAnimationFrame(() => {
+      const input = formRef.current?.querySelector<HTMLElement>(
+        `[data-wallet-field-input="${firstInvalidKey}"]`,
+      );
+      input?.scrollIntoView({ block: "center", behavior: "smooth" });
+      input?.focus({ preventScroll: true });
+    });
+  }, [errors, moreDetailsFields, preferredField, preferredFieldError]);
+
+  const selectedContactDefinition: WalletCardFieldDefinition = {
+    key: preferredMeta.key,
+    label: preferredMeta.label,
+    placeholder: preferredMeta.placeholder,
+    type: preferredMeta.type,
+    inputMode: preferredMeta.inputMode,
+    autoComplete: preferredMeta.autoComplete,
+  };
 
   return (
-    <div className="space-y-4">
-      {!isEditingExisting ? (
-        <SettingsGroup>
-          <SettingsRow
-            icon={ShieldCheck}
-            iconTone="blue"
-            title={WALLET_CARD_COPY.setupIntro.title}
-            description={WALLET_CARD_COPY.setupIntro.description}
-          />
-        </SettingsGroup>
-      ) : null}
-
-      <SettingsGroup
-        title={WALLET_CARD_OWNER_COPY.recommendedGroupTitle}
-        description={WALLET_CARD_OWNER_COPY.onlyThisInformation}
+    <form
+      ref={formRef}
+      className={`${presentationStyles.profileForm} w-full space-y-6 font-[family-name:var(--font-app-body)]`}
+      data-testid="wallet-card-setup-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!saving) onSubmit();
+      }}
+    >
+      <section
+        className="space-y-4"
+        aria-label="Profile details"
       >
-        <SettingsRow
-          leading={
-            <Avatar size="lg" className="size-11">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-              <AvatarFallback className="text-[13px] font-medium">
-                {initialsFrom(draft.fullName)}
-              </AvatarFallback>
-            </Avatar>
-          }
-          title="Photo"
-          description={WALLET_CARD_OWNER_COPY.fromYourProfile}
-        />
-        <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-          {WALLET_CARD_RECOMMENDED_FIELDS.map((definition) => (
+        {WALLET_CARD_RECOMMENDED_FIELDS.map((definition) => (
+          <div
+            key={definition.key}
+            data-wallet-grid-item={`${definition.key}-field`}
+          >
             <DraftField
-              key={definition.key}
               definition={definition}
               value={draft[definition.key]}
               error={errors[definition.key]}
               onChange={(value) => onChange(definition.key, value)}
             />
-          ))}
+          </div>
+        ))}
 
-          <div className="space-y-1.5">
-            <Label className="text-[13px] font-medium">Preferred contact</Label>
-            <SettingsSegmentedTabs
-              value={draft.preferredContact}
-              onValueChange={(value) =>
-                onChange("preferredContact", value as WalletCardPreferredContact)
-              }
-              options={WALLET_CARD_PREFERRED_CONTACT_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-              mobileColumns={2}
+        <div className="space-y-3" data-wallet-grid-item="primary-contact">
+          <div className="space-y-1">
+            <Label className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
+              Primary contact
+            </Label>
+            <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
+              Shown first after a scan.
+            </p>
+          </div>
+          <SegmentedControl
+            ariaLabel="Primary contact"
+            value={draft.preferredContact}
+            onValueChange={(value) =>
+              onChange("preferredContact", value as WalletCardPreferredContact)
+            }
+            options={WALLET_CARD_PREFERRED_CONTACT_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            className="min-h-11 w-full"
+            mobileColumns={2}
+          />
+          <div data-wallet-grid-item="selected-contact-input">
+            <DraftField
+              definition={selectedContactDefinition}
+              value={draft[preferredField]}
+              error={preferredFieldError}
+              onChange={(value) => onChange(preferredField, value)}
             />
-            {preferredOption &&
-            preferredOption.field !== "website" &&
-            preferredOption.field !== "linkedin" ? (
-              <div className="pt-1">
-                <Input
-                  value={draft[preferredOption.field]}
-                  // `type` (not `inputMode`) is what drives the shared Input's
-                  // iOS autocapitalize/autocorrect suppression, and what lets
-                  // AutoFill offer the owner their own address or number.
-                  type={preferredOption.value === "phone" ? "tel" : "email"}
-                  autoComplete={preferredOption.value === "phone" ? "tel" : "email"}
-                  inputMode={preferredOption.value === "phone" ? "tel" : "email"}
-                  maxLength={WALLET_CARD_FIELD_LIMITS[preferredOption.field]}
-                  placeholder={
-                    preferredOption.value === "phone" ? "+1 555 0100" : "you@example.com"
-                  }
-                  aria-label={preferredOption.label}
-                  aria-invalid={errors[preferredOption.field] ? true : undefined}
-                  onChange={(event) =>
-                    onChange(preferredOption.field, event.target.value)
-                  }
-                />
-              </div>
-            ) : null}
-            {errors.preferredContact || errors[preferredOption?.field ?? "email"] ? (
-              <p className="text-[11.5px] leading-[1.45] text-destructive">
-                {errors.preferredContact || errors[preferredOption?.field ?? "email"]}
-              </p>
-            ) : (
-              <p className="text-[11.5px] leading-[1.45] text-muted-foreground">
-                This is the action a visitor sees first.
-              </p>
-            )}
           </div>
         </div>
-      </SettingsGroup>
+      </section>
 
-      <SettingsGroup>
-        <SettingsRow
-          title={WALLET_CARD_COPY.privacyAssurance.title}
-          description={WALLET_CARD_COPY.privacyAssurance.description}
-          icon={ShieldCheck}
-          iconTone="green"
-        />
-        <div className="px-[var(--settings-row-px)] pb-[var(--settings-row-py)]">
-          <div className="flex flex-wrap gap-1.5">
-            {shared.map((label) => (
-              <span
-                key={label}
-                className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup>
-        <SettingsRow
-          title={WALLET_CARD_OWNER_COPY.optionalDisclosure}
-          description={WALLET_CARD_OWNER_COPY.optionalDisclosureHint}
+      <section
+        className="overflow-hidden rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]"
+        data-wallet-grid-item="more-details"
+      >
+        <button
+          type="button"
+          className="flex min-h-[58px] w-full items-center justify-between gap-4 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          aria-expanded={optionalOpen}
+          aria-controls="wallet-card-more-details-panel"
           onClick={() => setOptionalOpen((open) => !open)}
-          trailing={
+        >
+          <span className="min-w-0">
+            <span className="block text-[13px] font-normal leading-[1.22] text-[color:var(--app-primary-label)]">
+              {WALLET_CARD_OWNER_COPY.optionalDisclosure}
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-2 text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
+            {moreDetailsCount} added
             <ChevronDown
               className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform",
+                "h-4 w-4 transition-transform",
                 optionalOpen && "rotate-180",
               )}
               aria-hidden
             />
-          }
-        />
+          </span>
+        </button>
         {optionalOpen ? (
-          <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            {WALLET_CARD_OPTIONAL_FIELDS.map((definition) => (
+          <div
+            id="wallet-card-more-details-panel"
+            className="space-y-4 border-t border-[color:var(--app-separator)] px-4 py-4"
+          >
+            {moreDetailsFields.map((definition) => (
               <DraftField
                 key={definition.key}
                 definition={definition}
@@ -279,23 +277,47 @@ export function WalletCardSetup({
             ))}
           </div>
         ) : null}
-      </SettingsGroup>
+      </section>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" loading={saving} onClick={onSubmit}>
-          {WALLET_CARD_OWNER_COPY.reviewPrimaryAction}
+      <section
+        className="space-y-1.5"
+        data-wallet-grid-item="privacy-assurance"
+        aria-labelledby="wallet-card-privacy-heading"
+      >
+        <h2
+          id="wallet-card-privacy-heading"
+          className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
+        >
+          {WALLET_CARD_COPY.privacyAssurance.title}
+        </h2>
+        <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
+          {WALLET_CARD_COPY.privacyAssurance.description}
+        </p>
+      </section>
+
+      <div className="space-y-2 pt-1" data-wallet-grid-item="actions">
+        <Button
+          type="submit"
+          className={`${presentationStyles.profilePrimary} min-h-[52px] w-full rounded-2xl`}
+          loading={saving}
+          disabled={saving}
+        >
+          {isEditingExisting
+            ? WALLET_CARD_OWNER_COPY.saveChanges
+            : WALLET_CARD_OWNER_COPY.createProfile}
         </Button>
         <Button
           type="button"
-          size="sm"
           variant="none"
           effect="fade"
+          size="compact"
+          className={`${presentationStyles.quietAction} min-h-11 w-full`}
           disabled={saving}
           onClick={onCancel}
         >
           Cancel
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

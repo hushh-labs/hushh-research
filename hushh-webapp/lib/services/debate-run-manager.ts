@@ -1,5 +1,7 @@
 "use client";
 
+import { buildDecisionHistoryRawCard } from "@/lib/kai/decision-history-record";
+
 import { ApiService } from "@/lib/services/api-service";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -7,15 +9,27 @@ import {
   KaiHistoryService,
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
-import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
-import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import {
+  getLocalItem,
+  getSessionItem,
+  removeLocalItem,
+  setLocalItem,
+  setSessionItem,
+} from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
+/**
+ * Where the running debate can be found again after the page's session
+ * storage is gone: a native WebView reload (native session keys are purged on
+ * every boot), a relaunched app, or a reopened tab. Opaque identifiers only;
+ * the debate itself is never stored, it is replayed by the backend. Kept only
+ * while a run is live and bounded by a TTL; the backend stays the authority.
+ */
+const RUN_REATTACH_POINTER_KEY = "kai_debate_reattach_v1";
+const RUN_REATTACH_POINTER_TTL_MS = 30 * 60 * 1000;
 const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
-const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
-const FINANCIAL_WRITE_POLL_MS = 400;
 const STREAM_RECONNECT_MESSAGE =
   "Live updates paused. Reopen Analysis to reconnect.";
 
@@ -59,6 +73,36 @@ interface PersistedDebateRunManagerState {
   version: 1;
   debateSessionId: string;
   tasks: DebateRunTask[];
+}
+
+interface RunReattachPointer {
+  version: 1;
+  debateSessionId: string;
+  runId: string;
+  expiresAt: number;
+}
+
+function readReattachPointer(): RunReattachPointer | null {
+  const raw = getLocalItem(RUN_REATTACH_POINTER_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RunReattachPointer>;
+    if (
+      parsed.version !== 1 ||
+      typeof parsed.debateSessionId !== "string" ||
+      !parsed.debateSessionId.trim() ||
+      typeof parsed.runId !== "string" ||
+      typeof parsed.expiresAt !== "number" ||
+      parsed.expiresAt <= Date.now()
+    ) {
+      removeLocalItem(RUN_REATTACH_POINTER_KEY);
+      return null;
+    }
+    return parsed as RunReattachPointer;
+  } catch {
+    removeLocalItem(RUN_REATTACH_POINTER_KEY);
+    return null;
+  }
 }
 
 interface RunSecrets {
@@ -302,6 +346,7 @@ class DebateRunManager {
   private streamControllers = new Map<string, AbortController>();
   private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
   private debateSessionId: string;
+  private reattachPointerSnapshot: string | null = null;
 
   constructor() {
     this.debateSessionId = this.loadOrCreateSessionId();
@@ -313,7 +358,10 @@ class DebateRunManager {
     if (cached && cached.trim().length > 0) {
       return cached.trim();
     }
-    const next = createSessionId();
+    // Session storage is gone but a debate may still be running: rejoin its
+    // session so the backend's active-run lookup and start lock find it.
+    const pointer = readReattachPointer();
+    const next = pointer?.debateSessionId.trim() || createSessionId();
     setSessionItem(RUN_MANAGER_SESSION_KEY, next);
     return next;
   }
@@ -355,6 +403,48 @@ class DebateRunManager {
       tasks: Array.from(this.tasks.values()),
     };
     setSessionItem(RUN_MANAGER_STORAGE_KEY, JSON.stringify(payload));
+    this.syncReattachPointer();
+  }
+
+  private syncReattachPointer(): void {
+    const activeRunId = this.getActiveRunId();
+    const activeTask = activeRunId ? this.tasks.get(activeRunId) : undefined;
+    let next: string | null = null;
+    if (activeTask) {
+      const startedAt = Date.parse(activeTask.startedAt);
+      const pointer: RunReattachPointer = {
+        version: 1,
+        debateSessionId: this.debateSessionId,
+        runId: activeTask.runId,
+        expiresAt:
+          (Number.isFinite(startedAt) ? startedAt : Date.now()) +
+          RUN_REATTACH_POINTER_TTL_MS,
+      };
+      next = JSON.stringify(pointer);
+    }
+    // persist() runs on every streamed event; write only when the pointer
+    // actually changes.
+    if (next === this.reattachPointerSnapshot) return;
+    this.reattachPointerSnapshot = next;
+    if (next) {
+      setLocalItem(RUN_REATTACH_POINTER_KEY, next);
+    } else {
+      removeLocalItem(RUN_REATTACH_POINTER_KEY);
+    }
+  }
+
+  /**
+   * Highest event sequence this page has received for the run. It is the
+   * resume point, never the persisted or server `latest_cursor`: after a
+   * reload the page holds no events, and resuming past them lost the whole
+   * debate so far.
+   */
+  private deliveredCursor(runId: string): number {
+    let delivered = 0;
+    for (const seq of this.runSeenSeq.get(runId) ?? []) {
+      if (seq > delivered) delivered = seq;
+    }
+    return delivered;
   }
 
   private getActiveRunId(): string | null {
@@ -529,14 +619,7 @@ class DebateRunManager {
         typeof decisionEnvelope.payload === "object"
           ? (decisionEnvelope.payload as Record<string, unknown>)
           : {};
-      const rawCard =
-        payload.raw_card && typeof payload.raw_card === "object"
-          ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
-              string,
-              unknown
-            >)
-          : {};
-      rawCard.debate_run_id = task.runId;
+      const rawCard = buildDecisionHistoryRawCard(payload, task.runId);
       const transcript = buildTranscriptFromEnvelopes(buffer);
       items.push({
         task,
@@ -672,30 +755,9 @@ class DebateRunManager {
       userId,
       vaultOwnerToken,
       vaultKey,
-      cursor: 0,
       resetBuffer: this.getOrCreateBuffer(task.runId).length === 0,
     });
     return this.getTask(task.runId);
-  }
-
-  private async waitForFinancialWritesToSettle(userId: string): Promise<void> {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < FINANCIAL_WRITE_WAIT_TIMEOUT_MS) {
-      const portfolioSaveRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_save",
-      );
-      const profileSyncRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_postsave_sync",
-      );
-      if (!portfolioSaveRunning && !profileSyncRunning) {
-        return;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, FINANCIAL_WRITE_POLL_MS),
-      );
-    }
   }
 
   async resumeActiveRun(params: {
@@ -779,7 +841,6 @@ class DebateRunManager {
           userId,
           vaultOwnerToken,
           vaultKey,
-          cursor: 0,
           resetBuffer:
             this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
         });
@@ -787,7 +848,8 @@ class DebateRunManager {
       return { kind: "blocked", task: refreshedActiveTask };
     }
 
-    const response = await ApiService.startKaiDebateRun({
+    const controller = new AbortController();
+    const response = await ApiService.startKaiDebateRunStream({
       userId,
       debateSessionId: this.debateSessionId,
       ticker,
@@ -795,6 +857,7 @@ class DebateRunManager {
       userContext: userContext || undefined,
       pickSource,
       vaultOwnerToken,
+      signal: controller.signal,
     });
 
     if (response.status === 409) {
@@ -813,7 +876,6 @@ class DebateRunManager {
         userId,
         vaultOwnerToken,
         vaultKey,
-        cursor: 0,
         resetBuffer: true,
       });
       return { kind: "blocked", task };
@@ -823,23 +885,103 @@ class DebateRunManager {
       throw new Error(`Failed to start analyze run: HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as {
-      run?: Record<string, unknown>;
-    };
-    if (!payload.run) {
-      throw new Error("Run start response missing run payload.");
-    }
-
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
-    this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
-    await this.connectRunStream(task.runId, {
+    return this.attachStartedRunStream(response, controller, {
       userId,
+      ticker,
+      pickSource,
       vaultOwnerToken,
       vaultKey,
-      cursor: 0,
-      resetBuffer: true,
     });
-    return { kind: "started", task };
+  }
+
+  /**
+   * Consume the stream that started the run. The run id arrives on the first
+   * envelope (the backend stamps it into every payload), which is when the task
+   * exists and `ensureRun` resolves; the stream keeps flowing afterwards. If the
+   * transport drops mid-run, fall back to the resumable attach path.
+   */
+  private attachStartedRunStream(
+    response: Response,
+    controller: AbortController,
+    params: {
+      userId: string;
+      ticker: string;
+      pickSource?: string;
+      vaultOwnerToken: string;
+      vaultKey?: string;
+    },
+  ): Promise<EnsureRunResult> {
+    return new Promise<EnsureRunResult>((resolve, reject) => {
+      let runId: string | null = null;
+
+      const onEnvelope = (envelope: KaiStreamEnvelope) => {
+        if (!runId) {
+          const payload =
+            envelope.payload && typeof envelope.payload === "object"
+              ? (envelope.payload as Record<string, unknown>)
+              : {};
+          const announced =
+            typeof payload.run_id === "string" ? payload.run_id.trim() : "";
+          if (!announced) return;
+          runId = announced;
+          const task = this.upsertTask({
+            ...this.makeTaskFromServer({
+              run_id: announced,
+              user_id: params.userId,
+              debate_session_id: this.debateSessionId,
+              ticker: params.ticker,
+              status: "running",
+              latest_cursor: 0,
+              pick_source: params.pickSource,
+            }),
+            streamState: "connected",
+            streamMessage: null,
+          });
+          this.resetRunBuffer(announced);
+          this.runSecrets.set(announced, {
+            vaultOwnerToken: params.vaultOwnerToken,
+            vaultKey: params.vaultKey,
+          });
+          this.streamControllers.set(announced, controller);
+          resolve({ kind: "started", task });
+        }
+        this.handleEnvelope(runId, envelope);
+      };
+
+      consumeCanonicalKaiStream(response, onEnvelope, {
+        signal: controller.signal,
+        idleTimeoutMs: 360000,
+        requireTerminal: true,
+      })
+        .then(() => {
+          if (!runId) {
+            reject(new Error("Analyze run stream ended before announcing its run."));
+          }
+        })
+        .catch((error: unknown) => {
+          if (!runId) {
+            reject(error);
+            return;
+          }
+          if ((error as Error)?.name === "AbortError") return;
+          const current = this.tasks.get(runId);
+          if (!current || current.status !== "running") return;
+          if (this.streamControllers.get(runId) === controller) {
+            this.streamControllers.delete(runId);
+          }
+          void this.connectRunStream(runId, {
+            userId: params.userId,
+            vaultOwnerToken: params.vaultOwnerToken,
+            vaultKey: params.vaultKey,
+            resetBuffer: false,
+          });
+        })
+        .finally(() => {
+          if (runId && this.streamControllers.get(runId) === controller) {
+            this.streamControllers.delete(runId);
+          }
+        });
+    });
   }
 
   private async connectRunStream(
@@ -848,7 +990,6 @@ class DebateRunManager {
       userId: string;
       vaultOwnerToken: string;
       vaultKey?: string;
-      cursor: number;
       resetBuffer: boolean;
     },
   ): Promise<void> {
@@ -880,9 +1021,8 @@ class DebateRunManager {
         const response = await ApiService.streamKaiDebateRun({
           userId: params.userId,
           runId,
-          // Resume only after the latest canonical event already delivered to
-          // this client, even when the caller supplied an older cursor.
-          resumeCursor: Math.max(params.cursor, currentTask.latestCursor),
+          // Resume only after the latest canonical event this page holds.
+          resumeCursor: this.deliveredCursor(runId),
           vaultOwnerToken: params.vaultOwnerToken,
           signal: controller.signal,
         });
@@ -1013,14 +1153,7 @@ class DebateRunManager {
         ? (decisionEnvelope.payload as Record<string, unknown>)
         : {};
     const transcript = buildTranscriptFromEnvelopes(buffer);
-    const rawCard =
-      payload.raw_card && typeof payload.raw_card === "object"
-        ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
-            string,
-            unknown
-          >)
-        : ({} as Record<string, unknown>);
-    rawCard.debate_run_id = runId;
+    const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
     const entry: AnalysisHistoryEntry = {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
@@ -1059,10 +1192,7 @@ class DebateRunManager {
       listener(entry, pendingTask);
     }
 
-    await this.waitForFinancialWritesToSettle(task.userId);
-
     let success = false;
-    let lastError: unknown = null;
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       try {
         const saved = await KaiHistoryService.saveAnalysis({
@@ -1075,8 +1205,9 @@ class DebateRunManager {
           success = true;
           break;
         }
-      } catch (error) {
-        lastError = error;
+      } catch {
+        // Persistence diagnostics can include protected manifest or provider
+        // detail. The durable task stores only a consumer-safe recovery state.
       }
       if (attempt < RETRY_DELAYS_MS.length) {
         await new Promise((resolve) =>
@@ -1100,9 +1231,7 @@ class DebateRunManager {
     this.upsertTask({
       ...pendingTask,
       persistenceState: "failed",
-      persistenceError:
-        (lastError as Error | undefined)?.message ||
-        "Could not persist analysis history. Retry from task center.",
+      persistenceError: "Analysis is ready, but could not be saved to history.",
     });
   }
 
@@ -1119,6 +1248,19 @@ class DebateRunManager {
     vaultOwnerToken: string;
   }): Promise<void> {
     const { runId, userId, vaultOwnerToken } = params;
+    // The person asked to stop: detach and settle the task before the network
+    // round trip. Previously a failed cancel request (the run held by another
+    // backend process) threw first and left the task "running" and attached.
+    this.streamControllers.get(runId)?.abort();
+    const task = this.tasks.get(runId);
+    if (task && task.status === "running") {
+      this.upsertTask({
+        ...task,
+        status: "canceled",
+        completedAt: task.completedAt || nowIso(),
+        updatedAt: nowIso(),
+      });
+    }
     const response = await ApiService.cancelKaiDebateRun({
       runId,
       userId,
@@ -1127,18 +1269,6 @@ class DebateRunManager {
     if (!response.ok) {
       throw new Error(`Failed to cancel run: HTTP ${response.status}`);
     }
-    const controller = this.streamControllers.get(runId);
-    if (controller) {
-      controller.abort();
-    }
-    const task = this.tasks.get(runId);
-    if (!task) return;
-    this.upsertTask({
-      ...task,
-      status: "canceled",
-      completedAt: task.completedAt || nowIso(),
-      updatedAt: nowIso(),
-    });
   }
 
   dismissTask(runId: string): void {

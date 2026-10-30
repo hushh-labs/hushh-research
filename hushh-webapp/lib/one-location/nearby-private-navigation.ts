@@ -73,11 +73,15 @@ export function buildNearbyPrivateCheckInHref(token: string): string {
 }
 
 export function buildNearbyCheckInResumeHref(token: string): string {
+  // The resume target is check-in's own route, not Your Map carrying
+  // `?action=check-in`. Your Map cannot render check-in -- the sheet, the place
+  // list and the attendee list are all withheld unless the surface is check-in
+  // -- so routing through it meant the person coming back from a private share
+  // watched the wrong map mount and jump away before the flow reappeared.
   const params = new URLSearchParams({
-    action: "check-in",
     [NEARBY_PRIVATE_RESUME_PARAM]: token,
   });
-  return `${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`;
+  return `${ROUTES.ONE_LOCATION_CHECK_IN}?${params.toString()}`;
 }
 
 export function consumeNearbyPrivateReturn(token: string | null): boolean {

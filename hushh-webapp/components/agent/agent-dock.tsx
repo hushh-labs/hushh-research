@@ -1,0 +1,94 @@
+"use client";
+
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { NativeDockPortProvider } from "./native-dock-port";
+
+type Dock = {
+  host: HTMLDivElement | null;
+  setHost: (host: HTMLDivElement | null) => void;
+  composerVisible: boolean;
+  suppressed: boolean;
+  claim: (id: symbol, visible: boolean, suppressed: boolean) => void;
+  release: (id: symbol) => void;
+};
+
+const DockContext = createContext<Dock | null>(null);
+const VoiceSurfaceContext = createContext(false);
+
+/** Presentation only. Drafts, submission and microphone ownership stay with
+ * their existing feature authorities; nothing is copied into a shell store. */
+export function AgentDockProvider({ children }: { children: ReactNode }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [composerVisible, setComposerVisible] = useState(false);
+  const [suppressed, setSuppressed] = useState(false);
+  const current = useRef<symbol | null>(null);
+  const claim = useCallback((id: symbol, visible: boolean, suppress: boolean) => {
+    current.current = id;
+    setComposerVisible(visible);
+    setSuppressed(suppress);
+  }, []);
+  const release = useCallback((id: symbol) => {
+      if (current.current !== id) return;
+      current.current = null;
+      setComposerVisible(false);
+      setSuppressed(false);
+  }, []);
+  const value = useMemo<Dock>(() => ({ host, setHost, composerVisible, suppressed, claim, release }), [host, composerVisible, suppressed, claim, release]);
+  return <DockContext.Provider value={value}><NativeDockPortProvider>{children}</NativeDockPortProvider></DockContext.Provider>;
+}
+
+export function AgentDockVoiceBoundary({ children }: { children: ReactNode }) {
+  return <VoiceSurfaceContext.Provider value>{children}</VoiceSurfaceContext.Provider>;
+}
+
+export function useAgentDockSurface() {
+  const dock = useContext(DockContext);
+  const persistent = useContext(VoiceSurfaceContext);
+  return persistent ? dock : null;
+}
+
+/** The canonical composer is projected into the same retained bar. Embedded
+ * workspaces keep their local composer. A missing host is not a second input. */
+export function AgentDockPortal({ enabled, active = true, visible, suppressed = false, children }: {
+  enabled: boolean;
+  active?: boolean;
+  visible: boolean;
+  suppressed?: boolean;
+  children: ReactNode;
+}) {
+  const dock = useContext(DockContext);
+  const id = useRef(Symbol("chat-composer"));
+  const claim = dock?.claim;
+  const release = dock?.release;
+  useLayoutEffect(() => {
+    if (!enabled || !active || !claim || !release) return;
+    const identity = id.current;
+    claim(identity, visible, suppressed);
+    return () => release(identity);
+  }, [enabled, active, visible, suppressed, claim, release]);
+  if (!enabled) return children;
+  // Placement belongs to the workspace lifetime, not the selected agent.
+  // Keep each editor's node/selection while only the active owner claims and
+  // exposes it. Moving between inline and portal children remounts the editor.
+  return dock?.host ? createPortal(
+    <div data-agent-dock-owner hidden={!active} inert={!active} className={active ? "contents" : "hidden"}>
+      {children}
+    </div>, dock.host) : null;
+}
+
+export function useAgentDockHost() { return useContext(DockContext)?.host ?? null; }
+export function useAgentDockState() { return useContext(DockContext); }
+
+/** Retained inactive editors have no layout. Native measures the authored
+ * active seat, never the first editor from another agent/conversation. */
+export function activeAgentDockSeat(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>("[data-agent-dock-owner]:not([hidden]):not([inert]) [data-agent-dock-embedded]");
+}
+
+/** Geometry only: include the retained voice panel as well as the form. The
+ * hidden form's zero rectangle cannot describe the visible dock's occlusion. */
+export function useAgentDockFrame() {
+  const host = useAgentDockHost();
+  return useMemo(() => host?.closest<HTMLDivElement>("[data-agent-bar-shell]") ?? null, [host]);
+}

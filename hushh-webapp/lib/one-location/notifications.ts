@@ -2,6 +2,11 @@
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  describeLocationAsk,
+  formatLocationDurationLabel,
+  locationAskFacts,
+} from "@/lib/one-location/duration-copy";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT =
   "hushh:one-location-grant-opened";
@@ -35,13 +40,25 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_created"
   | "location_access_approved"
   | "location_share_revoked"
+  | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
   | "location_referral_invite"
   | "location_public_invite_submitted"
   | "location_one_network_joined"
-  | "location_circle_member_invite";
+  | "location_circle_member_invite"
+  | "location_circle_member_invite_accepted"
+  | "location_circle_member_invite_declined"
+  | "location_circle_member_invite_cancelled"
+  | "location_circle_member_added"
+  | "location_circle_member_removed"
+  | "location_circle_member_left"
+  | "location_circle_renamed"
+  | "location_circle_deleted"
+  | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -67,6 +84,16 @@ const WORKFLOW_COPY: Record<
     title: "Location access removed",
     fallbackDescription: "Location access from a trusted person was removed.",
   },
+  location_share_shortened: {
+    title: "Location access shortened",
+    fallbackDescription: "A location share's remaining time was shortened.",
+  },
+  location_share_duration_changed: {
+    // One entry for both directions, because one event type carries both. The
+    // per-person line below names which way it went.
+    title: "Sharing time changed",
+    fallbackDescription: "A location share's end time changed.",
+  },
   location_share_expired: {
     title: "Location access expired",
     fallbackDescription: "A location share reached its expiry time.",
@@ -78,6 +105,10 @@ const WORKFLOW_COPY: Record<
   location_access_denied: {
     title: "Location request denied",
     fallbackDescription: "Your location request was denied.",
+  },
+  location_access_request_withdrawn: {
+    title: "Location request taken back",
+    fallbackDescription: "Someone took back location request.",
   },
   location_referral_invite: {
     title: "Location referral pending",
@@ -95,7 +126,46 @@ const WORKFLOW_COPY: Record<
   },
   location_circle_member_invite: {
     title: "Circle invitation",
-    fallbackDescription: "A connection invited you to join their Circle.",
+    fallbackDescription: "A connection invited you to join a Circle.",
+  },
+  location_circle_member_invite_accepted: {
+    title: "Circle invitation accepted",
+    fallbackDescription: "Someone accepted your Circle invitation.",
+  },
+  location_circle_member_invite_declined: {
+    title: "Circle invitation declined",
+    fallbackDescription: "Someone declined your Circle invitation.",
+  },
+  location_circle_member_invite_cancelled: {
+    title: "Circle invitation withdrawn",
+    fallbackDescription: "A Circle invitation was withdrawn.",
+  },
+  location_circle_member_added: {
+    // There was no card to tap and no decision to make, so this is the only
+    // moment the person learns about it. The fallback still says a human did
+    // it -- "You were added to a Circle" reads as an intrusion by nobody.
+    title: "Added to a Circle",
+    fallbackDescription: "A connection added you to a Circle.",
+  },
+  location_circle_member_removed: {
+    title: "Removed from a Circle",
+    fallbackDescription: "You were removed from a Circle.",
+  },
+  location_circle_member_left: {
+    title: "Circle member left",
+    fallbackDescription: "Someone left your Circle.",
+  },
+  location_circle_renamed: {
+    title: "Circle renamed",
+    fallbackDescription: "A Circle you belong to was renamed.",
+  },
+  location_circle_deleted: {
+    title: "Circle deleted",
+    fallbackDescription: "A Circle you belonged to was deleted.",
+  },
+  location_circle_code_joined: {
+    title: "Someone joined your Circle",
+    fallbackDescription: "Someone used your Circle code to join.",
   },
 };
 
@@ -384,6 +454,7 @@ export function buildOneLocationWorkflowHref(params: {
   referralId?: string | null;
   submissionId?: string | null;
   circleInviteId?: string | null;
+  circleId?: string | null;
   section?: OneLocationNotificationSection | null;
   openGrant?: boolean;
 }): string {
@@ -393,12 +464,16 @@ export function buildOneLocationWorkflowHref(params: {
   const referralId = String(params.referralId || "").trim();
   const submissionId = String(params.submissionId || "").trim();
   const circleInviteId = String(params.circleInviteId || "").trim();
+  const circleId = String(params.circleId || "").trim();
   const section = String(params.section || "").trim();
   if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
   if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
   if (circleInviteId) query.set("circleInviteId", circleInviteId);
+  // Same param the hub writes when you open a Circle yourself, so a tap from
+  // a notification or the feed lands on the Circle rather than the list.
+  if (circleId) query.set("circleId", circleId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
     query.set(
@@ -417,9 +492,14 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_share_created":
     case "location_access_approved":
     case "location_share_revoked":
+    case "location_share_shortened":
+    case "location_share_duration_changed":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
+    // Goes to the same list the ask itself did. The card there is the thing
+    // that just disappeared, so that is where the owner needs to land.
+    case "location_access_request_withdrawn":
       return "approvals";
     case "location_access_denied":
       return "my_requests";
@@ -429,6 +509,15 @@ export function oneLocationSectionForWorkflowNotificationType(
       return "my_requests";
     case "location_one_network_joined":
     case "location_circle_member_invite":
+    case "location_circle_member_invite_accepted":
+    case "location_circle_member_invite_declined":
+    case "location_circle_member_invite_cancelled":
+    case "location_circle_member_added":
+    case "location_circle_member_removed":
+    case "location_circle_member_left":
+    case "location_circle_renamed":
+    case "location_circle_deleted":
+    case "location_circle_code_joined":
       return "people";
     default:
       return "activity";
@@ -497,6 +586,26 @@ export function normalizeOneLocationShareKind(
   return "share";
 }
 
+/**
+ * Whether a grant came from the Save My Soul panic flow -- the lane this UI
+ * calls "SMS".
+ *
+ * The minimum dependency of `lib/one-location/grant-lanes.ts`, which the SOS
+ * grant-lane split introduces: one owner can now hold an ordinary share and an
+ * SMS share at once, and the lanes have to tell them apart. Delegates to the
+ * same normalizer every other share-kind check in this module reads, so a
+ * grant cannot be classified one way here and another by its badge.
+ *
+ * Structural and optional rather than `Pick<OneLocationGrant, "shareKind">`:
+ * on this base `shareKind` is optional on the grant type, so the Pick form
+ * would demand a field every real caller may omit.
+ */
+export function isSmsTriggeredGrant(grant: {
+  shareKind?: string | null;
+}): boolean {
+  return normalizeOneLocationShareKind(grant.shareKind) === "sos";
+}
+
 /** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {
@@ -537,13 +646,13 @@ export function locationShareNotificationCopy(params: {
       title: "Check-in shared",
       description: message
         ? `${label}: ${message}`
-        : `${label} checked in and shared their location with you.`,
+        : `${label} checked in and shared location with you.`,
     };
   }
   if (kind === "drive_to") {
     return {
       title: "Drive shared",
-      description: `${label} started sharing their drive and live ETA with you.`,
+      description: `${label} started sharing drive and live ETA with you.`,
     };
   }
   return {
@@ -559,6 +668,42 @@ export function locationWorkflowNotificationCopy(params: {
   referringLabel?: string | null;
   visitorLabel?: string | null;
   networkLabel?: string | null;
+  circleName?: string | null;
+  /**
+   * The ask, when this notification is about one. Without these an access
+   * request reads "Someone is asking to view your location" whether they want
+   * fifteen minutes or a day, and an approval reads "approved" without ever
+   * telling the person who asked which number they were given.
+   */
+  requestedDurationHours?: number | string | null;
+  requestedDurationMode?: string | null;
+  isExtension?: boolean;
+  /** Expiry of the share being extended, for "they have 45 more min left". */
+  extendsGrantExpiresAt?: string | null;
+  /** The duration actually granted, for approval copy. */
+  grantedDurationHours?: number | string | null;
+  grantedDurationMode?: string | null;
+  /**
+   * How much time an approved EXTENSION added, as opposed to the new total.
+   *
+   * Approving "30 min more" on a two-hour share leaves two and a half hours
+   * running (#6256), so `grantedDurationHours` is the total and putting it
+   * next to the word "more" reports a thirty-minute top-up as "2 hours 30 min
+   * more". Absent on notifications written before that fix, where the total
+   * really was what the approval granted.
+   */
+  addedDurationHours?: number | string | null;
+  /**
+   * Which lane the notification is about.
+   *
+   * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
+   * same counterpart at once (see grant-lanes), so "your share ended" without
+   * naming the lane is ambiguous exactly when it matters most. `"sos"` is the
+   * emergency lane; anything else is an ordinary share.
+   */
+  shareKind?: string | null;
+  /** Clock injected so a list of notifications agrees on "now". */
+  nowMs?: number;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = privacySafeOneLocationNotificationLabel(params.ownerLabel);
@@ -576,18 +721,115 @@ export function locationWorkflowNotificationCopy(params: {
   const networkLabel = privacySafeOneLocationNotificationLabel(
     params.networkLabel,
   );
+  const nowMs = params.nowMs ?? Date.now();
+  const askFacts = locationAskFacts(
+    {
+      requestedDurationHours:
+        params.requestedDurationHours === null ||
+        params.requestedDurationHours === undefined
+          ? null
+          : Number(params.requestedDurationHours),
+      requestedDurationMode: params.requestedDurationMode ?? null,
+      isExtension: params.isExtension,
+      extendsGrantExpiresAt: params.extendsGrantExpiresAt ?? null,
+    },
+    nowMs,
+  );
+  const grantedLabel =
+    params.grantedDurationMode === "until_stopped"
+      ? "for as long as you need"
+      : formatLocationDurationLabel(params.grantedDurationHours);
+  // The increment an extension added.
+  //
+  // Deliberately NOT falling back to `grantedLabel`. The total and the
+  // increment are different numbers now (#6256), and both delivery paths can
+  // arrive without the increment -- a push written before this shipped, or a
+  // reconciled payload whose two expiries were not both readable. Filling the
+  // gap with the total would announce a thirty-minute top-up of a two-hour
+  // share as "2 hours 30 min more", which is the same class of lie, five times
+  // larger, on the surface most likely to be the only one seen. An extension
+  // with no known increment says so without a number instead.
+  const addedLabel = formatLocationDurationLabel(params.addedDurationHours);
+
+  const revokedViaSms =
+    normalizeOneLocationShareKind(params.shareKind) === "sos";
 
   switch (params.type) {
     case "location_share_created":
+      return {
+        title: copy.title,
+        description: locationShareNotificationDescription(ownerLabel),
+      };
     case "location_access_approved":
+      // Name the number. "Approved" alone left the person who asked for four
+      // hours with no way to learn they had been given one until it ran out.
+      if (
+        askFacts.isExtension &&
+        params.grantedDurationMode === "until_stopped"
+      ) {
+        // An open-ended share cannot be given "more" of anything, and
+        // `grantedLabel` is the phrase "for as long as you need" -- which read
+        // as "gave you for as long as you need more of live location".
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} is now sharing live location until they stop.`,
+        };
+      }
+      if (addedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${addedLabel} more of live location.`,
+        };
+      }
+      if (askFacts.isExtension) {
+        // Extension, increment unknown. Says the useful, certain thing -- how
+        // long they have now -- rather than dressing the total up as the
+        // amount that was added.
+        return {
+          title: "More location time approved",
+          description: grantedLabel
+            ? `${ownerLabel} gave you more location time. You now have ${grantedLabel}.`
+            : `${ownerLabel} gave you more location time.`,
+        };
+      }
+      if (grantedLabel) {
+        return {
+          title: copy.title,
+          description: `${ownerLabel} shared live location with you ${grantedLabel}.`,
+        };
+      }
       return {
         title: copy.title,
         description: locationShareNotificationDescription(ownerLabel),
       };
     case "location_share_revoked":
+      // "SMS location sharing" is what the recipient calls this -- an SMS alert
+      // is how it reached them. Told only that "location access" was removed,
+      // someone who has never opened an ordinary share is being informed about
+      // something they do not know by that name.
+      if (revokedViaSms) {
+        return {
+          title: "SMS location sharing stopped",
+          description: `${ownerLabel} stopped sharing location with you over SMS.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,
+      };
+    case "location_share_shortened":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} shortened your location access.`,
+      };
+    case "location_share_duration_changed":
+      return {
+        title: copy.title,
+        // Deliberately not "gave you more time" / "shortened": which way it
+        // went lives in the event metadata, and this list is built from the
+        // notification alone. Naming the wrong direction is worse than naming
+        // none, and the share itself is one tap away with the real end time.
+        description: `${ownerLabel} changed the end time.`,
       };
     case "location_share_expired":
       return {
@@ -596,13 +838,28 @@ export function locationWorkflowNotificationCopy(params: {
       };
     case "location_access_request":
       return {
-        title: copy.title,
-        description: `${requesterLabel} is asking to view your location.`,
+        title: askFacts.isExtension
+          ? "More location time requested"
+          : copy.title,
+        description: `${requesterLabel} ${describeLocationAsk(askFacts)}`,
       };
     case "location_access_denied":
+      // A refused extension has to say the access already held is untouched.
+      // Read as a bare "denied", it looks like everything just stopped.
+      if (askFacts.isExtension) {
+        return {
+          title: "Extra time declined",
+          description: `${ownerLabel} declined the extra time. Any access you already have is unchanged.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_access_request_withdrawn":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} took back location request.`,
       };
     case "location_referral_invite":
       return {
@@ -624,6 +881,73 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} invited you to join a Circle.`,
       };
+    case "location_circle_member_invite_accepted":
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined your Circle.`,
+      };
+    case "location_circle_member_invite_declined":
+      return {
+        title: copy.title,
+        description: `${networkLabel} declined your Circle invitation.`,
+      };
+    case "location_circle_member_invite_cancelled":
+      return {
+        title: copy.title,
+        description: copy.fallbackDescription,
+      };
+    case "location_circle_member_added": {
+      // Named, always. Nobody accepted anything here, so the only thing that
+      // turns this from an intrusion into an ordinary social act is knowing
+      // whose Circle you are now in -- and, when the payload carries it, which
+      // one.
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${networkLabel} added you to ${circleName}.`
+          : `${networkLabel} added you to a Circle.`,
+      };
+    }
+    case "location_circle_code_joined":
+      // The one signal that a shared code worked. Named rather than generic,
+      // because "someone" is exactly what the sender already knew.
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined using your Circle code.`,
+      };
+    case "location_circle_member_removed": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `You were removed from ${circleName}.`
+          : copy.fallbackDescription,
+      };
+    }
+    case "location_circle_member_left":
+      return {
+        title: copy.title,
+        description: `${networkLabel} left your Circle.`,
+      };
+    case "location_circle_renamed": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `This Circle is now called ${circleName}.`
+          : copy.fallbackDescription,
+      };
+    }
+    case "location_circle_deleted": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${circleName} was deleted by its owner.`
+          : copy.fallbackDescription,
+      };
+    }
     default:
       return { title: copy.title, description: copy.fallbackDescription };
   }
@@ -769,54 +1093,4 @@ export function recordOneLocationWorkflowNotification(params: {
   return true;
 }
 
-export function playOneLocationNotificationSound(
-  shareKind?: string | null,
-): void {
-  if (typeof window === "undefined") return;
-  const isEmergency = normalizeOneLocationShareKind(shareKind) === "sos";
-  if (isEmergency && typeof navigator !== "undefined" && navigator.vibrate) {
-    navigator.vibrate([240, 120, 240, 120, 520]);
-  }
-  const audioContextConstructor =
-    window.AudioContext ||
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext;
-  if (!audioContextConstructor) return;
-
-  try {
-    const context = new audioContextConstructor();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const startedAt = context.currentTime;
-    oscillator.type = isEmergency ? "square" : "sine";
-    if (isEmergency) {
-      for (const offset of [0, 0.34, 0.68]) {
-        const pulseStart = startedAt + offset;
-        oscillator.frequency.setValueAtTime(980, pulseStart);
-        oscillator.frequency.exponentialRampToValueAtTime(
-          620,
-          pulseStart + 0.2,
-        );
-        gain.gain.setValueAtTime(0.0001, pulseStart);
-        gain.gain.exponentialRampToValueAtTime(0.1, pulseStart + 0.025);
-        gain.gain.setValueAtTime(0.1, pulseStart + 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.0001, pulseStart + 0.24);
-      }
-    } else {
-      oscillator.frequency.setValueAtTime(880, startedAt);
-      oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.12);
-      gain.gain.setValueAtTime(0.0001, startedAt);
-      gain.gain.exponentialRampToValueAtTime(0.08, startedAt + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.22);
-    }
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(startedAt + (isEmergency ? 0.94 : 0.24));
-    oscillator.onended = () => {
-      void context.close().catch(() => undefined);
-    };
-  } catch {
-    // Browsers can block audio without user activation; notification UI still works.
-  }
-}
+export { playOneLocationNotificationSound } from "./notification-sound";

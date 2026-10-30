@@ -13,7 +13,7 @@ const { mockAuth, mockRecaptchaVerifierInstance, MockRecaptchaVerifier } =
 
     // Wrap in a real function so `new MockCtor(...)` works as a constructor.
     // Arrow functions cannot be called with `new`.
-    const MockCtor = vi.fn(function MockRecaptchaVerifier() {
+    const MockCtor = vi.fn(function MockRecaptchaVerifier(..._args: unknown[]) {
       return mockInstance;
     });
 
@@ -88,6 +88,7 @@ function createContainer(id = "recaptcha-container"): HTMLDivElement {
 
 describe("reCAPTCHA container lifecycle", () => {
   afterEach(() => {
+    resetRecaptcha();
     // Clean up DOM
     const el = document.getElementById("recaptcha-container");
     if (el) el.remove();
@@ -111,20 +112,21 @@ describe("reCAPTCHA container lifecycle", () => {
       expect(verifier).toBe(mockRecaptchaVerifierInstance);
     });
 
-    it("replaces the container DOM element with a fresh node", () => {
+    it("preserves the React-owned host and gives the SDK a private child", () => {
       const original = createContainer();
       const originalRef = original;
 
       getRecaptchaVerifier("recaptcha-container");
 
       const current = document.getElementById("recaptcha-container");
-      // The element in the DOM should be a NEW element, not the same reference
-      expect(current).not.toBe(originalRef);
-      expect(current).toBeTruthy();
-      expect(current!.id).toBe("recaptcha-container");
+      expect(current).toBe(originalRef);
+      const sdkTarget = MockRecaptchaVerifier.mock.calls[0][1];
+      expect(sdkTarget).toBeInstanceOf(HTMLElement);
+      expect(sdkTarget).not.toBe(originalRef);
+      expect(current!.firstElementChild).toBe(sdkTarget);
     });
 
-    it("preserves CSS classes when replacing the container", () => {
+    it("preserves host CSS classes when preparing the SDK target", () => {
       createContainer();
 
       getRecaptchaVerifier("recaptcha-container");
@@ -148,18 +150,19 @@ describe("reCAPTCHA container lifecycle", () => {
       expect(MockRecaptchaVerifier).toHaveBeenCalledTimes(2);
     });
 
-    it("replaces the container element on every call (prevents double-render)", () => {
-      createContainer();
+    it("uses a fresh SDK target on every call without replacing the React host", () => {
+      const host = createContainer();
 
-      // First call — swaps the container
       getRecaptchaVerifier("recaptcha-container");
-      const afterFirst = document.getElementById("recaptcha-container");
+      const firstTarget = MockRecaptchaVerifier.mock.calls[0][1];
 
-      // Second call — should swap again, producing a different element reference
       getRecaptchaVerifier("recaptcha-container");
-      const afterSecond = document.getElementById("recaptcha-container");
+      const secondTarget = MockRecaptchaVerifier.mock.calls[1][1];
 
-      expect(afterFirst).not.toBe(afterSecond);
+      expect(firstTarget).not.toBe(secondTarget);
+      expect(document.getElementById("recaptcha-container")).toBe(host);
+      expect(host.firstElementChild).toBe(secondTarget);
+      expect((firstTarget as HTMLElement).isConnected).toBe(false);
     });
 
     it("handles .clear() throwing without crashing", () => {
@@ -191,19 +194,19 @@ describe("reCAPTCHA container lifecycle", () => {
   });
 
   describe("resetRecaptcha", () => {
-    it("replaces the recaptcha-container DOM element", () => {
-      createContainer();
+    it("releases the SDK target while keeping the React-owned host", () => {
+      const host = createContainer();
 
       // Set up verifier state first
       getRecaptchaVerifier("recaptcha-container");
-      const afterVerifier = document.getElementById("recaptcha-container");
+      const sdkTarget = host.firstElementChild;
 
-      // Reset should produce yet another fresh element
       resetRecaptcha();
       const afterReset = document.getElementById("recaptcha-container");
 
-      expect(afterReset).not.toBe(afterVerifier);
-      expect(afterReset!.id).toBe("recaptcha-container");
+      expect(afterReset).toBe(host);
+      expect(host.childElementCount).toBe(0);
+      expect(sdkTarget?.isConnected).toBe(false);
     });
 
     it("preserves CSS classes during reset", () => {

@@ -1,24 +1,192 @@
 "use client";
 
-import { useDeferredValue, useMemo, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
+import type {
+  AgentStructuredExperience,
+  AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
+import {
+  driveBatchProgressPercent,
+  type DriveBatchProgress,
+  type DriveCompilationUiState,
+} from "@/lib/agent/drive-batch-progress";
+import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
+import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
+import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
+import { Activity, AccountProfileIcon, ConnectedSystemsAgentIcon, ConsentAgentIcon, FinanceAgentIcon, Globe, LocationAgentIcon, MemoryAgentIcon, WalletAgentIcon } from "@/components/icons";
 
-export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
+const ACTIVITY_ICONS = {
+  action: Activity,
+  connectors: ConnectedSystemsAgentIcon,
+  memory: MemoryAgentIcon,
+  consent: ConsentAgentIcon,
+  finance: FinanceAgentIcon,
+  wallet: WalletAgentIcon,
+  location: LocationAgentIcon,
+  profile: AccountProfileIcon,
+  web: Globe,
+} as const;
+export type AgentActivityIcon = keyof typeof ACTIVITY_ICONS;
+
+// Presentation only: exact app-owned identities, never a label, URL or a
+// provider-authored description. This table grants no action authority.
+const TOOL_ACTIVITY_ICONS: Readonly<Record<string, AgentActivityIcon>> = {
+  inspect_private_connectors: "connectors",
+  probe_private_connector: "connectors",
+  discover_workspace_tools: "connectors",
+  read_workspace_tool: "connectors",
+  ask_connected_systems_agent: "connectors",
+  ask_memory_agent: "memory",
+  read_my_pkm_domain_summary: "memory",
+  add_to_pkm: "memory",
+  ask_consent_agent: "consent",
+  discover_person_information: "consent",
+  propose_information_request: "consent",
+  propose_document_request: "consent",
+  list_active_grants: "consent",
+  list_pending_information_requests: "consent",
+  list_my_outgoing_information_requests: "consent",
+  list_information_shared_with_me: "consent",
+  finance: "finance",
+  wallet: "wallet",
+  ask_location_agent: "location",
+  get_my_location: "location",
+  list_my_location_circles: "location",
+  get_location_circle_members: "location",
+  list_my_location_shares: "location",
+  list_location_shared_with_me: "location",
+  list_pending_location_requests: "location",
+  list_my_outgoing_location_requests: "location",
+  read_my_profile_status: "profile",
+  list_my_connections: "profile",
+  list_pending_connection_requests: "profile",
+  google_search: "web",
+};
+
+export function agentActivityIconForTool(toolName: unknown): AgentActivityIcon {
+  if (typeof toolName !== "string") return "action";
+  if (/^mcp_[0-9a-f]{40}$/.test(toolName)) return "connectors";
+  return Object.hasOwn(TOOL_ACTIVITY_ICONS, toolName) ? TOOL_ACTIVITY_ICONS[toolName]! : "action";
+}
+
+/** Shared by the Activity row and the current-action header. */
+export function AgentActivityMark({ brand, icon = "action" }: {
+  brand?: ConnectorBrand | null; icon?: AgentActivityIcon;
+}) {
+  if (brand) return <ConnectorBrandMark brand={brand} size="sm" />;
+  const Icon = ACTIVITY_ICONS[icon];
+  return <Icon aria-hidden="true" data-agent-activity-icon={icon} className="size-3.5 shrink-0" />;
+}
+
+export type AgentVisibleStreamStatus = "running" | "waiting" | "done" | "blocked" | "error";
 
 export type AgentVisibleStreamEvent = {
   id: string;
   label: string;
   message: string;
   status: AgentVisibleStreamStatus;
+  /** App-authored, e.g. "Read" or "Needs review". Never provider text. */
+  tag?: string;
+  /** First-party product whose official mark labels this step. */
+  brand?: ConnectorBrand;
+  icon?: AgentActivityIcon;
+  /** Opaque owner connector id on a restored step, resolved to the owner's name from the vault. */
+  connectorId?: string;
   createdAtMs: number;
+  durationMs?: number;
+  batchProgress?: DriveBatchProgress;
+  /** A readiness check that runs on most turns; see isInformativeActivityEvent. */
+  routine?: true;
 };
+
+/** Only app-owned tool identities map to a product mark; provider text never does. */
+export function connectorBrandForTool(toolName: unknown, provider?: unknown): ConnectorBrand | null {
+  if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") {
+    return connectorBrandFor(provider);
+  }
+  if (typeof toolName !== "string") return null;
+  if (GMAIL_TOOLS.has(toolName)) return "gmail";
+  if (DRIVE_TOOLS.has(toolName)) return "drive";
+  if (CALENDAR_TOOLS.has(toolName)) return "calendar";
+  return null;
+}
+
+const GMAIL_TOOLS: ReadonlySet<string> = new Set([
+  "ask_email_agent",
+  "open_gmail_email_draft",
+  "open_gmail_information_request_reply",
+  "propose_gmail_mailbox_change",
+  "propose_gmail_todo",
+]);
+const DRIVE_TOOLS: ReadonlySet<string> = new Set([
+  "ask_documents_agent",
+  "inspect_selected_drive_files",
+  "read_selected_drive_search_result",
+  "propose_drive_share",
+  "propose_drive_bulk_share",
+  "propose_drive_file_share",
+  "propose_drive_file_trash",
+  "create_drive_file",
+  "copy_drive_file",
+  "move_drive_file",
+  "comment_on_drive_file",
+]);
+const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
+  "calendar_summary",
+  "calendar_events",
+  "calendar_calendars",
+  "calendar_event_detail",
+  "calendar_availability",
+  "calendar_free_slots",
+  "propose_calendar_event",
+  "propose_calendar_reschedule",
+  "propose_calendar_cancellation",
+]);
+
+export const PRIVATE_MEMORY_PREPARATION_EVENT_ID = "private-memory-preparation";
+
+/**
+ * Readiness checks that run on nearly every turn. A row saying "Connector access
+ * checked." on every answer tells the person nothing, so these tools are routine.
+ */
+const ROUTINE_READINESS_TOOLS: ReadonlySet<string> = new Set([
+  "discover_workspace_tools",
+  "get_current_time",
+  "report_no_app_action",
+  "resolve_onboarding_goal",
+]);
+
+export function isRoutineReadinessTool(toolName: unknown): boolean {
+  return typeof toolName === "string" && ROUTINE_READINESS_TOOLS.has(toolName);
+}
+
+/** A routine step this slow is worth explaining, so it renders like any other. */
+export const ROUTINE_STEP_SLOW_MS = 3_000;
+
+/**
+ * Activity shows only steps that carry information for the person: tool and
+ * connector calls, reviews, anything that failed, blocked or waits on them, and
+ * anything unusually slow. A routine readiness check (private memory ready,
+ * connector access checked) that succeeded quickly does not render. Live and
+ * restored turns both pass through this one rule.
+ */
+export function isInformativeActivityEvent(
+  event: AgentVisibleStreamEvent,
+  nowMs: number,
+): boolean {
+  const routine = event.routine === true || event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID;
+  if (!routine) return true;
+  if (event.status === "running") return nowMs - event.createdAtMs >= ROUTINE_STEP_SLOW_MS;
+  if (event.status !== "done") return true;
+  return typeof event.durationMs === "number" && event.durationMs >= ROUTINE_STEP_SLOW_MS;
+}
 
 export type AgentTurnStreamPanelProps = {
   streamEvents: AgentVisibleStreamEvent[];
@@ -28,19 +196,28 @@ export type AgentTurnStreamPanelProps = {
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
-  thinkingText?: string;
   sources?: AgentSource[];
+  structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: Array<{
+    id: string;
+    experience: AgentStructuredExperienceWithPresentation;
+  }>;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
+  onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
+  onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
+  onDownloadDriveNotes?: () => void;
+  driveCompilation?: DriveCompilationUiState;
 };
 
-const MAX_VISIBLE_THINKING_CHARACTERS = 4_000;
 const MAX_VISIBLE_SOURCES = 8;
 
 const SOURCE_SUMMARIES: Record<string, { badge: string; message: string }> = {
-  agent_email: { badge: "Specialist", message: "Email assistant consulted." },
+  agent_email: { badge: "Specialist", message: "Mail assistant consulted." },
   agent_location: { badge: "Specialist", message: "Location assistant consulted." },
   agent_connected_systems: { badge: "Specialist", message: "Connections assistant consulted." },
   agent_connections: { badge: "Specialist", message: "Connections assistant consulted." },
   agent_nav: { badge: "Specialist", message: "Consent assistant consulted." },
+  agent_personal_information: { badge: "Specialist", message: "Memory assistant consulted." },
   agent_kai: { badge: "Specialist", message: "Finance specialist consulted." },
   web: { badge: "Web", message: "Public web research consulted." },
 };
@@ -54,9 +231,20 @@ function normalizeToolLabel(toolEvent: AgentChatToolEvent): string {
   return cleanVisibleText(toolEvent.label, "Action");
 }
 
-function truncateVisibleText(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+/**
+ * A parked browser directive is a continuation of the server tool call that
+ * produced it. The transport gives that continuation a synthetic call id, but
+ * also carries the originating directive id. Use the origin as the visible
+ * activity identity so one invocation evolves from start → waiting → result
+ * instead of rendering a second progress row.
+ */
+function visibleToolEventId(toolEvent: AgentChatToolEvent, nowMs: number): string {
+  const originId = cleanVisibleText(toolEvent.directiveId, "");
+  if (originId) return originId;
+  return cleanVisibleText(
+    toolEvent.callId,
+    `${normalizeToolLabel(toolEvent)}-${nowMs}`,
+  );
 }
 
 function normalizeSpecialistSources(sources: AgentSource[]): AppStreamProgressItem[] {
@@ -94,9 +282,11 @@ export function agentToolEventToVisibleStreamEvent(
   const status: AgentVisibleStreamStatus =
     toolEvent.execution === "blocked" || toolEvent.status === "blocked"
       ? "blocked"
-      : phase === "result"
-        ? "done"
-        : "running";
+      : toolEvent.status === "waiting"
+        ? "waiting"
+        : phase === "result"
+          ? "done"
+          : "running";
   const fallback =
     phase === "start"
       ? "Preparing the next step."
@@ -105,13 +295,99 @@ export function agentToolEventToVisibleStreamEvent(
         : status === "blocked"
           ? "That step needs attention."
           : "Step complete.";
+  const brand = connectorBrandForTool(
+    toolEvent.raw?.toolName,
+    toolEvent.raw?.provider ?? toolEvent.slots?.provider,
+  );
   return {
-    id: toolEvent.callId || `${normalizeToolLabel(toolEvent)}-${phase}-${nowMs}`,
+    id: visibleToolEventId(toolEvent, nowMs),
     label: normalizeToolLabel(toolEvent),
     message: cleanVisibleText(toolEvent.message, fallback),
     status,
+    ...(toolEvent.tag ? { tag: toolEvent.tag } : {}),
+    ...(brand ? { brand } : {}),
+    icon: agentActivityIconForTool(toolEvent.raw?.toolName),
+    ...(isRoutineReadinessTool(toolEvent.raw?.toolName) ? { routine: true as const } : {}),
     createdAtMs: nowMs,
   };
+}
+
+function unreadableNote(count: number): string {
+  return count > 0
+    ? ` ${count} ${count === 1 ? "file" : "files"} could not be read or processed.`
+    : "";
+}
+
+export function driveBatchProgressToVisibleStreamEvent(
+  progress: DriveBatchProgress,
+  eventId?: string,
+  nowMs = Date.now(),
+): AgentVisibleStreamEvent {
+  const message = (() => {
+    switch (progress.phase) {
+      case "searching":
+        return "Finding matching Drive files.";
+      case "fetching":
+        return progress.total === 0
+          ? "Reading matching Drive files."
+          : `Checked ${progress.completed} of ${progress.total} files.${unreadableNote(progress.failed)}`;
+      case "summarizing":
+        return `Summarized ${progress.completed} of ${progress.total} readable files.${unreadableNote(progress.failed)}`;
+      case "finalizing":
+        return "Putting the checked notes into a Markdown file.";
+      case "complete":
+        return `Document batch complete.${unreadableNote(progress.failed)}`;
+      case "partial":
+        return `Document batch finished with some files unavailable.${unreadableNote(progress.failed)}`;
+      case "error":
+        return `Document batch stopped before completion.${unreadableNote(progress.failed)}`;
+    }
+  })();
+  return {
+    id: `drive-batch-progress:${eventId || "current"}`,
+    label: "Google Drive",
+    message,
+    status: progress.phase === "error"
+      ? "error"
+      : progress.phase === "partial"
+        ? "blocked"
+        : progress.phase === "complete"
+          ? "done"
+          : "running",
+    createdAtMs: nowMs,
+    batchProgress: progress,
+  };
+}
+
+/** Cards One introduces with a sentence: text first, then the card. */
+export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
+  "one.scope_discovery.v1",
+  "one.information_request_review.v1",
+  // One's one-line reply reads first, then the secure card it points to (C6).
+  "one.shared_with_me_card.v1",
+]);
+
+/**
+ * One secure card per person in a turn. One may both list and show what a
+ * person shared; the reader sees that person's card once, where it last
+ * arrived.
+ */
+export function onePerPersonSharedCard<T extends { id: string; experience: AgentStructuredExperience }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.experience.type !== "one.shared_with_me_card.v1") {
+      kept.unshift(item);
+      continue;
+    }
+    const cards = item.experience.cards.filter((card) => !seen.has(card.person.personRef));
+    cards.forEach((card) => seen.add(card.person.personRef));
+    if (!cards.length) continue;
+    kept.unshift(cards.length === item.experience.cards.length
+      ? item : { ...item, experience: { ...item.experience, cards } });
+  }
+  return kept;
 }
 
 export function AgentTurnStreamPanel({
@@ -122,48 +398,134 @@ export function AgentTurnStreamPanel({
   opportunities,
   response,
   className,
-  thinkingText,
   sources = [],
+  structuredExperience = null,
+  structuredExperiences = [],
+  onOpenConnections,
+  onInformationRequestSubmitted,
+  onCompileDriveNotes,
+  onDownloadDriveNotes,
+  driveCompilation,
 }: AgentTurnStreamPanelProps) {
-  // Provider thought summaries can arrive in many tiny SSE frames. Deferring
-  // their markdown formatting keeps answer-token rendering responsive.
-  const deferredThinkingText = useDeferredValue(thinkingText ?? "");
+  const turnStartedAt = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [timingPhase, setTimingPhase] = useState<"idle" | "running" | "done">("idle");
+  // Wall clock for routine steps: one that is still running shows once it is slow.
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (isStreaming && timingPhase !== "running") {
+      turnStartedAt.current = performance.now();
+      setElapsedMs(0);
+      setTimingPhase("running");
+    } else if (!isStreaming && timingPhase === "running") {
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+      setTimingPhase("done");
+    }
+    if (!isStreaming) return;
+    const timer = window.setInterval(() => {
+      setClockMs(Date.now());
+      if (turnStartedAt.current !== null)
+        setElapsedMs(Math.max(0, performance.now() - turnStartedAt.current));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isStreaming, timingPhase]);
+  const visibleEvents = useMemo(
+    () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
+    [streamEvents, clockMs],
+  );
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
-      streamEvents.map((event) => ({
+      visibleEvents.map((event) => ({
         id: event.id,
         label: event.label,
         message: event.message,
         status: event.status,
+        tag: event.tag,
+        mark: <AgentActivityMark brand={event.brand} icon={event.icon ?? (event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID ? "memory" : "action")} />,
+        durationMs: event.durationMs,
       })),
-    [streamEvents]
-  );
-  const visibleThinkingText = useMemo(
-    () => truncateVisibleText(deferredThinkingText.trim(), MAX_VISIBLE_THINKING_CHARACTERS),
-    [deferredThinkingText]
+    [visibleEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
-  const thinkingContent = visibleThinkingText ? (
-    <div
-      className="max-h-28 overflow-y-auto overscroll-contain pr-1 text-sm leading-6 text-muted-foreground"
-      aria-label="Working notes"
-    >
-      <div className="prose prose-sm max-w-none break-words text-muted-foreground prose-p:my-1.5 prose-headings:my-2 prose-headings:text-foreground prose-strong:text-foreground prose-li:my-0.5 dark:prose-invert">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleThinkingText}</ReactMarkdown>
-      </div>
-    </div>
-  ) : undefined;
+  const currentBatchProgress = [...streamEvents].reverse().find((event) =>
+    event.status === "running" && event.batchProgress,
+  )?.batchProgress;
+  // The owner starts a compilation from a completed chat turn. Keep its meter
+  // active while the separate authenticated Drive stream is running.
+  const batchIsStreaming = isStreaming || driveCompilation?.status === "running";
+  // Only a visible (slow) preparation row replaces the generic pending line.
+  const preparingPrivateMemory = visibleEvents.some(
+    (event) =>
+      event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID &&
+      event.status === "running",
+  );
+  const experienceItems = useMemo(
+    () =>
+      onePerPersonSharedCard(structuredExperiences.length > 0
+        ? structuredExperiences
+        : structuredExperience
+          ? [{ id: "legacy-structured-experience", experience: structuredExperience }]
+          : []),
+    [structuredExperience, structuredExperiences],
+  );
+
+  // One's lead-in ("I'll ask Kushal. Here's what I'd request:") reads before
+  // the ask card it introduces, the way a person talks.
+  const leadsIntoConsentCard = experienceItems.some(({ experience }) =>
+    CONSENT_ASK_EXPERIENCE_TYPES.has(experience.type));
 
   return (
     <AppStreamPanel
-      title="Agent response stream"
-      progressItems={progressItems}
-      thinkingContent={thinkingContent}
-      evidenceItems={specialistItems}
-      evidenceTitle="Sources consulted"
+      title="One activity"
+      structuredContentPlacement={leadsIntoConsentCard ? "after" : "before"}
+      progressItems={[...progressItems, ...specialistItems]}
+      progressValue={batchIsStreaming && currentBatchProgress
+        ? driveBatchProgressPercent(currentBatchProgress)
+        : null}
+      progressIndeterminate={Boolean(
+        batchIsStreaming && currentBatchProgress &&
+        (currentBatchProgress.phase === "searching" ||
+          (currentBatchProgress.phase === "fetching" && currentBatchProgress.total === 0) ||
+          currentBatchProgress.phase === "summarizing" ||
+          currentBatchProgress.phase === "finalizing"),
+      )}
+      // A running turn shows its elapsed time. A finished turn shows none:
+      // its timing is never stored, so a reopened chat could not repeat it,
+      // and a completed answer must look the same live and restored.
+      statusMessage={isStreaming && timingPhase === "running" && elapsedMs !== null
+        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+        : undefined}
       responseText={responseText}
       response={response}
-      responsePendingLabel="One is preparing your response."
+      structuredContent={
+        experienceItems.length > 0 ? (
+          <div className="space-y-3">
+            {experienceItems.map(({ id, experience }) => {
+              const scopedCompilation = experience.type === "one.connector_read.v1" &&
+                experience.connector === "drive" && experience.ownerCompileQuery &&
+                experience.ownerCompileWindow && driveCompilation?.sourceKey ===
+                  driveOwnerCompileKey(experience.ownerCompileQuery, experience.ownerCompileWindow)
+                ? driveCompilation : undefined;
+              return <AgentStructuredExperienceView
+                key={id}
+                experience={experience}
+                onOpenConnections={onOpenConnections}
+                onInformationRequestSubmitted={onInformationRequestSubmitted
+                  ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}
+                onCompileDriveNotes={onCompileDriveNotes}
+                onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
+                driveCompilation={scopedCompilation}
+              />;
+            })}
+          </div>
+        ) : null
+      }
+      responsePendingLabel={
+        preparingPrivateMemory || currentBatchProgress
+          ? undefined
+          : "One is preparing your response."
+      }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}

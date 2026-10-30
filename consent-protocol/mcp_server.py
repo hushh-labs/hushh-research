@@ -186,8 +186,13 @@ async def call_tool(name: str, arguments: dict):
     start_time = time.perf_counter()
     logger.info("Tool called: %s", name)
 
-    canonical_name = canonical_tool_name(name)
-    handler = HANDLERS.get(canonical_name or "")
+    # canonical_tool_name() only resolves the 5 published core_consent names
+    # (hyphen<->underscore aliasing for the v0.3/v0.4 migration). Every other
+    # already-canonical internal name (kai_*, list_ria_*, get_ria_*, and the
+    # names this router adds below) must route as itself, or it 404s here
+    # before is_tool_allowed() is ever reached.
+    canonical_name = canonical_tool_name(name) or name
+    handler = HANDLERS.get(canonical_name)
     if not handler:
         logger.warning(f"❌ Unknown tool requested: {name}")
         return _mcp_error(

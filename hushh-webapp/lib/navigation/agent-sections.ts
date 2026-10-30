@@ -1,4 +1,4 @@
-import { LayoutDashboard } from "lucide-react";
+import { Laptop, LayoutDashboard } from "@/components/icons";
 
 import {
   ONE_CAPABILITIES,
@@ -59,8 +59,8 @@ const AGENT_SECTION_OVERRIDES: Record<
   email: {
     routeFamily: "one",
     bottomNavScope: "one",
-    screenId: "one_kyc",
-    voiceRouteActionId: "route.one_kyc",
+    screenId: "gmail",
+    voiceRouteActionId: "route.profile_receipts",
   },
   location: {
     routeFamily: "one",
@@ -84,6 +84,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     routeFamily: "one",
     bottomNavScope: "one",
     screenId: "one_marketplace",
+  },
+  files: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "one_files",
   },
   "connected-systems": {
     routeFamily: "one",
@@ -112,7 +117,7 @@ const AGENTS_ROOT_SECTION: AgentSection = {
 // app/ria/page.tsx, so exposing the entry here is safe.
 const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
-  label: "RIA",
+  label: "Advisor",
   href: ROUTES.RIA_PROFILE,
   icon: getOneCapability("ria")?.icon ?? lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "ria",
@@ -121,6 +126,24 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
   controlId: "top_agent_section_ria",
   tone: "ria",
   voiceRouteActionId: "route.ria_home",
+};
+
+// Puppy One is the agent running on the owner's own machine. It is authored
+// here rather than in ONE_CAPABILITIES because it has no consent-protocol
+// agent lane: there is no backend specialist to route to, only a local runtime
+// reached over loopback. It earns its own section rather than a mode of the
+// One chat because it is a different agent, with a different model and a
+// different memory, doing its work on hardware the owner owns.
+const PUPPY_WORKSPACE_SECTION: AgentSection = {
+  id: "puppy",
+  label: "Puppy One",
+  href: ROUTES.ONE_PUPPY,
+  icon: lucideCapabilityIcon(Laptop),
+  routeFamily: "one",
+  bottomNavScope: "one",
+  screenId: "one_puppy",
+  controlId: "top_agent_section_puppy",
+  voiceRouteActionId: "route.one_puppy",
 };
 
 // Finance onboarding is still a Finance surface even though its route lives
@@ -201,6 +224,7 @@ export function getAgentSections(): readonly AgentSection[] {
   } else {
     sections.push(RIA_WORKSPACE_SECTION);
   }
+  sections.push(PUPPY_WORKSPACE_SECTION);
   // One is the relationship-level app and the first destination in the
   // selector. Specialist apps follow it; the durable internal id stays
   // `agents` for generated voice/action compatibility.

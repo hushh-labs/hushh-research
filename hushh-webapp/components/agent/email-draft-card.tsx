@@ -1,0 +1,920 @@
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
+import { FilePenLine, Loader2, Mail, Send, X } from "@/components/icons";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  EmailRichTextComposer,
+  normalizeRichEmailText,
+  richEmailHtmlFromMarkdown,
+  verbatimEmailHtmlFromText,
+} from "@/components/agent/email-rich-text";
+import {
+  EmailDeliveryError,
+  EmailDeliveryService,
+  type EmailDraft,
+  type PreparedEmailSend,
+} from "@/lib/services/email-delivery-service";
+import {
+  ConnectionsService,
+  type ConnectionSummaryEntry,
+} from "@/lib/services/connections-service";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import type { GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
+import { deliveryFailure, recipientProblem } from "@/components/agent/email-draft-delivery";
+import { EmailDraftGmailNotice, useGmailSendGap, type GmailSendGap } from "@/components/agent/email-draft-gmail-readiness";
+
+export type SourceBoundEmailReplyAdapter = {
+  /** Keeps reply routing server-derived from the source message/thread. */
+  send: (input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    draft: EmailDraft;
+    idempotencyKey: string;
+    /** Call right before the send request; see `reportsSendStart`. */
+    onSendRequestStarted?: () => void;
+    /** Report the send action the adapter prepared, for this attempt only. */
+    onPrepared?: (actionId: string) => void;
+  }) => Promise<{ outcomeUnknown: boolean }>;
+  /**
+   * The adapter calls `onSendRequestStarted` immediately before its send
+   * request, so a failure while preparing reads as "not sent" and can be
+   * reviewed again. Without it, any failure after the tap is treated as a send
+   * that may have happened.
+   */
+  reportsSendStart?: boolean;
+};
+
+export type GmailDraftSaveState = "idle" | "saving" | "saved" | "outcome_unknown";
+
+type EmailDraftCardProps = {
+  initialInstruction: string;
+  initialDraft?: EmailDraft | null;
+  /** Preserve a person's dictated first-party body exactly until they edit it. */
+  verbatimInitialBody?: boolean;
+  /** The person explicitly asked One to draft from a Gmail entry point. */
+  autoDraft?: boolean;
+  getAuth: () => Promise<{
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+  } | null>;
+  onRequireVault: () => void;
+  onDismiss: () => void;
+  /** Moves the reviewed draft into live, collapsible chat history immediately. */
+  onSendStarted?: (draft: EmailDraft) => string | null | undefined;
+  onSent: (attemptId?: string | null) => void;
+  onSendFailed?: (error: EmailDeliveryError, attemptId?: string | null) => void;
+  /** Reuses this editor while keeping recipient and thread server-derived. */
+  sourceBoundReply?: SourceBoundEmailReplyAdapter | null;
+  /** Owner-visible, server-derived envelope for a source-bound reply. */
+  sourceBoundEnvelope?: { to: string; subject: string } | null;
+  /**
+   * Reports the draft as it is on screen, including the person's own edits,
+   * so a follow-up chat turn can revise it. Observing only; never sends.
+   */
+  onDraftChange?: (draft: EmailDraft) => void;
+  /** Observes actual generation; an open editor or saved draft is idle. */
+  onDraftingChange?: (drafting: boolean) => void;
+  /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
+  onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
+  /**
+   * The send action a Send prepared, reported before the send request with the
+   * attempt it belongs to: by the card for a compose, by the adapter for a
+   * source-bound reply.
+   */
+  onDeliveryPrepared?: (actionId: string, attemptId: string | null) => void;
+  /** Keep the owning response from retiring an in-flight or uncertain write. */
+  onSaveStateChange?: (state: GmailDraftSaveState, attemptId: string) => void;
+  /** Voice and tap share this already reviewed service action. */
+  reviewedSend?: {
+    actionId: string; expiresAt: string; senderToken: string; senderLabel: string;
+    draftRef: string; revision: number;
+  } | null;
+  sendUnavailable?: boolean;
+  /** Explicit local edit; called synchronously before old Send can be used. */
+  onDraftEdit?: (draft: EmailDraft) => void;
+  canSendReviewed?: () => boolean;
+  /** The server's draft-time Gmail send readiness; the live connector status refines it. */
+  gmailSend?: GmailSendReadiness | null;
+  /** Starts the in-place Gmail send connect from the click; turns on the readiness notice. */
+  onEnableGmailSend?: () => void;
+  /** True while that connect's Google window is open. */
+  enablingGmailSend?: boolean;
+};
+
+const EMPTY_DRAFT: EmailDraft = {
+  to: "",
+  cc: "",
+  bcc: "",
+  subject: "",
+  body: "",
+};
+
+function newIdempotencyKey(): string {
+  return typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function EmailDraftCard(props: EmailDraftCardProps) {
+  // Reading Gmail status needs the signed-in owner, so only hosts that can connect opt in.
+  return props.onEnableGmailSend
+    ? <GmailAwareEmailDraftCard {...props} />
+    : <EmailDraftCardView {...props} gmailGap={null} />;
+}
+
+function GmailAwareEmailDraftCard(props: EmailDraftCardProps) {
+  const gmailGap = useGmailSendGap(props.gmailSend ?? null, props.enablingGmailSend === true);
+  return <EmailDraftCardView {...props} gmailGap={gmailGap} />;
+}
+
+function EmailDraftCardView({
+  initialInstruction,
+  initialDraft = null,
+  verbatimInitialBody = false,
+  autoDraft = false,
+  getAuth,
+  onRequireVault,
+  onDismiss,
+  onSendStarted,
+  onSent,
+  onSendFailed,
+  sourceBoundReply = null,
+  sourceBoundEnvelope = null,
+  onDraftChange,
+  onDraftingChange,
+  onOpenConnections,
+  onDeliveryPrepared,
+  onSaveStateChange,
+  reviewedSend = null,
+  sendUnavailable = false,
+  onDraftEdit,
+  canSendReviewed,
+  onEnableGmailSend,
+  enablingGmailSend = false,
+  gmailGap,
+}: EmailDraftCardProps & { gmailGap: GmailSendGap | null }) {
+  const idPrefix = useId();
+  const [draft, setDraft] = useState<EmailDraft>(() => {
+    const sourceBody = initialDraft?.body ?? (autoDraft ? "" : initialInstruction);
+    const body = verbatimInitialBody && initialDraft
+      ? sourceBody
+      : normalizeRichEmailText(sourceBody);
+    return {
+      ...EMPTY_DRAFT,
+      ...(initialDraft ?? {}),
+      body,
+      htmlBody: verbatimInitialBody && initialDraft
+        ? verbatimEmailHtmlFromText(body)
+        : richEmailHtmlFromMarkdown(body),
+    };
+  });
+  const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
+  const currentDraftRef = useRef(draft);
+  const editedFieldsRef = useRef(new Set<keyof EmailDraft>());
+  const [missingDetails, setMissingDetails] = useState<string[]>([]);
+  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
+  const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  useEffect(() => {
+    onDraftingChange?.(busy === "draft");
+    return () => onDraftingChange?.(false);
+  }, [busy, onDraftingChange]);
+  const [savedToGmail, setSavedToGmail] = useState(false);
+  const saveStartedRef = useRef(false);
+  const [error, setError] = useState<EmailDeliveryError | null>(null);
+  const [attachmentReview, setAttachmentReview] = useState<{
+    draft: EmailDraft;
+    prepared: PreparedEmailSend;
+  } | null>(null);
+  const attachmentIdempotencyKeyRef = useRef<string | null>(null);
+  const autoDraftStartedRef = useRef(false);
+  const sendStartedRef = useRef(false);
+  const reviewChangedRef = useRef(false);
+
+  useEffect(() => {
+    currentDraftRef.current = draft;
+    onDraftChange?.(draft);
+  }, [draft, onDraftChange]);
+
+  // A source-bound reply's recipient is locked, so its picker never renders:
+  // reading the person's connections for it would be a read with no use.
+  const recipientEditable = !sourceBoundReply;
+  useEffect(() => {
+    if (!recipientEditable) return;
+    let active = true;
+    void (async () => {
+      try {
+        const auth = await getAuth();
+        if (!auth?.firebaseIdToken) return;
+        const list = await ConnectionsService.listConnections({ idToken: auth.firebaseIdToken });
+        if (active) setConnections(list);
+      } catch {
+        // Degrade silently if connections fetch fails
+      }
+    })();
+    return () => { active = false; };
+  }, [getAuth, recipientEditable]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(event.target as Node)) {
+        setActiveDropdownField(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const updateDraft = (field: keyof EmailDraft, value: string) => {
+    const isBody = field === "body";
+    const isHtml = isBody && value.trim().startsWith("<") && value.includes(">");
+    const next = {
+      ...draft,
+      [field]: isBody ? (isHtml ? value : normalizeRichEmailText(value)) : value,
+      ...(isBody
+        ? { htmlBody: isHtml ? value : richEmailHtmlFromMarkdown(normalizeRichEmailText(value)) }
+        : {}),
+    };
+    reviewChangedRef.current = true;
+    editedFieldsRef.current.add(field);
+    currentDraftRef.current = next;
+    onDraftEdit?.(next);
+    setDraft(next);
+    setMissingDetails([]);
+    // Keep the failed-drafting retry reachable while the body is still empty.
+    if (!autoDraft || next.body.trim()) setError(null);
+    setAttachmentReview(null);
+    attachmentIdempotencyKeyRef.current = null;
+    saveStartedRef.current = false;
+    setSavedToGmail(false);
+  };
+
+  const selectConnection = (field: "to" | "cc" | "bcc", conn: ConnectionSummaryEntry) => {
+    const chosenEmail = conn.email?.trim() || "";
+    if (!chosenEmail) return;
+
+    const currentValue = (draft[field] || "").trim();
+    let nextValue = "";
+
+    if (!currentValue) {
+      nextValue = chosenEmail;
+    } else {
+      const tokens = currentValue.split(/,\s*/);
+      tokens.pop();
+      const base = tokens.filter(Boolean).join(", ");
+      nextValue = base ? `${base}, ${chosenEmail}` : chosenEmail;
+    }
+
+    updateDraft(field, nextValue);
+    setActiveDropdownField(null);
+  };
+
+  const currentFieldValue = activeDropdownField ? draft[activeDropdownField] || "" : "";
+  const lastQueryToken = currentFieldValue.split(/,\s*/).pop()?.trim().toLowerCase() || "";
+
+  const matchingConnections = connections
+    .filter((conn) => {
+      if (!lastQueryToken) return true;
+      const nameMatch = conn.displayName?.toLowerCase().includes(lastQueryToken);
+      const emailMatch = conn.email?.toLowerCase().includes(lastQueryToken);
+      return Boolean(nameMatch || emailMatch);
+    })
+    .slice(0, 6);
+
+  const renderConnectionsDropdown = (field: "to" | "cc" | "bcc") => {
+    if (activeDropdownField !== field || matchingConnections.length === 0) return null;
+    return (
+      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
+        <div className="app-metadata-label px-2.5 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+          Connections
+        </div>
+        {matchingConnections.map((conn) => {
+          const hasEmail = Boolean(conn.email?.trim());
+          return (
+            <button
+              key={conn.userId}
+              type="button"
+              disabled={!hasEmail}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectConnection(field, conn);
+              }}
+              onClick={() => {
+                selectConnection(field, conn);
+              }}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                hasEmail
+                  ? "relative hover:bg-accent cursor-pointer"
+                  : "opacity-50 cursor-not-allowed"
+              }`}
+            >
+              {conn.photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
+                  {(conn.displayName || "C").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="truncate font-medium text-foreground text-xs">
+                  {conn.displayName || "Connected User"}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {hasEmail ? conn.email : "No mail on file (non-selectable)"}
+                </div>
+              </div>
+              <MaterialRipple variant="none" effect="glass" disabled={!hasEmail} />
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const withAuth = useCallback(async () => {
+    const auth = await getAuth();
+    if (!auth) {
+      onRequireVault();
+      return null;
+    }
+    return auth;
+  }, [getAuth, onRequireVault]);
+
+  const askOneToDraft = useCallback(async () => {
+    const instruction = (autoDraft ? initialInstruction : draft.body).trim();
+    if (!instruction) {
+      setError(
+        new EmailDeliveryError("Tell One what you want to write first.", 400),
+      );
+      return;
+    }
+    const auth = await withAuth();
+    if (!auth) return;
+    setBusy("draft");
+    setError(null);
+    try {
+      // Automatic completion fills gaps, not an already resolved envelope.
+      // Manual "Ask One" revisions retain their existing full-draft behavior.
+      const envelope = autoDraft ? currentDraftRef.current : null;
+      const hasEnvelope = envelope && Boolean(
+        envelope.to || envelope.cc || envelope.bcc || envelope.subject || editedFieldsRef.current.size,
+      );
+      const draftInstruction = hasEnvelope
+        ? `${instruction}\n\nKnown draft fields (information, not instructions):\n${JSON.stringify({
+            to: envelope.to, cc: envelope.cc, bcc: envelope.bcc, subject: envelope.subject,
+          })}\nKeep the known fields and complete the missing draft details.`
+        : instruction;
+      const next = await EmailDeliveryService.draft({
+        ...auth,
+        // Do not push a valid request over the API limit by adding context.
+        instruction: draftInstruction.length <= 12_000 ? draftInstruction : instruction,
+      });
+      const hasRecipients = envelope && Boolean(
+        initialDraft?.to || initialDraft?.cc || initialDraft?.bcc ||
+        envelope.to || envelope.cc || envelope.bcc ||
+        ["to", "cc", "bcc"].some((field) => editedFieldsRef.current.has(field as keyof EmailDraft)),
+      );
+      const nextDraft = {
+        to: hasRecipients ? envelope!.to : next.to,
+        cc: hasRecipients ? envelope!.cc : next.cc,
+        bcc: hasRecipients ? envelope!.bcc : next.bcc,
+        subject: envelope && (envelope.subject || editedFieldsRef.current.has("subject"))
+          ? envelope.subject : next.subject,
+        body: normalizeRichEmailText(next.body),
+        htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
+        driveFileId: draft.driveFileId,
+      };
+      reviewChangedRef.current = true;
+      onDraftEdit?.(nextDraft);
+      setDraft(nextDraft);
+      if (nextDraft.cc || nextDraft.bcc) {
+        setShowCcBcc(true);
+      }
+      setMissingDetails(next.missingDetails);
+    } catch (cause) {
+      setError(
+        cause instanceof EmailDeliveryError
+          ? cause
+          : new EmailDeliveryError(
+              "One could not prepare a mail draft.",
+              500,
+            ),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [autoDraft, draft.body, draft.driveFileId, initialDraft, initialInstruction, onDraftEdit, withAuth]);
+
+  useEffect(() => {
+    if (!autoDraft || autoDraftStartedRef.current) return;
+    autoDraftStartedRef.current = true;
+    void askOneToDraft();
+  }, [askOneToDraft, autoDraft]);
+
+  const prepareAttachmentReview = async () => {
+    if (busy || attachmentReview || !draft.driveFileId) return;
+    const auth = await withAuth();
+    if (!auth) return;
+    setBusy("attachment");
+    setError(null);
+    try {
+      attachmentIdempotencyKeyRef.current ??= newIdempotencyKey();
+      const reviewedDraft = { ...draft };
+      const prepared = await EmailDeliveryService.prepare({
+        ...auth,
+        draft: reviewedDraft,
+        idempotencyKey: attachmentIdempotencyKeyRef.current,
+      });
+      const file = prepared.driveAttachment;
+      if (
+        !prepared.actionId || !prepared.attachmentToken || !file?.filename ||
+        !file.mimeType || !file.sourceAccountLabel || file.size <= 0
+      ) {
+        throw new EmailDeliveryError("Drive file could not be reviewed. Try again.", 409);
+      }
+      setAttachmentReview({ draft: reviewedDraft, prepared });
+    } catch (cause) {
+      if (cause instanceof EmailDeliveryError &&
+          ["IDEMPOTENCY_PAYLOAD_MISMATCH", "EMAIL_ACTION_EXPIRED"].includes(cause.code ?? "")) {
+        attachmentIdempotencyKeyRef.current = null;
+      }
+      setError(cause instanceof EmailDeliveryError
+        ? cause
+        : new EmailDeliveryError("Drive file could not be reviewed. Try again.", 500));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const send = () => {
+    if (sendUnavailable || (reviewedSend && (reviewChangedRef.current ||
+        Date.parse(reviewedSend.expiresAt) <= Date.now()))) return;
+    // A Send that cannot work yet starts the connect instead; the draft stays open.
+    if (gmailGap && onEnableGmailSend) {
+      onEnableGmailSend();
+      return;
+    }
+    // A local address problem keeps the editor open. The server still checks at Send.
+    const recipientError = sourceBoundReply || reviewedSend ? null : recipientProblem(draft);
+    if (recipientError) {
+      setError(recipientError);
+      return;
+    }
+    if (draft.driveFileId && !sourceBoundReply && !attachmentReview) {
+      void prepareAttachmentReview();
+      return;
+    }
+    if (sendStartedRef.current) return;
+    sendStartedRef.current = true;
+    const reviewedDraft = attachmentReview?.draft ?? { ...draft };
+    // Close the editor before any token or provider request. The background
+    // work keeps a snapshot of the exact owner-reviewed fields.
+    const attemptId = onSendStarted?.(reviewedDraft) ?? null;
+
+    void (async () => {
+      let sendRequestStarted = false;
+      let preparedActionId: string | null = null;
+      let auth: Awaited<ReturnType<typeof getAuth>> = null;
+      try {
+        auth = await getAuth();
+        if (!auth) {
+          onRequireVault();
+          throw new EmailDeliveryError("Unlock your vault and try again.", 403);
+        }
+        const idempotencyKey = attachmentIdempotencyKeyRef.current ?? newIdempotencyKey();
+        const outcome = sourceBoundReply
+          ? await (async () => {
+              if (!sourceBoundReply.reportsSendStart) sendRequestStarted = true;
+              return sourceBoundReply.send({
+                ...auth,
+                draft: reviewedDraft,
+                idempotencyKey,
+                onSendRequestStarted: () => {
+                  sendRequestStarted = true;
+                },
+                onPrepared: (actionId) => {
+                  preparedActionId = actionId;
+                  onDeliveryPrepared?.(actionId, attemptId);
+                },
+              });
+            })()
+          : await (async () => {
+              const prepared = reviewedSend ?? attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
+                ...auth,
+                draft: reviewedDraft,
+                idempotencyKey,
+              });
+              if (!prepared.actionId) {
+                throw new EmailDeliveryError(
+                  "Mail could not be prepared for sending.",
+                  500,
+                );
+              }
+              preparedActionId = prepared.actionId;
+              onDeliveryPrepared?.(prepared.actionId, attemptId);
+              if (reviewedSend && canSendReviewed && !canSendReviewed()) {
+                throw new EmailDeliveryError("Review this draft again before sending.", 409, "DRAFT_CHANGED");
+              }
+              sendRequestStarted = true;
+              return EmailDeliveryService.send({
+                ...auth,
+                actionId: prepared.actionId,
+                draft: reviewedSend ? { ...reviewedDraft, htmlBody: undefined } : reviewedDraft,
+                attachmentToken: "attachmentToken" in prepared ? prepared.attachmentToken : undefined,
+                senderToken: prepared.senderToken,
+                ...(reviewedSend ? { draftRef: reviewedSend.draftRef, revision: reviewedSend.revision } : {}),
+              });
+            })();
+        if (outcome.outcomeUnknown) {
+          throw new EmailDeliveryError(
+            "We could not confirm delivery. Check Sent Mail before trying again.",
+            502,
+            "EMAIL_ACTION_OUTCOME_UNKNOWN",
+          );
+        }
+        onSent(attemptId);
+      } catch (cause) {
+        const failure = deliveryFailure(cause, sendRequestStarted);
+        if (failure.code === "EMAIL_ACTION_OUTCOME_UNKNOWN" && preparedActionId && auth) {
+          try {
+            const recorded = await EmailDeliveryService.sendStatus({
+              ...auth, actionId: preparedActionId,
+            });
+            if (recorded.state === "sent") {
+              onSent(attemptId);
+              return;
+            }
+            if (["failed", "expired", "cancelled"].includes(recorded.state)) {
+              onSendFailed?.(new EmailDeliveryError(
+                "Mail was not sent. Review the draft before trying again.",
+                409,
+                "EMAIL_ACTION_NOT_SENT",
+              ), attemptId);
+              return;
+            }
+          } catch {
+            // The status read failed or raced with the send. Preserve unknown.
+          }
+        }
+        onSendFailed?.(failure, attemptId);
+      }
+    })();
+  };
+
+  const saveToGmailDrafts = async () => {
+    if (busy || saveStartedRef.current || draft.driveFileId || sourceBoundReply) return;
+    saveStartedRef.current = true;
+    const saveAttemptId = newIdempotencyKey();
+    onSaveStateChange?.("saving", saveAttemptId);
+    setBusy("save");
+    setError(null);
+    let outcome: GmailDraftSaveState = "idle";
+    try {
+      const auth = await withAuth();
+      if (!auth) {
+        saveStartedRef.current = false;
+        return;
+      }
+      await EmailDeliveryService.saveGmailDraft({ ...auth, draft: { ...draft } });
+      outcome = "saved";
+      setSavedToGmail(true);
+    } catch (cause) {
+      const failure = cause instanceof EmailDeliveryError
+        ? cause
+        : new EmailDeliveryError(
+            "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
+          );
+      if (failure.code === "GMAIL_COMPOSE_PERMISSION_REQUIRED" || failure.status === 400) {
+        saveStartedRef.current = false;
+      } else {
+        outcome = "outcome_unknown";
+      }
+      setError(failure);
+    } finally {
+      setBusy(null);
+      onSaveStateChange?.(outcome, saveAttemptId);
+    }
+  };
+
+  const disabled = busy !== null;
+  const isDrafting = busy === "draft";
+  const needsGeneratedDraft = autoDraft && !draft.body.trim();
+  const warning = roleClasses("warning");
+
+  return (
+    <section
+      data-testid="one-email-draft-card"
+      aria-label="Mail draft"
+      ref={dropdownContainerRef}
+      className="mb-5 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-4 py-3.5 sm:px-5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Mail className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              {sourceBoundReply ? "Review reply" : "Review Mail Draft"}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {sourceBoundReply
+                ? "Goes in the original thread when you tap Send reply"
+                : "Verify recipients and content before sending"}
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-touch"
+          onClick={onDismiss}
+          className="-my-1.5 -mr-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Dismiss draft"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
+
+      {isDrafting ? (
+        <div
+          aria-busy="true"
+          className="space-y-4 p-6 sm:p-8"
+          data-testid="one-email-draft-preparing"
+        >
+          <div
+            className="flex items-center gap-3 text-sm font-medium text-primary"
+            role="status"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="sr-only">Drafting your mail. </span>
+            <span>One is preparing your mail draft...</span>
+          </div>
+          <div className="space-y-3 pt-2">
+            <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="h-3 w-8 rounded bg-muted" />
+                <div className="h-10 rounded-xl bg-muted/70" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-8 rounded bg-muted" />
+                <div className="h-10 rounded-xl bg-muted/70" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3 px-4 py-4 sm:px-5">
+          {reviewedSend ? (
+            <p className="break-words text-sm" data-testid="one-email-reviewed-sender">
+              <span className="font-medium">From </span>{reviewedSend.senderLabel}
+            </p>
+          ) : null}
+          {sourceBoundReply ? (
+            <>
+              <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+                <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
+                <Input
+                  data-testid="one-email-draft-source-bound-to"
+                  type="text"
+                  value={sourceBoundEnvelope?.to || "Recipient verified when you send"}
+                  readOnly
+                  aria-label="Verified recipient"
+                  className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+                <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Subject</span>
+                <Input
+                  data-testid="one-email-draft-source-bound-subject"
+                  type="text"
+                  value={sourceBoundEnvelope?.subject || "Reply in original thread"}
+                  readOnly
+                  aria-label="Verified subject"
+                  className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">
+            <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
+            <Input
+              id={`${idPrefix}-to`}
+              data-testid="one-email-draft-to"
+              type="text"
+              value={draft.to}
+              onFocus={() => setActiveDropdownField("to")}
+              onChange={(event) => {
+                updateDraft("to", event.target.value);
+                setActiveDropdownField("to");
+              }}
+              disabled={disabled}
+              placeholder="Select connection or type mail..."
+              aria-label="To"
+              className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
+            />
+            {!showCcBcc ? (
+              <button
+                type="button"
+                onClick={() => setShowCcBcc(true)}
+                className="ml-auto shrink-0 text-xs font-medium text-primary transition-colors hover:underline focus-visible:outline-none"
+              >
+                + CC / BCC
+              </button>
+            ) : null}
+
+            {renderConnectionsDropdown("to")}
+          </div>
+
+          {showCcBcc ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(["cc", "bcc"] as const).map((field) => (
+                <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
+                  <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">
+                    {field === "cc" ? "Cc" : "Bcc"}
+                  </span>
+                  <Input
+                    id={`${idPrefix}-${field}`}
+                    data-testid={`one-email-draft-${field}`}
+                    type="text"
+                    value={draft[field]}
+                    onFocus={() => setActiveDropdownField(field)}
+                    onChange={(event) => {
+                      updateDraft(field, event.target.value);
+                      setActiveDropdownField(field);
+                    }}
+                    disabled={disabled}
+                    placeholder="Optional connection or mail..."
+                    aria-label={field === "cc" ? "Cc" : "Bcc"}
+                    className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
+                  />
+                  {renderConnectionsDropdown(field)}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+            <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">Subject</span>
+            <Input
+              id={`${idPrefix}-subject`}
+              data-testid="one-email-draft-subject"
+              type="text"
+              value={draft.subject}
+              onChange={(event) => updateDraft("subject", event.target.value)}
+              disabled={disabled}
+              placeholder="Subject"
+              aria-label="Subject"
+              className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
+            />
+          </div>
+            </>
+          )}
+
+          <div className="pt-2">
+            <EmailRichTextComposer
+              disabled={disabled}
+              id={`${idPrefix}-message`}
+              onChange={(value) => updateDraft("body", value)}
+              showPreviewOnFirstContent={autoDraft}
+              verbatimText={verbatimInitialBody}
+              value={draft.body}
+            />
+          </div>
+
+          {missingDetails.length > 0 ? (
+            <div
+              className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium text-foreground ${warning.tile} ${warning.border}`}
+              data-testid="one-email-draft-missing-details"
+            >
+              <FilePenLine className={`h-4 w-4 shrink-0 ${warning.glyph}`} aria-hidden="true" />
+              <span>One still needs: {missingDetails.join(", ")}.</span>
+            </div>
+          ) : null}
+          {attachmentReview?.prepared.driveAttachment ? (
+            <div
+              className="rounded-xl border border-border/70 bg-muted/40 px-3.5 py-3 text-sm"
+              data-testid="one-email-attachment-review"
+            >
+              <p className="font-semibold text-foreground">Review before sending</p>
+              <p className="mt-1 text-muted-foreground">To: {attachmentReview.draft.to}</p>
+              {attachmentReview.draft.cc ? <p className="text-muted-foreground">Cc: {attachmentReview.draft.cc}</p> : null}
+              {attachmentReview.draft.bcc ? <p className="text-muted-foreground">Bcc: {attachmentReview.draft.bcc}</p> : null}
+              <p className="mt-1 text-foreground">{attachmentReview.prepared.driveAttachment.filename}</p>
+              <p className="text-muted-foreground">
+                {attachmentReview.prepared.driveAttachment.mimeType} · {Math.ceil(attachmentReview.prepared.driveAttachment.size / 1024)} KB
+                {" · "}{attachmentReview.prepared.driveAttachment.sourceAccountLabel}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">This file is attached only after you press Send email.</p>
+            </div>
+          ) : null}
+          {busy === "attachment" ? <p role="status" className="text-sm text-muted-foreground">Checking the selected Drive file…</p> : null}
+          {error ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive" role="alert">
+              <span>
+                {error.message}{" "}
+                {error.needsGmailReconnect ? (
+                  <Link className="font-medium underline" href="/one/gmail">
+                    Reconnect Mail
+                  </Link>
+                ) : null}
+                {error.needsGmailSendingEnabled ? (
+                  <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
+                ) : null}
+                {error.needsGmailConnect ? (
+                  onOpenConnections ? (
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      data-testid="one-email-draft-connect-gmail"
+                      onClick={(event) => onOpenConnections("gmail", event.currentTarget)}
+                    >
+                      Connect Gmail
+                    </button>
+                  ) : (
+                    <Link className="font-medium underline" href="/one/gmail">
+                      Connect Gmail
+                    </Link>
+                  )
+                ) : null}
+              </span>
+              {needsGeneratedDraft && !sourceBoundReply ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="compact"
+                  className="border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
+                  data-testid="one-email-draft-retry"
+                  onClick={() => void askOneToDraft()}
+                  disabled={disabled}
+                >
+                  Try drafting again
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {gmailGap && onEnableGmailSend ? (
+        <div className="px-4 pb-3.5 sm:px-5">
+          <EmailDraftGmailNotice gap={gmailGap} enabling={enablingGmailSend}
+            onConnect={onEnableGmailSend} messageId={`${idPrefix}-gmail-send`} />
+        </div>
+      ) : null}
+      <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/[0.16] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="standard"
+          className="justify-center sm:justify-start"
+          onClick={onDismiss}
+        >
+          {isDrafting ? "Close draft" : "Decline"}
+        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {!sourceBoundReply && !draft.driveFileId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="standard"
+              onClick={() => void saveToGmailDrafts()}
+              disabled={disabled || needsGeneratedDraft || saveStartedRef.current}
+              data-testid="one-email-draft-save-gmail"
+            >
+              {savedToGmail ? "Saved in Gmail Drafts" : busy === "save" ? "Saving…" : "Save to Gmail Drafts"}
+            </Button>
+          )}
+          <Button
+          type="button"
+          size="standard"
+          className="sm:min-w-32"
+          onClick={() => void send()}
+          disabled={disabled || needsGeneratedDraft || sendUnavailable || Boolean(reviewedSend && reviewChangedRef.current) ||
+            Boolean(gmailGap && enablingGmailSend)}
+          aria-describedby={gmailGap ? `${idPrefix}-gmail-send` : undefined}
+          data-testid="one-email-draft-send"
+        >
+          <Send className="h-3.5 w-3.5" />
+          {sourceBoundReply
+            ? "Send reply"
+            : draft.driveFileId && !attachmentReview
+              ? "Review attachment"
+              : draft.driveFileId
+                ? "Send email"
+                : "Send"}
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}

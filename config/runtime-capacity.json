@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "region": "us-central1",
+  "database_max_connections": 1000,
+  "admission_limit": 900,
+  "administrative_reserve": 100,
+  "environments": {
+    "dev": {
+      "capacity_scope": "plg-isolated-dev-v1",
+      "project": "hushh-pda-dev",
+      "database_instance": "plg-qualification-pg",
+      "connection_policy": {"database_max_connections": 100, "admission_limit": 80, "administrative_reserve": 10},
+      "non_database_services": ["consent-protocol", "dev-kai-redirect", "guard-api", "guard-console", "guard-dispatcher", "guard-writer", "hushh-webapp"],
+      "non_target_jobs": ["consent-protocol-genai-readiness", "files-proof-queue-recovery-20261001", "guard-observer", "marketplace-investor-replenisher", "obs-supabase-data-health"],
+      "services": {
+        "consent-protocol-plg-qual": {
+          "container": "consent-protocol",
+          "optional_existing": true,
+          "candidate_opt_in": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {}
+    },
+    "uat": {
+      "project": "hushh-pda-uat",
+      "database_instance": "hushh-uat-pg",
+      "non_database_services": ["hushh-adk-openwebui", "hushh-adk-playground", "hushh-ria-intelligence-api", "hushh-webapp"],
+      "services": {
+        "consent-protocol-plg-qual": {
+          "container": "consent-protocol",
+          "optional_existing": true,
+          "candidate_opt_in": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol": {
+          "container": "consent-protocol",
+          "workers_per_instance": 2,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 5, "workers_per_instance": 2, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 3, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol-drive-worker": {
+          "container": "drive-worker",
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol-drive-v1-worker": {
+          "container": "drive-worker",
+          "optional_existing": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {
+        "consent-protocol-genai-readiness": {"connections_per_task": 8, "concurrent_executions": 2},
+        "marketplace-investor-replenisher": {"connections_per_task": 8, "concurrent_executions": 2},
+        "obs-supabase-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-migrate": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2}
+      }
+    },
+    "production": {
+      "project": "hushh-pda",
+      "database_instance": "hushh-vault-db",
+      "connection_policy": {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30
+      },
+      "maintenance_candidates": {
+        "serving_backend_clone_v1": {
+          "service": "consent-protocol",
+          "candidate": {"max_instances": 1, "workers_per_instance": 2, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}
+        },
+        "serving_backend_clone_v3": {
+          "service": "consent-protocol",
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}
+        },
+        "serving_backend_clone_v2": {
+          "service": "consent-protocol",
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "non_database_services": ["hushh-ria-intelligence-api", "hushh-webapp", "prod-kai-redirect"],
+      "services": {
+        "consent-protocol": {
+          "container": "consent-protocol",
+          "workers_per_instance": 2,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 5, "workers_per_instance": 2, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 4, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol-drive-worker": {
+          "container": "drive-worker",
+          "optional_existing": true,
+          "workers_per_instance": 1,
+          "count_retained_revisions": true,
+          "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {
+        "consent-protocol-genai-readiness": {"connections_per_task": 8, "concurrent_executions": 2}
+      }
+    }
+  }
+}

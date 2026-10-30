@@ -1,8 +1,73 @@
 // hushh-webapp/lib/services/account-service.ts
 import { Capacitor } from "@capacitor/core";
 import { HushhAccount } from "@/lib/capacitor";
-import { apiJson } from "./api-client";
+import { ApiError, apiJson } from "./api-client";
+import { ApiService } from "./api-service";
 import { trackEvent } from "@/lib/observability/client";
+import { readAccountExportBlob } from "./account-export-blob";
+
+const MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH = 128;
+const MAX_NATIVE_ACCOUNT_ERROR_MESSAGE_LENGTH = 512;
+
+function nativeAccountDeletionApiError(error: unknown): ApiError | null {
+  if (error instanceof ApiError) return error;
+  if (!error || typeof error !== "object") return null;
+
+  try {
+    const bridgeError = error as {
+      message?: unknown;
+      code?: unknown;
+      status?: unknown;
+      data?: unknown;
+    };
+    const data =
+      bridgeError.data &&
+      typeof bridgeError.data === "object" &&
+      !Array.isArray(bridgeError.data)
+        ? (bridgeError.data as Record<string, unknown>)
+        : null;
+    const statusCandidate = data?.status ?? bridgeError.status;
+    if (
+      typeof statusCandidate !== "number" ||
+      !Number.isInteger(statusCandidate) ||
+      statusCandidate < 400 ||
+      statusCandidate > 599
+    ) {
+      return null;
+    }
+
+    const rawCode =
+      typeof bridgeError.code === "string" ? bridgeError.code.trim() : "";
+    const code =
+      rawCode.length > 0 &&
+      rawCode.length <= MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH &&
+      /^[A-Z0-9_]+$/.test(rawCode)
+        ? rawCode
+        : null;
+    const rawPayload = data?.payload;
+    const payloadRecord =
+      rawPayload &&
+      typeof rawPayload === "object" &&
+      !Array.isArray(rawPayload)
+        ? (rawPayload as Record<string, unknown>)
+        : {};
+    const payload = code
+      ? { ...payloadRecord, code }
+      : Object.keys(payloadRecord).length > 0
+        ? payloadRecord
+        : undefined;
+    const rawMessage =
+      typeof bridgeError.message === "string"
+        ? bridgeError.message.trim()
+        : "";
+    const message =
+      rawMessage.slice(0, MAX_NATIVE_ACCOUNT_ERROR_MESSAGE_LENGTH) ||
+      `Request failed: ${statusCandidate}`;
+    return new ApiError(message, statusCandidate, payload);
+  } catch {
+    return null;
+  }
+}
 
 export type AccountDeletionTarget = "investor" | "ria" | "both";
 
@@ -12,8 +77,30 @@ export interface AccountDeletionResult {
   requested_target?: AccountDeletionTarget;
   deleted_target?: AccountDeletionTarget;
   account_deleted?: boolean;
+  cleanup_pending?: boolean;
+  cleanup_operation?: {
+    id: string;
+    owner_id: string;
+    state: string;
+    credential_count: number;
+    local_erasure_confirmation_required?: boolean;
+  };
   remaining_personas?: Array<"investor" | "ria">;
   details?: Record<string, unknown>;
+  /** Only true after the old Firebase identity is removed. */
+  ready_to_start_fresh?: boolean;
+}
+
+export interface LostVaultDeleteOptions {
+  phone_available: boolean;
+  phone_hint: string | null;
+  providers: Array<"google.com" | "apple.com">;
+}
+
+export interface LostVaultDeletionReview {
+  inventory_sha256: string;
+  credential_count: number;
+  local_erasure_required: boolean;
 }
 
 export interface AccountResetResult {
@@ -35,6 +122,8 @@ export interface AccountDataExportResult {
     encrypted_pkm_manifests?: Array<Record<string, unknown>>;
     encrypted_pkm_index?: Array<Record<string, unknown>>;
     encrypted_pkm_blobs?: Array<Record<string, unknown>>;
+    encrypted_pkm_recovery_revisions?: Array<Record<string, unknown>>;
+    encrypted_pkm_recovery_segments?: Array<Record<string, unknown>>;
     verified_email_aliases?: AccountEmailAlias[];
     consent_audit?: Array<Record<string, unknown>>;
   };
@@ -77,8 +166,74 @@ export interface AccountEmailAliasVerificationConfirmResponse {
 }
 
 export class AccountServiceImpl {
+  async getLostVaultDeleteOptions(firebaseIdToken: string): Promise<LostVaultDeleteOptions> {
+    return apiJson<LostVaultDeleteOptions>("/api/account/delete-lost-vault/options", {
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+  }
+
+  async reviewLostVaultDeletion(params: {
+    firebaseIdToken: string;
+    phoneIdToken?: string;
+    continuationId?: string;
+    isCurrent?: () => boolean;
+  }): Promise<LostVaultDeletionReview> {
+    if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
+    return apiJson<LostVaultDeletionReview>("/api/account/delete-lost-vault/review", {
+      method: "POST",
+      cache: "no-store",
+      isEffectCurrent: params.isCurrent,
+      headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
+      body: JSON.stringify({
+        ...(params.phoneIdToken
+          ? { method: "phone", phone_id_token: params.phoneIdToken }
+          : { method: "provider" }),
+        ...(params.continuationId ? { continuation_id: params.continuationId } : {}),
+      }),
+    });
+  }
+
+  async deleteLostVaultAccount(params: {
+    firebaseIdToken: string;
+    phoneIdToken?: string;
+    continuationId?: string;
+    reviewedInventorySha256?: string;
+    acceptLocalErasure?: boolean;
+    isCurrent?: () => boolean;
+  }): Promise<AccountDeletionResult> {
+    if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
+    return apiJson<AccountDeletionResult>("/api/account/delete-lost-vault", {
+      method: "POST",
+      accountLifecycleOwnsAuthOutcome: true,
+      isEffectCurrent: params.isCurrent,
+      headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
+      body: JSON.stringify({
+        ...(params.phoneIdToken
+          ? { method: "phone", phone_id_token: params.phoneIdToken }
+          : { method: "provider" }),
+        ...(params.continuationId ? { continuation_id: params.continuationId } : {}),
+        ...(params.reviewedInventorySha256
+          ? { reviewed_inventory_sha256: params.reviewedInventorySha256 }
+          : {}),
+        ...(params.acceptLocalErasure === true ? { accept_local_erasure: true } : {}),
+      }),
+    });
+  }
+
+  /** Read-only comparison; neither claims a phone nor authorizes erasure. */
+  async validateLostVaultDeletionPhone(firebaseIdToken: string, phoneNumber: string): Promise<{ valid: true }> {
+    return apiJson<{ valid: true }>("/api/account/delete-lost-vault/phone", {
+      method: "POST",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    });
+  }
+
   /**
-   * Delete the user's account and all associated information.
+   * Delete the user's account and user-owned information.
+   * Required security or regulated evidence follows its separately approved
+   * retention/redaction policy.
    * Requires VAULT_OWNER token (Unlock to Delete).
    * 
    * SECURITY: Token must be passed explicitly from useVault() hook.
@@ -88,12 +243,14 @@ export class AccountServiceImpl {
    */
   async deleteAccount(
     vaultOwnerToken: string,
-    target: AccountDeletionTarget = "both"
+    target: AccountDeletionTarget = "both",
+    isCurrent?: () => boolean,
   ): Promise<AccountDeletionResult> {
     if (!vaultOwnerToken) {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
     }
     
+    if (isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
     trackEvent("account_delete_requested", {
       result: "success",
     });
@@ -103,11 +260,16 @@ export class AccountServiceImpl {
     try {
       if (Capacitor.isNativePlatform()) {
         // Native: Call Capacitor plugin directly to Python backend
-        const result = await HushhAccount.deleteAccount({
-          authToken: vaultOwnerToken,
-          target,
-        });
-        trackEvent("account_delete_completed", {
+        let result: AccountDeletionResult;
+        try {
+          result = await HushhAccount.deleteAccount({
+            authToken: vaultOwnerToken,
+            target,
+          });
+        } catch (error) {
+          throw nativeAccountDeletionApiError(error) ?? error;
+        }
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });
@@ -118,20 +280,25 @@ export class AccountServiceImpl {
           "/api/account/delete",
           {
             method: "DELETE",
+            accountLifecycleOwnsAuthOutcome: true,
+            isEffectCurrent: isCurrent,
             headers: {
               Authorization: `Bearer ${vaultOwnerToken}`,
             },
             body: JSON.stringify({ target }),
           }
         );
-        trackEvent("account_delete_completed", {
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });
         return result;
       }
     } catch (error) {
-      console.error("Account deletion failed:", error);
+      // Severity belongs to the deletion flow: most failures here are handled
+      // outcomes it explains to the person, and the dev overlay reports every
+      // console.error as an application crash.
+      console.warn("Account deletion request failed:", error);
       trackEvent("account_delete_completed", {
         result: "error",
         status_bucket: "5xx",
@@ -191,12 +358,71 @@ export class AccountServiceImpl {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
     }
 
-    return apiJson<AccountDataExportResult>("/api/account/export", {
+    // Bulk exports intentionally exceed the generic small-JSON Content-Length cap.
+    // Keep the platform-aware transport, but require a complete successful envelope.
+    const response = await ApiService.apiFetch("/api/account/export", {
       method: "GET",
+      cache: "no-store",
+      timeoutMs: 240_000,
       headers: {
         Authorization: `Bearer ${vaultOwnerToken}`,
       },
     });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new ApiError("The encrypted export could not be fetched.", response.status);
+    }
+    const reader = response.body.getReader();
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      void reader.cancel().catch(() => undefined);
+    }, 240_000);
+    try {
+      const decoder = new TextDecoder();
+      const pieces: string[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (expired) throw new Error("Export expired");
+        if (done) break;
+        pieces.push(decoder.decode(value, { stream: true }));
+      }
+      pieces.push(decoder.decode());
+      const result = JSON.parse(pieces.join("")) as AccountDataExportResult | null;
+      if (
+        !result || result.success !== true || result.requested_target !== "account" ||
+        typeof result.exported_at !== "string" || !Number.isFinite(Date.parse(result.exported_at)) ||
+        !result.data || typeof result.data !== "object" || Array.isArray(result.data)
+      ) throw new Error("Incomplete export");
+      return result;
+    } catch {
+      await reader.cancel().catch(() => undefined);
+      throw new ApiError("The encrypted export did not finish. Try again.", 502);
+    } finally {
+      clearTimeout(timer);
+      reader.releaseLock();
+    }
+  }
+
+  /** Browser bulk-download path: validate bytes without parsing recovery history. */
+  async exportBlob(vaultOwnerToken: string, options: {
+    exclude?: readonly string[]; requireCurrent?: () => void;
+  } = {}): Promise<Blob> {
+    if (!vaultOwnerToken) throw new Error("VAULT_OWNER token required - vault must be unlocked");
+    options.requireCurrent?.();
+    const response = await ApiService.apiFetch("/api/account/export", {
+      method: "GET", cache: "no-store",
+      headers: { Authorization: `Bearer ${vaultOwnerToken}` },
+    });
+    if (response.status !== 200 || !response.body) {
+      await response.body?.cancel();
+      throw new ApiError("The encrypted export could not be fetched.", response.status);
+    }
+    try { return await readAccountExportBlob(response.body, options); }
+    catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new ApiError("The encrypted export did not finish. Try again.", 502);
+    }
   }
 
   async listEmailAliases(vaultOwnerToken: string): Promise<AccountEmailAliasesResponse> {

@@ -1,17 +1,119 @@
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from hushh_mcp.branding import BRAND_NAME
+from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_circle_deleted_push,
+    send_circle_member_invite_cancelled_push,
+    send_circle_member_invite_declined_push,
+    send_circle_member_left_push,
+    send_circle_member_removed_push,
+    send_circle_renamed_push,
+    send_circle_roster_changed_push,
+    send_connection_graph_changed_push,
+    send_connection_removed_push,
+    send_connection_request_cancelled_push,
+    send_connection_request_push,
+    send_connection_request_resolved_push,
+)
+from hushh_mcp.services.requester_identity import (
+    label_from_identity_row,
+    looks_technical_label,
+    resolve_requester_label,
 )
 
 
+def test_opaque_push_can_exclude_the_raw_recipient_id_from_firebase_payload(monkeypatch):
+    """Drive sharing sends only an opaque request reference to Firebase."""
+    captured: dict = {}
+
+    monkeypatch.setattr("api.utils.firebase_admin.ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        "db.db_client.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+                data=[{"token": "opaque-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    fake_messaging = SimpleNamespace(send=MagicMock())
+    fake_firebase_admin = ModuleType("firebase_admin")
+    fake_firebase_admin.messaging = fake_messaging
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_firebase_admin)
+
+    def build_message(*_args, **kwargs):
+        captured["data"] = kwargs["data"]
+        return object()
+
+    monkeypatch.setattr("api.utils.fcm_messages.build_push_message", build_message)
+
+    sent = push_module.send_user_data_push(
+        "raw-owner-uid",
+        notification_type="document_share_request",
+        title="Document request",
+        body="Open One to review.",
+        deep_link="/one/feed",
+        notification_tag="drive-share-event:11111111-1111-4111-8111-111111111111",
+        notification_category="ONE_DOCUMENT_SHARING",
+        data={"request_id": "22222222-2222-4222-8222-222222222222"},
+        include_user_id=False,
+    )
+
+    assert sent == 1
+    assert "user_id" not in captured["data"]
+    assert "raw-owner-uid" not in str(captured["data"])
+    assert captured["data"]["request_id"] == "22222222-2222-4222-8222-222222222222"
+
+
+def test_a_native_only_push_never_reaches_a_web_token(monkeypatch):
+    """The open web app shows its own notice; a browser push beside it would duplicate it."""
+    monkeypatch.setattr("api.utils.firebase_admin.ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        "db.db_client.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+                data=[
+                    {"token": "web-token", "platform": "web"},
+                    {"token": "ios-token", "platform": "ios"},
+                ]
+            )
+        ),
+    )
+    fake_firebase_admin = ModuleType("firebase_admin")
+    fake_firebase_admin.messaging = SimpleNamespace(send=MagicMock())
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_firebase_admin)
+    tokens: list[str] = []
+    monkeypatch.setattr(
+        "api.utils.fcm_messages.build_push_message",
+        lambda *_args, **kwargs: tokens.append(kwargs["token"]) or object(),
+    )
+
+    sent = push_module.send_user_data_push(
+        "owner",
+        notification_type="one_reply",
+        title="Hussh One",
+        body="One replied",
+        deep_link="/one/feed",
+        notification_tag="one_reply:thread",
+        notification_category="ONE_CHAT",
+        platforms=frozenset({"ios", "android"}),
+    )
+
+    assert (sent, tokens) == (1, ["ios-token"])
+
+
 def test_connection_request_body_names_the_requester():
-    assert _connection_request_body("Ankit") == "Ankit wants to connect with you on hushh."
+    assert _connection_request_body("Ankit") == "Ankit wants to connect with you on Hussh."
 
 
 def test_connection_request_body_trims_whitespace_around_the_name():
     assert (
         _connection_request_body("  Ankit Sharma  ")
-        == "Ankit Sharma wants to connect with you on hushh."
+        == "Ankit Sharma wants to connect with you on Hussh."
     )
 
 
@@ -26,3 +128,967 @@ def test_connection_request_body_never_emits_none_or_undefined():
         body = _connection_request_body(value)
         assert "None" not in body
         assert "undefined" not in body
+
+
+def test_connection_request_body_spells_the_brand_correctly():
+    """Regression guard for issue #5422.
+
+    The banner said "on hushh." for the whole life of this surface. `hushh` is
+    still a legitimate *identifier* elsewhere (bundle ids, domains, headers), so
+    the assertion is on the sentence, not on the repo.
+    """
+    for value in (None, "Ankit"):
+        body = _connection_request_body(value)
+        assert BRAND_NAME in body
+        assert "hushh" not in body.lower()
+
+
+# ---------------------------------------------------------------------------
+# The FCM data payload -- the actual cause of the "Someone" toast.
+#
+# The resolved name used to reach only `body` (which the OS banner renders) and
+# never the `data` map (which the in-app toast reads), so the banner named the
+# requester while the toast beneath it said "Someone".
+# ---------------------------------------------------------------------------
+
+
+def _capture_push(monkeypatch):
+    captured: dict = {}
+
+    def _fake_send(user_id, **kwargs):
+        captured["user_id"] = user_id
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    return captured
+
+
+def test_connection_request_push_puts_the_requester_label_in_the_data_map(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["data"]["requester_label"] == "Ankit Sharma"
+    assert "requester_user_id" not in captured["data"]
+    assert captured["body"] == "Ankit Sharma wants to connect with you on Hussh."
+
+
+def test_connection_request_push_deep_links_to_the_review_sheet(monkeypatch):
+    """The Consent Center opens the review sheet only from `?requestId`."""
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
+    assert captured["data"]["request_id"] == "req-42"
+    assert captured["data"]["message_id"] == "connection-request:req-42"
+    assert captured["notification_tag"] == "connection-request:req-42"
+
+
+def test_connection_request_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured: list[dict] = []
+
+    def _fake_send(user_id, **kwargs):
+        captured.append({"user_id": user_id, **kwargs})
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    for request_id in ("req-1", "req-2", "req-1"):
+        send_connection_request_push(
+            "addressee-1",
+            "requester-1",
+            requester_display_name="Ankit",
+            connection_request_id=request_id,
+        )
+
+    assert [item["notification_tag"] for item in captured] == [
+        "connection-request:req-1",
+        "connection-request:req-2",
+        "connection-request:req-1",
+    ]
+    assert [item["data"]["message_id"] for item in captured] == [
+        "connection-request:req-1",
+        "connection-request:req-2",
+        "connection-request:req-1",
+    ]
+
+
+def test_connection_request_push_falls_back_to_the_list_without_an_id(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_push("addressee-1", "requester-1", requester_display_name="Ankit")
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+    assert captured["data"]["request_id"] == ""
+    assert captured["data"]["message_id"].startswith("connection-request:")
+    assert "requester-1" not in captured["data"]["message_id"]
+    assert captured["notification_tag"] == "connection-request"
+    assert "requester-1" not in str(captured["data"])
+    assert "requester-1" not in captured["notification_tag"]
+
+
+def test_connection_request_push_percent_encodes_the_request_id(monkeypatch):
+    """An id is opaque; it must never be able to inject another query param."""
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req 42&tab=evil",
+    )
+
+    assert captured["deep_link"] == ("/one/consent?tab=pending&requestId=req%2042%26tab%3Devil")
+
+
+def test_connection_request_push_sends_an_empty_label_when_unresolved(monkeypatch):
+    """An unresolved name must arrive empty, never as the placeholder word.
+
+    `send_user_data_push` drops empty values from the data map, so the client can
+    tell "the server could not name them" from "this field is not implemented"
+    and apply its own fallback ladder. The old code sent the literal "Someone",
+    which the client could not distinguish from a real name.
+    """
+    captured = _capture_push(monkeypatch)
+    monkeypatch.setattr(
+        "hushh_mcp.services.requester_identity.resolve_requester_label",
+        lambda *_a, **_k: "",
+    )
+
+    send_connection_request_push("addressee-1", "requester-1", connection_request_id="r1")
+
+    assert captured["data"]["requester_label"] == ""
+    assert "Someone" not in captured["data"]["requester_label"]
+    assert captured["body"] == _GENERIC_CONNECTION_REQUEST_BODY
+
+
+def test_connection_request_push_prefers_the_caller_supplied_name(monkeypatch):
+    """A name the caller already holds must not trigger a database read."""
+    captured = _capture_push(monkeypatch)
+
+    def _explode():
+        raise AssertionError("must not query when the caller already has the name")
+
+    monkeypatch.setattr("db.db_client.get_db", _explode)
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="r1",
+    )
+
+    assert captured["data"]["requester_label"] == "Ankit"
+
+
+def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """The SSE lane must survive being called off the event loop.
+
+    Both production callers are sync FastAPI handlers (`def
+    create_connection_request`, `def request_nearby_connection`), which run on a
+    threadpool worker where `asyncio.get_running_loop()` raises. The old code
+    caught that RuntimeError and did nothing, so the SSE payload -- the only one
+    that can reach a web client with no push subscription -- was silently
+    discarded on every real request.
+    """
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    # This test body itself has no running loop -- same as the worker thread.
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="John Smith",
+        connection_request_id="req-42",
+    )
+
+    assert len(scheduled) == 1, "the SSE payload was dropped instead of scheduled"
+    user_id, payload = scheduled[0]
+    assert user_id == "addressee-1"
+    assert payload["type"] == "connection_request"
+    assert payload["requester_label"] == "John Smith"
+    assert payload["request_id"] == "req-42"
+    assert payload["body"] == "John Smith wants to connect with you on Hussh."
+    assert payload["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
+
+
+def test_request_then_cancellation_has_distinct_sse_transition_ids(monkeypatch):
+    """A live SSE stream must not discard cancellation of the same request."""
+    from api.routes.sse import _sse_event_id
+
+    pushes: list[dict] = []
+    events: list[dict] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_user_data_push",
+        lambda _user_id, **kwargs: pushes.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda _user_id, payload: events.append(payload) or True,
+    )
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert [event["request_id"] for event in events] == ["req-42", "req-42"]
+    assert len({_sse_event_id(event) for event in events}) == 2
+    assert [event["message_id"] for event in events] == [
+        push["data"]["message_id"] for push in pushes
+    ]
+
+
+# ---------------------------------------------------------------------------
+# #6507: the requester learning their OWN request was accepted/declined --
+# previously not pushed at all. Mirrors the connection_request push tests
+# above, addressed the other way (requester, not addressee).
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_accepted(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "requester-1"
+    assert captured["title"] == "Connection accepted"
+    assert captured["body"] == "Ankit Sharma accepted your connection request."
+    assert captured["data"]["resolver_label"] == "Ankit Sharma"
+    assert captured["data"]["accepted"] == "true"
+    assert captured["data"]["request_id"] == "req-42"
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_declined(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["title"] == "Connection declined"
+    assert captured["body"] == "Ankit Sharma declined your connection request."
+    assert captured["data"]["accepted"] == "false"
+
+
+def test_connection_request_resolved_push_deep_links_to_the_connections_list(monkeypatch):
+    """The request is resolved, not pending review -- a review-sheet deep
+    link with nothing left to review would be a dead end."""
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_resolved_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured: list[dict] = []
+
+    def _fake_send(user_id, **kwargs):
+        captured.append({"user_id": user_id, **kwargs})
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    for request_id in ("req-1", "req-2", "req-1"):
+        send_connection_request_resolved_push(
+            "requester-1",
+            "resolver-1",
+            accepted=True,
+            resolver_display_name="Ankit",
+            connection_request_id=request_id,
+        )
+
+    assert [item["notification_tag"] for item in captured] == [
+        "connection-request-resolved:req-1",
+        "connection-request-resolved:req-2",
+        "connection-request-resolved:req-1",
+    ]
+
+
+def test_connection_request_resolved_push_prefers_the_caller_supplied_name(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    def _explode():
+        raise AssertionError("must not query when the caller already has the name")
+
+    monkeypatch.setattr("db.db_client.get_db", _explode)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="r1",
+    )
+
+    assert captured["data"]["resolver_label"] == "Ankit"
+
+
+def test_connection_request_resolved_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Same sync-handler SSE requirement as send_connection_request_push --
+    both real callers (accept_request, reject_request) are sync."""
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="John Smith",
+        connection_request_id="req-42",
+    )
+
+    assert len(scheduled) == 1, "the SSE payload was dropped instead of scheduled"
+    user_id, payload = scheduled[0]
+    assert user_id == "requester-1"
+    assert payload["type"] == "connection_request_resolved"
+    assert payload["action"] == "DECLINED"
+    assert payload["resolver_label"] == "John Smith"
+    assert payload["request_id"] == "req-42"
+
+
+def test_connection_removed_push_is_silent_and_scoped_to_the_connection(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_removed_push(
+        "user-a",
+        "user-b",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert captured["user_id"] == "user-a"
+    assert captured["notification_type"] == "connection_removed"
+    assert captured["notification_tag"] == (
+        "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a"
+    )
+    assert captured["show_alert"] is False
+    assert captured["data"] == {
+        "message_id": "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a",
+        "connection_id": "conn-42",
+        "counterpart_user_id": "user-b",
+        "actor_user_id": "user-a",
+        "revocation_id": "2026-09-19T10:15:30+00:00",
+    }
+
+
+def test_connection_removed_push_reaches_the_sse_reconcile_path(monkeypatch):
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_removed_push(
+        "user-b",
+        "user-a",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert len(scheduled) == 1
+    user_id, payload = scheduled[0]
+    assert user_id == "user-b"
+    assert payload["type"] == "connection_removed"
+    assert payload["action"] == "REMOVED"
+    assert payload["connection_id"] == "conn-42"
+    assert payload["counterpart_user_id"] == "user-a"
+    assert payload["message_id"].endswith(":2026-09-19T10:15:30+00:00:user-b")
+
+
+def test_connection_graph_doorbell_uses_cross_worker_channel_and_stays_silent(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    published = []
+    local = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, payload: published.append((user_id, payload)) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, payload: local.append((user_id, payload)) or True,
+    )
+
+    send_connection_graph_changed_push("member-1", transition_id="transition-1")
+
+    assert len(published) == 1
+    assert published[0][0] == "member-1"
+    assert published[0][1]["type"] == "connection_graph_changed"
+    assert published[0][1]["message_id"] == captured["data"]["message_id"]
+    assert captured["show_alert"] is False
+    assert captured["data"]["sync_only"] == "true"
+    assert local == []
+
+
+def test_connection_removed_push_uses_a_new_delivery_id_for_each_revocation(monkeypatch):
+    tags: list[str] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_user_data_push",
+        lambda _user_id, **kwargs: tags.append(kwargs["notification_tag"]) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda _user_id, _data: True,
+    )
+
+    for revocation_id in ("episode-1", "episode-2"):
+        send_connection_removed_push(
+            "user-b",
+            "user-a",
+            actor_user_id="user-a",
+            connection_id="conn-42",
+            revocation_id=revocation_id,
+        )
+
+    assert tags == [
+        "connection-removed:conn-42:episode-1:user-b",
+        "connection-removed:conn-42:episode-2:user-b",
+    ]
+
+
+def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
+    """End-to-end across the thread boundary, with no mocks in between."""
+    import asyncio
+    import threading
+
+    from api import consent_listener as cl
+
+    async def scenario():
+        queue = await cl.subscribe_consent_queue("addressee-e2e")
+        outcome: dict = {}
+
+        def worker():
+            try:
+                asyncio.get_running_loop()
+                outcome["had_loop"] = True
+            except RuntimeError:
+                outcome["had_loop"] = False
+            outcome["scheduled"] = cl.push_to_consent_queue_threadsafe(
+                "addressee-e2e", {"type": "connection_request", "requester_label": "John Smith"}
+            )
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+        # Proves the worker really is off-loop, i.e. a faithful stand-in for the
+        # FastAPI threadpool the production callers run on.
+        assert outcome["had_loop"] is False
+        assert outcome["scheduled"] is True
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=5)
+        finally:
+            await cl.unsubscribe_consent_queue("addressee-e2e", queue)
+
+    delivered = asyncio.run(scenario())
+    assert delivered["requester_label"] == "John Smith"
+
+
+def test_threadsafe_enqueue_is_a_noop_without_a_consumer():
+    """No SSE consumer in this process is not an error -- there is nobody to tell."""
+    from api import consent_listener as cl
+
+    original = cl._serving_loop
+    cl._serving_loop = None
+    try:
+        assert (
+            cl.push_to_consent_queue_threadsafe("nobody", {"type": "connection_request"}) is False
+        )
+    finally:
+        cl._serving_loop = original
+
+
+# ---------------------------------------------------------------------------
+# Name resolution
+# ---------------------------------------------------------------------------
+
+
+def test_looks_technical_label_rejects_identifiers_not_names():
+    # A raw Firebase uid is a legitimate value of actor_identity_cache.display_name
+    # (migration 037 seeds it), and it must never reach the banner.
+    assert looks_technical_label("RPNmQAmVdlNz84GVfXxta50wnYx1") is True
+    assert looks_technical_label("123e4567-e89b-12d3-a456-426614174000") is True
+    assert looks_technical_label("ria:abc") is True
+    assert looks_technical_label("user-1", user_id="user-1") is True
+    assert looks_technical_label("") is True
+    assert looks_technical_label(None) is True
+    assert looks_technical_label("   ") is True
+
+    assert looks_technical_label("Ankit Sharma") is False
+    assert looks_technical_label("Ankit") is False
+    assert looks_technical_label("ankit@example.com") is False
+
+
+def test_resolve_requester_label_uses_the_display_name():
+    rows = [{"display_name": "Ankit Sharma", "email": "ankit@example.com"}]
+    assert (
+        resolve_requester_label("user-1", execute_one=lambda *_a, **_k: rows[0]) == "Ankit Sharma"
+    )
+
+
+def test_resolve_requester_label_falls_back_to_an_email_handle():
+    """A phone-only Firebase account leaves display_name NULL on a row that exists."""
+    row = {"display_name": None, "email": "ankit@example.com"}
+    assert resolve_requester_label("user-1", execute_one=lambda *_a, **_k: row) == "ankit"
+
+
+def test_resolve_requester_label_rejects_a_uid_shaped_display_name():
+    """Migration 037 seeds display_name to the user id; that is not a name."""
+    row = {"display_name": "RPNmQAmVdlNz84GVfXxta50wnYx1", "email": None}
+    assert resolve_requester_label("user-1", execute_one=lambda *_a, **_k: row) == ""
+
+
+def test_resolve_requester_label_never_returns_a_phone_number():
+    """Notification labels carry no phone-derived data: banners show on a lock screen.
+
+    Mirrors one_location_agent_service._identity_notification_label. The query
+    does not even select the column, so this is a structural guarantee.
+    """
+    captured: dict = {}
+
+    def _execute_one(sql, params):
+        captured["sql"] = sql
+        return {"display_name": None, "email": None}
+
+    assert resolve_requester_label("user-1", execute_one=_execute_one) == ""
+    assert "phone" not in captured["sql"].lower()
+
+
+def test_resolve_requester_label_survives_a_database_failure():
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    assert resolve_requester_label("user-1", execute_one=_boom) == ""
+
+
+def test_resolve_requester_label_handles_a_missing_row():
+    assert resolve_requester_label("user-1", execute_one=lambda *_a, **_k: None) == ""
+
+
+def test_resolve_requester_label_is_not_gated_on_firebase():
+    """Regression guard: the lookup used to return "" when Firebase was unconfigured.
+
+    It is a Postgres read that also feeds in-app copy, so gating it on push
+    credentials blanked a name the database held all along.
+    """
+    row = {"display_name": "Ankit", "email": None}
+    with patch("api.utils.firebase_admin.ensure_firebase_admin", return_value=(False, None)):
+        assert resolve_requester_label("user-1", execute_one=lambda *_a, **_k: row) == "Ankit"
+
+
+def test_the_ladder_reads_a_row_the_caller_already_has():
+    """Same rungs as resolve_requester_label, without the second query.
+
+    The resolver reads the identity row itself, which is right for one push and
+    wrong for a list: a page of twenty people would become twenty round-trips.
+    Callers that already hold the rows -- a Circle roster, a recipients list --
+    run the ladder against what they read.
+    """
+
+    # A real name wins outright.
+    assert (
+        label_from_identity_row({"user_id": "u1", "display_name": "Neelesh Meena"})
+        == "Neelesh Meena"
+    )
+    # An empty name falls to the email handle. This is the case that made every
+    # surface invent its own substitute: a Google account with no profile name.
+    assert (
+        label_from_identity_row(
+            {"user_id": "u1", "display_name": "", "email": "damrianeelesh@gmail.com"}
+        )
+        == "damrianeelesh"
+    )
+    # A display name that is really an identifier is refused the same way the
+    # resolver refuses it -- a raw uid sitting in display_name is not a name.
+    assert (
+        label_from_identity_row(
+            {
+                "user_id": "NcVqGS5cXsRWisv3TsoxmRMqMnA2",
+                "display_name": "NcVqGS5cXsRWisv3TsoxmRMqMnA2",
+                "email": "damrianeelesh@gmail.com",
+            }
+        )
+        == "damrianeelesh"
+    )
+    # Nothing resolvable: the caller's own word, not a guess.
+    assert (
+        label_from_identity_row({"user_id": "u1", "display_name": ""}, fallback="Circle member")
+        == "Circle member"
+    )
+    assert label_from_identity_row(None, fallback="Circle member") == "Circle member"
+
+
+def test_the_email_handle_rung_is_a_privacy_switch_not_a_default():
+    """An email handle is a name to a contact and an identifier to a stranger.
+
+    The same projection serves the recipients list, which is scoped to people
+    the viewer is connected to, and the discovery directory, which includes
+    phone-verified strangers. Handing the second one a local part would answer
+    "who is this account" for anyone who can see the directory at all.
+    """
+
+    row = {"user_id": "u1", "display_name": "", "email": "damrianeelesh@gmail.com"}
+
+    assert label_from_identity_row(row, allow_email_handle=True) == "damrianeelesh"
+    assert label_from_identity_row(row, allow_email_handle=False) == ""
+    # Off, a real name still resolves -- the switch withholds the handle, not
+    # the person.
+    named = {"user_id": "u1", "display_name": "Neelesh", "email": "n@example.com"}
+    assert label_from_identity_row(named, allow_email_handle=False) == "Neelesh"
+
+
+# ---------------------------------------------------------------------------
+# Circle invite/membership resolution pushes -- the same "creation notifies,
+# resolution goes silent" gap the Connect fix (#6507/#6509) closed, found to
+# repeat across every other request/invite surface in the app.
+# ---------------------------------------------------------------------------
+
+
+def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_inviter(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "inviter-1"
+    assert captured["body"] == "Ankit Sharma declined your Circle invitation."
+    assert captured["data"]["invitee_user_id"] == "invitee-1"
+    assert captured["data"]["network_display_label"] == "Ankit Sharma"
+    assert captured["data"]["message_id"].startswith("location_circle_member_invite_declined:")
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
+
+
+def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["body"] == "Someone declined your Circle invitation."
+
+
+def test_circle_member_invite_cancelled_push_targets_the_invitee(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "invitee-1"
+    assert captured["body"] == 'Your invitation to "Family" was withdrawn.'
+    assert captured["data"]["circle_id"] == "circle-1"
+    assert captured["deep_link"] == "/one/location?view=people"
+
+
+def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "member-1"
+    assert captured["body"] == 'You were removed from "Family".'
+    assert captured["deep_link"] == "/one/location?view=people"
+
+
+def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_left_push(
+        owner_user_id="owner-1",
+        member_user_id="member-1",
+        member_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["body"] == 'Ankit Sharma left "Family".'
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
+
+
+def test_circle_member_invite_declined_and_cancelled_pushes_use_distinct_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    declined_tag = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    cancelled_tag = captured["notification_tag"]
+
+    assert declined_tag != cancelled_tag
+
+
+def test_circle_member_removed_and_left_pushes_use_distinct_tags_per_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-1", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-2", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_2 = captured["notification_tag"]
+
+    assert removed_tag_1 != removed_tag_2
+
+
+def test_circle_delivery_uses_one_message_id_for_fcm_and_sse(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    streamed: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streamed.append((user_id, data)) or True,
+    )
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert len(streamed) == 1
+    assert streamed[0][0] == "member-1"
+    assert streamed[0][1]["type"] == "location_circle_member_removed"
+    assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
+    assert streamed[0][1]["circle_id"] == "circle-1"
+
+
+def test_circle_roster_doorbell_is_silent_and_carries_no_roster(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    streamed = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streamed.append((user_id, data)) or True,
+    )
+
+    send_circle_roster_changed_push(
+        user_id="viewer-1",
+        circle_id="circle-1",
+        member_user_id="departed-1",
+        change="removed",
+    )
+
+    assert captured["show_alert"] is False
+    assert captured["notification_type"] == "location_circle_member_removed"
+    assert captured["data"] == {
+        "circle_id": "circle-1",
+        "sync_only": "true",
+        "message_id": captured["data"]["message_id"],
+    }
+    assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
+
+    send_circle_roster_changed_push(
+        user_id="departed-1",
+        circle_id="circle-1",
+        member_user_id="departed-1",
+        change="left",
+    )
+    assert captured["data"]["member_user_id"] == "departed-1"
+
+
+def test_circle_renamed_push_can_silently_wake_the_owners_other_devices(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_renamed_push(
+        user_id="owner-1",
+        circle_id="circle-1",
+        circle_name="Family trip",
+        show_alert=False,
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["notification_type"] == "location_circle_renamed"
+    assert captured["show_alert"] is False
+    assert captured["data"]["circle_name"] == "Family trip"
+    assert captured["data"]["sync_only"] == "true"
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
+
+
+def test_circle_deleted_push_routes_affected_members_back_to_the_circle_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_deleted_push(
+        user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["notification_type"] == "location_circle_deleted"
+    assert captured["deep_link"] == "/one/location?view=people"
+    assert captured["body"] == '"Family" was deleted by its owner.'
+    assert "sync_only" not in captured["data"]
+
+
+# ---------------------------------------------------------------------------
+# Connect: the requester withdrawing their own request -- same gap, the
+# addressee previously heard nothing until their next reconcile.
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_cancelled_push_names_the_requester_and_targets_the_addressee(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "addressee-1"
+    assert captured["body"] == "Ankit Sharma withdrew their connection request."
+    assert captured["data"]["requester_label"] == "Ankit Sharma"
+
+
+def test_connection_request_cancelled_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="", connection_request_id="req-42"
+    )
+
+    assert captured["body"] == "Someone withdrew their connection request."
+
+
+def test_connection_request_cancelled_push_deep_links_to_the_connections_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_cancelled_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r1"
+    )
+    tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r2"
+    )
+    tag_2 = captured["notification_tag"]
+
+    assert tag_1 != tag_2
+
+
+def test_connection_request_cancelled_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Both production callers run on a sync FastAPI handler, off the event loop."""
+    _capture_push(monkeypatch)
+    sse_calls: list[tuple] = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, payload: sse_calls.append((user_id, payload)),
+    )
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert len(sse_calls) == 1
+    user_id, payload = sse_calls[0]
+    assert user_id == "addressee-1"
+    assert payload["type"] == "connection_request_cancelled"
+    assert payload["action"] == "CANCELLED"
+    assert payload["request_id"] == "req-42"

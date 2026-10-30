@@ -1,5 +1,8 @@
 import { apiJson } from "@/lib/services/api-client";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerContentIsPrivate, privateAgentSpecialistTurn } from "@/lib/services/private-agent-specialist-chat";
 import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
+import type { KycScopedExportPackage } from "@/lib/services/one-kyc-client-zk-service";
 import { type MarketplaceEncryptedEnvelope } from "@/lib/one-marketplace/encryption";
 
 /** A durable Information Marketplace access request (migration 075). */
@@ -20,6 +23,7 @@ export interface MarketplaceRequest {
   resolvedAt?: string | null;
   /** Set once a sealed slice envelope has been delivered (migration 079). */
   latestEnvelopeId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 /**
@@ -91,6 +95,43 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
   return { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" };
 }
 
+/** One PKM detail referenced by a packet. Never a value. */
+export interface PacketDetail {
+  domain: string;
+  scopeHandle: string;
+  label: string;
+}
+
+/** An owner's named, priced bundle of PKM details (migration 264). */
+export interface PkmPacket {
+  id: string;
+  kind: string;
+  title: string;
+  description?: string | null;
+  contents: PacketDetail[];
+  priceCents: number | null;
+  creditCost: number | null;
+  currency: string;
+  forSale: boolean;
+}
+
+export interface PacketCatalogEntry {
+  kind: string;
+  title: string;
+  description: string;
+}
+
+/** Owner payout readiness and earnings (hussh pays owners via Stripe Connect). */
+export interface OwnerPayouts {
+  account: { detailsSubmitted: boolean; payoutsEnabled: boolean } | null;
+  earningsCents: { awaitingDelivery: number; due: number; paidOut: number };
+  currency: string;
+}
+
+export type PacketWrite = Partial<
+  Pick<PkmPacket, "kind" | "title" | "description" | "contents" | "priceCents" | "creditCost" | "forSale">
+>;
+
 /**
  * Client for the Information Marketplace: the conversational agent plus the
  * durable access-request inbox. Requests are real server-side records — approve/
@@ -126,12 +167,21 @@ export class OneMarketplaceService {
 
   static async chat(params: {
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent (history is sealed with it). */
+    vaultKey: string | null | undefined;
     message: string;
     conversationId?: string | null;
   }): Promise<InformationChatResponse> {
+    // A private agent answers its own owner; the question never reaches the hub.
+    if (await ownerContentIsPrivate()) {
+      return privateAgentSpecialistTurn({ focus: "information", ...params });
+    }
     return apiJson<InformationChatResponse>("/api/one/information/chat", {
       method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      headers: {
+        ...jsonAuthHeaders(params.vaultOwnerToken),
+        ...(await oneChatKeyHeaders(params.vaultKey)),
+      },
       body: JSON.stringify({
         message: params.message,
         conversationId: params.conversationId ?? null,
@@ -179,8 +229,8 @@ export class OneMarketplaceService {
   static async getDelivery(params: {
     vaultOwnerToken: string;
     requestId: string;
-  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }> {
-    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }>(
+  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null; encryptedExport?: KycScopedExportPackage | null }> {
+    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null; encryptedExport?: KycScopedExportPackage | null }>(
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/delivery`,
       { headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
@@ -201,10 +251,17 @@ export class OneMarketplaceService {
   static async requestListing(params: {
     vaultOwnerToken: string;
     listingId: string;
+    durationSeconds?: number;
+    purpose?: string;
+    connectorKeyId?: string;
+    idempotencyKey?: string;
   }): Promise<MarketplaceRequest> {
     const res = await apiJson<{ request: MarketplaceRequest }>(
       `/api/one/marketplace/available/${encodeURIComponent(params.listingId)}/request`,
-      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: params.durationSeconds === undefined ? undefined : JSON.stringify({ duration_seconds: params.durationSeconds, purpose: params.purpose,
+          connector_key_id: params.connectorKeyId, idempotency_key: params.idempotencyKey }),
+      },
     );
     return res.request;
   }
@@ -303,5 +360,54 @@ export class OneMarketplaceService {
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/revoke`,
       { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
+  }
+
+  /** The owner's packets plus the standard catalogue. */
+  static async listPackets(params: {
+    vaultOwnerToken: string;
+  }): Promise<{ packets: PkmPacket[]; catalog: PacketCatalogEntry[] }> {
+    return apiJson("/api/one/packets", { headers: jsonAuthHeaders(params.vaultOwnerToken) });
+  }
+
+  static async createPacket(params: {
+    vaultOwnerToken: string;
+    packet: PacketWrite;
+  }): Promise<{ packet: PkmPacket }> {
+    return apiJson("/api/one/packets", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify(params.packet),
+    });
+  }
+
+  static async updatePacket(params: {
+    vaultOwnerToken: string;
+    packetId: string;
+    patch: PacketWrite;
+  }): Promise<{ packet: PkmPacket }> {
+    return apiJson(`/api/one/packets/${encodeURIComponent(params.packetId)}`, {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify(params.patch),
+    });
+  }
+
+  static async deletePacket(params: { vaultOwnerToken: string; packetId: string }): Promise<void> {
+    await apiJson(`/api/one/packets/${encodeURIComponent(params.packetId)}`, {
+      method: "DELETE",
+      headers: authHeaders(params.vaultOwnerToken),
+    });
+  }
+
+  static async getPayouts(params: { vaultOwnerToken: string }): Promise<OwnerPayouts> {
+    return apiJson("/api/one/payouts", { headers: authHeaders(params.vaultOwnerToken) });
+  }
+
+  /** Stripe-hosted Express onboarding URL for the owner's payout account. */
+  static async startPayoutOnboarding(params: { vaultOwnerToken: string }): Promise<{ url: string }> {
+    return apiJson("/api/one/payouts/onboard", {
+      method: "POST",
+      headers: authHeaders(params.vaultOwnerToken),
+    });
   }
 }

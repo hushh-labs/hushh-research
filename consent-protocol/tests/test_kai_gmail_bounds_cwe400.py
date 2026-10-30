@@ -10,6 +10,8 @@ from api.routes.kai.gmail import (
     GmailConnectCompleteRequest,
     GmailConnectStartRequest,
     GmailDisconnectRequest,
+    GmailNativeConnectCompleteRequest,
+    GmailNativeConnectStartRequest,
     GmailReceiptMemoryPreviewRequest,
     GmailReconcileRequest,
     GmailSyncRequest,
@@ -33,6 +35,19 @@ class TestGmailConnectStartRequest:
         with pytest.raises(ValidationError):
             GmailConnectStartRequest(user_id="user-123", login_hint="A" * 513)
 
+    def test_defaults_to_read_and_rejects_unknown_purpose(self):
+        assert GmailConnectStartRequest(user_id="user-123").purpose == "read"
+        with pytest.raises(ValidationError):
+            GmailConnectStartRequest(user_id="user-123", purpose="write")
+
+
+class TestGmailNativeConnectStartRequest:
+    def test_defaults_to_read_and_allows_only_incremental_send(self):
+        assert GmailNativeConnectStartRequest().purpose == "read"
+        assert GmailNativeConnectStartRequest(purpose="send").purpose == "send"
+        with pytest.raises(ValidationError):
+            GmailNativeConnectStartRequest(purpose="write")
+
 
 class TestGmailConnectCompleteRequest:
     def test_valid(self):
@@ -46,6 +61,22 @@ class TestGmailConnectCompleteRequest:
     def test_state_bounds(self):
         with pytest.raises(ValidationError):
             GmailConnectCompleteRequest(user_id="user-123", code="code123", state="A" * 513)
+
+
+class TestGmailNativeConnectCompleteRequest:
+    def test_valid(self):
+        req = GmailNativeConnectCompleteRequest(
+            user_id="user-123",
+            server_auth_code="server-code",
+        )
+        assert req.server_auth_code == "server-code"
+
+    def test_server_auth_code_bounds(self):
+        with pytest.raises(ValidationError):
+            GmailNativeConnectCompleteRequest(
+                user_id="user-123",
+                server_auth_code="A" * 2049,
+            )
 
 
 class TestGmailDisconnectRequest:

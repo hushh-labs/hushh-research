@@ -1,0 +1,106 @@
+.paperStage {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.paperStage::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--one-chat-row-hover);
+  opacity: 0;
+  transition: opacity var(--motion-duration-lg) var(--motion-ease-standard);
+}
+
+:global(button:is(:hover, :focus-visible)) .paperStage::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .paperStage::before { transition: none; }
+}
+.frontPaper { transform-origin: 14px 22px; }
+.backPage, .underPage { transform-origin: 3px 22px; }
+.firstLine { transform-origin: 11px 7px; }
+.secondLine { transform-origin: 11px 11px; }
+.underPage, .paperCurl { opacity: 0; }
+.movingArtwork { display: none; }
+:global([data-shortcut-icon-playing="true"]) .restingArtwork { display: none; }
+:global([data-shortcut-icon-playing="true"]) .movingArtwork { display: inline; }
+
+@media (prefers-reduced-motion: no-preference) {
+  :global([data-shortcut-icon-playing="true"]) :is(
+    .frontPaper, .backPage, .underPage, .paperCurl, .firstLine, .secondLine,
+    .downloadArrow, .downloadTray, .arrowReveal
+  ) {
+    animation-duration: var(--motion-shortcut-icon-cycle-duration, 850ms);
+    animation-timing-function: var(--motion-ease-standard);
+    animation-iteration-count: 1;
+  }
+  :global([data-shortcut-icon-playing="true"]) .frontPaper { animation-name: paper-fold; }
+  :global([data-shortcut-icon-playing="true"]) .backPage { animation-name: rear-page-return; }
+  :global([data-shortcut-icon-playing="true"]) .underPage { animation-name: paper-underlay; }
+  :global([data-shortcut-icon-playing="true"]) .paperCurl { animation-name: paper-curl; }
+  :global([data-shortcut-icon-playing="true"]) .firstLine { animation-name: first-note-redraw; }
+  :global([data-shortcut-icon-playing="true"]) .secondLine { animation-name: second-note-redraw; }
+  :global([data-shortcut-icon-playing="true"]) .downloadArrow { animation-name: download-into-tray; }
+  :global([data-shortcut-icon-playing="true"]) .downloadTray { animation-name: tray-settle; }
+  :global([data-shortcut-icon-playing="true"]) .arrowReveal { animation-name: arrow-redraw; }
+}
+
+@keyframes paper-fold {
+  0%, 8% { transform: none; opacity: 1; }
+  28% { transform: scaleY(0.18); opacity: 1; }
+  34%, 58% { transform: scaleY(0.18); opacity: 0; }
+  60% { transform: translateY(-16px) scaleY(0.2); opacity: 0; }
+  62% { transform: translateY(-16px) scaleY(0.2); opacity: 1; }
+  76%, 100% { transform: none; opacity: 1; }
+}
+@keyframes paper-underlay {
+  0%, 8% { transform: none; opacity: 0; }
+  16%, 43% { transform: none; opacity: 1; }
+  54%, 68% { transform: translateX(4px); opacity: 1; }
+  76% { transform: translateX(4px); opacity: 0; }
+  100% { transform: none; opacity: 0; }
+}
+@keyframes paper-curl {
+  0%, 25% { transform: none; opacity: 0; }
+  31% { transform: none; opacity: 1; }
+  46% { transform: translateY(-16px); opacity: 1; }
+  54% { transform: translate(-4px, -16px); opacity: 1; }
+  61% { transform: translate(-4px, -16px); opacity: 0; }
+  100% { transform: none; opacity: 0; }
+}
+@keyframes rear-page-return {
+  0% { transform: none; opacity: 1; }
+  18%, 62% { transform: none; opacity: 0; }
+  76% { transform: scaleY(0.5); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes first-note-redraw {
+  0% { transform: none; opacity: 1; }
+  8%, 75% { transform: scaleX(0); opacity: 0; }
+  76% { transform: scaleX(0); opacity: 1; }
+  88%, 100% { transform: none; opacity: 1; }
+}
+@keyframes second-note-redraw {
+  0% { transform: none; opacity: 1; }
+  8%, 88% { transform: scaleX(0); opacity: 0; }
+  89% { transform: scaleX(0); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes download-into-tray {
+  0%, 100% { transform: none; }
+  15% { transform: translateY(-10.667px); }
+  44%, 54% { transform: translateY(140px); }
+  55% { transform: none; }
+}
+@keyframes tray-settle {
+  0%, 35%, 55%, 100% { transform: none; }
+  45% { transform: translateY(8px); }
+}
+@keyframes arrow-redraw {
+  0%, 44% { transform: none; }
+  54%, 60% { transform: translateY(-144px); }
+  95%, 100% { transform: none; }
+}

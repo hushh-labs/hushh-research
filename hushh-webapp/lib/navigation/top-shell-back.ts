@@ -7,14 +7,38 @@ import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
-import { ROUTES } from "@/lib/navigation/routes";
+import { CONNECT_MUTUALS_PARAM, isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
+import {
+  buildOneSetupRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { dismissTopmostOverlay, unwindBackLayer } from "@/lib/navigation/back-layers";
 
 type SearchParamsLike = { get(name: string): string | null } | null | undefined;
 
 export type TopShellBackAction = {
   href: string;
   mode: "push" | "replace";
+  /**
+   * `full` crossfades the whole app shell; `contextual` commits in place.
+   *
+   * Leaving a Location flow (`?action=…` → the hub) never changes the
+   * pathname — it is the same screen with a different query, which the route
+   * transition driver already refuses to fade for links and history writes.
+   * Sending it through the full envelope made back cost a 300ms exit beat
+   * before the router was even called, and any navigation that arrived inside
+   * that window superseded the back and dropped it. So the rule that decides
+   * whether a href is a screen switch lives here, next to the rule that
+   * decides where back goes.
+   */
+  transitionMode: "full" | "contextual";
 };
+
+function pathnameOf(href: string): string {
+  const path = href.split("#")[0]?.split("?")[0] ?? href;
+  return path || href;
+}
 
 /**
  * The one deterministic back action shared by the visible top-bar control and
@@ -59,18 +83,55 @@ export function resolveTopShellBackAction(params: {
   const locationActionOpen =
     params.pathname === ROUTES.ONE_LOCATION &&
     Boolean(params.searchParams?.get("action")?.trim());
+  // The same shape, on Connect. Circles moved there (#5458) and brought their
+  // `?action=` flows with them, but this test named one pathname literally --
+  // so on Connect the flow fell through to the section-root branch below and
+  // the back arrow returned to wherever the person had entered Connect FROM,
+  // throwing them out of the workspace instead of closing the Circle. There is
+  // no other way out: `CreateCircleFlow` and `JoinCircleFlow` pass no `onBack`
+  // to their header, so the shell's arrow is the only control on the screen.
+  const connectCircleFlowOpen =
+    params.pathname === ROUTES.CONNECT &&
+    isFocusedConnectCircleTask(
+      params.searchParams?.get("tab") ?? null,
+      params.searchParams?.get("action") ?? null,
+      params.searchParams?.get("circleId") ?? null,
+    );
+  const connectMutualsOpen = params.pathname === ROUTES.CONNECT &&
+    params.searchParams?.get("tab") !== "circles" && Boolean(params.searchParams?.get(CONNECT_MUTUALS_PARAM)?.trim());
+
+  const action = (
+    href: string,
+    mode: TopShellBackAction["mode"],
+  ): TopShellBackAction => ({
+    href,
+    mode,
+    transitionMode:
+      pathnameOf(href) === params.pathname ? "contextual" : "full",
+  });
 
   // An open panel or action sheet closes in place. It is a query-only state on
   // the same screen, never a step in the trail, so it must not retrace.
-  if (profilePanelOpen || locationActionOpen) {
-    return { href: breadcrumb.backHref, mode: "replace" };
+  const sameScreenParent = pathnameOf(breadcrumb.backHref) === params.pathname &&
+    (params.pathname !== ROUTES.CONNECT || connectCircleFlowOpen || connectMutualsOpen);
+  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || connectMutualsOpen || sameScreenParent) {
+    return action(breadcrumb.backHref, "replace");
+  }
+
+  // Setup is a step, not a section trail. An edge gesture must use the same
+  // parent and history mode as its visible Back control, including a safe
+  // return target for an invited or deep-linked person.
+  if (params.pathname === ROUTES.ONE_SETUP_CONNECTIONS) {
+    return action(buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(params.searchParams?.get("return_to")),
+    }), "replace");
   }
 
   // Only the section root leaves the section. Everywhere else the declared
   // parent already climbs the hierarchy correctly, which is why nothing is
   // stored for moves inside a section.
   if (!isDestinationRoot(params.pathname)) {
-    return { href: breadcrumb.backHref, mode: "push" };
+    return action(breadcrumb.backHref, "push");
   }
 
   const origin =
@@ -78,7 +139,7 @@ export function resolveTopShellBackAction(params: {
       ? readDestinationOrigin(params.pathname)
       : params.sectionOrigin;
 
-  return { href: origin || breadcrumb.backHref, mode: "push" };
+  return action(origin || breadcrumb.backHref, "push");
 }
 
 export function navigateTopShellBack(params: {
@@ -88,6 +149,8 @@ export function navigateTopShellBack(params: {
   sectionOrigin?: string | null;
   navigate: (action: TopShellBackAction) => void;
 }): boolean {
+  if (typeof document !== "undefined" && dismissTopmostOverlay()) return true;
+  if (unwindBackLayer(params.pathname, params.searchParams)) return true;
   const action = resolveTopShellBackAction(params);
   if (!action) return false;
   // Leaving a section spends its origin, so a later return records a fresh

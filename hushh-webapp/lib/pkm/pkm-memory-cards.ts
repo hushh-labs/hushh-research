@@ -1,9 +1,18 @@
 "use client";
+import { isPrivateWalletArtworkBranch } from "@/lib/pkm/reserved-branches";
 
+import { SUPERSEDED_KEY } from "@/lib/pkm/pkm-supersede-merge";
+import {
+  LINKED_ACCOUNTS_BRANCH,
+  PLAID_VAULT_RECORD_BRANCHES,
+  PLAID_VAULT_SOURCE_MANAGED_BRANCHES,
+} from "@/lib/kai/plaid-vault/types";
 import type {
   DomainSummary,
   PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
+import { RESERVED_MEMORY_SCREEN_POLICY, reservedOwnerFor } from "@/lib/pkm/reserved-branches";
+import { reservedOwnerAppName } from "@/lib/pkm/reserved-offer";
 
 export type PkmPathSegment = string | number;
 
@@ -22,8 +31,36 @@ export type PkmMemoryCard = {
   confidence: number;
   kind: "profile" | "preference" | "financial" | "shopping" | "professional" | "memory";
   editable: boolean;
+  /**
+   * Set when an app feature owns this item's branch and the contract's
+   * memory_screen_policy is read_only_reserved: Memory shows it read-only with
+   * "Open in <app>", and the owning screen edits or removes it.
+   */
+  reservedOwner?: PkmMemoryReservedOwner | null;
   searchText: string;
 };
+
+export type PkmMemoryReservedOwner = {
+  ownerFeature: string;
+  appName: string;
+  /** The owning screen; null when the app has no screen to open (internal records). */
+  routePattern: string | null;
+};
+
+/** Who owns this Memory item's branch, under the contract's Memory policy. */
+export function pkmMemoryReservedOwner(
+  domain: string,
+  pathSegments: readonly PkmPathSegment[],
+): PkmMemoryReservedOwner | null {
+  if (RESERVED_MEMORY_SCREEN_POLICY !== "read_only_reserved") return null;
+  const entry = reservedOwnerFor(domain, pathSegments);
+  if (!entry) return null;
+  return {
+    ownerFeature: entry.ownerFeature,
+    appName: reservedOwnerAppName(entry.ownerFeature),
+    routePattern: entry.offerAction?.routePattern ?? null,
+  };
+}
 
 export type PkmDomainInsight = {
   domain: string;
@@ -43,8 +80,11 @@ export type PkmMemorySnapshot = {
 const DEFAULT_MAX_CARDS = 96;
 const DEFAULT_MAX_CARDS_PER_DOMAIN = 24;
 const MAX_VALUE_CHARS = 180;
-const MAX_DEPTH = 6;
-const MAX_ARRAY_ITEMS = 12;
+// Defensive traversal guard. Memory nesting and array length are arbitrary by
+// design, so this caps total nodes visited (against a pathologically large or
+// malformed blob) rather than imposing a fixed semantic depth or a per-array
+// item limit that would hide later entries from browsing and search.
+const MAX_TREE_NODE_VISITS = 20_000;
 
 const INTERNAL_KEYS = new Set([
   "algorithm",
@@ -76,10 +116,24 @@ const INTERNAL_KEYS = new Set([
 ]);
 const SECRET_KEY_PATTERN =
   /(?:^|[_-])(secret|secrets|password|passphrase|token|api[_-]?key|private[_-]?key|encryption[_-]?key|recovery[_-]?key|vault[_-]?key|credential|credentials|authorization|mnemonic)(?:$|[_-])/i;
+const AGENT_CONTEXT_SENSITIVE_KEY_PATTERN =
+  /(?:^|[_-])(account[_-]?(?:number|no)|routing[_-]?(?:number|no)|iban|swift|ssn|social[_-]?security|tax[_-]?(?:id|number)|passport(?:[_-]?(?:number|no))?|driver(?:s)?[_-]?licen[cs]e(?:[_-]?(?:number|no))?|licen[cs]e[_-]?(?:number|no)|identity[_-]?document|document[_-]?(?:number|no)|card[_-]?number|pan|cvv|cvc|pin|otp|one[_-]?time[_-]?(?:password|code)|aadhaar|aadhar|national[_-]?id|government[_-]?id)(?:$|[_-])/i;
+const AGENT_CONTEXT_SOURCE_KEY_PATTERN =
+  /(?:^|[_-])(source[_-]?(?:text|document|file|artifact|extract|content)|document[_-]?(?:text|content|file)|raw[_-]?(?:text|content|document)|transcript|provenance)(?:$|[_-])/i;
+/**
+ * The Plaid lane's machine records, keyed by Plaid's ids. Browsed directly they
+ * read as "Accounts V1 > <random id>", once per re-link; `linked_accounts` holds
+ * the same information named and organised for a person.
+ */
+const PLAID_RECORD_BRANCHES: ReadonlySet<string> = new Set(PLAID_VAULT_RECORD_BRANCHES);
+const PLAID_SOURCE_MANAGED_BRANCHES: ReadonlySet<string> = new Set(PLAID_VAULT_SOURCE_MANAGED_BRANCHES);
 const INTERNAL_PKM_DOMAINS = new Set([
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",
+  // The wallet domain itself is memory-visible (nickname, network, last4);
+  // its `secrets` branch is pruned by SECRET_KEY_PATTERN below, so PAN, CVV,
+  // and PIN reach only the on-device reveal widget.
 ]);
 
 function compact(value: unknown): string {
@@ -100,6 +154,11 @@ function titleize(value: string): string {
   return value
     .replace(/\[\d+\]/g, " ")
     .replace(/[_-]+/g, " ")
+    // A key that runs letters straight into digits reads as a machine name:
+    // `last4` titled itself "Last4" on the owner's Memory screen. Split the
+    // boundary only when the word is long enough to be a word, so short codes
+    // (w2, k1) stay intact.
+    .replace(/([a-z]{3,})(\d+)/gi, "$1 $2")
     .replace(/\b\w/g, (match) => match.toUpperCase())
     .trim();
 }
@@ -135,23 +194,66 @@ function parseDomainSummary(metadata: PersonalKnowledgeModelMetadata | null): Ma
   return new Map((metadata?.domains || []).map((domain) => [domain.key, domain]));
 }
 
+/** Private runtime or protocol material: never a memory, never model context. */
+function isInternalPkmKey(key: string): boolean {
+  // A leading underscore marks a private/internal key by convention. Check it on
+  // the raw key: normalizeKey() strips underscores, so this must run before it.
+  if (String(key ?? "").trim().startsWith("_")) return true;
+  const normalized = normalizeKey(key);
+  if (!normalized) return true;
+  if (INTERNAL_KEYS.has(normalized)) return true;
+  // Earlier values of a changed detail are the owner's history, never a
+  // current fact for a Memory card or One's context packet.
+  if (normalized === SUPERSEDED_KEY) return true;
+  if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
+  if (normalized.endsWith("_id") && normalized !== "student_id") return true;
+  if (normalized.includes("cipher") || normalized.includes("token")) return true;
+  return false;
+}
+
 /**
- * Returns whether a PKM key/domain is private runtime or protocol material
- * that must never enter a user-facing memory projection or an LLM context.
+ * Returns whether a PKM key/domain must stay out of the owner's Memory screen.
  *
  * Keep this as the single client-side classifier for readable PKM consumers.
  * In particular, `runtime_secrets` may be decrypted by the vault owner only
  * to resolve a turn-local provider credential; it is never agent memory.
+ * The Plaid lane's id-keyed records are hidden here too: Memory shows their
+ * readable view, `linked_accounts`, instead.
  */
 export function shouldSkipPkmMemoryKey(key: string): boolean {
+  return isInternalPkmKey(key) || PLAID_RECORD_BRANCHES.has(normalizeKey(key));
+}
+
+/**
+ * Returns whether a PKM key/domain must be omitted from the full profile
+ * packet that is supplied to One on every unlocked chat turn. This is stricter
+ * than the memory UI: an always-on model packet must never include regulated
+ * identifiers or raw imported source material.
+ *
+ * The packet keeps its existing view of linked banks (the Plaid records) and
+ * leaves out `linked_accounts`, which repeats them: the packet formats list
+ * items without their names, so the view would lose which balance belongs to
+ * which account. Changing what One reads is a separate, measured change.
+ */
+export function shouldSkipPkmAgentContextKey(key: string): boolean {
   const normalized = normalizeKey(key);
-  if (!normalized) return true;
-  if (INTERNAL_KEYS.has(normalized)) return true;
-  if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
-  if (normalized.startsWith("_")) return true;
-  if (normalized.endsWith("_id") && normalized !== "student_id") return true;
-  if (normalized.includes("cipher") || normalized.includes("token")) return true;
-  return false;
+  return (
+    isInternalPkmKey(key) ||
+    normalized === LINKED_ACCOUNTS_BRANCH ||
+    normalized === "source_library" ||
+    AGENT_CONTEXT_SENSITIVE_KEY_PATTERN.test(normalized) ||
+    AGENT_CONTEXT_SOURCE_KEY_PATTERN.test(normalized)
+  );
+}
+
+/**
+ * Finance branches the bank connection rebuilds whole on every refresh. An edit
+ * or a "forget" there would come straight back, so Memory offers neither.
+ * Mirrors FINANCIAL_SOURCE_MANAGED_BRANCHES in the backend domain contracts.
+ */
+function isSourceManagedMemoryPath(domain: string, pathSegments: readonly PkmPathSegment[]): boolean {
+  const root = pathSegments[0];
+  return normalizeKey(domain) === "financial" && typeof root === "string" && PLAID_SOURCE_MANAGED_BRANCHES.has(normalizeKey(root));
 }
 
 function primitiveValue(value: unknown): string | null {
@@ -191,7 +293,10 @@ function cardTitle(params: {
   const label = titleize(lastKey);
   const value = params.value;
 
-  if (/\b(full_?name|display_?name|name)\b/.test(path)) return `Your name is ${value}`;
+  // A `name` inside a list or typed entity names that record (a business,
+  // bank, account), not the person whose private Memory contains it.
+  const insideListItem = params.pathSegments.some((segment) => typeof segment === "number" || segment === "entities");
+  if (!insideListItem && /\b(full_?name|display_?name|name)\b/.test(path)) return `Your name is ${value}`;
   if (/\b(roll|student_?id|roll_?no)\b/.test(path)) return `Roll number: ${value}`;
   if (/\b(iit|college|university|school|institution|institute)\b/.test(path)) {
     return `You study at ${value}`;
@@ -234,14 +339,21 @@ function flattenCards(params: {
   value: unknown;
   sourceLabel: string;
   updatedAt: string | null;
-  depth?: number;
   pathSegments?: PkmPathSegment[];
   cards?: PkmMemoryCard[];
+  visits?: { count: number };
 }): PkmMemoryCard[] {
-  const depth = params.depth || 0;
   const pathSegments = params.pathSegments || [];
+  if (isPrivateWalletArtworkBranch(params.domain, pathSegments.map(String).join("."))) return params.cards || [];
   const cards = params.cards || [];
-  if (depth > MAX_DEPTH || cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3) return cards;
+  const visits = params.visits || { count: 0 };
+  visits.count += 1;
+  if (
+    visits.count > MAX_TREE_NODE_VISITS ||
+    cards.length >= DEFAULT_MAX_CARDS_PER_DOMAIN * 3
+  ) {
+    return cards;
+  }
 
   const primitive = primitiveValue(params.value);
   if (primitive) {
@@ -253,6 +365,7 @@ function flattenCards(params: {
       pathSegments,
       value: primitive,
     });
+    const reservedOwner = pkmMemoryReservedOwner(params.domain, pathSegments);
     cards.push({
       id: `${params.domain}:${stableId(`${path}:${primitive}`)}`,
       domain: params.domain,
@@ -267,20 +380,21 @@ function flattenCards(params: {
       updatedAt: params.updatedAt,
       confidence: kind === "memory" ? 0.72 : 0.88,
       kind,
-      editable: true,
+      editable: !isSourceManagedMemoryPath(params.domain, pathSegments) && !reservedOwner,
+      reservedOwner,
       searchText: `${params.domain} ${params.domainTitle} ${path} ${title} ${primitive}`.toLowerCase(),
     });
     return cards;
   }
 
   if (Array.isArray(params.value)) {
-    params.value.slice(0, MAX_ARRAY_ITEMS).forEach((item, index) => {
+    params.value.forEach((item, index) => {
       flattenCards({
         ...params,
         value: item,
-        depth: depth + 1,
         pathSegments: [...pathSegments, index],
         cards,
+        visits,
       });
     });
     return cards;
@@ -292,12 +406,29 @@ function flattenCards(params: {
     flattenCards({
       ...params,
       value: child,
-      depth: depth + 1,
       pathSegments: [...pathSegments, key],
       cards,
+      visits,
     });
   }
   return cards;
+}
+
+/**
+ * Public wrapper around the internal flattener: given one node of decrypted
+ * domain data and the exact path segments that reach it, return the readable
+ * leaf memory cards beneath it. Used by the nested Memory level navigator so a
+ * drilled-in leaf carries the same id / fingerprint / labels as a search hit.
+ */
+export function buildPkmMemoryCardsFromNode(params: {
+  domain: string;
+  domainTitle: string;
+  value: unknown;
+  sourceLabel: string;
+  updatedAt: string | null;
+  pathSegments: PkmPathSegment[];
+}): PkmMemoryCard[] {
+  return flattenCards(params);
 }
 
 function tokens(value: string): Set<string> {
@@ -332,6 +463,51 @@ export function selectRelevantPkmMemoryCards(
     .sort((left, right) => right.score - left.score || right.card.confidence - left.card.confidence)
     .map((entry) => entry.card)
     .slice(0, limit);
+}
+
+const GENERIC_LEAF_LABELS = new Set([
+  "value",
+  "values",
+  "detail",
+  "details",
+  "profile",
+  "data",
+  "entry",
+  "item",
+  "note",
+  "notes",
+]);
+
+/**
+ * Human-readable labels for one memory row.
+ *
+ * `primary` is a short noun ("Morning flights", "Risk profile") derived from the
+ * last meaningful path segment; `secondary` is the readable value sentence
+ * ("You prefer morning flights"). When the derived name would just echo the
+ * sentence, the raw value is used as the subtitle instead so the row never
+ * repeats itself.
+ */
+export function pkmMemoryRowLabels(card: PkmMemoryCard): {
+  primary: string;
+  secondary: string;
+} {
+  const leaf = [...card.pathSegments]
+    .reverse()
+    .find((segment): segment is string => typeof segment === "string" && segment.trim().length > 0);
+  const derived = leaf ? titleize(leaf) : "";
+  const primary =
+    derived && !GENERIC_LEAF_LABELS.has(derived.toLowerCase())
+      ? derived
+      : card.domainTitle;
+  const value = compact(card.value);
+  let sentence = compact(card.title);
+  const prefix = `${primary}: `.toLowerCase();
+  if (sentence.toLowerCase().startsWith(prefix)) {
+    sentence = sentence.slice(prefix.length).trim();
+  }
+  const secondary =
+    sentence && sentence.toLowerCase() !== primary.toLowerCase() ? sentence : value;
+  return { primary, secondary };
 }
 
 function domainInsightSummary(params: {
@@ -419,7 +595,7 @@ export function buildPkmMemorySnapshot(params: {
       ...(params.metadata?.domains.map((domain) => domain.key).filter(Boolean) || []),
       ...Object.keys(params.fullBlob || {}),
     ])
-  );
+  ).filter((domainKey) => !shouldSkipPkmMemoryKey(domainKey));
 
   const cardsByDomain = new Map<string, PkmMemoryCard[]>();
   for (const domainKey of domainKeys) {
@@ -435,7 +611,23 @@ export function buildPkmMemorySnapshot(params: {
     cardsByDomain.set(domainKey, cards);
   }
 
-  const cards = Array.from(cardsByDomain.values()).flat().slice(0, maxCards);
+  // Round-robin rather than concatenate-then-truncate. Flattening in domain
+  // order and slicing meant the global budget was spent entirely on whichever
+  // domains happened to come first, so a domain late in the iteration order
+  // could contribute nothing at all and simply be absent from Memory. Taking
+  // one card from each domain per pass keeps every domain represented, and
+  // only the deepest tail of the largest domains is lost when the budget runs
+  // out.
+  const cards: PkmMemoryCard[] = [];
+  const queues = Array.from(cardsByDomain.values());
+  const deepest = queues.reduce((most, queue) => Math.max(most, queue.length), 0);
+  for (let round = 0; round < deepest && cards.length < maxCards; round += 1) {
+    for (const queue of queues) {
+      if (cards.length >= maxCards) break;
+      const card = queue[round];
+      if (card) cards.push(card);
+    }
+  }
   const domainInsights = domainKeys.map((domainKey) =>
     domainInsight({
       domain: domainsByKey.get(domainKey),

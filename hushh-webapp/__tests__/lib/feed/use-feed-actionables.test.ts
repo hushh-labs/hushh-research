@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDebateFeedAnalysisHref,
+  classifyDebateFeedState,
   isActiveSmsEmergencyGrant,
+  isConsentFeedActionable,
+  documentDecisionErrorCopy,
   isIncomingLocationRequestActionable,
+  isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
+import {
+  isOwnerDecidableDocumentRequest,
+  ownerDocumentDecision,
+} from "@/lib/consent/document-request-decision";
+import type { DebateRunTask } from "@/lib/services/debate-run-manager";
+import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -11,6 +22,110 @@ import type {
 
 const ME = "user-me";
 const CONTACT = "user-contact";
+
+function documentRequest(attention: boolean | undefined): ConsentCenterEntry {
+  return {
+    id: "document_share_request:123e4567-e89b-42d3-a456-426614174000",
+    kind: "incoming_request",
+    status: "pending",
+    action: "DOCUMENT_SHARE_REVIEW",
+    counterpart_type: "investor",
+    metadata: {
+      request_source: "drive_document_share_request",
+      direction: "incoming",
+      ...(attention === undefined ? {} : { owner_attention_required: attention }),
+    },
+  };
+}
+
+describe("isConsentFeedActionable", () => {
+  it("uses the current owner price floor in validation copy", () => {
+    expect(documentDecisionErrorCopy("invalid_payment_amount")).toBe("Choose a price from $0.50 to $500.");
+  });
+  it("hides Trusted Circle automation from Needs you but preserves owner work", () => {
+    expect(isConsentFeedActionable(documentRequest(false))).toBe(false);
+    expect(isConsentFeedActionable(documentRequest(true))).toBe(true);
+    // An older server must never hide a request it might need the owner to review.
+    expect(isConsentFeedActionable(documentRequest(undefined))).toBe(true);
+  });
+
+  it("keeps outgoing Drive requests and separate connection actions out of the consent lane", () => {
+    expect(
+      isConsentFeedActionable({
+        ...documentRequest(true),
+        kind: "outgoing_request",
+        metadata: { request_source: "drive_document_share_request", direction: "outgoing" },
+      }),
+    ).toBe(false);
+    expect(isConsentFeedActionable({ ...documentRequest(true), kind: "connection_request" })).toBe(false);
+  });
+});
+
+describe("isOwnerDecidableDocumentRequest", () => {
+  const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
+
+  function decidable(
+    metadata: Record<string, unknown> = {},
+    entry: Partial<ConsentCenterEntry> = {},
+  ): ConsentCenterEntry {
+    const base = documentRequest(true);
+    return {
+      ...base,
+      ...entry,
+      metadata: {
+        ...base.metadata,
+        revision: 4,
+        owner_decision_available: true,
+        payment_required: true,
+        ...metadata,
+      },
+    };
+  }
+
+  it("lets the owner answer only what the server marked answerable", () => {
+    expect(isOwnerDecidableDocumentRequest(decidable())).toBe(true);
+    expect(ownerDocumentDecision(decidable())).toEqual({
+      requestId: REQUEST_ID,
+      revision: 4,
+      paymentRequired: true,
+    });
+    expect(ownerDocumentDecision(decidable({ payment_required: false }))?.paymentRequired).toBe(false);
+    // Negative controls: an older server (no flag), or one that says no.
+    expect(isOwnerDecidableDocumentRequest(documentRequest(true))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ owner_decision_available: false }))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ owner_decision_available: "true" }))).toBe(false);
+  });
+
+  it("routes prepared packages to their review instead of inline approval", () => {
+    expect(ownerDocumentDecision(decidable({ agent_package: true }))).toBeNull();
+    expect(ownerDocumentDecision(decidable({ agent_package: false }))).not.toBeNull();
+  });
+
+  it("never offers the requester's own outgoing request", () => {
+    expect(
+      isOwnerDecidableDocumentRequest(
+        decidable({ direction: "outgoing" }, { kind: "outgoing_request" }),
+      ),
+    ).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({ direction: "outgoing" }))).toBe(false);
+    expect(isOwnerDecidableDocumentRequest(decidable({}, { kind: "outgoing_request" }))).toBe(false);
+  });
+
+  it("refuses an entry it could not decide against", () => {
+    for (const revision of [undefined, null, "4", 4.5, -1]) {
+      expect(isOwnerDecidableDocumentRequest(decidable({ revision }))).toBe(false);
+    }
+    // A Drive question, or an id that is not a request UUID, is not a document request.
+    expect(
+      isOwnerDecidableDocumentRequest(
+        decidable({ request_source: "drive_live_query_request" }, { id: `drive_query_request:${REQUEST_ID}` }),
+      ),
+    ).toBe(false);
+    expect(
+      isOwnerDecidableDocumentRequest(decidable({}, { id: "document_share_request:not-a-uuid" })),
+    ).toBe(false);
+  });
+});
 
 function request(
   overrides: Partial<OneLocationAccessRequest>,
@@ -113,5 +228,109 @@ describe("isActiveSmsEmergencyGrant", () => {
     expect(
       isActiveSmsEmergencyGrant(grant({ shareKind: "sos", status: "revoked" })),
     ).toBe(false);
+  });
+});
+
+describe("isSmsEmergencyGrant", () => {
+  it("surfaces an SOS share regardless of status, so a revoke stays visible", () => {
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "active" }))).toBe(
+      true,
+    );
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "revoked" }))).toBe(
+      true,
+    );
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "expired" }))).toBe(
+      true,
+    );
+  });
+
+  it("does NOT surface a non-SOS share", () => {
+    expect(isSmsEmergencyGrant(grant({ shareKind: "share" }))).toBe(false);
+    expect(isSmsEmergencyGrant(grant({ shareKind: "check_in" }))).toBe(false);
+  });
+});
+
+function debateTask(
+  overrides: Partial<DebateRunTask> = {},
+): DebateRunTask {
+  return {
+    runId: "run-1",
+    userId: ME,
+    debateSessionId: "session-1",
+    ticker: "AAPL",
+    status: "running",
+    startedAt: "2026-08-31T00:00:00Z",
+    completedAt: null,
+    updatedAt: "2026-08-31T00:00:00Z",
+    latestCursor: 0,
+    streamState: "connected",
+    streamMessage: null,
+    persistenceState: "none",
+    persistenceError: null,
+    dismissedAt: null,
+    finalDecision: null,
+    ...overrides,
+  };
+}
+
+describe("classifyDebateFeedState", () => {
+  it("retains a completed analysis as ready until it is dismissed", () => {
+    expect(
+      classifyDebateFeedState(
+        debateTask({ status: "completed", persistenceState: "saved" }),
+      ),
+    ).toBe("ready");
+    expect(
+      classifyDebateFeedState(
+        debateTask({
+          status: "completed",
+          persistenceState: "saved",
+          dismissedAt: "2026-08-31T01:00:00Z",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps running and failed-save states actionable", () => {
+    expect(classifyDebateFeedState(debateTask())).toBe("running");
+    expect(
+      classifyDebateFeedState(
+        debateTask({ status: "completed", persistenceState: "failed" }),
+      ),
+    ).toBe("failed_save");
+  });
+
+  it("keeps raw persistence diagnostics out of the retained task", () => {
+    const task = debateTask({
+      status: "completed",
+      persistenceState: "failed",
+      persistenceError: "Analysis is ready, but could not be saved to history.",
+    });
+
+    expect(task.persistenceError).toBe(
+      "Analysis is ready, but could not be saved to history.",
+    );
+    expect(task.persistenceError).not.toContain("422");
+    expect(task.persistenceError).not.toContain("json_paths");
+  });
+});
+
+describe("buildDebateFeedAnalysisHref", () => {
+  it("opens a settled run through its durable history identity", () => {
+    const href = buildDebateFeedAnalysisHref("run-1", true);
+    const url = new URL(href, "https://example.test");
+
+    expect(url.searchParams.get("tab")).toBe("analysis");
+    expect(url.searchParams.get("analysis_id")).toBe("run:run-1");
+    expect(url.searchParams.has("run_id")).toBe(false);
+    expect(url.searchParams.has("focus")).toBe(false);
+  });
+
+  it("keeps an active run on the resumable stream route", () => {
+    const href = buildDebateFeedAnalysisHref("run-2", false);
+    const url = new URL(href, "https://example.test");
+
+    expect(url.searchParams.get("focus")).toBe("active");
+    expect(url.searchParams.get("run_id")).toBe("run-2");
   });
 });

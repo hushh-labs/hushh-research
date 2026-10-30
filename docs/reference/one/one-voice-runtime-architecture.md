@@ -1,515 +1,151 @@
 # One Voice Runtime Architecture
 
-Status: current-state truth for the ADK-based One voice runtime.
+Status: Location command repair in progress. The physical-device acceptance journey is unverified and the repair has not been released. One is the private agent.
 
 ## Visual Map
 
+**Private-cloud policy — 18 October 2026:** GCP BYOC uses admitted pod routes for
+recorded transcription and command assessment, subject to its actual model authority.
+Azure voice is disabled in the microphone selector, pod capability and transcription
+route, even when a Gemini key or Google project setting is present. Typed commands
+retain their existing model checks. Private conversational Live cannot use the shared
+Developer API key; a compatible native Vertex model and live acceptance are separate
+requirements. [Current evidence](../quality/adk-orchestration-docs-audit.md) distinguishes
+local verification from installed-image behavior.
+
 ```mermaid
 flowchart TD
-  shell["One Voice shell<br/>Agent Bar + Agent Chat"]
-  fsm["Shared One Voice FSM<br/>accessible transitions"]
-  context["OneVoiceContextSnapshot<br/>redacted active state"]
-  transport["RealtimeVoiceTransport<br/>provider adapter seam"]
-  gemini["GeminiLiveClient<br/>audio pump + wire envelope"]
-  settlement["Correlated action settlement<br/>browser-observed outcome"]
-  relay["/api/one/adk/live<br/>ADK live relay"]
-  runner["ADK Runner (run_live)<br/>single ordered event stream"]
-  one["One root LlmAgent<br/>gemini-live model"]
-  onboarding["agent_onboarding<br/>deterministic, redacted goal resolver"]
-  search["google_search<br/>web grounding"]
-  nav["open_screen<br/>governed navigation allowlist"]
-  agenttools["AgentTool specialists<br/>Finance, RIA"]
-  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Connected Systems, Consent"]
-  a2a["adk_bridge dispatch<br/>A2A scope-gated specialists"]
-
-  shell --> fsm
-  shell --> context
-  shell --> transport
-  transport --> gemini
-  gemini -- "relay ticket ws" --> relay
-  relay --> runner
-  runner --> one
-  one --> onboarding
-  one --> search
-  one --> nav
-  one --> agenttools
-  one --> fntools
-  fntools --> a2a
-  shell --> settlement
-  settlement --> relay
+  entries[Agent Bar / Chat microphone / Siri free text] --> capture[One microphone owner: hold, speak, release]
+  capture --> audio[Transient mono PCM16 WAV / maximum 60 seconds]
+  audio --> transcript[Ordinary Gemini audio transcription]
+  transcript --> brain[Location semantic assessment / no effect tools]
+  contracts[Authored actions, workflows, routes and current scoped state] --> brain
+  brain --> plan[Validated Location plan]
+  siri[Typed Siri action] --> plan
+  plan --> checkpoint[Owner-vault encrypted checkpoint / 24 hours]
+  checkpoint --> admission[Generated policy and directive ledger]
+  admission --> execution[Existing service or prepared client handler]
+  admission --> gate[Input, confirmation, vault or device permission card]
+  admission --> screen[Real authored review screen]
+  gate --> admission
+  execution --> receipt[Authoritative outcome / correlated settlement]
+  screen --> handoff[Screen opened / operation requires review]
 ```
 
-## Current Truth
+The Agent Bar owns capture. Tap starts recording; another tap on the primary bar cancels capture or the pending command. The explicit Send recording control finishes tap-started capture; hold/release still sends. Cancellation, backgrounding and stale session callbacks discard recording; finishing drains the whole bounded recording. No command starts another listening session. Gemini Live runs only as the flag-gated One Live Voice adapter described in [one-live-voice-decision-2026-09.md](./one-live-voice-decision-2026-09.md) and [one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md); prewarming, reconnect-with-replay and conversational fallbacks remain retired. The normal text-model path remains available to typed Agent Chat.
 
-### Route orchestration index
+Chat and voice use the same presentation-only `AgentBarSurface`. Chat renders the selected voice adapter in its composer seat, without a second shell launcher. Its text editor remains mounted but hidden/inert during voice; microphone and command authority stay in their existing providers. Live primary-bar taps stop the session rather than interrupting or silently resuming it. Mute, panel and Send controls retain their explicitly labelled operations.
 
-`contracts/kai/one-route-orchestration-index.v1.json` is generated from the
-complete frontend/native surface map and the generated action gateway. Every
-physical route has exactly one bounded, authored `voicePlaybook` in the route-layout
-contract: purpose, canonical screen, entry cue, primary generated action reference,
-happy-path references, recovery posture, completion boundary, and return policy. The
-generated index joins that guidance to action coverage and specialist admission.
-Only the server-resolved active playbook and its bounded generated active-action
-inventory reach a live session; the browser cannot submit prompt text or widen
-its action set.
+Live reads the existing owner-local speakerphone-safe preference. Native iOS defaults to safe half duplex unless explicitly disabled; web and Android keep automatic echo-cancellation selection. The gate exists before asynchronous socket/microphone startup and retains speaking transitions and the 250 ms acoustic tail. Safe mode prevents ordinary speaker output from being sent as new input, at the cost of spoken barge-in while playback is audible. Stop during lazy startup settles immediately and retires late resources without disturbing a newer session. These are source contracts, not proof of physical microphone quality or completed spoken answers.
 
-Morphy AX consumes this verified state as a pure redacted presentation and
-assessment-policy layer. It does not choose actions, create a second voice state
-machine, or change `one_voice_context.v1` during rollout. See
-[Morphy Agent Experience](../quality/morphy-agent-experience.md).
+The mounted command provider survives route and chrome changes. Press starts microphone preparation immediately; 250 ms distinguishes hold/release from tap-started capture with explicit Send. Sliding left 64 px arms cancellation. Actual microphone level, elapsed time and readiness/cancel haptics use the shared segmented bar and waveform. A send attempt before readiness discards the pending capture. Granting first-time microphone permission requires a fresh gesture. Progress remains compact; choices and genuine prerequisites expand a nonmodal card. Collapse, cancel and result dismissal have separate behavior and never restart listening.
 
-The index is not a second router, prompt bundle, consent grant, or TrustLink
-input. Playbooks guide conversation but never execute. `deriveVoiceRouteScreen` remains the browser's canonical screen mapper,
-and the action gateway remains the only executable-action authority. Before
-One dispatches an internal A2A specialist, the backend checks the redacted
-current route against this index; scoped consent remains the authority gate,
-and TrustLink validation remains separate for delegation paths that use it.
+`hushh_mcp/agents/location/agent.yaml` owns semantic instructions. `operons/location/capabilities.py` compiles Location capabilities from the generated gateway, knowledge package and workflow bindings on each assessment; it does not maintain a separate action list. The restricted ADK brain returns `LocationAssessment` directly and can request bounded reads through declared read-only ports. It cannot mutate, confirm itself or declare completion. Policy validates exact registered actions and declared inputs. Existing connection-name resolution binds records after interpretation; it never selects an action from a sentence.
 
-### Native tools and MCP tools
+Workflow assessment receives the owning knowledge projection, entry action, completion policy and command completion actions. Endpoint inventories, interaction implementations and execution bindings stay in the full server-side catalog used for validation and execution. The projection retains every registered capability without ranking or sentence matching. The authored instruction leaves prerequisite and completion reads to the workflow; semantic read tools resolve missing plan inputs and existing resource choices. A planning deadline returns HTTP504 with a bounded `timeout` reason in operational logs; invalid assessments return HTTP422 with `invalid_assessment`. Neither failure logs the request, protected context or provider output.
 
-One uses two deliberately separate tool planes:
+`location.plan.v2` represents action/workflow steps and references to verified earlier results; existing action-only v1 checkpoints remain readable. The unlocked session keeps at most 50 non-authorizing result references for 15 minutes, clears them on lock/sign-out, and refreshes their owning state before mutation. Only references required by an unfinished command enter its encrypted capsule. Created-circle dependencies use the circle receipt returned by the operation, not a repeated name lookup.
 
-1. **Native, local tools** are the latency-critical plane. `list_app_actions`,
-   `run_app_action`, `start_app_goal`, route navigation, onboarding resolution, and correlated
-   browser settlement stay as bounded ADK function tools over generated
-   contracts. A visible control never becomes an MCP-discovered tool, and an
-   MCP server can never decide the current route, infer a DOM control, or
-   report a browser action as complete.
-2. **MCP tools** are the consented external-capability plane. A specialist may
-   consume a small, manifest-owned MCP tool allowlist only after its route,
-   auth, vault, consent, scope, and delegation gates pass. One stays the only
-   conversational owner and receives a typed specialist result; it does not
-   receive a broad remote tool catalogue or owner credentials.
+## Outcomes and authority
 
-This follows ADK's `McpToolset` model: MCP schemas are discovered and adapted
-into ADK tools, and calls are proxied to the MCP server. That discovery and its
-stateful connection lifecycle are intentionally outside the live root turn.
-For Cloud Run, external MCP integrations use authenticated Streamable HTTP,
-bounded connection/request timeouts, circuit breakers, telemetry, and a
-strict tool filter. Stdio MCP is development-only. A restored process must
-re-establish an MCP connection before use; no stale connection or cached tool
-catalogue grants authority. On any connection, consent, or tool failure, the
-specialist returns a typed recoverable result and One retains the active goal.
-
-The source boundary is [ADK MCP tools](https://adk.dev/tools-custom/mcp-tools/):
-its connection-management, tool-filtering, lifecycle, and Cloud Run guidance
-is adopted here without turning MCP into a route-awareness or browser-control
-protocol.
-
-### Public welcome and first-turn priority
-
-`/` is the public `one_intro` screen; it is not the authenticated `one_agents`
-screen at `/one`. Its visible **Claim your One** button publishes
-`onboarding.claim_one` through a local action contract and a browser-local
-handler. The handler shares the exact redirect-preserving navigation path used
-by the button, while the generated gateway remains the only way One can issue
-that action.
-
-The initial welcome cue is idle-only. The browser sends one bounded,
-transcript-free `voice_activity_start` frame after sustained local speech
-activity. The relay cancels its pending cue before it enters the ADK queue;
-the client interrupts any already-playing cue through its normal barge-in
-fence. One gives a clear, current-screen, low-risk visible-control request
-priority over an introduction or onboarding narration, then waits for the
-correlated browser settlement before claiming completion. No DOM inference,
-client-side intent router, or public MCP route tool participates in this path.
-
-Interactive route entry cues are debounced by the verified route/playbook key. A
-visitor speech-activity frame cancels any pending cue before retained audio reaches
-ADK. Confirmation-required voice directives use an inline ambient card; slots remain
-transient and hidden, and confirm/cancel both report a correlated settlement.
-
-### Active interaction layers
-
-The browser publishes authored route, chrome, and interaction-layer inventories into
-the existing runtime context. `VoiceInteractionLayerV1` describes only the top dialog,
-popover, sheet, menu, confirmation, or bounded option surface: modality, lifecycle,
-dismissibility, generated actions, control ids, bounded options, focus return,
-underlying-action policy, and Agent continuity. It does not contain prompt text or
-private page information.
-
-The server receives only the composed, bounded active inventory. Modal and blocking
-layers hide route actions; nonmodal layers retain only route actions the author
-explicitly permits. One gives the top layer priority during its normal semantic
-assessment, then the generated gateway validates the exact selected action. Closing a
-layer uses its mounted generated handler and settles only after removal, focus return,
-and context revision. No DOM inference, global synthetic Escape, keyword router, or
-second action registry is involved.
-
-Route inventories are pathname-leased. The client projects zero available actions when
-the verified runtime pathname has changed but the old publisher has not yet unmounted.
-Agent Bar waits for the destination route and its new authored publisher before
-reporting a successful navigation settlement. Same-route visible-action or top-layer
-changes are included in the relay's bounded route-context revision, so One receives the
-new inventory without a page refresh or Live-session restart.
-
-Search remains available as a separate input surface, but it is not a second voice
-runtime. A selected Search action is passed to `executeAgentGatewayAction` and settles
-through the same correlated browser path as an Agent Bar directive. The browser never
-uses DOM state or a legacy client planner to make an action executable.
-
-One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI by
-default. The browser is an audio pump and directive executor; every decision
-(conversation vs tool call vs navigation vs specialist delegation) is made
-inside One's agent tree on the backend.
-
-What shipped:
-
-- `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
-  `LlmAgent` (name `one`, model `gemini-live-2.5-flash-native-audio` via
-  `AGENT_ONE_ADK_MODEL`; the native-audio Live model is served regionally on
-  Vertex, so the live client pins `AGENT_ONE_ADK_LOCATION`, default
-  `us-central1`) with the full roster wired as tools: `google_search`,
-  `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and specialist-turn
-  function wrappers.
-- `consent-protocol/api/routes/one/adk_live.py` is the only voice relay:
-  `POST /api/one/adk/relay-session` mints a signed one-time ticket
-  (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
-  browser wire envelope onto `run_live`.
-- The legacy hand-rolled Vertex pump
-  (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
-  planner (`lib/voice/one-voice-live-action-bridge.ts`), and the
-  `action_proposal` transport event were deleted. There is no second
-  decision-maker anywhere in the voice path.
-
-Voice responder contract (who makes LLM calls, who speaks):
-
-- The root Live model is the ONLY audio producer. Specialists never speak.
-- Agent Chat has no microphone transport, STT adapter, TTS queue, or browser
-  speech fallback. Its microphone affordance requests the persistent Agent
-  Bar's existing One Live owner, so a chat surface can never overlap or replace
-  native-audio playback.
-- `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
-  `run_async` call on the specialist model inside the live turn; the root
-  model folds the result into its spoken answer.
-- The deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
-  LLM calls: they are deterministic handlers (A2A dispatch / directive
-  parking) whose structured results return to the root model.
-- `resolve_onboarding_goal` is likewise deterministic but intentionally is not
-  A2A: anonymous sign-in cannot require vault or consent authority. It sees
-  only redacted journey state and returns permitted next actions; One retains
-  conversational ownership. See [One Voice Onboarding Journey](./one-voice-onboarding-journey.md).
-
-### Current Gemini workload matrix
-
-The authored manifests and runtime registry follow Google's current model
-catalog rather than a single blanket default:
-
-| Workload | Model | Reason |
-| --- | --- | --- |
-| One typed Agent Chat, semantic action selection, and agentic specialists | `gemini-3.6-flash` | GA Flash text/function head on the global Vertex endpoint |
-| Bounded summary reduction, receipt extraction, and runtime readiness probes | `gemini-3.1-flash-lite` | Lower-cost, lower-latency bounded work |
-| Agent Bar bidirectional speech | `gemini-live-2.5-flash-native-audio` | Current native-audio Live model; served from the configured Live region |
-
-Text models are explicitly marked `supports_native_realtime=false`; only the
-named Live model can acquire the realtime transport. Gemini 3.6 Flash is not a
-Live model and must never be substituted into the Agent Bar based on its name.
-The source catalog is [Google models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/google-models).
-
-### PKM and Connected Systems boundary
-
-- The browser decrypts the approved PKM projection only after vault unlock,
-  keeps it in session memory, and passes the bounded turn context to One's
-  `gemini-3.6-flash` text head. One treats it as information, never as
-  instructions or exhaustive truth.
-- The identical bounded projection is available to the Finance specialist when
-  relevant; omitted vault domains, credentials, exports, and CRM records cannot
-  be inferred.
-- Connected Systems and CRM remain an explicit `agent_connected_systems` A2A
-  specialist path. One invocation is not record authority: route admission,
-  attenuated consent authority, schema validation, and visible confirmation
-  still gate read/create/update work. CRM delete remains unavailable.
-- The Live head may semantically choose that specialist, but it receives the
-  same fail-closed result when the current route or authority is insufficient.
-  Audio transport never grants PKM or CRM access.
-
-Current delegation limit: only Location, Nav, and Personal Information are
-registered for a Live turn today. Email, Connections, and Connected Systems
-wrappers intentionally return `unavailable` until their callers can
-mint an ingress-validated `A2AAuthorityContext`; the live relay must not pass
-its raw vault-owner token into those ambient-user service paths. This is a
-known capability gap, not a permission bypass.
-
-### Gemini runtime selection
-
-- `hushh_managed_vertex` is the default. It uses Hussh workload identity and
-  requires neither a vault nor a user credential.
-- `byok` is an optional Google AI Studio Gemini API key or Google Cloud Vertex
-  API key. The selected endpoint is explicit and encrypted alongside
-  `pkm:runtime_secrets.llm.gemini_api_key` and
-  `pkm:runtime_secrets.llm.credential_mode`; Vertex requires the selected
-  project and location. Connections setup
-  (`/one/setup/connections`) and Connections settings (`/one/connect/settings`) are
-  the only configuration surfaces; Connections the agent never receives the key.
-- Typed private-agent turns resolve the key only from an unlocked vault and pass
-  it to the existing runtime-provider factory for that request. CRM mapping,
-  portfolio ingestion, consent execution, and all other background workflows
-  remain on managed Vertex.
-- Live BYOK is disabled by default. The relay accepts it only after an operator
-  selects a registry-approved Developer API model and enables it after an ADK
-  rehearsal. The registry currently permits `gemini-2.5-flash-live-preview`;
-  `gemini-3.1-flash-live-preview` fails closed because its Live contract does
-  not support the relay's required mid-session client-content updates. A Google
-  Cloud Vertex API key is currently typed-turn only and is rejected before the
-  live relay; its Live endpoint/model contract needs its own UAT rehearsal. An
-  unsupported, invalid, or quota-limited key offers managed Gemini instead;
-  it never silently falls back to Hussh credentials.
-
-Why this fixes the "random commands" class of bugs by construction:
-
-- ONE decision-maker: One's root agent decides inside ADK's own flow. There
-  is no client-side re-ranker and no separately-timed proposal frame to race
-  the transcript.
-- Turn correlation: `run_live` yields a single ordered `Event` stream per
-  invocation; audio, transcriptions, function calls, and directives share the
-  same ordered channel.
-- Real interruption: interrupted turns surface as `event.interrupted` from
-  the provider.
-
-## Wire Protocol
-
-Browser to relay:
-
-| Frame | Meaning |
+| Outcome | Current behavior |
 | --- | --- |
-| `{"type": "runtime_bootstrap", "runtime_credential_mode": "hushh_managed_vertex"\|"byok", "runtime_credential_transport": "developer_api"\|"vertex_api_key", "runtime_vertex_project"?: "…", "runtime_vertex_location"?: "…", "runtime_credential"?: "…"}` | **First authenticated frame only.** Selects the connection-local runner; Vertex metadata is required only for a Vertex key. The optional BYOK key is cleared after runner creation and never enters `app_context`. |
-| `{"realtimeInput": {"audio": {"data": b64, "mimeType"}}}` | 16 kHz mono PCM16 mic audio |
-| `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` (explicit `null` clears it) + `timezone` |
-| `{"type": "action_settled", "actionSettlement": {...}}` | correlated browser-observed outcome of an action directive |
-| `{"type": "app_speech", "text"}` | app-composed response for One to speak verbatim |
-| `{"type": "user_text", "text"}` | typed user turn (chat parity / accessibility) |
-| `{"type": "interrupt"}` | stop talking, close the activity window |
+| `end_to_end` | Execute an admitted backend binding or a prepared owning client handler. |
+| `needs_user_gate` | Show missing inputs, exact recipient choices, confirmation, unlock or a real permission prompt; continue the same checkpoint. |
+| `simulate` | Open the authored destination. A manual handoff closes with `review_required`; opening a screen cannot satisfy a dependent mutation. |
 
-Relay to browser:
+A normal route action can succeed when its requested screen opens. A mutation's screen fallback cannot report that the mutation succeeded. Missing preparations use authored screen handoffs instead of executing against ambient selection. Permission observations are checked again; a model assertion is never permission. Device settings and prompts remain user actions.
 
-| Frame | Meaning |
-| --- | --- |
-| `{"setupComplete": {}}` | session live; client now pushes initial app_context |
-| `{"serverContent": {"modelTurn": {"parts": [...]}}}` | 24 kHz PCM16 audio chunks |
-| `{"serverContent": {"interrupted": true}}` | provider confirmed interruption |
-| `{"serverContent": {"turnComplete": true}}` | model turn closed |
-| `{"inputTranscription": {"text"}}` | final user transcript |
-| `{"outputTranscription": {"text"}}` | final assistant transcript |
-| `{"clientDirective": {"kind", "payload"}}` | tool-decided client action (e.g. navigate) |
+Preparation belongs to the existing local-handler registry. It freezes selected records, keys, audience, duration and any note before confirmation. Resource-choice cards contain current owner records. A salted commitment binds server authority to those inputs; the complete binding and its random salt stay in client memory or the owner-encrypted capsule. Coordinates and private check-in notes do not enter authority request bodies.
 
-## Auth and Consent Boundary
+Request approval displays and binds the resolved duration, duration mode and request revision. The owning service checks the revision under its request lock before granting access. Extension requests open the real review screen: the existing extension service uses the current live grant, which this command receipt cannot pin. Cancellation is checked after handler mounting and asynchronous preparation; an effect already started still waits for its authoritative outcome. A newer Location toggle prevents the superseded step from satisfying a command prerequisite.
 
-- The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
-  consent token in any URL.
-- A BYOK credential may exist only in the first TLS-protected
-  `runtime_bootstrap` frame. It is not put in the ticket, URL, ADK session
-  state, Postgres, browser/native storage, telemetry, logs, or model prompt.
-  The relay builds a connection-local runner and drops its raw reference.
-- Vault lock, key removal, mode change, app backgrounding, and reconnect end
-  the current BYOK voice connection. A later voice session resolves the current
-  encrypted configuration again; no durable relay credential reference exists.
-- The vault owner consent token rides in the post-connect `app_context` frame
-  and lands in ADK session state (`hussh:consent_token`). It is read by
-  specialist turn tools only; it never reaches the model prompt.
-- Locking the vault or revoking consent sends `consent_token: null`, which
-  clears the token from the active ADK session before any later specialist
-  call. A live session never retains its former authority after that update.
-- Specialist tools fail closed: without `hussh:user_id` + consent token in
-  session state they return `needs_auth` instead of calling the specialist.
-- Session state writes go through `session_service.append_event` with a
-  `state_delta` (the relay's session object is a service copy; direct
-  mutation does not persist).
+Typed Siri enters the same validated proposal and receipt lifecycle. It cannot authorize a changed or undisplayed resource by supplying a `confirmed` slot. Sensitive actions are reviewed in the command surface. Confirmation tokens are minted from actual user activation and must match the current directive, owner, action, inputs and context.
 
-## Directives
+Unconnected people enter Connect's existing scope review through the exact `reviewPerson` route. A Firebase-authenticated participant read distinguishes unavailable, pending incoming, pending outgoing and currently connected states. Location keeps the original encoded audience/circle choice in its capsule and waits; opening Connect or sending a request does not complete the dependent Location action. Continue refreshes Location's own eligibility and keys. Owner changes invalidate the review and pending catalogs.
 
-Tools never touch the client directly. They park a directive in session
-state (`hussh:pending_directive`), which lands in the event's `state_delta`;
-the relay forwards it exactly once as a `clientDirective` frame, ordered with
-the event stream. The client executes it (`agent-bar.tsx` handles
-`kind: "navigate"` via `router.push`).
+## Requested Location onboarding
 
-`open_screen` is allowlist-governed: `APP_ROUTES` in `agent_tree.py` maps
-screen ids to routes; anything outside the map is refused by construction.
-`run_app_action` is the broader governed-action lane: it looks up an exact
-`action_id` in the generated gateway (`contracts/kai/kai-action-gateway.vnext.json`,
-loaded by `hushh_mcp.services.action_gateway`) and parks the same
-kind of client directive, or redirects to a specialist's `ask_*` tool when
-the action is delegate-owned, or refuses `manual_only` actions with
-where-to-do-it guidance.
+“Complete setup” uses `workflow.setup.location`; “open setup” retains its navigation meaning. Fast mode skips informational screens, observes the real device permission, captures a fresh owner/run-bound position and prepares an encrypted draft. `draft_prepared` is an app result, not a fabricated user click. The private default is Other / Current location, with no mandatory address lookup or Home/Work question.
 
-`start_app_goal` and `continue_app_goal` own the narrow cross-surface lane.
-They currently handle `goal.analysis.start_debate`: navigate to Analysis,
-wait for a fresh redacted context revision, then issue `analysis.start` to
-open the comparison preview. The goal run records its generated ids, bounded
-non-sensitive slots, expected screen/context revision, cursor, and terminal
-status. It never starts a debate; preview confirmation remains a separate
-visible action.
+The command binds its stable step/operation to the workflow run before effects. A narrowly scoped `owner_requested_workflow` receipt authorizes only that run's private draft. Its finalization token and stable commit identity travel through the existing PKM coordinator, web/native service and v5 transaction. The writer appends the stable run place without normalizing or discarding existing records; an unrecognized saved-place record blocks the append for review. Place, circle and completion receipts remain the workflow owner's proof. Staging a draft, returning a locations array or opening the hub is insufficient. Lost finalization responses reconcile the same run/commit rather than saving another default place.
 
-### Action settlement
+Returning from the OS permission prompt refreshes the current interaction without advancing its admission sequence. An unchanged foreground read cannot supersede the permission settlement already in flight. Run revisions reject stale projections; cancellation and owner changes still invalidate late responses.
 
-An action directive has two distinct stages: **proposal** and **settlement**.
-The relay attaches a random `directiveId` to each direct `actionId` directive
-and retains that correlation only for the current authenticated WebSocket.
-The browser runs the action through `executeAgentGatewayAction`, then returns
-its `succeeded`, `started`, `blocked`, `invalid`, `failed`, or `noop` result
-with the same id. The relay rejects unmatched, replayed, or malformed reports.
-Only a matched result becomes an `[App action settlement - not user speech]`
-turn for One. One must describe that reported outcome, never assume an action
-completed merely because it emitted a directive.
+## API and persistence
 
-This closes the live chain as:
+The command path uses the existing One namespace:
 
-`One plan → governed directive → browser guard/execution → correlated settlement → grounded next turn`.
+- `POST /api/one/transcriptions`: bounded audio to transient transcript.
+- `POST /api/one/agent-chat/proposals`: semantic proposal.
+- `POST /api/one/agent-chat/proposals/typed`: already typed action, with identical validation.
+- `/api/one/action-proposals`: owner-bound list, checkpoint, resolve, admit, confirm, claim, execute, settle, resume and cancel lifecycle.
 
-### Settled cross-screen journeys
+Web uses the existing authenticated API proxy; native uses the same service boundary. Both require the current vault-owner authority. This milestone follows **unlock first**: an account must already have a vault. Initial pre-vault setup remains available through its existing tap flow; an unlock dialog cannot create a missing vault.
 
-An explicitly authored settled journey extends that chain without creating a
-second planner:
+The active-onboarding read returns HTTP 204 when no unfinished run exists. The web proxy preserves that status with an empty body and private, no-store headers; it must not serialize JSON into a bodyless response or turn the empty state into a gateway failure.
 
-`current visible action → browser execution → destination context acknowledged → correlated settlement → eligible next step`.
+`one_adk_sessions`, under `one.location.commands.v1`, stores metadata and a client-vault AES-GCM capsule. The platform's outer session encryption is an additional layer, not ownership authority. Persisted continuations contain validated action inputs and a normalized unresolved intent, not raw audio, transcription, credentials or vault keys. Checkpoints precede effects and gates. Completion, cancellation and expiry remove the capsule. The existing retention job and command reads purge expired capsules after 24 hours.
 
-The action contract must name the destination route and screen. The client
-publishes a redacted destination snapshot with an opaque context ID and waits
-for the relay acknowledgement before reporting `action_settled` with that ID.
-The relay rejects a journey whose accepted route, screen, inventory, or
-context ID disagrees with the authored target. Only then may One call
-`continue_app_goal`; any deferred choice is a generated action ID held in the
-live session only. The browser still revalidates the choice, and a
-confirmation-required provider action still needs its exact trusted tap.
+Migration `212_location_command_runtime.sql` extends the existing directive ledger with command/step identity, stable operation IDs, execution receipts and a screen/action discriminator. Atomic claims serialize concurrent resumes. `location.create_circle` composes the owning service mutation with its receipt in one transaction and preserves the existing same-name no-op. Backend success refreshes the owning Location state before the next step. Private share/check-in uses the existing atomic encrypted-grant operation. Access requests journal stable operation receipts inside the owning event-bound transaction; command callers do not automatically retry uncertain HTTP effects.
 
-### Public action progress
+After restart, authenticate, unlock and decrypt, then explicitly choose **Resume** or **Cancel**. Resume refreshes state, renews expired unconsumed authority and reconciles consumed/settled steps before reading resources they may have removed. It never replays a completed step. An unknown outcome uses its owning recovery or review control. Consumed audience and membership operations renew only their verified unfinished units, preserving their original binding and stable operation identity. Already completed units remain receipts, not new authority. Replanning locks the session then reads ledger state in a fresh transaction statement; only steps without consumption or execution receipts can be replaced. Changed capabilities revalidate the remaining plan. Postgres is the current shared coordination plane; a future Redis adapter must preserve the same atomicity and owner boundaries.
 
-The browser also publishes one bounded `ActionRun` presentation state for a
-generated action: `acknowledged`, `preparing`, `navigating`, `executing`,
-`awaiting_confirmation`, then `completed`, `blocked`, `cancelled`, or `failed`.
-Agent Bar and Agent Chat render the same short, factual status (for example,
-“Opening Analysis” or “Confirm Connect Google”). These are derived only from a
-received directive, confirmation choice, browser execution, route settlement,
-and terminal settlement. They never expose model chain-of-thought, prompt
-content, raw slots, credentials, OTPs, or a synthetic estimate of progress.
+Location onboarding's private save has an explicit recovery path. **Refresh / Resume** first checks the exact workflow receipt. If the save is unfinished, the server advances its existing lease revision under the atomic writer's run lock and returns renewal proof. The client checkpoints that proof before retrying the same encrypted draft and stable commit identity. An older in-flight attempt is then unable to write; a completed save is reconciled without another write. Missing renewal proof or a failed checkpoint keeps the attempt blocked. Workflow receipt reads use Firebase identity, while PKM writes retain vault-owner authority. The finalizer's server-issued expiry is transmitted without rounding its microsecond precision.
 
-The app-scoped interaction coordinator retains the first terminal directive
-settlement for its bounded session ledger. A same-id/same-fingerprint redelivery
-replays that outcome without re-executing the action; a conflicting reuse fails
-closed. Action presentation is lifecycle-only: ADK plus the generated gateway
-remain the sole semantic action-selection authority.
+The additive repair migrations extend the same stores: 213 binds workflow runs, 214 adds private finalization authority and the v5 writer, 215 records created resources, 216 journals membership batches, 217 records client-owned domain effects and 218 binds each share/request/check-in recipient to its exact reviewed terms. New effects require a fresh command authority; prior receipts remain readable after expiry or cancellation. Their paired rollbacks preserve historical proof. The real share writer, encrypted envelope and audience receipt commit together; request updates and their events share the owning transaction. A private check-in's point/note contribute a salted digest to preparation and remain client-owned until encryption.
 
-Desktop-web provider actions may require `trusted_activation_required`. One still
-selects the exact Apple or Google generated action in its current ADK turn, but an
-asynchronous directive does not carry browser transient activation. The blocked
-directive produces one provider-specific Agent Bar action; its trusted tap invokes the
-mounted Firebase popup handler synchronously and preserves the live session. Popup
-success is correlated only after Firebase returns a verified user and token. The
-browser-owned popup is not an in-app interaction layer, and popup close, cancellation,
-focus recovery, retry, SDK failure, and stale completion report typed settlements
-without reloading Login or allowing an old attempt to mutate a newer one.
+Rollback requires stopping command traffic, restoring the prior application revision and applying migration 212's paired rollback. The rollback archives receipt metadata, removes command capsules and retains pre-existing typed-chat history. It does not reactivate provider speech automatically.
 
-Gmail connector OAuth uses the same activation boundary without impersonating Firebase
-provider authentication. The generated **Connect Gmail** action is
-`trusted_activation_required`: the Agent Bar's exact confirming tap opens the named
-connector popup synchronously, and only then does the popup navigate to the
-backend-issued Google authorization URL. The callback reports a same-origin, opaque
-terminal settlement to the retained opener. The vault key and owner token remain solely
-in the opener's memory; neither is written to browser storage or sent through the popup.
+## Entry points and retirement
 
-## Onboarding and Proactive Prompting
+`command-agent-bar.tsx`, `command-capture.ts`, `location-command-runtime.ts`, `command_proposals.py`, `command_brain.py` and the existing service/handler registries own the implementation. The generated gateway retains stable `kai` compatibility identifiers. Legacy text backend bindings are authored on action contracts and generated into compatibility projections.
 
-Guiding a new user through account setup is an ordinary `run_app_action`/
-`open_screen` job, not a separate onboarding engine: `ONE_IDENTITY_INSTRUCTION`
-in `agent_tree.py` tells One that the welcome screen, sign-in, phone
-verification, the `/one/setup` hub, and the Finance preferences wizard are
-all reachable the same way as any other app surface, and that while someone
-is still finishing setup One should proactively name the next thing they can
-do and ask directly for anything that needs an answer (a wizard question, a
-phone number) instead of only describing it.
+Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement response; no Live model is constructed there. The maintained Live surface is `/api/one/voice/*` (`api/routes/one/voice.py`), which constructs its model through the selected managed adapter only while `ONE_VOICE_LIVE_ENABLED` is on. UAT can use keyless Azure Realtime; non-UAT retains Vertex ADC. Azure resamples admitted 16 kHz client PCM to 24 kHz and returns the existing 24 kHz output contract. `audio_playback` negotiation adds item-bound `audio.playback` acknowledgements from the player clock; cancellation truncates only to acknowledged playback. `/api/one/voice/readiness` with or without `?playback=1` probes that same selected adapter. Older clients remain on it; without playback acknowledgements, an in-flight interruption truncates output at zero and may discard already-heard context. Completed generated turns remain in conversation history for ordinary follow-ups, without treating completion as proof of playback. Buffered input frames retain the public 512 KiB limit through bounded resampling chunks. Azure does not replay a transcript or reuse a Vertex resumption handle. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
 
-Every previously tap-only onboarding control has a governed `action_id` so
-voice has full parity with tapping: `setup.open_finance`/`...gmail`/`...email`/
-`...location`/`...pkm`/`...marketplace`/`...consent`/`...connected_systems` (hub
-tiles), `setup.hub_master_ack` (master Skip/Continue), `setup.capability_continue`
-(per-capability Continue), `kai.setup.answer_horizon`/`...answer_drawdown`/
-`...answer_volatility` (wizard questions, each carrying a real spoken
-`goal.required_inputs` prompt) and `kai.setup.launch_dashboard`, plus
-`phone_mandate.submit_number` and confirmation-required
-`phone_mandate.submit_code`. Spoken OTP values remain transient, redacted, and are never
-repeated. Actions that change in-place component
-state rather than navigating use a fourth `execution_target.path`,
-`local_handler`: the owning component registers a small handler on mount via
-`useLocalOnboardingActionHandler` (`hushh-webapp/lib/agent/local-onboarding-actions.ts`,
-mirrors the `usePublishVoiceSurfaceMetadata` publish/clear lifecycle), and
-`executeAgentGatewayAction` resolves it by `action_id` for the text/chat
-execution path; the voice path already reaches the same client directive
-through `run_app_action`'s existing `{kind: "action"}` parking.
+For clients that acknowledge playback, Azure retains a completed assistant item
+when its player-clock acknowledgement covers the generated audio at the wire's
+integer-millisecond precision. Generation completion and playback are separate:
+an acknowledged prefix of a still-generating answer, or a completed answer with
+an unplayed tail, remains subject to interruption truncation. A new utterance
+still advances interruption authority and cancels superseded tool calls.
 
-Proactive prompting has two injection points, both in
-`consent-protocol/api/routes/one/adk_live.py` and `hushh_mcp/one_adk/`:
+## Verification and release boundary
 
-- **Screen change**: the existing silent app-state note (`"...Use this
-  silently."`) upgrades to an explicit ask-a-question instruction whenever
-  the new screen is in `_ONBOARDING_SCREENS` (`getting_started`, `login`,
-  `register_phone`, `one_setup`, `one_setup_hub`, `kai_setup_wizard`); every
-  other screen keeps the original neutral/silent behavior.
-- **Tool result**: there is no separate server-injected system turn after a
-  tool call completes - the tool's own return dict is what the model reads
-  on its next turn. `open_screen` (`agent_tree.py`) and `run_app_action`
-  (`action_tools.py`) both add a `next_step` field to their success returns
-  so One offers a next step after every screen it opens and every governed
-  action it runs, not only after an onboarding-tagged screen change.
+Run `npm run verify:one-voice`, `npm run typecheck`, native plugin/privacy checks, the Location regression suite, focused backend command tests and real PostgreSQL command transaction tests. PostgreSQL tests require `ONE_COMMAND_TEST_DATABASE_URL` pointing to an isolated test database; never use a shared account database. Regenerate both the action gateway and product-agent registry after authored changes.
 
-Note: the generated gateway's `reachability.screens` is matched against the
-ROUTE-DERIVED screen id sent as `hushh:screen`
-(`deriveVoiceRouteScreen()` in `route-screen-derivation.ts`, e.g. `one_setup`,
-`register_phone`), not the custom `screenId` a component publishes via
-`usePublishVoiceSurfaceMetadata` (e.g. `one_setup_hub`, `kai_setup_wizard`).
-Onboarding contracts list both id sets in `reachability.screens` so
-`list_app_actions`' screen-based ranking still works; direct `run_app_action`
-execution by `action_id` is unaffected either way.
+When integrating a branch with a different generated workflow history, run `node scripts/voice/generate-capability-graph.mjs --workflow-predecessor-ref <merged-ancestor-sha>` from `hushh-webapp`, then `node scripts/voice/generate-one-location-workflow-card-catalog.mjs`. The generator accepts only committed ancestors and proves unchanged or additive workflow semantics before preserving their compatible revisions. Authority changes and conflicting rejection or migration policies fail closed. This retains unfinished setup from either merge parent without hand-editing generated compatibility lists.
+If the merged history must survive ordinary `--check` runs, record the exact ancestor
+in the existing capability graph evolution contract's `workflow_predecessor_refs`.
+The generator validates ancestry and workflow compatibility on every build.
 
-## Chat Runtime (parity path)
+New vault-owner DELETE endpoints may extend the unbound implementation inventory without invalidating an unchanged workflow. Discovery grants no execution binding, and endpoint inventory stays outside the model's selectable catalog. Compatibility still requires identical existing endpoints, executable plans, cursors, and authority; a bound endpoint or a changed workflow requires its own reviewed contract.
 
-Typed Agent Chat (`api/routes/kai/agent_chat.py`) sends new natural-language
-turns to One's ADK semantic head and retains encrypted history plus explicit
-specialist continuity. It does not run a client lexical action planner. The
-Information Marketplace is intentionally rejected at this boundary; its
-standalone consent-first chat and routes remain separate.
+September 13 repair evidence includes mounted bar/provider/workflow tests, native slash/query settlement tests, focused semantic/read-port tests, actual PostgreSQL share/check-in/request/membership writers under concurrency and failure injection, and real encrypted v5→v4→v3→v2 PKM preservation/rollback tests. The existing coordinator's default-place test preserves Home, Work and unrelated records and refuses invalid records without a write. Mounted Connect tests cover scope review, account changes, cancel/reopen and reverse-direction request races. Native static/plugin and Siri contracts pass. Earlier baseline web/native builds and historical route audits are not acceptance evidence for this uncommitted repair. Provider generation receives the typed schema shape; full size and authority validation remains local. Exact digital silence returns an empty transcript without a model call.
 
-## Context Snapshot
+Circle rename, removal, leave, delete and pending invitation acceptance/decline now use their existing owning operations with exact resource preparation and transactional receipts. Revalidation after domain lock waits rejects expired authority and rolls back coupled effects. Acceptance joins the circle and retains the inviter connection; it creates no location share. Real PostgreSQL tests cover all six operations, concurrent replay, changed reviews, receipt failure and expiry during a profile-lock wait.
 
-`OneVoiceContextSnapshot` stays intentionally lossy:
+Nearby checkout binds the exact presence incarnation and cannot end a newer visit on replay. Public-link creation/extension and revocation commit their effects, events and receipts together; sharing uses the actual system handoff, with a browser gesture screen where required. Public-link tests cover changed URLs/expiry, response loss, concurrent calls and rollback. Private check-in continuation stays inside the client-encrypted capsule. Five synthetic English/Hindi/Hinglish text assessments passed against the configured non-Live model; this is semantic-model evidence, not microphone or speech-transcription proof. A fresh iOS simulator native compile with the repaired static web bundle passed, followed by 16 native action-coordinator tests without skips. Android debug assembly and unit tests passed. These are build and native-contract proofs, not physical-device journey evidence.
 
-- keeps redacted sign-in state, screen id, route family, visible modules, available action ids,
-  cache posture, vault readiness, portfolio readiness, persona, voice state,
-  and the top redacted interaction-layer posture
-- redacts user ids, vault keys, raw PKM, transcript history, private
-  documents, and raw cache keys
+The generated Location coverage check now verifies a backend binding, registered client preparation, or explicit authored screen for every current capability. Empty-circle creation follows its direct-execution policy through both command and typed Siri entrypoints. Saved-place mutations, contact scanning, share-duration editing and individual setup controls use explicit authored manual screens; the complete setup request uses its workflow. SOS opens its real review; opening it never means an alert was sent.
 
-The client pushes it (plus consent token + timezone) as `app_context` on
-`setupComplete` and again on every screen change while a session is live. The
-relay keeps a bounded allowlist of this redacted state in ADK session state for
-tools only: `run_app_action` and `list_app_actions` use the supplied action ids
-to avoid proposing controls that are not available on the current surface.
-Raw snapshot fields never enter a model prompt. Screen changes alone surface to
-the model as bracketed non-speech user content.
+Nearby stores its encrypted rating visit and exact internal pointer in the presence transaction. Checkout closes only that owner-bound visit, with the command receipt in the same transaction; optional rating failures use a savepoint with bounded lock and statement waits. Migration 219 clears pointers on alias changes and terminal state and prevents delayed older visit writers from closing a newer active visit. Checkout replay returns its historical receipt alongside refreshed current visibility. Its rollback preserves encrypted visits and ratings. Completed-command replay never closes a later visit.
 
-Only the active playbook, top-layer inventory, visible generated actions and bounded
-options, and pending-settlement posture are composed into One's runtime instruction.
-`list_app_actions` is retrieval over generated contracts, not semantic authority;
-intelligence assesses meaning and deterministic policy validates route, layer, auth,
-vault, consent, confirmation, and settlement boundaries.
+Fresh web production compilation, typechecking and page generation passed. After integrating the current baseline, 310 focused frontend tests, 700 backend tests and the expanded 152-test voice verification passed. Physical English/Hindi/Hinglish speech, OS permission prompts, interruption/tail capture and termination recovery still need proof on web, physical iPhone and Android. The native bundle/build checks must be repeated if subsequent integration changes affect them. No optional-device skip can satisfy this release. Founder Wiki verification/update remains outstanding because its credential was unavailable.
 
-## Verification
+Created-circle result references are projected only from correlated completed-step receipts and a fresh owner-scoped circle read. Stable non-authorizing handles avoid duplicate candidates across result reads. Cancel retries retain the same command identity until terminal acknowledgement or owner-scoped expiry. Choice and semantic reassessment changes install only after encrypted checkpoint acknowledgement; a rejected or lost response requires explicit canonical refresh before further execution. Renewed partial operations retain their original consumed-history fence before semantic reassessment.
 
-```bash
-cd consent-protocol && ./bin/consent-protocol test-ci
-cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
-cd hushh-webapp && npx vitest run __tests__/voice
-cd hushh-webapp && npm run typecheck && npm run verify:design-system
-```
+### Pod transport qualification — 2026-09-26
 
-Live smoke (backend running locally): mint a ticket via
-`POST /api/one/adk/relay-session`, open `WS /api/one/adk/live?relay_ticket=`,
-send `{"type": "user_text", "text": "what is your name?"}`, and expect
-audio frames plus `outputTranscription` containing "I'm One".
-
-## Related References
-
-- [One Agent Hierarchy](./one-agent-hierarchy.md)
-- [One Reference Index](./README.md)
-- [One Voice Kai Compatibility Runtime](./one-voice-kai-compatibility-runtime.md)
-- [Agent Delegation Boundary](../iam/agent-delegation-boundary.md)
-- [Hussh Agent Ontology](../../vision/agent-ontology.md)
+The integrated pod branch uses admitted `/api/one/pod/commands/transcriptions`
+and `/api/one/pod/commands/assess` for bounded private commands. Checkpoints and
+exact effect approval remain hub-owned. Microphone selection now combines fresh
+owner hosting with provider readiness: BYOC uses recorded pod commands; confirmed
+Shared accounts can use ready hub Live sessions. Pending, unknown and unsupported
+placement enables neither microphone. Provider-health caching cannot replace a
+fresh hosting observation. Maintained `/api/one/voice/*` rechecks Shared placement
+at ticket issuance and socket admission; a hosting change refuses the attempt
+without automatic replay on another transport. These guards cover new sessions
+and reconnects, not continuous eviction of an already active Shared session.
+Separate live evidence is still required for private-pod voice acceptance.
+The obsolete `/api/one/adk/*` Live endpoints return retirement responses.

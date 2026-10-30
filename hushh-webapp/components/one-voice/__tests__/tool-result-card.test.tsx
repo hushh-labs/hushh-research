@@ -1,0 +1,1666 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  ToolResultCard,
+  locationStatusRows,
+  mailCoverageLine,
+  sosHeadline,
+  sosReasonLine,
+  toneForResult,
+  toolResultFamily,
+} from "@/components/one-voice/tool-result-card";
+import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
+import type { ToolResultPublic } from "@/lib/one-voice/protocol";
+
+afterEach(() => cleanup());
+
+describe("ToolResultCard", () => {
+  it("shows Calendar reads only on the owner's card with ordered, ID-free details", () => {
+    expect(toolResultFamily("read_calendar", "ok")).toBe("calendar");
+    const { rerender } = render(
+      <ToolResultCard
+        tool="read_calendar"
+        ok
+        result={{
+          status: "ok",
+          operation: "events",
+          returned_count: 2,
+          truncated: true,
+          spoken_facts: ["I found 2 events. Their details are on screen."],
+          events: [
+            { id: "google-secret-1", title: "Planning", start: { dateTime: "2026-10-09T09:00:00Z" }, end: { dateTime: "2026-10-09T09:30:00Z" } },
+            { id: "google-secret-2", title: "Review", start: { date: "2026-10-10" }, end: { date: "2026-10-11" } },
+          ],
+        }}
+      />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    const list = screen.getByRole("list", { name: "Calendar events" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
+    expect(list).toHaveTextContent("Planning");
+    expect(list).toHaveTextContent("Review");
+    expect(card).toHaveTextContent("More results exist");
+    expect(card).not.toHaveTextContent("google-secret");
+    expect(card).not.toHaveTextContent("Done");
+
+    rerender(
+      <ToolResultCard
+        tool="read_calendar"
+        ok
+        result={{
+          status: "ok",
+          operation: "event",
+          returned_count: 1,
+          spoken_facts: ["I opened that event's details on screen."],
+          event: { id: "google-secret-1", title: "Planning", location: "Conference room", description: "Agenda details" },
+        }}
+      />,
+    );
+    expect(screen.getByText("Agenda details")).toBeInTheDocument();
+    expect(screen.getByText("Conference room")).toBeInTheDocument();
+    expect(card).not.toHaveTextContent("google-secret");
+  });
+
+
+  it("renders freebusy string times and all-day dates with Google's exclusive end", () => {
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "freebusy", time_zone: "UTC", busy: [{ start: "2026-10-09T09:00:00Z", end: "2026-10-09T10:00:00Z" }] }} />);
+    expect(screen.getByRole("list", { name: "Busy periods" })).toHaveTextContent("9:00");
+    expect(screen.getByRole("list", { name: "Busy periods" })).toHaveTextContent("10:00");
+    rerender(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "events", events: [{ title: "Day off", start: { date: "2026-10-09" }, end: { date: "2026-10-10" } }] }} />);
+    expect(screen.getByText("2026-10-09 · All day")).toBeInTheDocument();
+    expect(screen.queryByText(/2026-10-10/)).toBeNull();
+  });
+
+  it("shows private event attendees and allows only safe Google Meet links", () => {
+    const event = { title: "Planning", attendees: [{ email: "jamie@example.com", response_status: "accepted" }], conference_url: "https://meet.google.com/abc-defg-hij" };
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "event", event }} />);
+    expect(screen.getByRole("list", { name: "Attendees" })).toHaveTextContent("jamie@example.com · accepted");
+    expect(screen.getByRole("link", { name: "Join Google Meet" })).toHaveAttribute("href", event.conference_url);
+    for (const conference_url of ["javascript:alert(1)", "https://meet.google.com.attacker.example/abc", "https://attacker@meet.google.com/abc"]) {
+      rerender(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "event", event: { ...event, conference_url } }} />);
+      expect(screen.queryByRole("link", { name: "Join Google Meet" })).toBeNull();
+    }
+  });
+
+  it.each([
+    ["read_calendar", "calendar_not_connected", "Connect Calendar", "/one/calendar"],
+    ["read_calendar", "reconnect_required", "Reconnect Calendar", "/one/calendar"],
+    ["read_calendar", "permission_required", "Reconnect Calendar", "/one/calendar"],
+    ["read_mail", "connect_required", "Connect Email", "/one/email"],
+    ["read_mail", "reconnect_required", "Reconnect Email", "/one/email"],
+  ])("offers the authored recovery for %s/%s", (tool, reason_code, label, href) => {
+    render(<ToolResultCard tool={tool} ok={false} result={{ status: "rejected", reason_code }} />);
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", href);
+  });
+
+  it("never infers connection actions from prose or displays a cancelled private read", () => {
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok={false} result={{ status: "rejected", reason_code: "read_timeout", spoken_facts: ["Reconnect Calendar"] }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    rerender(<ToolResultCard tool="read_mail" ok={false} result={{ status: "superseded", answer: "Private old answer", messages: [{ subject: "Private old subject" }] }} />);
+    expect(screen.queryByText(/Private old/)).toBeNull();
+  });
+
+  it("renders spoken_facts as the summary and a Done chip only for ok:true + success status", () => {
+    const result: ToolResultPublic = {
+      status: "created",
+      spoken_facts: ["Created the Family circle."],
+      circle: {
+        circle_id: "0f7d8e5c-1111-2222-3333-444455556666",
+        name: "Family",
+        kind: "family",
+        member_count: 1,
+        is_owner: true,
+      },
+    };
+    const { container, rerender } = render(
+      <ToolResultCard result={result} tool="create_circle" ok />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Done");
+    expect(screen.getByText("Created the Family circle.")).toBeInTheDocument();
+    expect(screen.getByText("Family")).toBeInTheDocument();
+    expect(screen.getByText("1 member · Yours")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("0f7d8e5c");
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "success",
+    );
+
+    // The same payload with ok:false is never success.
+    rerender(
+      <ToolResultCard result={result} tool="create_circle" ok={false} />,
+    );
+    expect(screen.queryByText("Done")).toBeNull();
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "failure",
+    );
+
+    // Unknown ok never renders as success either.
+    rerender(<ToolResultCard result={result} tool="create_circle" />);
+    expect(screen.queryByText("Done")).toBeNull();
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "neutral",
+    );
+  });
+
+  it("shows ok:false inline as an error, never a toast", () => {
+    render(
+      <ToolResultCard
+        result={{
+          status: "rejected",
+          reason_code: "NOT_CONNECTED",
+          spoken_facts: ["Alex isn't connected with you yet."],
+        }}
+        tool="share_with"
+        ok={false}
+      />,
+    );
+    const card = screen.getByRole("alert");
+    expect(card).toHaveTextContent("That didn't go through");
+    expect(card).toHaveTextContent("Alex isn't connected with you yet.");
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+  });
+
+  it("reads a successful voice navigation as Opening…, never as a failure", () => {
+    // Regression: every voice navigation card said "That didn't go through".
+    const { container } = render(
+      <ToolResultCard
+        result={{
+          status: "navigation_dispatched",
+          spoken_facts: ["Opening it now."],
+        }}
+        tool="open_screen"
+        ok
+      />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    expect(card).toHaveAttribute("data-tone", "neutral");
+    expect(card).toHaveAttribute("role", "status");
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Opening…");
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Done");
+  });
+
+  it("renders three distinct location rows and never says On without both facts", () => {
+    const rows = locationStatusRows({
+      status: "ok",
+      sharing_state: "on",
+      os_permission_reported: "denied",
+      precision: "approximate",
+    });
+    expect(rows?.devicePermission.value).toBe("Denied");
+    expect(rows?.appSharing.value).toBe("Waiting on device permission");
+    expect(rows?.precision?.value).toBe("Approximate");
+
+    render(
+      <ToolResultCard
+        result={{
+          status: "ok",
+          sharing_state: "on",
+          os_permission_reported: "denied",
+          precision: "precise",
+          spoken_facts: [
+            "Sharing with people is on, but your device location permission is denied.",
+          ],
+        }}
+        tool="get_location_status"
+        ok
+      />,
+    );
+    const list = screen.getByRole("list", { name: "Location status" });
+    expect(list).toHaveTextContent("Device permission");
+    expect(list).toHaveTextContent("Sharing with people");
+    expect(list).toHaveTextContent("Precision");
+    expect(list.querySelectorAll("li")).toHaveLength(3);
+    const values = Array.from(list.querySelectorAll("li")).map(
+      (li) => li.lastElementChild?.textContent,
+    );
+    expect(values).toEqual([
+      "Denied",
+      "Waiting on device permission",
+      "Precise",
+    ]);
+    expect(values).not.toContain("On");
+  });
+
+  it("says On only when sharing_state is on and the OS permission is granted", () => {
+    expect(
+      locationStatusRows({
+        status: "ok",
+        sharing_state: "on",
+        os_permission_reported: "granted",
+      })?.appSharing.value,
+    ).toBe("On");
+    expect(
+      locationStatusRows({
+        status: "ok",
+        sharing_state: "on",
+        os_permission_reported: "prompt",
+      })?.appSharing.value,
+    ).not.toBe("On");
+    expect(
+      locationStatusRows({
+        status: "ok",
+        sharing_state: "off",
+        os_permission_reported: "granted",
+      })?.appSharing.value,
+    ).toBe("Off");
+    expect(
+      locationStatusRows({
+        status: "ok",
+        sharing_state: "unset",
+        os_permission_reported: "unknown",
+      })?.appSharing.value,
+    ).toBe("Not set up");
+    expect(locationStatusRows({ status: "ok" })).toBeNull();
+  });
+
+  it("renders people, shares and links by name without ids or grant ids", () => {
+    const { container, rerender } = render(
+      <ToolResultCard
+        result={{
+          status: "ok",
+          spoken_facts: ["You have 2 connections."],
+          connected: [
+            {
+              user_id: "usr_SECRET_a",
+              display_name: "Priya Sharma",
+              relationship: "connected",
+              photo_url: null,
+            },
+            {
+              user_id: "usr_SECRET_b",
+              display_name: "Alex Chen",
+              relationship: "connected",
+              photo_url: null,
+            },
+          ],
+          pending_outgoing: [
+            {
+              request_id: "req_SECRET",
+              user_id: "usr_SECRET_c",
+              display_name: "Sam Lee",
+            },
+          ],
+        }}
+        tool="list_people"
+        ok
+      />,
+    );
+    expect(screen.getByText("Priya Sharma")).toBeInTheDocument();
+    expect(screen.getByText("Alex Chen")).toBeInTheDocument();
+    expect(screen.getByText("Sam Lee")).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/usr_SECRET|req_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "ok",
+          spoken_facts: ["You're sharing your location with 1 person."],
+          outgoing: [
+            {
+              grant_id: "grant_SECRET",
+              direction: "outgoing",
+              status: "active",
+              counterpart_user_id: "usr_SECRET_a",
+              counterpart_name: "Priya Sharma",
+              duration_mode: "until_stopped",
+              awaiting_first_position: true,
+            },
+          ],
+          incoming: [],
+        }}
+        tool="list_shares"
+        ok
+      />,
+    );
+    expect(screen.getByText("You share with")).toBeInTheDocument();
+    expect(screen.getByText("Priya Sharma")).toBeInTheDocument();
+    expect(
+      screen.getByText("until stopped, no position yet"),
+    ).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/grant_SECRET|usr_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "ok",
+          spoken_facts: ["You have 1 live public link."],
+          links: [
+            {
+              invite_id: "inv_SECRET",
+              status: "active",
+              url: "https://hussh.one/l/abc",
+              expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+            },
+            {
+              invite_id: "inv_SECRET2",
+              status: "revoked",
+              url: "https://hussh.one/l/def",
+            },
+          ],
+        }}
+        tool="list_links"
+        ok
+      />,
+    );
+    expect(screen.getByText("https://hussh.one/l/abc")).toBeInTheDocument();
+    expect(screen.getByText("Revoked")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("inv_SECRET");
+  });
+
+  it("never shows Done for a scheduled-mail cancel that cancelled nothing", () => {
+    // The panel passes ok = (resolved executed) for a confirmed card, and the
+    // cancel did execute: it answered that nothing was left to cancel.
+    for (const status of [
+      "send_unconfirmed",
+      "schedule_unconfirmed",
+      "already_sent",
+      "already_sending",
+      "not_sent",
+    ]) {
+      for (const ok of [true, false, undefined]) {
+        expect(toneForResult({ status }, ok), `${status} ${ok}`).toBe("neutral");
+      }
+      const { unmount } = render(
+        <ToolResultCard
+          result={{ status, spoken_facts: ["Nothing to cancel."] }}
+          tool="cancel_scheduled_mail"
+          ok
+        />,
+      );
+      expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+        "data-tone",
+        "neutral",
+      );
+      expect(screen.queryByText("Done")).toBeNull();
+      unmount();
+    }
+    // Negative control: a real cancel is done.
+    render(
+      <ToolResultCard
+        result={{ status: "cancelled", spoken_facts: ["Cancelled."] }}
+        tool="cancel_scheduled_mail"
+        ok
+      />,
+    );
+    expect(screen.getByText("Done")).toBeInTheDocument();
+  });
+
+  it("classifies tools into families and tones", () => {
+    expect(toolResultFamily("list_people")).toBe("people");
+    expect(toolResultFamily("rename_circle")).toBe("circles");
+    expect(toolResultFamily("add_circle_members")).toBe("circles");
+    expect(toolResultFamily("add_all_connections")).toBe("circles");
+    expect(toolResultFamily("share_with")).toBe("shares");
+    expect(toolResultFamily("create_public_link")).toBe("links");
+    expect(toolResultFamily("get_location_settings")).toBe("status");
+    expect(toolResultFamily("open_screen")).toBe("generic");
+    expect(toneForResult({ status: "confirmation_required" }, undefined)).toBe(
+      "failure",
+    );
+    expect(toneForResult({ status: "ok" }, undefined)).toBe("neutral");
+    expect(toneForResult({ status: "grant_created" }, true)).toBe("failure");
+    expect(toneForResult({ status: "empty" }, true)).toBe("neutral");
+    expect(toneForResult({ status: "draft_open_unconfirmed" }, false)).toBe("neutral");
+    expect(toneForResult({ status: "renamed" }, true)).toBe("success");
+    // A navigation request is neither done nor failed until ui_settled.
+    expect(toneForResult({ status: "navigation_dispatched" }, true)).toBe(
+      "neutral",
+    );
+    expect(
+      toneForResult({ status: "navigation_dispatched" }, undefined),
+    ).toBe("neutral");
+    expect(toneForResult({ status: "navigation_dispatched" }, false)).toBe(
+      "failure",
+    );
+    // The pending tone is scoped to the armed Save My Soul alert only.
+    expect(toneForResult({ status: "sos_grants_created" }, undefined)).toBe(
+      "pending",
+    );
+    expect(toneForResult({ status: "sos_grants_created" }, false)).toBe(
+      "pending",
+    );
+    expect(toneForResult({ status: "check_in_created" }, true)).toBe(
+      "failure",
+    );
+    expect(toolResultFamily("trigger_save_my_soul")).toBe("sos");
+    expect(toolResultFamily("report_save_my_soul_delivery")).toBe("sos");
+    expect(toolResultFamily("stop_save_my_soul")).toBe("sos");
+    // A report that replaced the trigger's timeline entry keeps the family.
+    expect(toolResultFamily("", "sos_partial")).toBe("sos");
+    expect(toolResultFamily("read_mail")).toBe("mail");
+    // read_mail shares ok/empty/rejected with every family, so unlike SOS the
+    // mail family must not be inferred from a status.
+    expect(toolResultFamily("", "ok")).toBe("generic");
+  });
+
+  it("keeps every returned row, in the position the server gave it", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["I found 2 messages."],
+      answer: "Two invoices are waiting.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "metadata" }],
+      items: [
+        { source_ref: "mail:1", subject: "March invoice", sender: "Acme" },
+        // A row the reader could not name. Dropping it renumbered everything
+        // below it, so "the second one" pointed at the third message while the
+        // person was looking at the second. It is shown unlabelled instead, and
+        // nothing is invented to fill it.
+        { source_ref: "mail:2" },
+        { source_ref: "mail:3", subject: "Statement", sender: "Bookkeeping" },
+      ],
+      coverage: { unit: "messages", returned: 3, assessed: 9 },
+    };
+    const { container } = render(
+      <ToolResultCard result={result} tool="read_mail" ok />,
+    );
+    expect(screen.getByText("March invoice")).toBeInTheDocument();
+    expect(screen.getByText("No subject")).toBeInTheDocument();
+    const list = screen.getByLabelText("Mail");
+    expect(list.children).toHaveLength(3);
+    // The position the person reads is the ordinal the server resolves, so the
+    // unnamed row still occupies two and "Statement" is still three.
+    expect(list.children[1]).toHaveAttribute("data-source-ref", "mail:2");
+    expect(list.children[2]).toHaveAttribute("data-source-ref", "mail:3");
+    expect(container.textContent).toContain("3 of 9 checked");
+  });
+
+  it("shows what each message is about when its text was read", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["I have those 2 messages."],
+      answer: "Priya needs the deck; the invoice is overdue.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" }],
+      items: [
+        {
+          source_ref: "mail:1",
+          subject: "Q3 deck",
+          sender: "Priya Nair",
+          received_at: "2026-09-28T09:00:00.000Z",
+          gist: "Priya wants the Q3 deck by Friday.",
+        },
+        // No text was supplied for this one, so the backend refused a gist.
+        // The row still appears; it just says less.
+        { source_ref: "mail:2", subject: "Invoice", sender: "Accounts" },
+      ],
+      coverage: { unit: "messages", returned: 2, content_depth: "message" },
+    };
+    render(<ToolResultCard result={result} tool="read_mail" ok />);
+
+    expect(
+      screen.getByText("Priya wants the Q3 deck by Friday."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Invoice")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+  });
+
+  it("omits a count the server did not establish rather than printing zero", () => {
+    expect(mailCoverageLine({ unit: "messages", content_depth: "metadata" })).toBe(
+      "headers only",
+    );
+    expect(mailCoverageLine({ returned: 0, unit: "messages" })).toBe(
+      "0 messages",
+    );
+    expect(mailCoverageLine(null)).toBeNull();
+    expect(mailCoverageLine({})).toBeNull();
+    // A needs-reply row is a conversation, not a message.
+    expect(mailCoverageLine({ returned: 3, unit: "threads" })).toBe(
+      "3 conversations",
+    );
+    // Nothing narrowed the read, so the count is the front of the mailbox and
+    // says so. Five bodies is the reader's budget, not the size of the inbox.
+    expect(
+      mailCoverageLine({ returned: 5, unit: "messages", scope: "newest" }),
+    ).toBe("newest 5 messages");
+    expect(
+      mailCoverageLine({ returned: 5, unit: "messages", scope: "search" }),
+    ).toBe("5 messages");
+    // An assessed-vs-returned split still wins: it is the more specific fact.
+    expect(
+      mailCoverageLine({ returned: 3, assessed: 9, unit: "messages", scope: "newest" }),
+    ).toBe("3 of 9 checked");
+  });
+
+  it("names a needs-reply read as a filtered set, never as the newest mail", () => {
+    // The reader checked 9 threads and kept 3. "newest 3" or "3 of 9 checked"
+    // would both describe a different read than the one that happened.
+    expect(
+      mailCoverageLine({ returned: 3, assessed: 9, unit: "threads", scope: "needs_reply" }),
+    ).toBe("3 conversations that may need a reply · 9 checked");
+    expect(
+      mailCoverageLine({ returned: 1, unit: "threads", scope: "needs_reply" }),
+    ).toBe("1 conversation that may need a reply");
+    // Negative control: an unnarrowed read is still the front of the mailbox.
+    expect(
+      mailCoverageLine({ returned: 3, unit: "threads", scope: "newest" }),
+    ).toBe("newest 3 conversations");
+  });
+
+  it("contains a mail detail that cannot render, without reading or opening anything", () => {
+    const silence = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const calls: unknown[] = [];
+    const onOpenMail = async (input: unknown) => {
+      calls.push(input);
+      throw new Error("must not be called");
+    };
+    // A row whose fields cannot be read stands in for any malformed payload
+    // that makes the detail throw while rendering.
+    const poisoned: Record<string, unknown> = { source_ref: "mail:1" };
+    Object.defineProperty(poisoned, "subject", {
+      enumerable: true,
+      get() {
+        throw new Error("malformed row");
+      },
+    });
+    const base: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["I found 1 conversation that may need a reply."],
+      sources: [],
+      coverage: { unit: "threads", returned: 1, scope: "needs_reply" },
+      offer_revision: 7,
+      conversation_id: "22222222-2222-4222-8222-222222222222",
+    };
+    try {
+      const { rerender } = render(
+        <ToolResultCard
+          result={{ ...base, items: [poisoned] }}
+          tool="read_mail"
+          ok
+          onOpenMail={onOpenMail}
+        />,
+      );
+      expect(
+        screen.getByTestId("one-voice-mail-detail-error"),
+      ).toHaveTextContent("Couldn't show these messages.");
+      // The rest of the card is still there.
+      expect(
+        screen.getByText("I found 1 conversation that may need a reply."),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("one-voice-mail-detail")).toBeNull();
+      // The failure is static: no read, no open, no directive.
+      expect(calls).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+
+      // Negative control: a well-formed result renders its rows normally.
+      rerender(
+        <ToolResultCard
+          result={{
+            ...base,
+            items: [{ source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" }],
+          }}
+          tool="read_mail"
+          ok
+          onOpenMail={onOpenMail}
+        />,
+      );
+      expect(screen.queryByTestId("one-voice-mail-detail-error")).toBeNull();
+      expect(screen.getByText("Q3 deck")).toBeInTheDocument();
+      expect(screen.getByLabelText("Mail").children).toHaveLength(1);
+      expect(calls).toEqual([]);
+    } finally {
+      dispatchSpy.mockRestore();
+      vi.unstubAllGlobals();
+      silence.mockRestore();
+    }
+  });
+});
+
+describe("ToolResultCard: Save My Soul", () => {
+  const ARMED: ToolResultPublic = {
+    status: "sos_grants_created",
+    spoken_facts: [
+      "Alert armed for Priya Nair and Rahul Mehta; sending your position now.",
+    ],
+    grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+    armed: [
+      {
+        grant_id: "grant_SECRET_a",
+        user_id: "usr_SECRET_priya",
+        display_name: "Priya Nair",
+      },
+      {
+        grant_id: "grant_SECRET_b",
+        user_id: "usr_SECRET_rahul",
+        display_name: "Rahul Mehta",
+      },
+    ],
+    skipped_not_phone_verified: [
+      { user_id: "usr_SECRET_sam", display_name: "Sam Lee" },
+    ],
+    note: "note_SECRET",
+    client_step: {
+      kind: "publish_location_envelopes",
+      purpose: "sos",
+      sos: true,
+      grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+    },
+  };
+
+  it("renders sos_grants_created as armed and sending, never as Done and never as a failure", () => {
+    const { container, rerender } = render(
+      <ToolResultCard result={ARMED} tool="trigger_save_my_soul" ok={false} />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    expect(card).toHaveAttribute("data-tone", "pending");
+    expect(card).toHaveAttribute("role", "status");
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Armed · sending your position");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Nothing was changed");
+    expect(container.textContent).not.toMatch(/\bSent\b/);
+    expect(screen.getByRole("list", { name: "Alerting" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(screen.getByRole("list", { name: "Alerting" })).toHaveTextContent(
+      "Rahul Mehta",
+    );
+    expect(
+      screen.getByRole("list", { name: "Couldn't include" }),
+    ).toHaveTextContent("Sam Lee");
+    expect(container.textContent).not.toMatch(
+      /grant_SECRET|usr_SECRET|note_SECRET/,
+    );
+
+    // The relay flags the armed frame ok:false; unknown ok reads the same.
+    rerender(<ToolResultCard result={ARMED} tool="trigger_save_my_soul" />);
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "pending",
+    );
+    expect(container.textContent).not.toContain("didn't go through");
+  });
+
+  it("renders the verified delivery report by name: reached, not reached, ended", () => {
+    const partial: ToolResultPublic = {
+      status: "sos_partial",
+      spoken_facts: [
+        "Your position reached Priya Nair.",
+        "Your position has not reached Rahul Mehta; their share is armed but nothing was sent to them.",
+      ],
+      delivered: ["Priya Nair"],
+      not_alerted: ["Rahul Mehta"],
+      delivered_grant_ids: ["grant_SECRET_a"],
+      not_alerted_grant_ids: ["grant_SECRET_b"],
+      ended_grant_ids: ["grant_SECRET_c"],
+      unknown_grant_ids: [],
+      expected_grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+      alert_active: true,
+      device_step: { status: "ok", late: false },
+    };
+    const { container, rerender } = render(
+      <ToolResultCard
+        result={partial}
+        tool="report_save_my_soul_delivery"
+        ok
+      />,
+    );
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "neutral",
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Partly sent");
+    expect(screen.getByRole("list", { name: "Reached" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(screen.getByRole("list", { name: "Not reached" })).toHaveTextContent(
+      "Rahul Mehta",
+    );
+    expect(
+      screen.getByRole("list", { name: "Ended shares" }),
+    ).toHaveTextContent("1 share");
+    expect(container.textContent).toContain("still armed");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toMatch(/grant_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_sent",
+          spoken_facts: ["Your position reached Priya Nair."],
+          delivered: ["Priya Nair"],
+          not_alerted: [],
+          alert_active: true,
+        }}
+        tool="report_save_my_soul_delivery"
+        ok
+      />,
+    );
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "success",
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Sent");
+    expect(screen.queryByText("Done")).toBeNull();
+    expect(container.textContent).not.toContain("still armed");
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_not_sent",
+          spoken_facts: ["Your position has not reached Priya Nair."],
+          delivered: [],
+          not_alerted: ["Priya Nair"],
+          alert_active: true,
+        }}
+        tool="report_save_my_soul_delivery"
+        ok={false}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Not sent");
+    expect(screen.getByRole("list", { name: "Not reached" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Nothing was changed");
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_unverified",
+          reason_code: "verification_unavailable",
+          spoken_facts: ["I couldn't confirm whether your position was sent."],
+        }}
+        tool="report_save_my_soul_delivery"
+        ok={false}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't confirm delivery",
+    );
+    expect(container.textContent).not.toMatch(/\bSent\b/);
+  });
+
+  it("renders a stop by name: stopped and possibly still live", () => {
+    const { container, rerender } = render(
+      <ToolResultCard
+        result={{
+          status: "sos_partially_stopped",
+          reason_code: "sos_partially_stopped",
+          spoken_facts: [
+            "1 location share to Priya Nair ended, but 1 share to Rahul Mehta may still be live.",
+          ],
+          stopped_count: 1,
+          stopped: [
+            {
+              grant_id: "grant_SECRET_a",
+              user_id: "usr_SECRET_priya",
+              display_name: "Priya Nair",
+            },
+          ],
+          unresolved: [
+            {
+              grant_id: "grant_SECRET_b",
+              user_id: "usr_SECRET_rahul",
+              display_name: "Rahul Mehta",
+            },
+          ],
+          unresolved_grant_ids: ["grant_SECRET_b"],
+          failed: [{ grant_id: "grant_SECRET_b", reason_code: "still_active" }],
+        }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Partly stopped");
+    expect(screen.getByRole("list", { name: "Stopped" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(
+      screen.getByRole("list", { name: "May still be live" }),
+    ).toHaveTextContent("Rahul Mehta");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toMatch(/grant_SECRET|usr_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_stopped",
+          spoken_facts: ["Save My Soul stopped; 1 location share to Priya Nair ended."],
+          stopped_count: 1,
+          stopped: [{ grant_id: "grant_SECRET_a", user_id: "usr_SECRET_priya", display_name: "Priya Nair" }],
+        }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Stopped");
+    expect(screen.queryByText("Done")).toBeNull();
+
+    rerender(
+      <ToolResultCard
+        result={{ status: "not_active", spoken_facts: ["Save My Soul isn't on."] }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Nothing to stop");
+  });
+
+  it("explains an audience-changed refusal in plain words and stays a failure", () => {
+    render(
+      <ToolResultCard
+        result={{
+          status: "rejected",
+          reason_code: "sos_audience_changed",
+          spoken_facts: ["Your emergency contacts changed since I showed the card."],
+        }}
+        tool="trigger_save_my_soul"
+        ok={false}
+      />,
+    );
+    const card = screen.getByRole("alert");
+    expect(card).toHaveTextContent("That didn't go through");
+    expect(card).toHaveTextContent("Nothing was sent");
+    expect(sosReasonLine("sos_audience_changed")).toContain("Nothing was sent");
+    expect(sosReasonLine("roster_full")).toContain("full");
+    expect(sosReasonLine("sos_already_active")).toContain("already on");
+    expect(sosReasonLine("other")).toBeNull();
+  });
+
+  it("writes Sent only for the verified sos_sent success", () => {
+    expect(sosHeadline("sos_grants_created", "pending")).toBe(
+      "Armed · sending your position",
+    );
+    expect(sosHeadline("sos_sent", "success")).toBe("Sent");
+    // A mis-toned sos_sent (ok:false) never says Sent.
+    expect(sosHeadline("sos_sent", "failure")).toBeNull();
+    expect(sosHeadline("sos_partial", "neutral")).toBe("Partly sent");
+    expect(sosHeadline("sos_not_sent", "failure")).toBe("Not sent");
+    expect(sosHeadline("sos_unverified", "failure")).toBe(
+      "Couldn't confirm delivery",
+    );
+    expect(sosHeadline("sos_stopped", "success")).toBe("Stopped");
+    expect(sosHeadline("sos_partially_stopped", "neutral")).toBe(
+      "Partly stopped",
+    );
+    expect(sosHeadline("renamed", "success")).toBeNull();
+  });
+});
+
+
+describe("ToolResultCard: opening a mail original", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+
+  function mailResult(items: Record<string, unknown>[]): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["I read your 3 newest messages."],
+      answer: "Priya needs the deck.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" }],
+      items,
+      coverage: { unit: "messages", returned: items.length, scope: "newest" },
+      offer_revision: 7,
+      conversation_id: CONV,
+    };
+  }
+
+  const THREE = [
+    { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+    // No subject and no sender. It used to be dropped, which renumbered the rows
+    // under it; the Open below must still send the server's ordinal 3.
+    { source_ref: "mail:2" },
+    { source_ref: "mail:3", subject: "Invoice", sender: "Acme" },
+  ];
+
+  it("sends the server's ordinal, the offer revision and the offer's conversation", async () => {
+    const calls: unknown[] = [];
+    const onOpenMail = async (input: unknown) => {
+      calls.push(input);
+      return {
+        sourceRef: "mail:3",
+        subject: "Invoice",
+        sender: "Acme",
+        receivedAt: null,
+        body: "The March invoice is attached.",
+        bodyTruncated: false,
+      };
+    };
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+
+    const buttons = screen.getAllByTestId("one-voice-mail-open");
+    expect(buttons).toHaveLength(3);
+    // The third row. Its ordinal is 3 even though the row above it is unlabelled
+    // -- the number comes from source_ref, never from a count of the DOM.
+    expect(buttons[2]).toHaveAttribute("data-ordinal", "3");
+    fireEvent.click(buttons[2]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("The March invoice is attached."),
+      ).toBeInTheDocument();
+    });
+    expect(calls).toEqual([
+      { ordinal: 3, offerRevision: 7, conversationId: CONV },
+    ]);
+  });
+
+  it("shows analysis by category while Open stays bound to the original row", async () => {
+    const calls: unknown[] = [];
+    const result = mailResult([
+      { source_ref: "mail:1", subject: "Status note", sender: "Alex" },
+      {
+        source_ref: "mail:2", subject: "Project review", sender: "Priya",
+        analysis: [
+          {
+            category: "action_items", source_ref: "mail:2",
+            detail: "Review the proposal by Friday.", state: "active",
+          },
+          {
+            category: "meetings", source_ref: "mail:2",
+            detail: "Meeting moved to 4 pm.", state: "rescheduled",
+          },
+        ],
+      },
+    ]);
+    result.coverage = {
+      unit: "messages", returned: 2, scope: "search",
+      analysis_requested: ["personal_info", "action_items", "meetings"],
+      analysis_failed: ["personal_info"],
+      findings_action_items: 1, findings_meetings: 1,
+    };
+    render(
+      <ToolResultCard
+        result={result}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          return {
+            sourceRef: "mail:2", subject: "Project review", sender: "Priya",
+            receivedAt: null, body: "Please review the proposal by Friday.",
+            bodyTruncated: false,
+          };
+        }}
+      />,
+    );
+    const headings = screen.getByTestId("one-voice-mail-analysis-headings");
+    expect(headings).toHaveTextContent("Personal-information requests: unavailable");
+    expect(headings).toHaveTextContent("Action items: 1");
+    expect(headings).toHaveTextContent("Meetings in Mail: 1");
+    expect(screen.getByText("Review the proposal by Friday.")).toBeInTheDocument();
+    expect(screen.getByText("Meeting moved to 4 pm.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[1]);
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-original")).toBeInTheDocument());
+    expect(calls).toEqual([{ ordinal: 2, offerRevision: 7, conversationId: CONV }]);
+  });
+
+  it("closing returns to the same list in the same order", async () => {
+    const onOpenMail = async () => ({
+      sourceRef: "mail:1",
+      subject: "Q3 deck",
+      sender: "Priya",
+      receivedAt: null,
+      body: "Friday please.",
+      bodyTruncated: false,
+    });
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+    const order = () =>
+      Array.from(screen.getByLabelText("Mail").children).map((row) =>
+        row.getAttribute("data-source-ref"),
+      );
+    const before = order();
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+    await waitFor(() =>
+      expect(screen.getByText("Friday please.")).toBeInTheDocument(),
+    );
+    // Expanding in place is what makes Back free: the list never unmounted.
+    expect(order()).toEqual(before);
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-voice-mail-original")).toBeNull(),
+    );
+    expect(order()).toEqual(before);
+  });
+
+  it("says the list moved on rather than opening something else", async () => {
+    const onOpenMail = async () => {
+      throw Object.assign(new Error("stale"), { reason: "offer_superseded" });
+    };
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("This list has been replaced");
+    });
+  });
+
+  it("offers no Open control when the rows carry no offer to open against", () => {
+    const unbound = mailResult(THREE);
+    delete unbound.offer_revision;
+    render(
+      <ToolResultCard
+        result={unbound}
+        tool="read_mail"
+        ok
+        onOpenMail={async () => {
+          throw new Error("must not be called");
+        }}
+      />,
+    );
+    // Rows still render; there is simply nothing to resolve a position against.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(3);
+    expect(screen.queryAllByTestId("one-voice-mail-open")).toHaveLength(0);
+  });
+
+  it("renders no Open control at all without a handler, so bare renders are unchanged", () => {
+    render(<ToolResultCard result={mailResult(THREE)} tool="read_mail" ok />);
+    expect(screen.queryAllByTestId("one-voice-mail-open")).toHaveLength(0);
+  });
+
+  // "Reply to this" resolves against the row the card names as open. Naming a
+  // row whose message is not on screen would aim a reply at an email the person
+  // is not looking at, so the name follows the message, never the request.
+  const named = (ordinal: number) => ({
+    ordinal,
+    offerRevision: 7,
+    conversationId: CONV,
+  });
+
+  /** Every row named so far, in order. A null names nothing. */
+  const namedRows = (onActiveMailChange: ReturnType<typeof vi.fn>) =>
+    onActiveMailChange.mock.calls
+      .map(([selection]) => selection)
+      .filter((selection) => selection !== null);
+
+  function original(body: string): OpenedMailMessage {
+    return {
+      sourceRef: null,
+      subject: "Invoice",
+      sender: "Acme",
+      receivedAt: null,
+      body,
+      bodyTruncated: false,
+    };
+  }
+
+  /** Opens answered by hand, so "asked for" and "on screen" are separate moments. */
+  function handOpens() {
+    const answers: Array<{
+      resolve: (message: OpenedMailMessage) => void;
+      reject: (error: unknown) => void;
+    }> = [];
+    const onOpenMail = vi.fn(
+      () =>
+        new Promise<OpenedMailMessage>((resolve, reject) => {
+          answers.push({ resolve, reject });
+        }),
+    );
+    return { onOpenMail, answers };
+  }
+
+  it("names a row as open only once its message shows, and none once it is closed", async () => {
+    const { onOpenMail, answers } = handOpens();
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+    // Showing a list opens nothing, so it names nothing.
+    expect(onActiveMailChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[2]!);
+    expect(onOpenMail).toHaveBeenCalledTimes(1);
+    // Asked for is not on screen yet.
+    expect(screen.queryByText("The March invoice is attached.")).toBeNull();
+    expect(namedRows(onActiveMailChange)).toEqual([]);
+
+    await act(async () =>
+      answers[0]!.resolve(original("The March invoice is attached.")),
+    );
+    expect(
+      screen.getByText("The March invoice is attached."),
+    ).toBeInTheDocument();
+    expect(namedRows(onActiveMailChange)).toEqual([named(3)]);
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(named(3));
+
+    // Closing is Back: with nothing open there is nothing to reply to.
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[2]!);
+    expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("never names a row whose message did not arrive: a failed open, or one closed while opening", async () => {
+    const { onOpenMail, answers } = handOpens();
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]!);
+    await act(async () =>
+      answers[0]!.reject(
+        Object.assign(new Error("stale"), { reason: "offer_superseded" }),
+      ),
+    );
+    expect(screen.getByTestId("one-voice-mail-open-error")).toHaveTextContent(
+      "This list has been replaced",
+    );
+    expect(namedRows(onActiveMailChange)).toEqual([]);
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+
+    // Opened, then closed before its answer came back: the late answer is
+    // dropped, never painted and never named.
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[1]!);
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[1]!);
+    await act(async () => answers[1]!.resolve(original("Arrived too late.")));
+    expect(screen.queryByText("Arrived too late.")).toBeNull();
+    expect(namedRows(onActiveMailChange)).toEqual([]);
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("stops naming the open row as soon as another row starts opening", async () => {
+    // The first row's message leaves the screen the moment the next row is
+    // asked for. Until that one arrives nothing is on screen, so "reply to
+    // this" must not still mean the row the person just moved away from.
+    const { onOpenMail, answers } = handOpens();
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]!);
+    await act(async () => answers[0]!.resolve(original("Friday please.")));
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(named(1));
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[2]!);
+    expect(screen.queryByText("Friday please.")).toBeNull();
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+
+    await act(async () =>
+      answers[1]!.resolve(original("The March invoice is attached.")),
+    );
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(named(3));
+  });
+
+  it.each([
+    ["a new offer revision", { offer_revision: 8 }],
+    // Revisions count per conversation, so the same number can name another
+    // conversation's list.
+    [
+      "another conversation's list",
+      { conversation_id: "33333333-3333-4333-8333-333333333333" },
+    ],
+  ])(
+    "closes the open row and stops naming it when %s arrives in the same card",
+    async (_label, change) => {
+      const onOpenMail = vi.fn(async () =>
+        original("The March invoice is attached."),
+      );
+      const onActiveMailChange = vi.fn();
+      const card = (result: ToolResultPublic) => (
+        <ToolResultCard
+          result={result}
+          tool="read_mail"
+          ok
+          onOpenMail={onOpenMail}
+          onActiveMailChange={onActiveMailChange}
+        />
+      );
+      const { rerender } = render(card(mailResult(THREE)));
+      fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[2]!);
+      await waitFor(() =>
+        expect(
+          screen.getByText("The March invoice is attached."),
+        ).toBeInTheDocument(),
+      );
+      expect(onActiveMailChange).toHaveBeenLastCalledWith(named(3));
+      const callsWhileOpen = onActiveMailChange.mock.calls.length;
+
+      // Negative control: the same offer rendered again is the same list.
+      rerender(card(mailResult(THREE)));
+      expect(
+        screen.getByText("The March invoice is attached."),
+      ).toBeInTheDocument();
+      expect(onActiveMailChange).toHaveBeenCalledTimes(callsWhileOpen);
+
+      // Position three of the newer list is a different email.
+      rerender(card({ ...mailResult(THREE), ...change }));
+      expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
+      expect(
+        screen.queryByText("The March invoice is attached."),
+      ).toBeNull();
+      expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+    },
+  );
+});
+
+describe("ToolResultCard: a spoken open runs the same code as a tap", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+  const ROWS = [
+    { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+    { source_ref: "mail:2", subject: "March invoice", sender: "Acme" },
+  ];
+
+  function result(): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["I read your 2 newest messages."],
+      answer: "Two findings.",
+      sources: [],
+      items: ROWS,
+      coverage: { unit: "messages", returned: 2, scope: "newest" },
+      offer_revision: 7,
+      conversation_id: CONV,
+    };
+  }
+
+  async function speakOpen(detail: Record<string, unknown>) {
+    const { ONE_VOICE_OPEN_MAIL_EVENT } = await import(
+      "@/lib/one-voice/directives"
+    );
+    const settled: Array<[string, string | undefined]> = [];
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_MAIL_EVENT, {
+        detail: {
+          offerRevision: 7,
+          conversationId: CONV,
+          ...detail,
+          settle: (status: string, reason?: string) =>
+            settled.push([status, reason]),
+        },
+      }),
+    );
+    return settled;
+  }
+
+  it("opens the row the directive names, through the same resolver", async () => {
+    const calls: unknown[] = [];
+    const onActiveMailChange = vi.fn();
+    const { unmount } = render(
+      <ToolResultCard
+        result={result()}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          return {
+            sourceRef: "mail:2",
+            subject: "March invoice",
+            sender: "Acme",
+            receivedAt: null,
+            body: "Invoice 4471 is overdue.",
+            bodyTruncated: false,
+          };
+        }}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    const settled = await speakOpen({ ordinal: 2 });
+
+    await waitFor(() =>
+      expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument(),
+    );
+    // The same controller call a tap makes, with the same binding.
+    expect(calls).toEqual([
+      { ordinal: 2, offerRevision: 7, conversationId: CONV },
+    ]);
+    // Settled once the message is on screen, not when the handler returned.
+    await waitFor(() => expect(settled).toEqual([["opened", undefined]]));
+    // The list is still there: a spoken open does not take away the rows the
+    // ordinal refers to.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+    // And it names the row exactly as a tap does, so "reply to it" means it.
+    expect(onActiveMailChange).toHaveBeenLastCalledWith({
+      ordinal: 2,
+      offerRevision: 7,
+      conversationId: CONV,
+    });
+    const callsWhileOpen = onActiveMailChange.mock.calls.length;
+
+    // Leaving the screen ends "this email" (Clear view, a collapsed panel,
+    // another kind of answer). A new question no longer takes a mail list away
+    // -- the reducer keeps it until that question has its own result -- so
+    // this cannot race a "reply to it" that is still being asked.
+    unmount();
+    expect(onActiveMailChange).toHaveBeenCalledTimes(callsWhileOpen + 1);
+    expect(onActiveMailChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("refuses a directive for a list this card is not showing, without asking", async () => {
+    const calls: unknown[] = [];
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={result()}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          throw new Error("must not be called");
+        }}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    const stale = await speakOpen({ ordinal: 2, offerRevision: 6 });
+    const foreign = await speakOpen({ ordinal: 2, conversationId: "other" });
+
+    expect(stale).toEqual([["failed", "offer_mismatch"]]);
+    expect(foreign).toEqual([["failed", "offer_mismatch"]]);
+    // Position two of another list is not position two of this one, and the
+    // refusal happens before any request rather than after a wrong answer.
+    expect(calls).toEqual([]);
+    expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
+    // Nothing opened, so nothing is named for "reply to it".
+    expect(onActiveMailChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("ToolResultCard: drafts and scheduled mail", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+
+  function draftsResult(): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["You have 2 drafts."],
+      items: [
+        {
+          source_ref: "draft:1",
+          to: "Priya Sharma",
+          subject: "Diwali plans",
+          snippet: "Shall we meet at 7?",
+          updated_at: "2026-10-04T10:00:00+00:00",
+        },
+        { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+      ],
+      coverage: { returned: 2, has_more: true },
+      offer_revision: 8,
+      conversation_id: CONV,
+    };
+  }
+
+  const OPENED_DRAFT = {
+    toLabel: "Arjun",
+    to: ["arjun@example.com"],
+    cc: ["meera@example.com"],
+    bcc: ["hidden@example.com"],
+    subject: "Rent",
+    body: "Sending October's share today.",
+    bodyTruncated: false,
+    updatedAt: null,
+  };
+
+  it("names each draft by who it goes to and opens it through the draft resolver", async () => {
+    const draftCalls: unknown[] = [];
+    const onOpenMail = vi.fn();
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenMail={onOpenMail}
+        onOpenDraft={async (input) => {
+          draftCalls.push(input);
+          return OPENED_DRAFT;
+        }}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    expect(toolResultFamily("list_drafts")).toBe("mail");
+    const list = screen.getByLabelText("Drafts");
+    expect(list.children).toHaveLength(2);
+    expect(list.textContent).toContain("Priya Sharma");
+    expect(list.textContent).toContain("Shall we meet at 7?");
+    expect(screen.getByTestId("one-voice-mail-coverage")).toHaveTextContent(
+      "2 drafts · more in Gmail",
+    );
+    const buttons = screen.getAllByTestId("one-voice-mail-open");
+    expect(buttons[1]).toHaveAttribute("data-ordinal", "2");
+    expect(buttons[1]).toHaveTextContent("Open draft");
+    fireEvent.click(buttons[1]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Sending October's share today."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("To arjun@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Cc meera@example.com")).toBeInTheDocument();
+    // A send reaches Bcc too, so the owner sees it before saying yes.
+    expect(screen.getByText("Bcc hidden@example.com")).toBeInTheDocument();
+    expect(draftCalls).toEqual([
+      { ordinal: 2, offerRevision: 8, conversationId: CONV },
+    ]);
+    // A draft is never the mail resolver's, and never "this email" for a reply.
+    expect(onOpenMail).not.toHaveBeenCalled();
+    expect(
+      onActiveMailChange.mock.calls.filter(([selection]) => selection !== null),
+    ).toEqual([]);
+  });
+
+  it("answers only its own directive: a drafts list ignores a mail open", async () => {
+    const { ONE_VOICE_OPEN_DRAFT_EVENT, ONE_VOICE_OPEN_MAIL_EVENT } =
+      await import("@/lib/one-voice/directives");
+    const draftCalls: unknown[] = [];
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async (input) => {
+          draftCalls.push(input);
+          return OPENED_DRAFT;
+        }}
+      />,
+    );
+    const settled: Array<[string, string | undefined]> = [];
+    const detail = (ordinal: number) => ({
+      ordinal,
+      offerRevision: 8,
+      conversationId: CONV,
+      settle: (status: string, reason?: string) =>
+        settled.push([status, reason]),
+    });
+
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_MAIL_EVENT, { detail: detail(1) }),
+    );
+    expect(draftCalls).toEqual([]);
+    expect(settled).toEqual([]);
+
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_DRAFT_EVENT, { detail: detail(2) }),
+    );
+    await waitFor(() => expect(settled).toEqual([["opened", undefined]]));
+    expect(draftCalls).toEqual([
+      { ordinal: 2, offerRevision: 8, conversationId: CONV },
+    ]);
+  });
+
+  it("says a draft is gone rather than showing an empty one", async () => {
+    const { MailOpenError } = await import("@/lib/one-voice/mail-open");
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async () => {
+          throw new MailOpenError("draft_gone", {
+            status: 410,
+            code: "DRAFT_GONE",
+          });
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("That draft isn't in Gmail anymore."),
+    );
+  });
+
+  it("tells the person to reconnect Gmail when the connection is the problem", async () => {
+    const { MailOpenError } = await import("@/lib/one-voice/mail-open");
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async () => {
+          throw new MailOpenError("reconnect_required", {
+            status: 409,
+            code: "GMAIL_READ_PERMISSION_REQUIRED",
+          });
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("Reconnect Gmail, then try again."),
+    );
+    expect(screen.getByTestId("one-voice-mail-open-error")).not.toHaveTextContent(
+      "isn't on offer anymore",
+    );
+  });
+
+  it("renders scheduled emails read-only, in the server's order, with the owner-local time", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["You have 2 scheduled emails."],
+      items: [
+        {
+          source_ref: "scheduled:1",
+          to: "Priya Sharma",
+          subject: "Diwali plans",
+          send_at: "2026-10-06T03:30:00+00:00",
+          send_at_label: "Tomorrow, 9:00 AM IST",
+        },
+        {
+          source_ref: "scheduled:2",
+          to: "Arjun",
+          subject: "",
+          send_at: "2026-10-12T03:30:00+00:00",
+          send_at_label: "12 Oct, 9:00 AM IST",
+        },
+      ],
+      coverage: { returned: 2, next_send_at: "2026-10-06T03:30:00+00:00" },
+      offer_revision: 9,
+      conversation_id: CONV,
+    };
+    render(<ToolResultCard result={result} tool="list_scheduled_mail" ok />);
+
+    expect(toolResultFamily("list_scheduled_mail")).toBe("scheduled_mail");
+    const list = screen.getByLabelText("Scheduled emails");
+    expect(Array.from(list.children).map((row) => row.textContent)).toEqual([
+      "1.Diwali plansPriya Sharma · Tomorrow, 9:00 AM IST",
+      "2.No subjectArjun · 12 Oct, 9:00 AM IST",
+    ]);
+    // Cancelling is a spoken, confirmed action: no tap control here.
+    expect(screen.queryByRole("button")).toBeNull();
+    // A list is not something that got "Done".
+    expect(screen.queryByTestId("one-voice-tool-result-headline")).toBeNull();
+  });
+
+  it("says there are no scheduled emails, and nothing of the kind on a refusal", () => {
+    const { unmount } = render(
+      <ToolResultCard
+        result={{
+          status: "empty",
+          spoken_facts: ["You have no scheduled emails."],
+          items: [],
+        }}
+        tool="list_scheduled_mail"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-scheduled-mail-empty"),
+    ).toHaveTextContent("No scheduled emails");
+    unmount();
+
+    render(
+      <ToolResultCard
+        result={{
+          status: "rejected",
+          spoken_facts: ["Scheduling is switched off."],
+        }}
+        tool="list_scheduled_mail"
+        ok={false}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-scheduled-mail-empty")).toBeNull();
+  });
+});

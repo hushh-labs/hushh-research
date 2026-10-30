@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
+import { applyStatementHoldingsEdit } from "@/lib/kai/brokerage/statement-holdings-edit";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
+import { getStatementPortfolio } from "@/lib/kai/brokerage/financial-sources";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -25,6 +29,7 @@ const pkmGetMetadataMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmGetDomainDataMock = vi.fn();
 const pkmStoreMergedDomainWithPreparedBlobMock = vi.fn();
+const pkmStorePreparedDomainMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...a: unknown[]) => pkmGetMetadataMock(...a),
@@ -32,6 +37,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
     getDomainData: (...a: unknown[]) => pkmGetDomainDataMock(...a),
     storeMergedDomainWithPreparedBlob: (...a: unknown[]) =>
       pkmStoreMergedDomainWithPreparedBlobMock(...a),
+    storePreparedDomainWithPreparedBlob: (...a: unknown[]) => pkmStorePreparedDomainMock(...a),
     emptyMetadata: vi.fn(() => ({ domains: [], upgradableDomains: [] })),
     loadDomainData: vi.fn(),
   },
@@ -73,6 +79,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
+  PKM_QUARANTINE_SEGMENT_ID: "__quarantine_v1",
   CURRENT_PKM_CONTRACT_VERSION: "6.0.0",
   CURRENT_READABLE_PROJECTION_VERSION: "6.0.0",
   CURRENT_READABLE_SUMMARY_VERSION: 1,
@@ -80,7 +87,21 @@ vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
   currentDomainContractVersion: vi.fn(() => 2),
 }));
 
+const reservedMode = vi.hoisted(() => ({ value: null as "shadow" | "enforce" | null }));
+vi.mock("@/lib/pkm/reserved-branches", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pkm/reserved-branches")>();
+  // Every case runs under the contract's own mode (enforce since Phase 2);
+  // the shadow block switches to the rollback value explicitly.
+  return {
+    ...actual,
+    get RESERVED_ENFORCEMENT_MODE() {
+      return reservedMode.value ?? actual.RESERVED_ENFORCEMENT_MODE;
+    },
+  };
+});
+
 import {
+  getReservedWouldRefuseShadowCount,
   PkmWriteCoordinator,
 } from "@/lib/services/pkm-write-coordinator";
 
@@ -136,6 +157,133 @@ const BUILD_CALLBACK = vi.fn().mockImplementation(() => ({
 describe("PkmWriteCoordinator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("carries the merged write's publication fence through an already-dispatched response", async () => {
+    stubNoUpgradeNeeded();
+    stubWriteContext();
+    let current = true;
+    const mayPublish = () => current;
+    pkmStoreMergedDomainWithPreparedBlobMock.mockImplementationOnce(async (request) => {
+      current = false;
+      expect(request.mayPublish()).toBe(false);
+      return { success: true };
+    });
+    await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, mayPublish, build: BUILD_CALLBACK });
+    expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(expect.objectContaining({ mayPublish }));
+  });
+
+  describe("background prepared writes", () => {
+    const automatic = { authorizationMode: "product_default_auto_save_policy" as const,
+      surface: "chat" as const, source: "agent_chat_auto_save", autoSavePolicyVersion: 1,
+      productDefaultEffectiveAt: "2026-09-04T00:00:00.000Z" };
+    it("never starts or resumes upgrades for automatic capture", async () => {
+      stubNoUpgradeNeeded();
+      pkmGetMetadataMock.mockResolvedValueOnce({ upgradableDomains: [{ domain: "food", needsUpgrade: true }] });
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, build: BUILD_CALLBACK });
+      expect(result.saveState).toBe("blocked_pending_upgrade");
+      expect(upgradeEnsureRunningMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
+    it("does not assume missing version readiness after a failed read", async () => {
+      stubNoUpgradeNeeded();
+      pkmGetMetadataMock.mockRejectedValueOnce(new Error("Unavailable"));
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, build: BUILD_CALLBACK });
+      expect(result.success).toBe(false);
+      expect(upgradeEnsureRunningMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
+    it("rejects cancellation during preparation before store dispatch", async () => {
+      const consoleError = vi.spyOn(console, "error");
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      let canceled = false;
+      const beforeEffect = vi.fn(async () => { if (canceled) throw new DOMException("Canceled", "AbortError"); });
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS, confirmation: automatic, beforeEffect,
+        build: () => { canceled = true; return BUILD_CALLBACK(); },
+      });
+      expect(result.success).toBe(false);
+      expect(result.saveState).toBe("blocked_pending_unlock");
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+    it("forwards the same guard to final dispatch and prevents a canceled conflict retry", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      let canceled = false;
+      const beforeEffect = vi.fn(async () => { if (canceled) throw new DOMException("Canceled", "AbortError"); });
+      pkmStorePreparedDomainMock.mockImplementationOnce(async (params) => {
+        expect(params.beforeEffect).toBe(beforeEffect);
+        await params.beforeEffect();
+        canceled = true;
+        return { success: false, conflict: true, fullBlob: {} };
+      });
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, beforeEffect, build: BUILD_CALLBACK });
+      expect(result.success).toBe(false);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("binds the prepared mutation plan to the reviewed scope", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { preferences: { writing: "concise" } } },
+      });
+
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        build: () => ({
+          domainData: { preferences: { writing: "concise" } },
+          summary: { item_count: 1 },
+          mergeDecision: { merge_mode: "create_entity" },
+          structureDecision: { target_domain: "food" },
+          scopePath: "preferences.writing",
+        }),
+      });
+
+      expect(result.success).toBe(true);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mutationPlan: expect.objectContaining({
+            proposed_scope: "preferences",
+            confirmation_receipt: expect.objectContaining({
+              displayed_scope: "preferences",
+            }),
+          }),
+        }),
+      );
+    });
+
+    it("keeps a reviewed import mutation idempotent across retries", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { favorite: "sushi" } },
+      });
+      const operation = {
+        ...BASE_PARAMS,
+        idempotencyScope: "public-profile-claim-stable-operation",
+        build: () => ({ domainData: { favorite: "sushi" }, summary: { item_count: 1 } }),
+      };
+
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+
+      const firstPlan = pkmStorePreparedDomainMock.mock.calls[0]?.[0]?.mutationPlan;
+      const retryPlan = pkmStorePreparedDomainMock.mock.calls[1]?.[0]?.mutationPlan;
+      expect(firstPlan?.plan_id).toBeTruthy();
+      expect(retryPlan?.plan_id).toBe(firstPlan?.plan_id);
+    });
   });
 
   describe("blocked_pending_unlock", () => {
@@ -264,52 +412,6 @@ describe("PkmWriteCoordinator", () => {
       });
     });
 
-    it("passes authoritative merge decisions through merged domain writes", async () => {
-      stubNoUpgradeNeeded();
-      stubWriteContext({
-        baseFullBlob: {
-          financial: {
-            portfolio: { holdings: [{ symbol: "OLD" }] },
-          },
-        },
-      });
-      pkmStoreMergedDomainWithPreparedBlobMock.mockResolvedValue({
-        success: true,
-        conflict: false,
-        dataVersion: 2,
-        fullBlob: {
-          financial: {
-            portfolio: { holdings: [{ symbol: "NEW" }] },
-          },
-        },
-      });
-
-      await PkmWriteCoordinator.saveMergedDomain({
-        ...BASE_PARAMS,
-        domain: "financial",
-        build: () => ({
-          domainData: {
-            portfolio: { holdings: [{ symbol: "NEW" }] },
-          },
-          summary: { item_count: 1 },
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-        }),
-      });
-
-      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          domain: "financial",
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-        }),
-      );
-    });
-
     it("records an explicitly confirmed merged-domain deletion as delete", async () => {
       pkmGetMetadataMock.mockResolvedValue({ upgradableDomains: [] });
       pkmGetDomainManifestMock.mockResolvedValue({
@@ -355,6 +457,63 @@ describe("PkmWriteCoordinator", () => {
   });
 
   describe("conflict retry", () => {
+    it("rebuilds an entry removal from the latest financial revision without dropping unrelated records", async () => {
+      stubNoUpgradeNeeded();
+      let current: Record<string, unknown> = { sources: { active_source: "statement" }, profile: { revision: 1 }, portfolio: {
+        holdings: ["one", "two"].map(entry_id => ({ entry_id, symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market_value: 100 })),
+        account_summary: { ending_value: 200 },
+      } };
+      const before = getStatementPortfolio(current)!;
+      prepareDomainWriteContextMock.mockImplementation(async () => ({
+        baseFullBlob: {}, domainData: current, expectedDataVersion: 1,
+        encryptedDomain: null, manifest: null, snapshot: null,
+      }));
+      pkmStoreMergedDomainWithPreparedBlobMock.mockImplementationOnce(async () => {
+        current = { ...current, profile: { revision: 2 } };
+        return { success: false, conflict: true, fullBlob: {} };
+      }).mockResolvedValueOnce({ success: true, fullBlob: {}, dataVersion: 3 });
+      const result = await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, domain: "financial",
+        confirmation: { ...BASE_PARAMS.confirmation, source: "kai_dashboard_portfolio_save" },
+        build: context => ({ domainData: applyStatementHoldingsEdit(context.currentDomainData,
+          { ...before, holdings: before.holdings!.slice(1) }, before, null, "2026-10-26T00:00:00Z"),
+          mergeDecision: { merge_mode: "replace_domain", target_domain: "financial" }, summary: {},
+        }),
+      });
+      expect(result.success).toBe(true);
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledTimes(2);
+      const request = pkmStoreMergedDomainWithPreparedBlobMock.mock.calls[1]![0];
+      expect(request.domain).toBe("financial");
+      expect(request.mergeDecision).toEqual({ merge_mode: "replace_domain", target_domain: "financial" });
+      expect(request.domainData.profile).toEqual({ revision: 2 });
+      expect(request.domainData.portfolio.holdings.map((entry: { entry_id: string }) => entry.entry_id)).toEqual(["two"]);
+    });
+    it("serializes competing writes and rebuilds against the latest revision after a remote conflict", async () => {
+      stubNoUpgradeNeeded();
+      let revision = 1;
+      let writes = 0;
+      let active = 0;
+      let peak = 0;
+      prepareDomainWriteContextMock.mockImplementation(async () => ({
+        baseFullBlob: {}, domainData: { remoteRevision: revision }, expectedDataVersion: revision,
+        encryptedDomain: { dataVersion: revision }, manifest: null, snapshot: null,
+      }));
+      pkmStoreMergedDomainWithPreparedBlobMock.mockImplementation(async () => {
+        active++; peak = Math.max(peak, active);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        active--; writes++; revision++;
+        return writes === 1 ? { success: false, conflict: true, fullBlob: {} } : { success: true, fullBlob: {}, dataVersion: revision };
+      });
+      const seen: number[] = [];
+      const save = () => PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, build: context => {
+        seen.push(context.currentDomainData.remoteRevision as number);
+        return { domainData: { ...context.currentDomainData, fact: "current" }, summary: {} };
+      } });
+      const results = await Promise.all([save(), save()]);
+      expect(results.every(result => result.success)).toBe(true);
+      expect(peak).toBe(1);
+      expect(seen).toEqual([1, 2, 3]);
+    });
+
     it("retries on version conflict and succeeds on second attempt", async () => {
       stubNoUpgradeNeeded();
       stubWriteContext();
@@ -485,14 +644,34 @@ describe("PkmWriteCoordinator", () => {
   });
 
   describe("backend write throws", () => {
+    it("keeps metadata conflicts actionable without dispatching or suggesting vault setup", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: async () => { throw new PkmMetadataReviewRequired(); },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/review and prepare it again/i);
+      expect(result.message).toMatch(/nothing was saved/i);
+      expect(result.message).not.toMatch(/vault is set up/i);
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
     it("converts a thrown storeDomainData 500 into a graceful failed result instead of propagating", async () => {
       stubNoUpgradeNeeded();
       stubWriteContext();
-      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(
-        new Error(
-          'Failed to store domain data: 500 - {"detail":"Failed to store domain data"}',
-        ),
+      const backendError = new Error(
+        'Failed to store domain data: 500 - PKM_STORE_DOMAIN_FAILED: Failed to store domain data',
       );
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(backendError);
+      // Regression: this generic catch used to log only a static string
+      // ("PKM write failed."), with no way to tell one real report of
+      // "Backend returned failure on store" apart from another without
+      // pulling server logs. It must now log the actual backend detail.
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
 
       const result = await PkmWriteCoordinator.saveMergedDomain({
         ...BASE_PARAMS,
@@ -504,6 +683,24 @@ describe("PkmWriteCoordinator", () => {
       // The raw backend error text must never reach the caller/UI verbatim.
       expect(result.message).not.toContain("Failed to store domain data: 500");
       expect(result.message).toMatch(/vault/i);
+      // ...but it must reach the console, for anyone triaging the report.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("PKM write failed"),
+        expect.stringContaining("PKM_STORE_DOMAIN_FAILED"),
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("passes only the status of a terminal store-domain validation failure to retry owners", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(new PkmStoreDomainError(422,
+        "Failed to store domain data: 422 - manifest.manifest_version"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const result = await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, build: BUILD_CALLBACK });
+      expect(result).toMatchObject({ success: false, saveState: "failed", httpStatus: 422 });
+      expect(result.message).not.toContain("manifest.manifest_version");
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledTimes(1);
     });
 
     it("requires recipient re-review when sharing changes during the write", async () => {
@@ -521,6 +718,177 @@ describe("PkmWriteCoordinator", () => {
       expect(result.saveState).toBe("failed");
       expect(result.message).toMatch(/sharing changed/i);
       expect(result.message).toMatch(/confirm again/i);
+    });
+  });
+  describe("reserved-branch shadow (contracts/pkm/reserved-branches.v1.json)", () => {
+    // The KYC reply writer holds an information-request capability; the device
+    // only checks that one is present, and the server verifies it.
+    const KYC_REPLY_AUTHORIZATION = {
+      schema_version: "one.kyc_reply_authorization.v1" as const,
+      information_request_id: "00000000-0000-4000-8000-000000000001",
+      token: `kycreplytoken_${"a".repeat(64)}`,
+      expires_at: "2099-01-01T00:00:00+00:00",
+    };
+    const smuggledWrite = (source: string) =>
+      PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        domain: "identity",
+        confirmation: {
+          confirmedByUser: true,
+          surface: "chat",
+          source,
+          ...(source === "agent_chat_kyc_owner_confirmed"
+            ? { kycReplyAuthorization: KYC_REPLY_AUTHORIZATION }
+            : {}),
+        },
+        build: () => ({
+          // The scope says agent_memory; the payload also rewrites a document.
+          domainData: {
+            agent_memory: { entities: { mem_1: { summary: "Prefers email" } } },
+            identity_documents: { passport_number: "SMUGGLED-B2" },
+          },
+          summary: { item_count: 1 },
+          scopePath: "agent_memory",
+        }),
+      });
+
+    beforeEach(() => {
+      reservedMode.value = "shadow";
+      stubNoUpgradeNeeded();
+      stubWriteContext({ domainData: { identity_documents: { passport_number: "STORED-A1" } } });
+      pkmStorePreparedDomainMock.mockResolvedValue({ success: true, conflict: false, dataVersion: 2, fullBlob: {} });
+    });
+    afterEach(() => {
+      reservedMode.value = null;
+    });
+
+    it("counts a memory agent's smuggled identity_documents change, logs no value, and still saves", async () => {
+      const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+      const before = getReservedWouldRefuseShadowCount();
+      const result = await smuggledWrite("agent_chat_owner_request");
+
+      expect(result.success).toBe(true);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      expect(getReservedWouldRefuseShadowCount() - before).toBe(1);
+      expect(debug).toHaveBeenCalledWith("[PkmWriteCoordinator] pkm.reserved_would_refuse", {
+        domain: "identity",
+        branch: "identity_documents",
+        writer: "agent_chat_owner_request",
+        reason: "memory_agent",
+      });
+      expect(JSON.stringify(debug.mock.calls)).not.toMatch(/SMUGGLED|STORED/);
+      debug.mockRestore();
+    });
+
+    it("does not count the same change from the writer the registry lists (negative control)", async () => {
+      const before = getReservedWouldRefuseShadowCount();
+      const result = await smuggledWrite("agent_chat_kyc_owner_confirmed");
+
+      expect(result.success).toBe(true);
+      expect(getReservedWouldRefuseShadowCount() - before).toBe(0);
+    });
+
+    describe("in enforce mode", () => {
+      beforeEach(() => {
+        reservedMode.value = "enforce";
+      });
+
+      it("saves a chat fact into the sibling while the app's branch sits beside it", async () => {
+        const result = await PkmWriteCoordinator.savePreparedDomain({
+          ...BASE_PARAMS,
+          domain: "identity",
+          confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_confirmed_card" },
+          build: () => ({
+            domainData: { agent_memory: { entities: { mem_2: { summary: "Prefers email" } } } },
+            summary: { item_count: 1 },
+            scopePath: "agent_memory",
+          }),
+        });
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("blocks a smuggled identity_documents change behind proposed_scope agent_memory", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const result = await smuggledWrite("agent_chat_owner_request");
+
+        expect(result.success).toBe(false);
+        expect(result.saveState).toBe("blocked_reserved_branch");
+        expect(result.reservedRefusals).toEqual([
+          {
+            domain: "identity",
+            branch: "identity_documents",
+            writerId: "agent_chat_owner_request",
+            reason: "memory_agent",
+          },
+        ]);
+        // Nothing reached the network, and no stored or proposed value was logged.
+        expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+        expect(JSON.stringify(warn.mock.calls)).not.toMatch(/SMUGGLED|STORED/);
+        warn.mockRestore();
+      });
+
+      it("still saves the change from the listed writer holding its capability (negative control)", async () => {
+        const result = await smuggledWrite("agent_chat_kyc_owner_confirmed");
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("lands a resumable save job's commit in the sibling under its idempotency scope, and blocks one that touches the app's branch", async () => {
+        // Cross-lane: pkm-save-job.ts commits as the explicit-save memory agent
+        // with a per-step idempotency scope. Enforce mode must take that write
+        // into agent_memory and refuse it the moment it reaches saved_places.
+        stubWriteContext({ domainData: { saved_places: { home: { label: "Home" } } } });
+        const jobWrite = (domainData: Record<string, unknown>) =>
+          PkmWriteCoordinator.savePreparedDomain({
+            ...BASE_PARAMS,
+            domain: "location",
+            confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_request" },
+            idempotencyScope: "job_1:step_a:0",
+            build: () => ({ domainData, summary: { item_count: 1 }, scopePath: "agent_memory" }),
+          });
+
+        const sibling = await jobWrite({
+          saved_places: { home: { label: "Home" } },
+          agent_memory: { entities: { mem_3: { summary: "Gym near the office" } } },
+        });
+        expect(sibling.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+        const plan = (pkmStorePreparedDomainMock.mock.calls[0]?.[0] as { mutationPlan: { plan_id: string; writer_id: string } }).mutationPlan;
+        expect(plan.writer_id).toBe("agent_chat_owner_request");
+        expect(plan.plan_id).toMatch(/^pkm_plan_[0-9a-f]{32}$/);
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const reserved = await jobWrite({
+          saved_places: { home: { label: "Home" }, gym: { label: "Gym" } },
+          agent_memory: { entities: { mem_3: { summary: "Gym near the office" } } },
+        });
+        expect(reserved.saveState).toBe("blocked_reserved_branch");
+        expect(reserved.reservedRefusals?.[0]).toMatchObject({ domain: "location", branch: "saved_places", reason: "memory_agent" });
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+      });
+
+      it("still saves a memory agent's write that leaves reserved branches untouched", async () => {
+        const result = await PkmWriteCoordinator.savePreparedDomain({
+          ...BASE_PARAMS,
+          domain: "identity",
+          confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_request" },
+          build: ({ currentDomainData }) => ({
+            domainData: {
+              ...currentDomainData,
+              agent_memory: { entities: { mem_1: { summary: "Prefers email" } } },
+            },
+            summary: { item_count: 1 },
+            scopePath: "agent_memory",
+          }),
+        });
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

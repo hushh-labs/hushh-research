@@ -1,55 +1,162 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { FEED_STATE_CHANGED_EVENT } from "@/lib/feed/feed-events";
+import {
+  FEED_STATE_CHANGED_EVENT,
+  feedStateChangeReason,
+} from "@/lib/feed/feed-events";
+import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
-
-const POLL_INTERVAL_MS = 45_000;
+import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 /**
  * Returns `null` until the count has resolved. Consumers must treat that as
  * unknown, never as zero: zero is a meaningful statement that Feed has no
  * unread items.
  */
-export function useFeedUnreadCount(): number | null {
-  const { user } = useAuth();
-  const [count, setCount] = useState<number | null>(null);
+export function useFeedUnreadCount(options?: { enabled?: boolean }): number | null {
+  const { user, userId } = useAuth();
+  const rootChatReady = useRootChatDeferredReady();
+  const foregroundChatActive = useForegroundChatActive();
+  const currentUserId = userId;
+  // Object identity distinguishes separate sessions even when an A -> B -> A
+  // account cycle returns to the same uid. State from the first A session is
+  // never considered current for the second.
+  const session = useMemo(() => ({ userId: currentUserId }), [currentUserId]);
+  // Same reason as the consent badge: a hidden badge that still fetches spends a
+  // connection from a pool of four while a first-run person waits on the gate.
+  const enabled = options?.enabled ?? true;
+  const [countState, setCountState] = useState<{
+    session: typeof session;
+    count: number | null;
+  }>({ session, count: null });
+  const requestSequenceRef = useRef(0);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef<{
+    session: typeof session;
+    promise: Promise<void>;
+  } | null>(null);
+  const refreshPendingRef = useRef(false);
+  const feedEpochRef = useRef(currentFeedInvalidationEpoch(currentUserId ?? ""));
+  const loadRef = useRef<((force: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setCount(null);
-      return;
-    }
-    let cancelled = false;
-
-    const load = async (force = false) => {
-      try {
-        const idToken = await user.getIdToken();
-        const next = await FeedService.unreadCount({
-          idToken,
-          userId: user.uid,
-          force,
-        });
-        if (!cancelled) setCount(next);
-      } catch {
-        // Unread count is presentation-only; a transient failure just keeps
-        // the last known value instead of surfacing an error state.
-      }
-    };
-
-    void load();
-    const interval = setInterval(() => void load(true), POLL_INTERVAL_MS);
-    const handleStateChanged = () => void load(true);
-    window.addEventListener(FEED_STATE_CHANGED_EVENT, handleStateChanged);
-
+    mountedRef.current = true;
     return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener(FEED_STATE_CHANGED_EVENT, handleStateChanged);
+      mountedRef.current = false;
     };
-  }, [user]);
+  }, []);
 
-  return count;
+  const load = useCallback(
+    (force = false, followup = false): Promise<void> => {
+      if (!user || !userId) return Promise.resolve();
+      const existing = inFlightRef.current;
+      if (existing?.session === session) {
+        if (followup) refreshPendingRef.current = true;
+        return existing.promise;
+      }
+
+      const requestedUserId = userId;
+      const requestId = ++requestSequenceRef.current;
+      const isLatestRequest = () => requestSequenceRef.current === requestId;
+      const promise = (async () => {
+        try {
+          const idToken = await user.getIdToken();
+          if (!isLatestRequest()) return;
+          const next = await FeedService.unreadCount({
+            idToken,
+            userId: requestedUserId,
+            force,
+          });
+          if (mountedRef.current && isLatestRequest()) {
+            setCountState((current) =>
+              current.session === session ? { session, count: next } : current,
+            );
+          }
+        } catch {
+          // Unread count is presentation-only; a transient failure just keeps
+          // the last known value instead of surfacing an error state.
+        }
+      })();
+      const request = { session, promise };
+      inFlightRef.current = request;
+      void promise.finally(() => {
+        if (inFlightRef.current === request) {
+          inFlightRef.current = null;
+          if (refreshPendingRef.current && mountedRef.current) {
+            refreshPendingRef.current = false;
+            void loadRef.current?.(true);
+          }
+        }
+      });
+      return promise;
+    },
+    [session, user, userId],
+  );
+  useEffect(() => { loadRef.current = load; }, [load]);
+
+  useEffect(() => {
+    requestSequenceRef.current += 1;
+    inFlightRef.current = null;
+    refreshPendingRef.current = false;
+    feedEpochRef.current = currentFeedInvalidationEpoch(session.userId ?? "");
+    setCountState({ session, count: null });
+    // Hidden chrome and foreground chat leave bandwidth for the active task.
+    if (!userId || !enabled || !rootChatReady || foregroundChatActive) return;
+    void load();
+  }, [user, userId, load, session, enabled, rootChatReady, foregroundChatActive]);
+
+  // Shares the Feed's live signal rather than keeping a private timer, so the
+  // badge and the Feed list re-check on the same tick and cannot drift into
+  // saying different things about the same unread rows.
+  useFeedLiveRefresh(
+    useCallback(() => void load(true), [load]),
+    Boolean(userId) && enabled && rootChatReady && !foregroundChatActive,
+  );
+
+  // The badge additionally recounts on a read-only change — that shared signal
+  // skips those, precisely so a list does not re-fetch rows it just marked read.
+  // For the badge it is the whole point: it is the number that has to drop.
+  useEffect(() => {
+    if (!userId || !enabled || !rootChatReady || foregroundChatActive) return;
+    const recount = (event: Event) => {
+      const epoch = currentFeedInvalidationEpoch(userId);
+      if (epoch !== feedEpochRef.current) {
+        feedEpochRef.current = epoch;
+        requestSequenceRef.current += 1;
+        inFlightRef.current = null;
+        refreshPendingRef.current = false;
+      }
+      const reason = feedStateChangeReason(event);
+      if (reason === "read") {
+        const cached = CacheService.getInstance().get<number>(
+          CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+        );
+        if (cached != null) {
+          // An optimistic read count is newer than any outstanding recount.
+          // Retire those requests so a late pre-read response cannot restore
+          // the badge the user just cleared by opening Feed.
+          requestSequenceRef.current += 1;
+          refreshPendingRef.current = false;
+          if (inFlightRef.current?.session === session) {
+            inFlightRef.current = null;
+          }
+          setCountState((current) =>
+            current.session === session ? { session, count: cached } : current,
+          );
+          return;
+        }
+      }
+      void load(true, true);
+    };
+    window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
+    return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
+  }, [enabled, load, rootChatReady, foregroundChatActive, session, userId]);
+
+  return countState.session === session ? countState.count : null;
 }

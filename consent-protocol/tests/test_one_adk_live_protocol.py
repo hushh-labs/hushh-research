@@ -1,157 +1,8 @@
-"""Unit coverage for One ADK Live browser-frame trust boundaries."""
+"""Shared screen/authority contracts retained after Live transport retirement."""
 
-import pytest
-
-from api.routes.one.adk_live import (
-    _GOAL_CONTINUATION_NOTE,
-    _close_quietly,
-    _goal_continuation_is_already_ready,
-    _InitialGreetingGate,
-    _navigation_continuation_screen,
-    _receive_runtime_bootstrap,
-)
-from api.routes.one.live_context import (
-    compose_route_context_note as _compose_route_context_note,
-)
-from api.routes.one.live_context import (
-    sanitize_action_settlement as _sanitize_action_settlement,
-)
-from api.routes.one.live_context import (
-    sanitize_live_context as _sanitize_live_context,
-)
-
-
-def test_initial_greeting_gate_allows_one_idle_cue_only():
-    gate = _InitialGreetingGate()
-    epoch = gate.schedule()
-
-    assert epoch is not None
-    assert gate.may_send(epoch) is True
-    assert gate.mark_sent(epoch) is True
-    assert gate.schedule() is None
-
-
-def test_initial_greeting_gate_invalidates_a_pending_cue_after_visitor_activity():
-    gate = _InitialGreetingGate()
-    epoch = gate.schedule()
-
-    assert epoch is not None
-    gate.cancel_for_visitor_activity()
-    assert gate.may_send(epoch) is False
-    assert gate.mark_sent(epoch) is False
-    assert gate.schedule() is None
-
-
-class _BootstrapSocket:
-    def __init__(self, frame: dict):
-        self._frame = frame
-
-    async def receive_text(self) -> str:
-        import json
-
-        return json.dumps(self._frame)
-
-
-class _CloseSocket:
-    """Stand-in for the real websocket's close(), optionally raising to
-    simulate the known websockets/uvicorn legacy-protocol bug where close()
-    throws AttributeError on a connection whose transfer_data_task never got
-    set (client gone before the handshake finished)."""
-
-    def __init__(self, close_error: Exception | None = None):
-        self._close_error = close_error
-        self.close_calls: list[tuple[int, str]] = []
-
-    async def close(self, code: int = 1000, reason: str = "") -> None:
-        self.close_calls.append((code, reason))
-        if self._close_error is not None:
-            raise self._close_error
-
-
-@pytest.mark.asyncio
-async def test_close_quietly_closes_with_the_given_code_and_reason():
-    socket = _CloseSocket()
-
-    await _close_quietly(socket, code=1008, reason="Voice relay ticket is expired.")
-
-    assert socket.close_calls == [(1008, "Voice relay ticket is expired.")]
-
-
-@pytest.mark.asyncio
-async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client():
-    socket = _CloseSocket(
-        close_error=AttributeError(
-            "'WebSocketProtocol' object has no attribute 'transfer_data_task'"
-        )
-    )
-
-    # Must not raise: the client is already gone, so there is no one left to
-    # notify, and a rejection path failing to send its close frame must not
-    # itself become an unhandled server exception.
-    await _close_quietly(socket, code=1008, reason="Voice session configuration was not accepted.")
-
-    assert socket.close_calls == [(1008, "Voice session configuration was not accepted.")]
-
-
-@pytest.mark.asyncio
-async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
-    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
-        _BootstrapSocket(
-            {
-                "type": "runtime_bootstrap",
-                "runtime_credential_mode": "byok",
-                "runtime_credential": "test-key",
-                "runtime_credential_transport": "developer_api",
-            }
-        ),
-        uid="user_1",
-    )
-
-    assert mode == "byok"
-    assert credential == "test-key"
-    assert transport == "developer_api"
-    assert project is None
-    assert location is None
-
-
-@pytest.mark.asyncio
-async def test_runtime_bootstrap_accepts_a_vertex_api_key_only_with_explicit_endpoint_metadata():
-    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
-        _BootstrapSocket(
-            {
-                "type": "runtime_bootstrap",
-                "runtime_credential_mode": "byok",
-                "runtime_credential": "test-key",
-                "runtime_credential_transport": "vertex_api_key",
-                "runtime_vertex_project": "customer-vertex-project",
-                "runtime_vertex_location": "us-central1",
-            }
-        ),
-        uid="user_1",
-    )
-
-    assert (mode, credential, transport, project, location) == (
-        "byok",
-        "test-key",
-        "vertex_api_key",
-        "customer-vertex-project",
-        "us-central1",
-    )
-
-
-@pytest.mark.asyncio
-async def test_runtime_bootstrap_rejects_a_credential_in_managed_mode():
-    with pytest.raises(ValueError, match="runtime_bootstrap_invalid"):
-        await _receive_runtime_bootstrap(
-            _BootstrapSocket(
-                {
-                    "type": "runtime_bootstrap",
-                    "runtime_credential_mode": "hushh_managed_vertex",
-                    "runtime_credential": "test-key",
-                }
-            ),
-            uid="user_1",
-        )
+from api.routes.one.live_context import compose_route_context_note as _compose_route_context_note
+from api.routes.one.live_context import sanitize_action_settlement as _sanitize_action_settlement
+from api.routes.one.live_context import sanitize_live_context as _sanitize_live_context
 
 
 def test_live_context_keeps_only_bounded_redacted_ui_fields():
@@ -190,6 +41,15 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "signed_in": False,
         "context_revision": None,
         "available_action_ids": [],
+        # Empty for this route because the generated index declares no actions
+        # for it. On a route that does (Location declares 52), this is the
+        # uncapped executable set -- see
+        # test_execution_is_not_bounded_by_the_prompt_budget.
+        "executable_action_ids": [],
+        # Empty because this payload publishes no screen state. A surface that
+        # does gets a bounded, scalar-only map -- see
+        # test_screen_state_reaches_the_model_bounded.
+        "screen_state": {},
         "visible_modules": ["Portfolio"],
         "visible_control_ids": [],
         "interaction_layer": None,
@@ -207,27 +67,142 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
             "phone_verified": None,
             "setup_capability_ids": [],
         },
+        "voice_settings": {
+            "voice_enabled": True,
+            "require_tap_confirmation": False,
+            "disabled_domains": [],
+        },
     }
+
+
+def test_live_context_keeps_a_full_execution_inventory_separate_from_prompt_cap():
+    action_ids = [
+        "location.open_now",
+        "location.open_map",
+        "location.open_people",
+        "location.open_links",
+        "location.open_share",
+        "location.open_ask",
+        "location.open_invite",
+        "location.open_create_circle",
+        "location.open_join_circle",
+        "location.open_temporary_link",
+        "location.open_check_in",
+        "location.open_sos",
+        "location.open_sms_contacts",
+        "location.open_settings",
+        "location.open_active_shares",
+        "location.open_shared_with_me",
+        "location.open_needs_review",
+        "location.add_connections",
+        "location.open_map",
+        "location.refresh",
+        "location.pause_updates",
+        "location.share_selected",
+        "location.create_circle",
+    ]
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": action_ids,
+            "executable_action_ids": [*action_ids, "location.rename_circle"],
+        }
+    )
+
+    assert len(context["available_action_ids"]) <= 58
+    assert "location.rename_circle" not in context["available_action_ids"]
+    assert "location.rename_circle" in context["executable_action_ids"]
+
+
+def test_voice_settings_fails_open_when_absent_or_malformed():
+    # Every field here is a person's own restriction on a capability they
+    # already have, not a grant -- missing or corrupted input must resolve to
+    # today's exact behavior, never to "block everything".
+    absent = _sanitize_live_context({"route_family": "/one/kai/market"})
+    assert absent["voice_settings"] == {
+        "voice_enabled": True,
+        "require_tap_confirmation": False,
+        "disabled_domains": [],
+    }
+
+    malformed = _sanitize_live_context(
+        {"route_family": "/one/kai/market", "voice_settings": "not-a-dict"}
+    )
+    assert malformed["voice_settings"] == {
+        "voice_enabled": True,
+        "require_tap_confirmation": False,
+        "disabled_domains": [],
+    }
+
+
+def test_voice_settings_honours_explicit_restrictions():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {
+                "voice_enabled": False,
+                "require_tap_confirmation": True,
+                "disabled_domains": ["location", "kyc"],
+            },
+        }
+    )
+    assert context["voice_settings"] == {
+        "voice_enabled": False,
+        "require_tap_confirmation": True,
+        "disabled_domains": ["location", "kyc"],
+    }
+
+
+def test_voice_settings_drops_domains_the_server_cannot_enforce():
+    # "finance" and "calendar" are real domain keys the UI can show as
+    # "coming soon", but neither routes through a server-side choke point --
+    # accepting them here would let a client believe a restriction applies
+    # when nothing downstream checks it. Unrecognised strings are dropped the
+    # same way.
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {
+                "disabled_domains": ["location", "finance", "calendar", "not_a_real_domain"],
+            },
+        }
+    )
+    assert context["voice_settings"]["disabled_domains"] == ["location"]
+
+
+def test_voice_settings_caps_before_filtering_not_after():
+    # bounded_text_list truncates the RAW list at LIVE_MODULE_CAP before the
+    # allowlist filter ever runs, so a valid domain past the cap is dropped
+    # even though it would otherwise pass -- the same order enforced
+    # elsewhere in this module (available_action_ids, visible_modules, ...).
+    padding = [f"garbage_{i}" for i in range(10)]
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {"disabled_domains": [*padding, "location"]},
+        }
+    )
+    assert context["voice_settings"]["disabled_domains"] == []
 
 
 def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
     context = _sanitize_live_context(
         {
-            "route_family": "/login",
+            "route_family": "/register-phone",
             "available_action_ids": [
-                "auth.sign_in_apple",
-                "auth.close_legal",
+                "phone_mandate.submit_number",
+                "phone_mandate.close_country_picker",
                 "not.generated",
             ],
             "interaction_layer": {
-                "layer_id": "login_legal_terms",
-                "kind": "legal_document",
+                "layer_id": "phone_country_picker",
+                "kind": "country_picker",
                 "modality": "modal",
                 "lifecycle_state": "open",
                 "dismissible": True,
-                "dismiss_action_id": "auth.close_legal",
-                "visible_action_ids": ["auth.close_legal", "not.generated"],
-                "visible_control_ids": ["auth_close_legal"],
+                "dismiss_action_id": "phone_mandate.close_country_picker",
+                "visible_action_ids": ["phone_mandate.close_country_picker", "not.generated"],
+                "visible_control_ids": ["phone-flow-country"],
                 "options": [],
                 "underlying_actions_available": True,
                 "agent_continuity": "interactive",
@@ -235,16 +210,16 @@ def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
         }
     )
 
-    assert context["available_action_ids"] == ["auth.close_legal"]
+    assert context["available_action_ids"] == ["phone_mandate.close_country_picker"]
     assert context["interaction_layer"] == {
-        "layer_id": "login_legal_terms",
-        "kind": "legal_document",
+        "layer_id": "phone_country_picker",
+        "kind": "country_picker",
         "modality": "modal",
         "lifecycle_state": "open",
         "dismissible": True,
-        "dismiss_action_id": "auth.close_legal",
-        "visible_action_ids": ["auth.close_legal"],
-        "visible_control_ids": ["auth_close_legal"],
+        "dismiss_action_id": "phone_mandate.close_country_picker",
+        "visible_action_ids": ["phone_mandate.close_country_picker"],
+        "visible_control_ids": ["phone-flow-country"],
         "options": [],
         "underlying_actions_available": False,
         "agent_continuity": "interactive",
@@ -278,11 +253,14 @@ def test_live_context_intersects_actions_and_screen_with_generated_route_policy(
 
     assert context["screen"] == "one_setup_gmail"
     # Navigation actions (route.*, allow_direct) survive on every route so
-    # cross-screen requests like "go to profile" stay proposable; the
-    # route-declared local action survives through the index intersection.
-    # Gmail setup is dormant, so only the globally-admitted navigation action
-    # remains after generated-contract intersection.
-    assert context["available_action_ids"] == ["route.profile"]
+    # cross-screen requests like "go to profile" stay proposable. Gmail setup
+    # now declares real local actions in the generated index (it was dormant
+    # when this test was written), so its own route-declared action survives
+    # the intersection too.
+    assert context["available_action_ids"] == [
+        "route.profile",
+        "setup.connect_gmail",
+    ]
 
 
 def test_live_context_keeps_navigation_actions_on_routes_without_local_actions():
@@ -508,134 +486,6 @@ def test_live_context_note_omits_the_subject_line_when_none_is_declared():
 
     assert note is not None
     assert "The person is looking at" not in note
-
-
-def _navigation_run(goal_id: str, screen: str, **overrides):
-    """A journey run as `start_app_goal` parks it after issuing the route step."""
-    return {
-        "schema_version": "one.goal_run.v1",
-        "goal_id": goal_id,
-        "action_id": "location.select_share_recipient",
-        "slots": {"person": "sarah"},
-        "step_cursor": 0,
-        "expected_screen": screen,
-        "status": "awaiting_destination_screen",
-        **overrides,
-    }
-
-
-def test_a_journey_waits_for_the_screen_its_own_run_names():
-    # Reading the destination off the run is what makes every authored journey
-    # continue. This was pinned to Analysis, so a journey to anywhere else
-    # navigated and then stopped -- the person watched the right screen open
-    # and nothing happen on it, which is indistinguishable from success.
-    run = _navigation_run("goal.location.select_share_recipient", "one_location")
-
-    assert (
-        _navigation_continuation_screen("goal.location.select_share_recipient", run, "succeeded")
-        == "one_location"
-    )
-    assert (
-        _navigation_continuation_screen(
-            "goal.analysis.start_debate",
-            _navigation_run("goal.analysis.start_debate", "kai_analysis"),
-            "started",
-        )
-        == "kai_analysis"
-    )
-
-
-def test_a_journey_releases_when_destination_context_precedes_route_settlement():
-    # Agent Bar publishes and receives the destination context acknowledgement
-    # before it emits `action_settled`. The relay must treat that latest,
-    # already-sanitized snapshot as sufficient rather than wait forever for a
-    # second app_context frame.
-    assert _goal_continuation_is_already_ready({"screen": "one_location"}, "one_location")
-    assert not _goal_continuation_is_already_ready({"screen": "one_location"}, "connect")
-    assert not _goal_continuation_is_already_ready({}, "one_location")
-
-
-def test_a_settled_action_step_is_never_mistaken_for_another_cue_to_act():
-    # `continue_app_goal` stamps step_cursor 1 before issuing the action. What
-    # settles then is the pick itself, carrying the matched name One is waiting
-    # to hear -- re-arming here would send it back to run the step it just ran.
-    ran = _navigation_run("goal.location.select_share_recipient", "one_location", step_cursor=1)
-
-    assert (
-        _navigation_continuation_screen("goal.location.select_share_recipient", ran, "succeeded")
-        is None
-    )
-
-
-def test_a_navigation_that_did_not_arrive_continues_nothing():
-    run = _navigation_run("goal.location.select_share_recipient", "one_location")
-
-    # Nothing to stand on, so there is nothing to run there.
-    assert (
-        _navigation_continuation_screen("goal.location.select_share_recipient", run, "blocked")
-        is None
-    )
-    assert (
-        _navigation_continuation_screen("goal.location.select_share_recipient", run, "failed")
-        is None
-    )
-    # A directive with no goal behind it is an ordinary action, not a journey.
-    assert _navigation_continuation_screen(None, run, "succeeded") is None
-    # The settled-choice journey shape has its own continuation path.
-    assert (
-        _navigation_continuation_screen(
-            "goal.x",
-            {"schema_version": "one.settled_action_journey.v1", "expected_screen": "one_location"},
-            "succeeded",
-        )
-        is None
-    )
-
-
-def test_the_continuation_note_names_no_screen_and_forbids_answering_early():
-    # One turn of prose serves every journey, so it can never say "Analysis"
-    # or "preview". The prohibition is the load-bearing half: on the share
-    # chain One holds only the name it HEARD until the pick settles, and
-    # asking from that is exactly the wrong-name failure the question exists
-    # to catch.
-    assert "continue_app_goal" in _GOAL_CONTINUATION_NOTE
-    assert "not user speech" in _GOAL_CONTINUATION_NOTE
-    assert "do not ask a question" in _GOAL_CONTINUATION_NOTE
-    for surface_specific in ("analysis", "debate", "location", "preview"):
-        assert surface_specific not in _GOAL_CONTINUATION_NOTE.lower()
-
-
-def test_the_greeting_hold_is_owed_once_not_once_per_rearm():
-    # The cue is armed twice: a generic one when the socket opens, then a
-    # screen-aware one when the first app context lands. Re-arming used to
-    # restart the wait, so the person paid it again for the context arriving --
-    # on top of however long the browser took to publish it, which on a busy
-    # dashboard is seconds. The hold guards against talking over someone who
-    # opened the mic already speaking; that is owed once per session.
-    gate = _InitialGreetingGate(idle_seconds=1.5)
-
-    assert gate.hold_seconds(100.0) == pytest.approx(1.5)
-    # 0.4s later the context arrives and the cue is re-armed with the screen.
-    assert gate.hold_seconds(100.4) == pytest.approx(1.1)
-
-
-def test_a_late_first_context_greets_immediately_rather_than_waiting_again():
-    gate = _InitialGreetingGate(idle_seconds=1.5)
-    gate.hold_seconds(100.0)
-
-    # The browser took 9 seconds to publish its first context. The hold is long
-    # spent; nothing is owed, so the screen-aware cue goes out now.
-    assert gate.hold_seconds(109.0) == 0.0
-
-
-def test_the_hold_never_resurrects_a_cue_that_speech_already_cancelled():
-    # hold_seconds answers "how long", never "whether" -- schedule() owns that,
-    # and visitor speech must keep beating the cue outright.
-    gate = _InitialGreetingGate(idle_seconds=1.5)
-    gate.hold_seconds(100.0)
-    gate.cancel_for_visitor_activity()
-
-    assert gate.schedule() is None
 
 
 def test_an_action_that_already_succeeded_is_not_run_again():
@@ -868,53 +718,4 @@ def test_the_specialist_fingerprint_ignores_the_random_payload_id():
     first = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
     second = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
     assert first == second
-    assert first != specialist_directive_fingerprint(
-        "agent_location", "action", "publish_share"
-    )
-
-
-def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
-    """A second `send_content` is a second answer, not a second instruction.
-
-    Each `send_content` closes a user turn on the Live API and elicits a full
-    model response. A settlement that armed a journey continuation used to send
-    two frames -- the outcome, then the continuation note -- so One answered
-    twice for one event. That is a second, independent source of the repetition
-    QA reported, separate from the specialist-card duplication.
-
-    The two continuation kinds cannot both be live: `continuation_ready_now`
-    requires a `one.goal_run.v1` navigation step (step_cursor 0) and
-    `journey_continuation_note` requires a `one.settled_action_journey.v1` run.
-    This pins that exclusivity, because folding them into one frame is only
-    safe while it holds.
-    """
-    from api.routes.one.adk_live import (
-        _is_navigation_step_settlement,
-        _navigation_continuation_screen,
-    )
-
-    navigation_run = {
-        "schema_version": "one.goal_run.v1",
-        "step_cursor": 0,
-        "expected_screen": "connect",
-    }
-    settled_run = {
-        "schema_version": "one.settled_action_journey.v1",
-        "deferred_action_id": "connect.send_request",
-    }
-
-    # A navigation step arms the navigation continuation...
-    assert _is_navigation_step_settlement(navigation_run) is True
-    assert (
-        _navigation_continuation_screen("goal.x", navigation_run, "succeeded") == "connect"
-    )
-    # ...and a settled-action journey never does, so the settled-journey note
-    # and the navigation note can never both be produced for one settlement.
-    assert _is_navigation_step_settlement(settled_run) is False
-    assert _navigation_continuation_screen("goal.x", settled_run, "succeeded") is None
-
-    # Past the navigation step, what settles is the journey's own action, whose
-    # result One is waiting on -- never another cue to act.
-    assert _navigation_continuation_screen("goal.x", {**navigation_run, "step_cursor": 1}, "succeeded") is None
-    # A failed navigation arms nothing either.
-    assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None
+    assert first != specialist_directive_fingerprint("agent_location", "action", "publish_share")

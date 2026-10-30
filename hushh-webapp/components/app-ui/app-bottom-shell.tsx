@@ -1,29 +1,68 @@
 "use client";
 
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import {
+  memo,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
-import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
-import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { bottomChromeScrollTravel, snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 
 export type BottomShellModel = {
-  ambientEnabled: boolean;
   navigationHidden: boolean;
+  /** Chat owns this same bar as its composer, including active voice controls. */
+  agentBarHidden?: boolean;
+  /** Messages reserves the complete centered dock above its lists and transcript. */
+  includeComposerHeight?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
 
+// The stack rides the scroll progress only. It used to add a keyboard lift
+// (-1 * --kb-height) too, but the shell is hidden on every route while the
+// keyboard is up (html.kb-open fades it), so the lift only produced a ghost
+// of the navigation jumping to above the keyboard for the frames of the fade,
+// over the spot the chat composer was rising into. It fades where it stands.
 const BOTTOM_SCROLL_TRANSFORM =
-  "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px))), 0)";
+  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)";
 
-/** Shared persistent bottom chrome: one material/motion owner, separate controls. */
-export function AppBottomShell({ model }: { model: BottomShellModel }) {
+/** Shared persistent bottom chrome: separate voice and navigation bars. */
+export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
+  const command = useOptionalLocationCommand();
+  const nativeBottomInset = useNativeNavigationBottomInset();
+  const nativeDock = useNativeDockPorts();
+  const voiceActive = useAgentVoiceState((state) => state.active);
+  const hidden = model.hidden && !command?.active && !voiceActive;
+  // The owner remains mounted above routes; Chat presents its active control
+  // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useNativePresentationRegions(shellRef, !hidden);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
+  // AgentBar reads client-only auth and location-command state. Rendering its
+  // markup only after the first client commit keeps the server and hydration
+  // trees identical while preserving the shared shell slot.
+  const [agentBarMounted, setAgentBarMounted] = useState(false);
 
   useLayoutEffect(() => {
-    if (model.hidden) {
+    setAgentBarMounted(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (hidden) {
       const root = document.documentElement;
       root.style.setProperty("--app-bottom-shell-height", "0px");
       root.style.setProperty("--bottom-nav-travel", "0px");
@@ -34,12 +73,21 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     if (!shell) return;
     const root = document.documentElement;
     const publishHeight = () => {
-      const height = `${Math.ceil(shell.getBoundingClientRect().height)}px`;
+      // Chat reserves the composer separately. Publishing its height twice
+      // creates a feedback loop between transcript padding and shell layout.
+      const measuredAgentHeight = shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0;
+      const agentHeight = model.agentBarHidden && !model.includeComposerHeight
+        ? measuredAgentHeight
+        : 0;
+      const height = `${Math.ceil(shell.getBoundingClientRect().height - agentHeight)}px`;
       const navigationHeight = navigationSlotRef.current
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
-      const navigationTravel = `${navigationHeight + 6}px`;
+      // Keep the hide transform clear of the navigation pill's outer border.
+      const navigationTravel = `${bottomChromeScrollTravel(navigationHeight)}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
+      // Keyboard lift reserves navigation and outer insets, never the input.
+      shell.style.setProperty("--app-bottom-shell-keyboard-reservation", `${Math.ceil(shell.getBoundingClientRect().height - measuredAgentHeight)}px`);
       root.style.setProperty("--bottom-nav-travel", navigationTravel);
       root.style.setProperty("--bottom-chrome-hide-distance", navigationTravel);
       root.style.setProperty(
@@ -52,52 +100,51 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [model.hidden, model.navigationHidden]);
-
-  if (model.hidden) return null;
-
-  const maskStyle = {
-    height:
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
-  } as CSSProperties;
+  }, [hidden, model.agentBarHidden, model.includeComposerHeight, model.navigationHidden]);
 
   return (
     <>
-      {model.ambientEnabled ? (
-        <AmbientChromeMask
-          edge="bottom"
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-          style={maskStyle}
-        />
-      ) : null}
-      <div
+      <NativeAgentDock enabled={!hidden} />
+      {/* The fixed wrapper keeps its original hit box while the chrome
+          inside it rides the scroll transform. Let taps pass through that
+          empty area to content (especially Chat's composer); the actual nav
+          controls opt back into pointer events in Navbar. */}
+      {!hidden && <div
         ref={shellRef}
+        style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
+        data-agent-dock-chat={(model.agentBarHidden && !model.includeComposerHeight) || undefined}
+        data-native-agent-dock={nativeDock?.owned || undefined}
+        data-messages-dock={model.includeComposerHeight || undefined}
+        data-command-active={command?.active || (command && command.view.phase !== "idle") || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined
         }
         data-ambient-chrome-ignore
+        data-bottom-chrome-progress-consumer=""
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
-        className="fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
+        className={`pointer-events-none fixed inset-x-0 bottom-0 z-[118] ${BOTTOM_CHROME_INSET_CLASSNAME} pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]`}
       >
+        {/* The one column both bars fill. Neither bar sets its own width. */}
         <div
           data-bottom-shell-motion-stack
-          className="flex flex-col items-center gap-1.5 transform-gpu will-change-transform"
+          className={`mx-auto flex ${BOTTOM_CHROME_COLUMN_CLASSNAME} flex-col items-center gap-1.5 transform-gpu`}
           style={{
             transform: model.navigationHidden
               ? undefined
               : BOTTOM_SCROLL_TRANSFORM,
           }}
         >
-          <div
-            data-bottom-shell-agent-slot
-            className="flex w-full justify-center"
-          >
-            <AgentBar layout="slot" />
-          </div>
+            <div
+              data-bottom-shell-agent-slot
+              className="flex w-full justify-center"
+              style={agentBarMounted ? undefined : { minHeight: 52 }}
+            >
+              {agentBarMounted ? <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary> : null}
+            </div>
           <div
             ref={navigationSlotRef}
             data-bottom-shell-navigation-slot
@@ -109,7 +156,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
             />
           </div>
         </div>
-      </div>
+      </div>}
     </>
   );
-}
+});

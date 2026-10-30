@@ -18,7 +18,7 @@ flowchart TB
 ```
 
 This is the concise design authority for One. It is informed by the checked
-Apple interaction reference: quiet system typography, a restrained single
+Apple interaction reference: quiet Plus Jakarta Sans typography, a restrained single
 accent, legible hierarchy, and chrome that recedes behind the work. It does
 not copy Apple branding or substitute a separate palette for Hussh.
 
@@ -51,22 +51,49 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
 5. Copy uses plain language. One is the private agent; Kai is the finance
    specialist; Nav is the privacy and consent guardian; KYC is the identity
    workflow specialist.
+6. Form controls use one capsule field geometry and one measured rhythm: the
+   `--app-input-radius` token owns direct-entry shells, `--app-form-field-gap`
+   separates a label from its control, and `--app-form-section-gap` separates
+   a primary action from related methods. A low-emphasis recovery path may be
+   a text link with a 44px hit area; it must not look like a second primary CTA.
+   Credential fallback groups keep the “Can’t get in?” descriptor on one
+   centered line and every available quiet action on the next centered row
+   inside a capped form measure. Separate multiple actions with middle-dot
+   separators; do not create a second primary CTA, pill, column, or vertical
+   divider. If only one action is available, keep it as the single centered
+   element without a separator. Use `--app-form-section-gap` to create the
+   larger pause after the primary unlock action and
+   `--app-form-related-gap` to keep the descriptor close to its action row.
+   Keep visible link text close to its descriptor while preserving the
+   transparent 44px hit area; do not use incidental padding or a left-anchored
+   action row to create the rhythm. When a credential flow offers a sign-out
+   escape, recovery and the alternate unlock method belong in that same quiet
+   action row.
 
 ## Unified Mobile Header Guidelines
 
-To maintain absolute uniformity across mobile screens, all top-level workspace pages must adhere to the high-end centered layout of the Profile tab:
-
-1. **No Mixed/Stacked Headers:** Double headers, stacked titles, and triple-line headers are strictly prohibited. The page title must never be repeated below the top app bar breadcrumbs.
-2. **Clean Centered Typography:** The main screen title and its single-sentence supporting description must be perfectly centered on candidate screens, using Apple-clean typography and a maximum description layout width of `480px` for optimal legibility.
-3. **Specialist Squircle Wells:** Workspace icons must be displayed inside glowing frosted squircles (`rounded-[18px]` to `rounded-[22px]`) with a color-matched blurred glow backdrop. Full `rounded-full` circle backgrounds on iconwells are prohibited.
-4. **Standalone Left Back Button:** On sub-pages, the back button must sit on its own dedicated body row immediately preceding the main centered header layout (using a clean circular button with a discrete left margin), keeping the typography area immaculate and un-overloaded.
+The shared top shell owns navigation and the route declares its breadcrumb. Do
+not add a second Back control. An agent root with a back-only shell (Finance,
+Memory, or Consent Center) draws its one visible title as a body
+`PageHeader titleRole="agent"`, directly above its registered tab rail when it
+has one. Nested routes retain their compact trail title instead. Align an
+agent root to the agent grid; center a focused flow only when that flow's
+layout contract calls for centering. Specialist icons use the shared squircle
+treatment, without a route-local glow or competing header.
+See [Shell and navigation ownership](./app-surface-design-system.md#shell-and-navigation-ownership)
+and [Pixel Grid And Symmetry Contract](./app-surface-design-system.md#pixel-grid-and-symmetry-contract).
 
 ## Material 3 Expressive Physics & Transforms
 
-The Morphy design language relies on physics-based responsive motion, transitioning away from rigid, linear CSS timelines toward fluid underdamped spring interactions.
+The Morphy design language uses responsive motion where it communicates a
+state change. Navigation, repeated list actions, and bottom controls stay
+stable; a bounce or overshoot is never their default. Respect reduced-motion
+preferences and the shared motion tokens.
 
 ### 1. Unified Spring Physics
-Transforms and popovers model a spring-mass-damper system. Underdamped transitions ($\zeta < 1$) establish smooth, natural bounce profiles. The physical displacement is governed by:
+Some expressive transforms and popovers may use a spring-mass-damper model
+when the motion adds meaning. This is not a default recipe for all controls.
+The physical displacement is governed by:
 
 $$m \frac{d^2x}{dt^2} + c \frac{dx}{dt} + kx = 0$$
 
@@ -95,11 +122,35 @@ The radius token does not mean every square is a circle.
 | cards and media | semantic card token | `--app-card-radius-*` only |
 | standalone chrome control | circular or pill only when it is a control | `--app-radius-pill` |
 | avatar, presence dot, toggle thumb | circular | `--app-radius-pill` |
+| direct-entry field or field group | capsule | `--app-input-radius` |
 
 Never use `rounded-full` for a settings, launcher, or app-icon well. Reuse
 `AgentSectionIcon` for agent artwork and `SettingsRow` for settings icon wells.
 Do not use the small generic control radius as the outer radius of a list group
 or card.
+
+Direct-entry fields are the exception to the card/control distinction: `Input`,
+`InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells use
+`--app-input-radius`. Compound fields apply the radius to the outer shell and
+keep their inner input control square so the shell remains visually continuous;
+`CommandInput` is similarly an inner control whose command surface owns the
+visible modal geometry. The token is intentionally a capsule
+(`--app-radius-pill`) and is not a substitute for card radii or standalone
+action geometry.
+
+## Apple reference boundary
+
+This contract adopts Apple-like clarity, hierarchy, spacing, and hit-target
+principles; it is not a claim of Apple platform compliance or a copy of Apple
+visual assets. Apple’s Human Interface Guidelines describe text fields as
+rectangular input areas and emphasize consistent sizing and even spacing. Hussh
+chooses a capsule field silhouette as its own web grammar. The 44px minimum for
+interactive targets and additional separation around un-bezelled links are
+accessibility decisions grounded in the platform guidance:
+
+- [Apple Text Fields](https://developer.apple.com/design/human-interface-guidelines/text-fields)
+- [Apple Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+- [Apple Buttons](https://developer.apple.com/design/human-interface-guidelines/buttons)
 
 ## Signed-in Shell Contract
 
@@ -109,50 +160,55 @@ contract.
 
 ```text
 safe area
-┌ One / current workspace     workspace tabs                  alerts + Profile ┐
-│ Finance                     Market · Portfolio · Analysis                    │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                     route content
-                              Agent Bar (6px visual join)
-                              One · Connect · Search
+┌ back                                        alerts + Profile ┐
+└──────────────────────────────────────────────────────────────┘
+                           Finance
+                    Market · Portfolio · Analysis
+                             route content
+                              voice-only control (narrow slot)
+                              Chat · One · Connect · Feed
 safe area
 ```
 
-1. The centered primary bottom navigation is fixed and constant: **One**,
-   **Connect**, and **Search**. Search is a segment in that shared control and
-   opens the global command surface. Profile remains a top-bar control.
-2. Search opens the existing global command/search surface. It is not agent
-   chat and has no route-local replacement.
-3. The Agent Bar and bottom utility bar are one bottom-chrome stack. Their
-   resting visual separation is 6px; their transforms, safe-area clearance,
-   and fade are measured by the shared shell. Neither route nor component may
-   add another gap.
-4. Finance and RIA workspace tabs render only in the unified top shell. Their
-   labels, destinations, active query state, and visibility come from the
-   central route registry; route bodies and bottom navigation do not duplicate
-   them.
+1. The centered primary bottom navigation is fixed and constant: **Chat**,
+   **One**, **Connect**, and **Feed**, in that order. **Chat** is the canonical
+   home route (`/`). Profile remains a top-bar control.
+2. App-wide Search is disabled and archived under `archive/app-wide-search/`.
+   Existing page-local collection filters remain available.
+3. The voice-only control and bottom navigation are one bottom-chrome surface.
+   There is no divider, nested material, or inter-slot gap; their transform,
+   safe-area clearance, and fade are measured by the shared shell. Neither
+   route nor component may add another boundary.
+4. Finance, Consent Center, Location, and RIA derive labels, destinations, and
+   active state from the central route registry. Their route bodies render the
+   registered `TopShellTabs` directly below the module header; the fixed shell
+   does not duplicate those rails. Public Explore remains a fixed-shell tab
+   set.
 5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
    person's image when available and the same generic/initial fallback as the
    Profile route. Connect remains a route but is not shell chrome.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
-7. The bottom utility frame uses the exact Agent Bar width constraint. Its
-   three segments are equal-width and centered at every breakpoint; it never
-   aligns to the wider page shell or viewport edge.
+7. The bottom navigation frame uses the shared bottom-chrome width constraint.
+   Its segments are equal-width and centered at every breakpoint. Messages
+   on tablets and desktop uses a 30% list / 70% conversation split, placing
+   the entire shared bottom column inside the conversation pane; the list
+   fills the other column to the bottom edge. Phones use one pane at a time. The voice slot is
+   narrower than the navigation frame while retaining a 44px hit target.
 8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
-   use the Profile reading measure and shared outer gutter; their content may
-   vary, but they must not introduce a wider dashboard canvas, a second fixed
-   header, or a route-local tab bar.
+   use the Location-aligned agent measure and shared outer gutter. Its stable
+   Finance header and registry-backed rail precede the pager; tab content may
+   vary but must not introduce a second title or a custom tab bar.
 
 ## List and Header Rules
 
 1. Every standard signed-in route uses the lean shared header; no route-local
    logo, hero, or duplicate title bar.
-2. Profile is the geometry reference for a primary workspace header: one
-   `AppPageShell` at the reading measure, one `AppPageHeaderRegion`, and one
-   primary `PageHeader` or profile identity header. Finance tab content may
-   render supporting section headings, but it must not create a competing
-   primary header above or beside the shared workspace header.
+2. Location retains the agent reading measure and uses Connect's shared top-bar
+   title composition, with an accessible hidden body heading and compact local
+   status/switch row. Finance, Memory, and Consent Center retain their authored
+   body `PageHeader` hierarchy. Tab content may render supporting section
+   headings, but it must not create a competing primary title.
 3. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
    separator, truncation, 44px+ tap target, trailing alignment, and mobile
    stacking. Connected Systems, Profile, and agent lists use the same model.

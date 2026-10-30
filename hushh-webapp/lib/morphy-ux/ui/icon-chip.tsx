@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui/icon";
@@ -35,7 +35,7 @@ export const IconChip = React.forwardRef<HTMLDivElement, IconChipProps>(
         className={cn(
           "grid h-12 w-12 shrink-0 place-items-center rounded-full border border-transparent",
           "text-muted-foreground bg-[color-mix(in_oklch,var(--background)_92%,var(--muted)_8%)]",
-          "transition-[background-color,color,transform,opacity] duration-300",
+          "transition-[background-color,color,transform,opacity] duration-100 ease-out",
           "data-[state=active]:bg-[var(--chip-bg)] data-[state=active]:text-[var(--chip-fg)]",
           "data-[state=active]:ring-1 data-[state=active]:ring-[var(--chip-fg)]/28",
           "data-[state=active]:shadow-[0_0_18px_var(--chip-glow)]",

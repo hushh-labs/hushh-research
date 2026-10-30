@@ -106,6 +106,10 @@ flowchart LR
 5. Daily posture workflow:
 - `.github/workflows/prod-cloudsql-backup-posture.yml`
 - validates backup/PITR posture and uploads a JSON report artifact
+- runs only from `main` in the `production` GitHub environment using the existing
+  production WIF provider and a dedicated read-only backup identity
+- configure that identity with `deploy/iam/setup_production_backup_wif.sh`; no
+  database connection, backup mutation or deployment authority is granted
 
 ---
 
@@ -207,6 +211,48 @@ gcloud sql backups restore <BACKUP_ID> \
 
 Validate the recovered instance before repointing traffic, then update
 `DB_UNIX_SOCKET` / the attached Cloud SQL instance for the backend service.
+
+---
+
+## Application recovery without a database rollback
+
+The exact candidate in `deploy/account-deletion/production-restoration.json`
+can be qualified by the existing main-owned `main-post-merge-smoke.yml` workflow
+with `production_restoration=true` and its recorded `sha`. This is a source
+validation operation: it has no production environment, cloud identity or
+production credentials, and does not run database migrations or move traffic.
+
+The separate **Production Recovery Validation Gate** records the candidate,
+controlling main revision, run/attempt and authority-record digest. It runs the
+existing build/smoke and focused cleanup/frontend contracts. The artifact is
+named `production-restoration-validation-<run>-<attempt>`; its `acceptance.json`
+member is source-validation evidence, not a dev/UAT acceptance receipt.
+
+`deploy/account-deletion/restoration_validation.py` verifies the current run,
+required steps, exact source record and immutable artifact before admitting that
+proof. A later failed or running rerun refuses clearance. Invoke it from trusted
+main tooling before checking out the application. A later recheck must preserve
+its companion modules, current governance policy and existing bounded artifact
+reader in the release-tool bundle; historical application policy is not authority.
+
+This validation alone does **not** enable production cutover. The production
+workflow now joins both source-built images before installing lifecycle fences,
+then uses the no-migration compatibility path, protected-document writer
+quiescence, installed-schema qualification and paired image/rollback verification.
+Empty tables alone do not prove that an older in-flight request cannot commit.
+Preserve the current database and its erasure receipts throughout restoration.
+
+The prepared `document_restoration_fence.py` is the bounded operational writer
+barrier for this path. It locks all three empty document inventory tables,
+waits for prior writers, then installs insert-refusal triggers atomically. Empty
+cascade deletions remain available to account cleanup. A lost-response retry
+must match the original source/run and exact enabled trigger definitions;
+another operation or altered trigger is refused. This is operational database
+DDL, not a migration replay. It is wired into production recovery and was
+installed by operation `40430296874`. Keep it in place while
+a non-reader serves; removal needs a separately qualified reader activation.
+The schema qualifier also refuses the phone-recovery tables introduced by
+migrations 425 and 431.
 
 ---
 

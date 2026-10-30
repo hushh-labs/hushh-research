@@ -4,6 +4,7 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { RiaSwipePager } from "@/components/ria/layout/ria-swipe-pager";
+import { RiaPrimaryWorkspaceShell } from "@/components/ria/ria-page-shell";
 
 export default function RiaLayout({
   children,
@@ -14,11 +15,12 @@ export default function RiaLayout({
     <VaultLockGuard>
       <PhoneMandateGuard>
         <RouteErrorBoundary fallbackRoute="/ria">
-          {/* The onboarding wrapper owns only its five local wizard steps.
-              Profile, Clients, and Picks use the shared route-tab gesture in
-              the app shell, so their route transition and tab motion stay in
-              parity with every other top-shell workspace. */}
-          <RiaSwipePager>{children}</RiaSwipePager>
+          {/* The primary workspace shell persists across Profile, Clients, and
+              Picks. The onboarding wrapper still owns only its five local
+              wizard steps. */}
+          <RiaPrimaryWorkspaceShell>
+            <RiaSwipePager>{children}</RiaSwipePager>
+          </RiaPrimaryWorkspaceShell>
         </RouteErrorBoundary>
       </PhoneMandateGuard>
     </VaultLockGuard>

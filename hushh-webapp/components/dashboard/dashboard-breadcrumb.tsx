@@ -13,7 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Home } from "lucide-react";
+import { Home } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 

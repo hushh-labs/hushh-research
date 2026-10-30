@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 type ConsentDisplayInput = {
   scope?: string | null;
   scopeDescription?: string | null;
@@ -42,6 +44,8 @@ function isTechnicalRequesterIdentity(value: string | null | undefined): boolean
   return false;
 }
 
+const STRUCTURAL_SCOPE_SEGMENT = /^_?(?:entities|items|\*)$/i;
+
 export function humanizeConsentScope(scope: string | null | undefined): string {
   const normalized = String(scope || "").trim();
   if (!normalized) return "Consent request";
@@ -49,22 +53,31 @@ export function humanizeConsentScope(scope: string | null | undefined): string {
   const attrMatch = normalized.match(/^attr\.([a-zA-Z0-9_]+)(?:\.(.*))?$/);
   if (attrMatch?.[1]) {
     const domain = attrMatch[1].replace(/_/g, " ");
-    const tail = String(attrMatch[2] || "").trim();
+    // The memory's own structure (`entities`, `_entities`, `items`, `_items`,
+    // a wildcard) names containers, not what a person shares; kept in, a
+    // scope read "Professional Work Preferences Entities  Entities
+    // Observations  Items" in the Feed and "Saved Places Locations Items
+    // Longitude" on a chat card.
+    const tail = String(attrMatch[2] || "")
+      .split(".")
+      .filter((segment) => segment && !STRUCTURAL_SCOPE_SEGMENT.test(segment))
+      .join(".")
+      .trim();
     if (!tail || tail === "*") {
-      return `${domain.replace(/\b\w/g, (char) => char.toUpperCase())} data`;
+      return mailDisplayLabel(`${domain.replace(/\b\w/g, (char) => char.toUpperCase())} data`);
     }
-    return `${domain} ${tail}`
+    return mailDisplayLabel(`${domain} ${tail}`
       .replace(/[._]/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase());
+      .replace(/\b\w/g, (char) => char.toUpperCase()));
   }
 
   if (normalized === "vault.owner") return "Full vault access";
   if (normalized === "pkm.read") return "Personal Knowledge Model access";
   if (normalized === "pkm.write") return "Personal Knowledge Model updates";
 
-  return normalized
+  return mailDisplayLabel(normalized
     .replace(/[._]/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .replace(/\b\w/g, (char) => char.toUpperCase()));
 }
 
 export function resolveConsentSupportingCopy(input: ConsentDisplayInput): string {
@@ -84,10 +97,23 @@ export function resolveCompactConsentSummary(input: ConsentDisplayInput): string
   return humanizeConsentScope(input.scope);
 }
 
-export function resolveConsentRequesterLabel(
+/**
+ * The first candidate that actually names a person, or `null` when none does.
+ *
+ * Split out of `resolveConsentRequesterLabel` so notification copy can share the
+ * exact same ladder and technical-identity filter while supplying its own
+ * terminal fallback ("Someone" reads correctly in a sentence; "Requester" does
+ * not). One ladder, two endings — rather than a second hand-rolled `||` chain,
+ * which is how the connection-request toast ended up rendering "Someone" even
+ * when a name was available. See issue #5422.
+ *
+ * Returning `null` rather than a placeholder is the point: it lets the caller
+ * distinguish "we have no name" from "the name is literally that placeholder".
+ */
+export function resolveRequesterDisplayName(
   input: ConsentRequesterLabelInput
-): string {
-  const friendlyLabel = firstNonEmptyLabel(
+): string | null {
+  return firstNonEmptyLabel(
     [
       input.requesterLabel,
       input.counterpartLabel,
@@ -96,6 +122,12 @@ export function resolveConsentRequesterLabel(
       input.counterpartSecondaryLabel,
     ].filter((value) => !isTechnicalRequesterIdentity(value))
   );
+}
+
+export function resolveConsentRequesterLabel(
+  input: ConsentRequesterLabelInput
+): string {
+  const friendlyLabel = resolveRequesterDisplayName(input);
   if (friendlyLabel) return friendlyLabel;
 
   if (

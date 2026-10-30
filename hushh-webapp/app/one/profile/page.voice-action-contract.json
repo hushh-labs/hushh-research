@@ -3,7 +3,8 @@
   "surface_id": "profile_account",
   "surface_title": "Profile Workspace",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "hushh-webapp/app/register-phone/page.voice-action-contract.json"
   ],
   "defaults": {
     "reachability": {
@@ -14,6 +15,31 @@
     }
   },
   "actions": [
+    {
+      "action_id": "profile.retry_phone_lookup",
+      "label": "Retry phone lookup",
+      "meaning": "Retries reading the signed-in person's saved verified phone. Does not start OTP verification or change the phone.",
+      "aliases": ["retry phone lookup", "reload my saved phone"],
+      "search_keywords": ["phone", "retry", "number unavailable"],
+      "reachability": {
+        "routes": ["/one/profile/account", "/one/profile/account/phone"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["Account panel is active and the phone lookup is unavailable"]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.retry_phone_lookup"
+      },
+      "control_ids": ["profile-phone-retry", "profile-phone-detail-retry"],
+      "state_exposure": [],
+      "docs_references": ["components/profile/profile-workspace-page.tsx"],
+      "speaker_persona": "one"
+    },
     {
       "action_id": "route.profile",
       "label": "Open Profile",
@@ -50,6 +76,213 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_account",
+      "label": "Open Account",
+      "meaning": "Opens account identity and saved phone management in Profile.",
+      "aliases": ["open account", "open my phone number"],
+      "search_keywords": ["account", "identity", "phone number"],
+      "reachability": {
+        "routes": ["/one/profile/account"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/account"
+      },
+      "control_ids": ["profile_account"],
+      "state_exposure": [],
+      "docs_references": ["components/profile/profile-workspace-page.tsx"],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_my_data",
+      "label": "Open Memory",
+      "meaning": "Opens saved details and sharing in Profile.",
+      "aliases": [
+        "open my saved details",
+        "my saved details"
+      ],
+      "search_keywords": [
+        "memory",
+        "saved details",
+        "sharing"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/my-data"
+      },
+      "control_ids": [
+        "profile_my_data"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/my-data/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_world_model",
+      "label": "Open Personal World Model",
+      "meaning": "Opens your Personal World Model in Profile.",
+      "aliases": [
+        "open personal world model",
+        "open PWM"
+      ],
+      "search_keywords": [
+        "personal world model",
+        "PWM",
+        "public profile",
+        "preferences"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/world-model"
+      },
+      "control_ids": [
+        "profile_world_model"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/world-model/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_request_pricing",
+      "label": "Open Request pricing",
+      "meaning": "Opens the default price for document requests.",
+      "aliases": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/request-pricing"
+      },
+      "control_ids": [
+        "profile_request_pricing"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/request-pricing/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_payouts",
+      "label": "Open Payouts",
+      "meaning": "Opens payout setup and transaction history.",
+      "aliases": [
+        "link my bank",
+        "set up payouts",
+        "document earnings",
+        "payments",
+        "add funds",
+        "purchase balance",
+        "information-access earnings",
+        "wallet",
+        "open payouts",
+        "payments and earnings"
+      ],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/payouts"
+      },
+      "control_ids": [
+        "profile_payouts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/payouts/page.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -91,6 +324,50 @@
       "control_ids": [
         "connected_systems",
         "top_agent_section_connected-systems"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_referrals_panel",
+      "label": "Open Referrals",
+      "meaning": "Opens the Referrals tab in Profile, showing your referral link and referral status.",
+      "aliases": [
+        "open referrals",
+        "invite friends",
+        "my referral link",
+        "show my referrals"
+      ],
+      "search_keywords": [
+        "referral",
+        "referrals",
+        "invite"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/referrals"
+        ],
+        "screens": [
+          "profile_referrals_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/referrals"
+      },
+      "control_ids": [
+        "profile_referrals"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -180,6 +457,50 @@
       "speaker_persona": "nav"
     },
     {
+      "action_id": "route.profile_access_panel",
+      "label": "Open Access And Discoverability Panel",
+      "meaning": "Navigates to the Access panel in Profile, where marketplace discoverability and who can find you are controlled.",
+      "aliases": [
+        "open access settings",
+        "who can find me",
+        "discoverability settings",
+        "open access panel"
+      ],
+      "search_keywords": [
+        "access",
+        "discoverable",
+        "marketplace",
+        "visibility",
+        "find me"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/access"
+        ],
+        "screens": [
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/access"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_pkm_agent_lab",
       "label": "Open PKM",
       "meaning": "Navigates to the canonical Saved Intelligence PKM workspace.",
@@ -221,6 +542,50 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "help.open_examples",
+      "label": "Open Location command settings",
+      "meaning": "Opens Location command settings. Commands interpret the person's own words from current capability and screen context; the settings do not maintain a phrase catalog.",
+      "aliases": [
+        "what can i say",
+        "what can you do",
+        "show me examples",
+        "show me around",
+        "help"
+      ],
+      "search_keywords": [
+        "help",
+        "location commands",
+        "command settings",
+        "guide"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.support.submit_message",
       "label": "Submit Support Message",
       "meaning": "Sends support/bug/developer feedback email via support service.",
@@ -248,9 +613,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.support.submit_message"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -289,15 +654,14 @@
         "navigation_prerequisites": []
       },
       "guard_ids": [
-        "auth_signed_in",
-        "manual_user_execution"
+        "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Only handled by local Switch in ProfilePage.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.marketplace_visibility.toggle"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -312,7 +676,10 @@
       "meaning": "Ends current session and redirects to home route.",
       "aliases": [
         "sign out",
-        "log out"
+        "log out",
+        "log me out",
+        "sign me out",
+        "log out of my account"
       ],
       "search_keywords": [
         "sign out",
@@ -329,14 +696,14 @@
         "navigation_prerequisites": []
       },
       "guard_ids": [
-        "manual_user_execution"
+        "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "unwired",
-        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.sign_out"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -348,7 +715,7 @@
     {
       "action_id": "profile.delete_account",
       "label": "Delete Account",
-      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "meaning": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "aliases": [
         "delete my account",
         "remove account"
@@ -369,22 +736,265 @@
         ]
       },
       "guard_ids": [
-        "explicit_user_confirmation",
-        "manual_user_execution"
+        "auth_signed_in",
+        "explicit_user_confirmation"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.delete_account"
+      },
+      "control_ids": [
+        "cloud-cleanup-refresh",
+        "cloud-cleanup-continue",
+        "cloud-cleanup-approve"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "profile.reset_account",
+      "label": "Reset account",
+      "meaning": "Resets the person's own Hussh account after a tap confirmation: keeps sign-in and vault, clears personal setup and data, and restarts onboarding. Not a deletion.",
+      "aliases": [
+        "reset my account",
+        "reset my hussh account"
+      ],
+      "search_keywords": [
+        "reset account",
+        "start account over"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before reset confirmation"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.reset_account"
       },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "app/profile/profile-workspace-page.tsx"
       ],
-      "speaker_persona": "nav"
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_privacy",
+      "label": "Open privacy settings",
+      "meaning": "Opens the Access & sharing panel of Profile, which holds discoverability and sharing controls.",
+      "aliases": [
+        "privacy settings",
+        "show my privacy settings"
+      ],
+      "search_keywords": [
+        "privacy",
+        "access"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/access"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.update_display_name",
+      "label": "Change display name",
+      "meaning": "Changes the person's Hussh display name at the identity provider after confirmation.",
+      "aliases": [
+        "change my name to"
+      ],
+      "search_keywords": [
+        "name",
+        "display name"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.update_display_name"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.set_contact_discoverable",
+      "label": "Set contact discoverability",
+      "meaning": "Turns contact discoverability on or off. Turning it on records the consent version the person accepted.",
+      "aliases": [],
+      "search_keywords": [
+        "discoverable",
+        "privacy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.set_contact_discoverable"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.payouts.test_redeem",
+      "label": "Test Hussh Coins redemption",
+      "meaning": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "aliases": [
+        "test redeem",
+        "test my payout"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; test balance available; Stripe test payout account linked."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.test_redeem"
+      },
+      "control_ids": [
+        "profile_payouts_test_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.payouts.redeem",
+      "label": "Redeem Hussh Coins",
+      "meaning": "Transfers one eligible document earning from Hussh Coins to the owner's verified live Stripe account. Bank deposit follows the owner's Stripe payout settings.",
+      "aliases": [
+        "redeem my earnings",
+        "cash out my coins"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "redeem",
+        "bank payout"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; eligible live earning; verified live Stripe payout account."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.redeem"
+      },
+      "control_ids": [
+        "profile_payouts_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "speaker_persona": "one"
     }
-  ]
+  ],
+  "search": {}
 }

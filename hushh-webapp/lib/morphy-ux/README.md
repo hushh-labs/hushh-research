@@ -29,10 +29,15 @@ Those stay in:
 - `motion.ts`
 - `tokens/*`
 
+Page-entry animation excludes switch controls and their descendants on both
+initial and deferred mounts. Switches own their thumb movement; applying a GSAP
+transform on top of CSS translation can double the thumb's travel. Animate the
+surrounding section instead.
+
 ## Accent system (single switchable identity)
 
 All accent color flows through the `--app-accent-*` CSS family declared in
-`app/globals.css`: iOS Blue by default, Molten Gold under
+`app/globals.css`: Blue by default, Molten Gold under
 `html[data-accent="gold"]` (user preference in Profile → Preferences → Accent,
 managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
 `app/layout.tsx`). Rules:
@@ -56,22 +61,30 @@ managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
 Morphy adopts the Apple web design principles as enforceable grammar
 (`npm run verify:accent-tokens` fails violations):
 
-1. **Press physics.** Every control carries the same tactile weight: the
-   `.press-scale` utility (`transform: scale(var(--motion-press-scale))` on
-   active, reduced-motion aware) layered WITH the md-ripple. Button and all
-   segmented primitives ship it; never write per-component press styles.
-2. **Radius grammar.** `--app-radius-pill` = action signal; `--app-radius-lg`
-   = compact utility cards; `--app-radius-sm` = compact utility rects. The
-   shipped `--app-card-radius-*` contract stays canonical for app cards. No
-   in-between radii in new primitives.
+1. **Press physics.** A press is flat: a colour or opacity state change plus
+   the md-ripple from the pointerdown point, clipped to the control's shape.
+   No press scale, spring, or bounce anywhere (`active:scale-*` included).
+   Both Buttons (`components/ui/button.tsx`, `lib/morphy-ux/button.tsx`) ship
+   the ripple on by default; a plain `<button>` adds `<MaterialRipple />` and
+   `relative`. Under `prefers-reduced-motion` the ripple becomes an
+   opacity-only press layer. The legacy `.press-scale` utility is now a flat
+   opacity dim. Guarded by `__tests__/components/press-ripple.contract.test.tsx`.
+2. **Radius grammar.** `--app-radius-pill` = action signal and direct-entry
+   field geometry through `--app-input-radius`; `--app-radius-lg` = compact
+   utility cards; `--app-radius-sm` = compact utility rects. The shipped
+   `--app-card-radius-*` contract stays canonical for app cards. Compound
+   fields keep their inner controls square while the outer shell owns the
+   capsule. No in-between radii in new primitives.
 3. **Weight ladder.** 300 / 400 / 600 / 700 only; `font-medium` (500) is
    deliberately absent from this folder. Labels 400, emphasis 600, weight 300
    is the rare "airy" cue.
 4. **Elevation doctrine.** No shadows on chrome; elevation = surface change +
    backdrop blur (`--app-blur-frosted`). The single photographic shadow is
    `--app-shadow-product`, reserved for imagery resting on a surface.
-5. **Fonts are system-stack only.** `--font-app-*` resolves SF Pro on Apple
-   platforms; never bundle Apple font files.
+5. **Product text uses Plus Jakarta Sans.** `--font-app-*` loads the self-hosted
+   400, 600 and 700 faces; unsupported glyphs use the platform fallback. Code
+   and uppercase metadata use the system monospace stack. Never bundle Apple
+   font files.
 
 ## Motion system (single source of truth)
 
@@ -81,7 +94,7 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Tokens
 
-- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (120 → 600ms).
+- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (75 → 150ms).
 - Easings: `--motion-ease-standard|accelerate|decelerate|emphasized`.
 - Overlay set (dialog/popover/sheet/menu/tooltip):
   - `--motion-overlay-enter-duration` / `--motion-overlay-enter-ease`
@@ -109,6 +122,11 @@ easings in a component — reference the tokens so the whole app shares one fram
    guard that collapses animation to ~0ms.
 
 ### Route transitions
+
+The shared route envelope uses opacity-only exit (60ms) and enter (90ms),
+with no additional transition delay. Keep the hook timers and CSS route tokens
+aligned. Public Explore tabs belong only to the top-level workspace, not its
+detail routes; exiting the public workspace returns to `/`.
 
 Page navigation is a single, app-wide crossfade — **every** screen-to-screen
 switch shares the exact same frame (the `/one → /one/*` feel), regardless of how

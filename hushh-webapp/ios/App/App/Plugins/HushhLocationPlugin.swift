@@ -2,12 +2,13 @@ import Foundation
 import Capacitor
 import CoreLocation
 import UIKit
+import FirebaseAuth
 
 /**
- * HushhLocationPlugin - foreground-only one-shot location capture.
+ * HushhLocationPlugin - foreground capture and permission-gated background sharing.
  *
- * One Location Agent v1 does not request background location. Coordinates are
- * returned only to the local web layer so it can encrypt before persistence.
+ * Foreground coordinates return to the local web layer. Opted-in background
+ * sharing encrypts on-device and publishes only to the configured backend.
  */
 @objc(HushhLocationPlugin)
 public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -36,14 +37,28 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     // fans out to every saved callback call below. Foreground-only.
     private var watchCalls: [String: CAPPluginCall] = [:]
     private var pendingWatchStartCall: CAPPluginCall?
-    private let backgroundPublisher = BackgroundLocationPublisher()
+    private var backgroundOwnerUid: String?
+    private var authListener: AuthStateDidChangeListenerHandle?
+    private lazy var backgroundPublisher: BackgroundLocationPublisher = BackgroundLocationPublisher(onStop: { [weak self] in
+        self?.stopUpdatingIfIdle()
+        DispatchQueue.main.async {
+            guard let self, !self.backgroundPublisher.isActive else { return }
+            self.notifyListeners("backgroundShareStopped", data: [:])
+        }
+    })
 
     public override func load() {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
+        authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            guard let self, let owner = self.backgroundOwnerUid, user?.uid != owner else { return }
+            self.backgroundPublisher.stop()
+        }
     }
+
+    deinit { if let authListener { Auth.auth().removeStateDidChangeListener(authListener) } }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
         call.resolve(permissionPayload())
@@ -133,6 +148,13 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         }
     }
 
+    /// How old a cached fix may be before we insist on a fresh one. Matches the
+    /// Android plugin's `getLastKnownLocation` window and the web plugin's
+    /// last-resort reader exactly, and stays well under the 60s the backend
+    /// allows between capture and confirmation — so a fix accepted here still
+    /// passes the server's freshness check and still says where the user is.
+    private static let cachedFixMaxAgeSeconds: TimeInterval = 30
+
     private func requestOneShotLocation(_ call: CAPPluginCall) {
         if
             let existing = pendingLocationCall,
@@ -142,6 +164,24 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 "A newer location request replaced this request."
             )
         }
+
+        // iOS was the only platform that always waited for a NEW fix. Android
+        // and web both resolve from a recent cached one first, and CoreLocation
+        // is already holding a good position whenever a watch is running or the
+        // app was recently foregrounded -- so `requestLocation()` spent one to
+        // three seconds rediscovering a coordinate we had the whole time.
+        if
+            let cached = manager.location,
+            cached.horizontalAccuracy >= 0,
+            abs(cached.timestamp.timeIntervalSinceNow) <= HushhLocationPlugin.cachedFixMaxAgeSeconds
+        {
+            pendingLocationTimeout?.cancel()
+            pendingLocationTimeout = nil
+            pendingLocationCall = nil
+            call.resolve(locationPayload(cached))
+            return
+        }
+
         pendingLocationTimeout?.cancel()
         pendingLocationCall = call
         let timeoutMs = max(3_000, min(call.getInt("timeoutMs") ?? 15_000, 30_000))
@@ -162,6 +202,24 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             execute: timeout
         )
         manager.requestLocation()
+    }
+
+    /// The single shape a CLLocation is handed to JS in. Shared by the cached
+    /// fast path, the one-shot delegate callback, and every active watch, so
+    /// they can never drift apart.
+    private func locationPayload(_ location: CLLocation) -> [String: Any] {
+        // The explicit annotation is load-bearing rather than stylistic: the
+        // `accuracyM` ternary yields Double on one branch and NSNull on the
+        // other, and those only unify once something supplies `Any` as the
+        // contextual type. This is the exact form that already compiles below.
+        let payload: [String: Any] = [
+            "latitude": location.coordinate.latitude,
+            "longitude": location.coordinate.longitude,
+            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
+            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
+            "sourcePlatform": "ios"
+        ]
+        return payload
     }
 
     private func clearPendingLocationCall() -> CAPPluginCall? {
@@ -203,55 +261,70 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         if let watchCall = watchCalls.removeValue(forKey: id) {
             bridge?.releaseCall(watchCall)
         }
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
-        }
+        stopUpdatingIfIdle()
         call.resolve()
     }
 
     @objc func startBackgroundShare(_ call: CAPPluginCall) {
-        guard manager.authorizationStatus == .authorizedAlways else {
-            call.resolve(["started": false, "reason": "always-permission-required"])
-            return
-        }
-        guard
-            let token = call.getString("vaultOwnerToken"),
-            let base = call.getString("backendBaseUrl"),
-            let rawGrants = call.getArray("grants") as? [[String: Any]]
-        else {
-            call.resolve(["started": false, "reason": "invalid-session"])
-            return
-        }
-        let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
+        DispatchQueue.main.async {
+            self.backgroundPublisher.stop(notify: false)
+            self.stopUpdatingIfIdle()
+            guard self.manager.authorizationStatus == .authorizedAlways else {
+                call.resolve(["started": false, "reason": "always-permission-required"])
+                return
+            }
             guard
-                let grantId = g["grantId"] as? String,
-                let keyId = g["recipientKeyId"] as? String,
-                let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
-            else { return nil }
-            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+                let token = call.getString("vaultOwnerToken"),
+                !token.isEmpty,
+                let ownerUid = Auth.auth().currentUser?.uid,
+                let base = call.getString("backendBaseUrl"),
+                let destination = URLComponents(string: base),
+                destination.scheme == "https", destination.user == nil, destination.password == nil,
+                destination.query == nil, destination.fragment == nil,
+                HushhProxyClient.normalizeBackendUrl(base) == HushhProxyClient.resolveBackendUrl(
+                    call: call, plugin: self, jsName: self.jsName, allowCallOverride: false),
+                let rawGrants = call.getArray("grants") as? [[String: Any]]
+            else {
+                call.resolve(["started": false, "reason": "invalid-session"])
+                return
+            }
+            let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
+                guard
+                    let grantId = g["grantId"] as? String,
+                    let keyId = g["recipientKeyId"] as? String,
+                    let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+                else { return nil }
+                if let rawExpiry = g["expiresAtMs"] {
+                    guard let expiry = rawExpiry as? Double, expiry.isFinite,
+                          expiry > Date().timeIntervalSince1970 * 1000 else { return nil }
+                }
+                return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk, expiresAtMs: g["expiresAtMs"] as? Double)
+            }
+            guard !grants.isEmpty else {
+                call.resolve(["started": false, "reason": "no-grants"])
+                return
+            }
+            let session = BackgroundShareSessionNative(
+                vaultOwnerToken: token,
+                backendBaseUrl: base,
+                grants: grants,
+                minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
+                minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
+            )
+            self.backgroundPublisher.start(session: session)
+            self.backgroundOwnerUid = ownerUid
+            self.manager.startUpdatingLocation()
+            call.resolve(["started": true])
         }
-        guard !grants.isEmpty else {
-            call.resolve(["started": false, "reason": "no-grants"])
-            return
-        }
-        let session = BackgroundShareSessionNative(
-            vaultOwnerToken: token,
-            backendBaseUrl: base,
-            grants: grants,
-            minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
-            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
-        )
-        backgroundPublisher.start(session: session)
-        DispatchQueue.main.async { self.manager.startUpdatingLocation() }
-        call.resolve(["started": true])
     }
 
     @objc func stopBackgroundShare(_ call: CAPPluginCall) {
-        backgroundPublisher.stop()
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        DispatchQueue.main.async {
+            self.backgroundPublisher.stop(notify: false)
+            self.stopUpdatingIfIdle()
+            self.stopUpdatingIfIdle()
+            call.resolve()
         }
-        call.resolve()
     }
 
     private func startWatch(_ call: CAPPluginCall) {
@@ -270,6 +343,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         }
     }
 
+    private func stopUpdatingIfIdle() {
+        DispatchQueue.main.async {
+            if self.watchCalls.isEmpty && self.pendingLocationCall == nil && !self.backgroundPublisher.isActive {
+                self.manager.stopUpdatingLocation()
+            }
+        }
+    }
+
     private func failWatches(_ message: String) {
         guard !watchCalls.isEmpty else { return }
         // A fatal location error ends every active watch; JS receives it as the
@@ -279,7 +360,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             bridge?.releaseCall(watchCall)
             watchCalls.removeValue(forKey: id)
         }
-        DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        stopUpdatingIfIdle()
     }
 
     private func permissionPayload() -> [String: Any] {
@@ -327,6 +408,9 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if manager.authorizationStatus != .authorizedAlways {
+            backgroundPublisher.stop()
+        }
         if let permissionCall = pendingPermissionCall {
             pendingPermissionCall = nil
             permissionCall.resolve(permissionPayload())
@@ -350,6 +434,21 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 watchStartCall.reject("Location permission state is unavailable.")
                 return
             }
+        }
+
+        // A revocation that lands while a watch is already running answers none
+        // of the pending calls above, so it used to fall straight through the
+        // guard below and return. CoreLocation just stops delivering and JS is
+        // never told: the last known point stays on the map and the Location
+        // switch stays ON for someone the OS has already cut off. Every active
+        // watch has to hear about it, and it has to hear it in the same words
+        // the start path uses so isLocationPermissionDeniedError() matches on
+        // the JS side. failWatches is a no-op when nothing is watching.
+        switch manager.authorizationStatus {
+        case .denied, .restricted:
+            failWatches("Location permission was not granted.")
+        default:
+            break
         }
 
         guard let call = pendingLocationCall else { return }
@@ -380,13 +479,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             return
         }
 
-        let payload: [String: Any] = [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
-            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
-            "sourcePlatform": "ios"
-        ]
+        let payload = locationPayload(location)
 
         // One-shot getCurrentPosition resolves and clears its single call.
         if let call = clearPendingLocationCall() {
@@ -404,6 +497,17 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let message = "Precise location unavailable: \(error.localizedDescription)"
+        // kCLErrorLocationUnknown is TRANSIENT. CoreLocation is saying "not
+        // right now", it keeps trying on its own, and Apple's guidance is to
+        // wait it out. Ending the watch on it meant failWatches() released every
+        // saved call and called stopUpdatingLocation(), so a single blip — a
+        // lift, a tunnel, a moment indoors — permanently stopped live sharing
+        // until the person toggled Location off and on again. Watches and the
+        // one-shot both stay alive until a fix or the bounded timeout.
+        if let locationError = error as? CLError,
+           locationError.code == .locationUnknown {
+            return
+        }
         if let call = clearPendingLocationCall() {
             call.reject(message)
         }

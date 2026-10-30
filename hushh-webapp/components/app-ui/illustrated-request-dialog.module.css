@@ -1,0 +1,353 @@
+.frame.frame.frame {
+  --task-surface-width: 480px;
+  --task-surface-pad: 28px;
+  --foundation-title3-size: 24px;
+  --foundation-title3-line: 32px;
+  --foundation-title3-weight: 600;
+  --type-row-label-size: 13px;
+  --type-row-label-line: 20px;
+  --type-form-label-size: 13px;
+  --type-form-label-line: 20px;
+  --type-helper-text-size: 12px;
+  --type-helper-text-line: 19px;
+  --type-input-value-size: 16px;
+  --type-input-value-line: 24px;
+  --type-button-label-size: 14px;
+  --type-button-label-line: 20px;
+  --type-button-label-weight: 600;
+  --type-compact-button-label-size: 14px;
+  --type-compact-button-label-line: 20px;
+  --app-input-radius: 12px;
+  --app-form-field-gap: 8px;
+  --app-form-section-gap: 20px;
+  border-radius: 28px;
+}
+
+.frame .header.header {
+  padding: 28px var(--task-surface-pad) 20px;
+  gap: 5px;
+}
+.frame .header :global([data-slot="dialog-title"]) {
+  padding-inline-end: 12px;
+  letter-spacing: -0.7px;
+}
+.frame .header :global([data-slot="dialog-description"]) {
+  max-width: 38ch;
+  font-size: 13px;
+  line-height: 20px;
+}
+.frame .body.body {
+  padding: 0 var(--task-surface-pad) 8px;
+  scrollbar-gutter: auto;
+}
+.form {
+  display: contents;
+}
+.body > :not(:last-child) {
+  margin-bottom: var(--app-form-section-gap);
+}
+.body :global(label),
+.body legend {
+  font-size: var(--type-form-label-size);
+  font-weight: 600;
+  line-height: var(--type-form-label-line);
+}
+.body :is(textarea, input, select) {
+  font-family: var(--font-app-body);
+  font-size: 16px;
+  line-height: 24px;
+  border-radius: var(--app-input-radius);
+  border-color: var(--app-card-border-standard);
+  background: var(--app-neutral-fill);
+  padding: 12px 14px;
+}
+.body textarea {
+  min-height: 96px;
+  field-sizing: fixed;
+  resize: vertical;
+}
+.body :is(input, select) {
+  min-height: 48px;
+  height: auto;
+}
+.body :is(textarea, input, select):focus {
+  background: var(--app-card-surface-default-solid);
+}
+.body :global([aria-label="Document request quote"]) {
+  padding-top: 14px;
+  border-top: 1px solid var(--app-card-border-standard);
+}
+
+.frame .actions.actions {
+  padding: 20px var(--task-surface-pad)
+    max(
+      24px,
+      var(--app-safe-area-bottom-effective, 0px),
+      env(safe-area-inset-bottom, 0px)
+    );
+  border-top: 0;
+}
+.actions :global([data-ui-role="flow-actions"]) {
+  width: 100%;
+}
+.actions :global([data-ui-role="flow-actions"]) > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.actions :global([data-action-priority]) {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.actions :global([data-action-priority="secondary"]) {
+  order: 0;
+}
+.actions :global([data-action-priority="primary"]) {
+  order: 1;
+  margin-inline-start: auto;
+}
+.actions :is(button, a) {
+  min-height: 48px;
+  height: auto;
+  border-radius: 14px;
+  padding: 13px 22px;
+  white-space: nowrap;
+}
+.actions :global([data-action-priority="primary"]) > :is(button, a) {
+  min-width: 144px;
+}
+.actions :global([data-action-priority="secondary"]) > :is(button, a) {
+  padding-inline: 0;
+  min-width: 64px;
+  justify-content: flex-start;
+  background: transparent;
+  color: var(--app-secondary-label);
+}
+.actions :global([data-action-priority="primary"]) > :is(button, a):disabled {
+  background: var(--app-neutral-fill);
+  color: var(--app-secondary-label);
+  border-color: var(--app-card-border-standard);
+  opacity: 1;
+  filter: none;
+}
+.frame :global([data-slot="dialog-close"]) {
+  top: 14px;
+  inset-inline-end: 16px;
+}
+.frame :global([data-slot="dialog-close"])::before {
+  background: transparent;
+}
+
+.artwork {
+  --art-petal: #f7b5d5;
+  --art-orbit: #ffde72;
+  --art-dot: #ff715d;
+  --art-symbol: var(--app-accent);
+  position: relative;
+  flex: none;
+  width: 168px;
+  height: 100px;
+  margin: 0 0 12px -2px;
+  pointer-events: none;
+}
+.artwork[data-request-artwork="drive"] {
+  --art-petal: #b8cfff;
+  --art-orbit: #f7b5d5;
+  --art-dot: #ffde72;
+  --art-symbol: #a14275;
+}
+.artwork[data-request-artwork="question"] {
+  --art-petal: #f7b5d5;
+  --art-orbit: #b8cfff;
+  --art-dot: #ffde72;
+  --art-symbol: #7254b3;
+}
+.artwork[data-request-artwork="card"] {
+  --art-petal: #b8cfff;
+  --art-orbit: #ffde72;
+  --art-dot: #ff715d;
+  --art-symbol: #8a601b;
+}
+.shapes {
+  position: absolute;
+  inset: 4px 0 0;
+  width: 168px;
+  height: 99px;
+  overflow: visible;
+}
+.petal {
+  fill: var(--art-petal);
+}
+.orbit {
+  fill: var(--art-orbit);
+}
+.dot {
+  fill: var(--art-dot);
+}
+.artwork img {
+  position: absolute;
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+  left: 13px;
+  bottom: -8px;
+}
+.symbol {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  right: 5px;
+  bottom: 6px;
+  width: 36px;
+  height: 36px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--art-symbol);
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 11px;
+  transform: rotate(7deg);
+}
+.symbol svg {
+  width: 19px;
+  height: 19px;
+}
+.artwork[data-success="true"] .symbol {
+  background: var(--app-success-tint);
+  color: var(--app-success-deep);
+  transform: none;
+}
+:global(.dark) .artwork[data-success="true"] .symbol {
+  color: var(--app-success-bright);
+}
+
+@media (max-width: 767px) {
+  .frame.frame.frame {
+    --task-surface-pad: 20px;
+    --foundation-title3-size: 22px;
+    --foundation-title3-line: 30px;
+    top: auto;
+    bottom: var(--kb-height, 0px);
+    left: 0;
+    width: 100%;
+    max-width: none;
+    max-height: calc(
+      100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px) -
+        8px
+    );
+    border-radius: 28px 28px 0 0;
+    margin-top: 0;
+  }
+  :global(html.kb-open:not(.native-reserved-chrome)) .frame.frame.frame[data-request-dialog] {
+    margin-top: 0;
+    max-height: calc(100dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px) - 8px);
+  }
+  .frame .header.header {
+    padding-top: 24px;
+  }
+  .artwork {
+    width: 150px;
+    height: 86px;
+    margin-bottom: 10px;
+  }
+  .shapes {
+    width: 150px;
+    height: 88px;
+  }
+  .artwork img {
+    width: 114px;
+    height: 114px;
+    left: 10px;
+  }
+  .symbol {
+    width: 32px;
+    height: 32px;
+    right: 4px;
+    bottom: 4px;
+  }
+}
+@media (max-height: 640px) {
+  .frame .header.header {
+    padding-top: 16px;
+    padding-bottom: 14px;
+  }
+  .artwork {
+    width: 122px;
+    height: 64px;
+    margin-bottom: 8px;
+  }
+  .shapes {
+    width: 122px;
+    height: 72px;
+    inset-block-start: -4px;
+  }
+  .artwork img {
+    width: 96px;
+    height: 96px;
+    left: 4px;
+  }
+  .symbol {
+    width: 28px;
+    height: 28px;
+    right: 1px;
+    bottom: 1px;
+  }
+  .symbol svg {
+    width: 16px;
+    height: 16px;
+  }
+  .frame .actions.actions {
+    padding-block: 12px
+      max(
+        16px,
+        var(--app-safe-area-bottom-effective, 0px),
+        env(safe-area-inset-bottom, 0px)
+      );
+  }
+}
+@media (forced-colors: active) {
+  .actions :is(button, a),
+  .symbol {
+    border: 1px solid ButtonText;
+  }
+}
+
+/* Inherit the host's acknowledged overlay seat; never create another native
+   renderer or add safe-area and keyboard clearances together. */
+@media (max-width: 767px) {
+  :global(html.native-reserved-chrome:not([data-session-check-active])) .frame.frame.frame {
+    top: auto;
+    bottom: max(var(--native-overlay-bottom, 0px), var(--kb-height, 0px));
+    max-height: calc(100dvh - var(--native-overlay-top, 0px) - max(var(--native-overlay-bottom, 0px), var(--kb-height, 0px)) - 8px);
+  }
+}
+.frame.frame.frame {
+  --type-section-title-size: 24px;
+  --type-section-title-line: 32px;
+  --type-section-title-weight: 600;
+}
+@media (max-width: 767px) {
+  .frame.frame.frame { --type-section-title-size: 22px; --type-section-title-line: 30px; }
+}
+.frame .body.body:last-child {
+  padding-bottom: max(24px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px));
+}
+
+:global(.dark) .artwork:not([data-success="true"]) .symbol {
+  color: var(--app-accent);
+}
+.frame .body.body:empty { padding: 0; }
+
+/* Keep the existing seven 44px day targets disjoint at the narrowest phone
+   width. Only the calendar borrows the gutter; fields keep their reading inset. */
+@media (max-width: 360px) {
+  .body :global(#mobile-document-calendar) {
+    margin-inline: calc(4px - var(--task-surface-pad));
+  }
+}
+.body :global(#mobile-document-calendar) select {
+  min-height: 44px;
+  padding: 0 4px;
+}

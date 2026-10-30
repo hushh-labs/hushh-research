@@ -151,7 +151,6 @@ A future One product-surface claim can move into current-state docs only when:
 - [./one-nav-runtime-plan.md](./one-nav-runtime-plan.md)
 - [../reference/architecture/architecture.md](../reference/architecture/architecture.md)
 - [../reference/architecture/founder-language-matrix.md](../reference/architecture/founder-language-matrix.md)
-- [../reference/architecture/one-email-kyc.md](../reference/architecture/one-email-kyc.md)
 - [../reference/one/README.md](../reference/one/README.md)
 - [../reference/kai/README.md](../reference/kai/README.md)
 - [../reference/kai/kai-action-gateway-vnext.md](../reference/kai/kai-action-gateway-vnext.md)

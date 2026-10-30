@@ -18,7 +18,7 @@ ModelMode = Literal["byok", "runtime_managed", "none"]
 @dataclass(frozen=True)
 class ModelConfig:
     provider: str = "gemini"
-    model: str = "gemini-3.6-flash"
+    model: str = "gemini-3.7-flash"
     mode: ModelMode = "byok"
     credential_ref: str | None = "user_secret:gemini_api_key"
 
@@ -97,7 +97,7 @@ def _default_model(runtime: RuntimeKind) -> str:
         return "gpt-4.1-mini"
     if runtime == "mock":
         return "mock-model"
-    return "gemini-3.6-flash"
+    return "gemini-3.7-flash"
 
 
 def _default_model_mode(runtime: RuntimeKind) -> ModelMode:

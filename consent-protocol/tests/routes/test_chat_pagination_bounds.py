@@ -130,10 +130,9 @@ class TestConversationOffsetBounds:
             resp = client.get("/api/chat/conversations/user_abc?offset=0")
         assert resp.status_code == 200
 
-    def test_offset_large_positive_is_valid(self):
-        with _patch_conv_service():
-            resp = client.get("/api/chat/conversations/user_abc?offset=99999")
-        assert resp.status_code == 200
+    def test_offset_above_safety_cap_returns_422(self):
+        resp = client.get("/api/chat/conversations/user_abc?offset=10001")
+        assert resp.status_code == 422
 
     def test_offset_negative_returns_422(self):
         resp = client.get("/api/chat/conversations/user_abc?offset=-1")

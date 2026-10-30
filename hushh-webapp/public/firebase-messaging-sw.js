@@ -1,9 +1,159 @@
 /**
  * Firebase Cloud Messaging service worker
- * Handles background push and notification click → open consent pending tab
+ * Handles background push and notification clicks into the owning app surface.
  */
-self.__HUSHH_FCM_DEFAULT_TARGET__ = "/one/consent?tab=pending";
+self.__HUSHH_FCM_DEFAULT_TARGET__ = "/one/feed";
 const pendingForegroundDeliveryAcks = new Map();
+const pendingNotificationClickAcks = new Map();
+// Keep this closed vocabulary and UUID rule aligned with
+// lib/consent/document-share-consent.ts. A document-share push is only a
+// wake-up signal; raw provider URLs and file/recipient details never leave
+// this worker or choose a navigation target.
+const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
+  "document_share_request",
+  "document_share_review_ready",
+  "document_share_payment_ready",
+  "document_share_payment_confirmed",
+  "document_share_payment_refunded",
+  "document_share_decided",
+  "document_share_outcome",
+  "document_share_revoked",
+  "document_share_revocation_outcome",
+  // To the owner: the requester asked about files a partial delivery missed.
+  "document_share_review_requested",
+  // Drive questions (drive_query_events): their request_id is a question.
+  "document_share_question",
+  "document_share_answered",
+  "document_share_declined",
+]);
+const DRIVE_QUESTION_NOTIFICATION_TYPES = new Set([
+  "document_share_question",
+  "document_share_answered",
+  "document_share_declined",
+]);
+const DOCUMENT_REQUEST_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The screen that clears each owner setup step a document_share_request push
+// may name. This worker cannot import TypeScript: keep every value equal to
+// documentRequestSetupHref(step) in lib/consent/document-request-setup.ts.
+const DOCUMENT_REQUEST_SETUP_TARGETS = {
+  drive:
+    "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+  payouts: "/one/profile/payouts?from=%2Fone%2Ffeed",
+  price: "/one/profile/request-pricing?from=%2Fone%2Ffeed",
+};
+const DOCUMENT_SHARE_NOTIFICATION_COPY = {
+  title: "Document request",
+  body: "Open One for next steps.",
+};
+// Fixed words per reviewed type; keep aligned with
+// lib/consent/document-share-consent.ts and the backend worker.
+const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
+  document_share_request: DOCUMENT_SHARE_NOTIFICATION_COPY,
+  document_share_review_ready: {
+    title: "Files ready to review",
+    body: "Open One to choose what to share.",
+  },
+  document_share_payment_ready: {
+    title: "Payment needed",
+    body: "Pay in One to continue your document request.",
+  },
+  document_share_payment_confirmed: {
+    title: "Payment confirmed",
+    body: "Open One for your document request update.",
+  },
+  document_share_payment_refunded: {
+    title: "Payment refunded",
+    body: "Open One for your document request update.",
+  },
+  document_share_decided: {
+    title: "Drive sharing update",
+    body: "Open One to see the latest.",
+  },
+  document_share_outcome: {
+    title: "Drive request update",
+    body: "Open One to see the result.",
+  },
+  document_share_revoked: {
+    title: "Drive access changed",
+    body: "Open One to see what changed.",
+  },
+  document_share_revocation_outcome: {
+    title: "Drive access changed",
+    body: "Open One to see what changed.",
+  },
+  document_share_review_requested: {
+    title: "Review requested",
+    body: "Open One to see the files that weren't shared.",
+  },
+  document_share_question: {
+    title: "Drive question",
+    body: "Someone asked about your Drive. Open One to review.",
+  },
+  document_share_answered: {
+    title: "Drive question answered",
+    body: "Open One to see the answer.",
+  },
+  document_share_declined: {
+    title: "Drive question declined",
+    body: "Open One for details.",
+  },
+};
+
+function documentShareNotificationCopy(data) {
+  return (
+    DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE[
+      normalizedDocumentShareType(data)
+    ] || DOCUMENT_SHARE_NOTIFICATION_COPY
+  );
+}
+
+function normalizedDocumentShareType(data) {
+  return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
+}
+
+function isDocumentShareNotificationType(data) {
+  return DOCUMENT_SHARE_NOTIFICATION_TYPES.has(
+    normalizedDocumentShareType(data),
+  );
+}
+
+function isDocumentShareNotificationCandidate(data) {
+  return normalizedDocumentShareType(data).startsWith("document_share_");
+}
+
+function documentShareNotificationRequestId(data) {
+  if (!isDocumentShareNotificationType(data)) return null;
+  const requestId =
+    typeof data?.request_id === "string" ? data.request_id.trim() : "";
+  return DOCUMENT_REQUEST_UUID.test(requestId) ? requestId.toLowerCase() : null;
+}
+
+// Only a closed step on the owner's request push, with an exact request UUID.
+function documentRequestSetupStep(data) {
+  if (normalizedDocumentShareType(data) !== "document_share_request") return null;
+  if (!documentShareNotificationRequestId(data)) return null;
+  const setup = data?.setup;
+  return setup === "drive" || setup === "payouts" || setup === "price"
+    ? setup
+    : null;
+}
+
+function sanitizeDocumentShareNotificationData(data) {
+  // Unknown document-share events must remain unacknowledged downstream, but
+  // they still cannot carry private content into a log, notification, or click
+  // target while the client waits for an explicitly reviewed vocabulary.
+  if (!isDocumentShareNotificationCandidate(data)) return null;
+  const safe = { type: normalizedDocumentShareType(data) };
+  if (!isDocumentShareNotificationType(data)) return safe;
+  const requestId = documentShareNotificationRequestId(data);
+  if (requestId) safe.request_id = requestId;
+  const setup = documentRequestSetupStep(data);
+  if (setup) safe.setup = setup;
+  const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
+  if (userId && userId.length <= 128) safe.user_id = userId;
+  return safe;
+}
 
 function nextDeliveryId() {
   if (self.crypto?.randomUUID) return self.crypto.randomUUID();
@@ -23,16 +173,108 @@ function waitForForegroundDeliveryAck(deliveryId) {
   });
 }
 
-function isHandledByVisibleApp(data) {
+function waitForNotificationClickAck(clickId) {
+  const timeoutMs = self.__HUSHH_FCM_ACK_TIMEOUT_MS__ || 750;
+  return new Promise((resolve) => {
+    const finish = (acknowledged) => {
+      pendingNotificationClickAcks.delete(clickId);
+      clearTimeout(timeoutId);
+      resolve(acknowledged);
+    };
+    const timeoutId = setTimeout(() => finish(false), timeoutMs);
+    pendingNotificationClickAcks.set(clickId, finish);
+  });
+}
+
+function isSilentNotification(data) {
+  const presentation = String(data?.notification_presentation || "")
+    .trim()
+    .toLowerCase();
+  if (presentation === "silent") return true;
+  if (presentation === "alert") return false;
+
+  // Backward compatibility while older backend revisions can still deliver
+  // consent bookkeeping messages without the explicit presentation field.
   const type = String(data?.type || "")
     .trim()
     .toLowerCase();
-  return (
-    type.startsWith("location_") ||
-    type === "consent_request" ||
-    type === "consent_opened" ||
-    type === "consent_resolved"
-  );
+  return type === "consent_opened" || type === "consent_resolved";
+}
+
+function notificationTapTarget(data) {
+  if (data?.type === "location_circle_message") {
+    const circleId = String(data.circle_id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(circleId)) return "/one/feed";
+    return `/one/connect?tab=circles&action=circle-detail&circleId=${encodeURIComponent(circleId)}&circleChat=1`;
+  }
+  const documentRequestId = documentShareNotificationRequestId(data);
+  if (documentRequestId) {
+    const eventType = normalizedDocumentShareType(data);
+    if (eventType === "document_share_payment_ready" ||
+        eventType === "document_share_payment_confirmed" ||
+        eventType === "document_share_payment_refunded") return "/one/feed";
+    const setup = documentRequestSetupStep(data);
+    if (setup) return DOCUMENT_REQUEST_SETUP_TARGETS[setup];
+    const selection = DRIVE_QUESTION_NOTIFICATION_TYPES.has(
+      normalizedDocumentShareType(data),
+    )
+      ? `drive_query_request:${documentRequestId}`
+      : `document_share_request:${documentRequestId}`;
+    return `/one/consent?tab=pending&requestId=${encodeURIComponent(selection)}`;
+  }
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  // Private-message pushes carry only opaque identifiers. The app verifies
+  // conversation membership before it renders any history.
+  if (type === "direct_message") {
+    const routeToken = String(data?.route_token || "");
+    if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
+    return "/one/messages";
+  }
+  // Recipient-only alerts match the native/shared FCM tap handler. Historical
+  // identifiers must not reopen another workflow or imply current access.
+  if (
+    type === "location_share_created" ||
+    type === "location_access_approved"
+  ) {
+    return "/one/location?section=shared";
+  }
+  // The requester's answer opens the chat that asked, found after unlock.
+  if (type === "information_request_updated") {
+    const bundleId = String(data?.bundle_id || "").trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bundleId)
+      ? `/?informationRequest=${encodeURIComponent(bundleId)}`
+      : "/";
+  }
+  if (type !== "consent_request") {
+    return self.__HUSHH_FCM_DEFAULT_TARGET__;
+  }
+
+  const params = [];
+  const requestId = String(data?.request_id || "").trim();
+  const bundleId = String(data?.bundle_id || "").trim();
+  if (requestId) {
+    params.push(`notificationRequestId=${encodeURIComponent(requestId)}`);
+  }
+  if (bundleId) {
+    params.push(`notificationBundleId=${encodeURIComponent(bundleId)}`);
+  }
+  return params.length
+    ? `${self.__HUSHH_FCM_DEFAULT_TARGET__}?${params.join("&")}`
+    : self.__HUSHH_FCM_DEFAULT_TARGET__;
+}
+
+async function closeDeliveredNotificationTag(tag) {
+  if (!tag || typeof self.registration.getNotifications !== "function") {
+    return;
+  }
+  try {
+    const notifications = await self.registration.getNotifications({ tag });
+    notifications.forEach((notification) => notification.close());
+  } catch (_) {
+    // Closing a stale banner is cleanup only; never let it block state refresh.
+  }
 }
 
 function isEmergencySmsAlert(data) {
@@ -50,39 +292,133 @@ function isEmergencySmsAlert(data) {
   );
 }
 
-async function broadcastToClients(payload) {
-  const clientList = await self.clients.matchAll({
-    type: "window",
-    includeUncontrolled: true,
-  });
-  let visibleClientCount = 0;
-  clientList.forEach((client) => {
-    if (client.visibilityState === "visible") visibleClientCount += 1;
-    try {
-      client.postMessage(payload);
-    } catch (_) {
-      // Ignore diagnostic message delivery failures.
-    }
-  });
-  return visibleClientCount;
+function smsHasExpired(data) {
+  if (data.type !== "location_share_created" || !isEmergencySmsAlert(data)) return false;
+  const expiry = String(data.expires_at || "").trim();
+  return !!expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now());
 }
 
-async function focusOrOpenClient(url) {
+// Opaque per-grant presentation receipts survive worker restarts. They contain
+// no message, location or key material; retain only the maximum push lifetime.
+const locationPresentationFallback = new Map();
+async function locationPresentation(grantId, update) {
+  if (!grantId) return null;
+  let db;
+  const cutoff = Date.now() - 28 * 86400 * 1000;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-location-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("grants");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("grants", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("grants");
+      const request = store.get(grantId);
+      let value;
+      request.onsuccess = () => {
+        value = request.result?.at > cutoff ? request.result : {};
+        if (update) {
+          value = { ...value, ...update, at: Date.now() };
+          store.put(value, grantId);
+          const cursor = store.openCursor();
+          cursor.onsuccess = () => {
+            const entry = cursor.result;
+            if (!entry) return;
+            if (entry.value.at <= cutoff) entry.delete();
+            entry.continue();
+          };
+        }
+      };
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = reject;
+      transaction.onabort = reject;
+    });
+  } catch (_) {
+    // Storage failure must not discard a fresh emergency. Still dedup for this
+    // worker lifetime; never persist a failed showNotification as delivered.
+    for (const [key, value] of locationPresentationFallback) if (value.at <= cutoff) locationPresentationFallback.delete(key);
+    const value = locationPresentationFallback.get(grantId) || {};
+    if (update) locationPresentationFallback.set(grantId, { ...value, ...update, at: Date.now() });
+    return locationPresentationFallback.get(grantId) || value;
+  } finally { db?.close(); }
+}
+
+async function deliverPushToClients(payload) {
   const clientList = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
   });
-  for (let index = 0; index < clientList.length; index += 1) {
-    const client = clientList[index];
-    if (!client || !("focus" in client)) continue;
-    if ("navigate" in client) {
+  const visibleClients = clientList.filter(
+    (client) => client.visibilityState === "visible",
+  );
+  const owner =
+    visibleClients.find((client) => client.focused === true) ||
+    visibleClients[0] ||
+    null;
+
+  clientList.forEach((client) => {
+    try {
+      client.postMessage(
+        client === owner
+          ? payload
+          : {
+              type: "hushh:fcm_feed_changed",
+              reason: "push_received",
+            },
+      );
+    } catch (_) {
+      // Feed also repairs itself on focus/poll; system delivery remains the
+      // fallback if the selected visible owner cannot acknowledge.
+    }
+  });
+  return owner ? 1 : 0;
+}
+
+async function routeNotificationClick(url, reason, data) {
+  const clientList = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  const client =
+    clientList.find((candidate) => candidate.focused === true) ||
+    clientList.find((candidate) => candidate.visibilityState === "visible") ||
+    clientList.find((candidate) => typeof candidate.focus === "function");
+  if (client) {
+    if (typeof client.focus === "function") {
+      await client.focus();
+    }
+    const clickId = nextDeliveryId();
+    const clickAck = waitForNotificationClickAck(clickId);
+    try {
+      client.postMessage({
+        type: "hushh:fcm_notification_clicked",
+        click_id: clickId,
+        url,
+        reason,
+        data: data || {},
+      });
+    } catch (_) {
+      const finish = pendingNotificationClickAcks.get(clickId);
+      if (finish) finish(false);
+    }
+    const acknowledged = await clickAck;
+    if (acknowledged) {
+      return client;
+    }
+    if (typeof client.navigate === "function") {
       try {
-        await client.navigate(url);
+        const navigated = await client.navigate(url);
+        if (navigated) return navigated;
       } catch (_) {
-        // Fall through to focus/open if navigate is rejected.
+        // Fall through to opening a new Feed window below.
       }
     }
-    return client.focus();
+    if (self.clients.openWindow) {
+      return self.clients.openWindow(url);
+    }
+    return client;
   }
   if (self.clients.openWindow) {
     return self.clients.openWindow(url);
@@ -90,45 +426,175 @@ async function focusOrOpenClient(url) {
   return undefined;
 }
 
+importScripts("/chat-notification-preview.js");
+
+// Per-key presentation frontier only; the authenticated message store owns reads.
+let chatPresentation = Promise.resolve();
+function serializeChat(action) {
+  const next = chatPresentation.catch(() => {}).then(action);
+  chatPresentation = next.catch(() => {});
+  return next;
+}
+async function chatFrontier(keyId, threadId, update) {
+  let db;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-chat-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("threads");
+      request.onsuccess = () => resolve(request.result); request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("threads", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("threads");
+      const request = store.get(`${keyId}:${threadId}`);
+      let value;
+      request.onsuccess = () => {
+        value = request.result || { sequence: 0, before: 0, delivered: 0, messages: [] };
+        if (update) { value = update(value); store.put(value, `${keyId}:${threadId}`); }
+      };
+      transaction.oncomplete = () => resolve(value); transaction.onerror = reject; transaction.onabort = reject;
+    });
+  } catch (_) { return null; }
+  finally { db?.close(); }
+}
+async function applyChatRead(boundary) {
+  if (!boundary.keyId || boundary.keyId !== await self.currentChatNotificationKey()) return;
+  await chatFrontier(boundary.keyId, boundary.threadId, old => ({ ...old,
+    sequence: Math.max(old.sequence, Number(boundary.sequence) || 0), before: Math.max(old.before, Number(boundary.before) || 0),
+    messages: [...new Set([...old.messages, ...(boundary.messageId ? [boundary.messageId] : [])])].slice(-200),
+  }));
+  await applyChatBadge({ recipient_key_id: boundary.keyId, chat_badge_count: boundary.badgeCount, chat_badge_version: boundary.badgeVersion });
+  for (const notification of await self.registration.getNotifications()) {
+    const data = notification.data || {};
+    if (boundary.keyId !== await self.currentChatNotificationKey() || data.recipient_key_id !== boundary.keyId || (data.circle_id || data.conversation_id) !== boundary.threadId) continue;
+    const value = Number(boundary.sequence === undefined ? data.chat_sent_at : data.chat_sequence);
+    const limit = boundary.sequence ?? boundary.before;
+    if (boundary.messageId && data.message_id === boundary.messageId || value > 0 && limit !== undefined && value <= limit) notification.close();
+  }
+}
+async function chatCanPresent(data, record = false) {
+  const key = data.recipient_key_id;
+  if (!key) return true; // Historical tokens keep their existing owner checks.
+  if (key !== await self.currentChatNotificationKey()) return false;
+  const thread = data.circle_id || data.conversation_id;
+  const value = Number(data.chat_sequence || data.chat_sent_at);
+  const old = await chatFrontier(key, thread);
+  if (old && (old.messages.includes(data.message_id) || value > 0 && (value <= (data.chat_sequence ? old.sequence : old.before) || value < old.delivered))) return false;
+  if (record) await chatFrontier(key, thread, state => ({ ...state, delivered: Math.max(state.delivered, value || 0), messages: [...new Set([...state.messages, data.message_id])].slice(-200) }));
+  return key === await self.currentChatNotificationKey();
+}
+async function applyChatBadge(data) {
+  if (!data.recipient_key_id || data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  const count = Number(data.chat_badge_count);
+  if (!Number.isFinite(count) || count < 0) return;
+  const version = Number(data.chat_badge_version) || 0;
+  const old = await chatFrontier(data.recipient_key_id, "__badge__");
+  if (old && version < old.delivered) return;
+  await chatFrontier(data.recipient_key_id, "__badge__", state => ({ ...state, delivered: Math.max(state.delivered, version) }));
+  if (data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  try { if (count > 0) await self.navigator?.setAppBadge?.(Math.min(9999, count)); else await self.navigator?.clearAppBadge?.(); } catch (_) {}
+}
+
 self.addEventListener("push", function (event) {
   if (!event.data) return;
   try {
     const data = event.data.json();
-    const title = data.notification?.title || data.title || "Consent request";
-    const body =
-      data.notification?.body || data.body || "You have a new consent request";
-    const url =
-      data.data?.request_url ||
-      data.data?.deep_link ||
-      data.data?.url ||
-      data.fcmOptions?.link ||
-      data.webpush?.fcmOptions?.link ||
-      data.url ||
-      "/one/consent?tab=pending";
-    const tag =
-      data.data?.notification_tag ||
-      data.notification?.tag ||
-      "consent-request";
-    const requireInteraction = data.notification?.requireInteraction ?? true;
-    const isEmergencySms = isEmergencySmsAlert(data.data);
+    const rawData =
+      data.data && typeof data.data === "object" && !Array.isArray(data.data)
+        ? data.data
+        : {};
+    const safeDocumentData = sanitizeDocumentShareNotificationData(rawData);
+    const notificationData = safeDocumentData || rawData;
+    const title = safeDocumentData
+      ? documentShareNotificationCopy(safeDocumentData).title
+      : data.notification?.title || data.title || "Notification";
+    const body = safeDocumentData
+      ? documentShareNotificationCopy(safeDocumentData).body
+      : data.notification?.body || data.body || "You have a new notification";
+    const url = notificationTapTarget(notificationData);
+    const sourceUrl = safeDocumentData
+      ? url
+      : rawData?.request_url ||
+        rawData?.deep_link ||
+        rawData?.url ||
+        data.fcmOptions?.link ||
+        data.webpush?.fcmOptions?.link ||
+        data.url ||
+        self.__HUSHH_FCM_DEFAULT_TARGET__;
+    const notificationIdentity =
+      notificationData?.message_id ||
+      notificationData?.request_id ||
+      notificationData?.bundle_id ||
+      notificationData?.grant_id ||
+      notificationData?.submission_id ||
+      notificationData?.referral_id ||
+      notificationData?.connection_id ||
+      notificationData?.invite_id ||
+      notificationData?.transfer_id ||
+      nextDeliveryId();
+    const notificationType = String(notificationData?.type || "notification")
+      .trim()
+      .toLowerCase();
+    const tag = safeDocumentData
+      ? `hussh:${notificationType}:${notificationIdentity}`
+      : notificationData?.notification_tag ||
+        data.notification?.tag ||
+        `hussh:${notificationType}:${notificationIdentity}`;
+    // A sharing review is routine—not an SOS escalation. Its presentation is
+    // always the normal system cue regardless of an untrusted provider body.
+    const requireInteraction = safeDocumentData
+      ? false
+      : data.notification?.requireInteraction ?? true;
+    const isEmergencySms = isEmergencySmsAlert(notificationData);
+    const isSilent = isSilentNotification(notificationData);
+    const isChat = ["direct_message", "location_circle_message"].includes(notificationData?.type);
     const notificationOptions = {
       body,
-      data: { ...(data.data || {}), url },
-      tag,
+      data: {
+        ...notificationData,
+        source_url: safeDocumentData ? url : sourceUrl,
+        url,
+      },
+      tag: isChat ? `hussh:chat:${notificationData.recipient_key_id || notificationData.user_id || "legacy"}:${notificationData.circle_id || notificationData.conversation_id}` : tag,
       requireInteraction,
       icon: "/hushh_icon.png",
-      renotify: isEmergencySms,
+      renotify: isEmergencySms || isChat,
       silent: false,
       vibrate: isEmergencySms ? [240, 120, 240, 120, 520] : undefined,
     };
     event.waitUntil(
-      (async () => {
-        const handledByVisibleApp = isHandledByVisibleApp(data.data);
-        const deliveryId = handledByVisibleApp ? nextDeliveryId() : "";
-        const deliveryAck = deliveryId
-          ? waitForForegroundDeliveryAck(deliveryId)
-          : Promise.resolve(false);
-        const visibleClientCount = await broadcastToClients({
+      serializeChat(async () => {
+        const grantId = String(notificationData.grant_id || "").trim();
+        const smsCreated = isEmergencySms && notificationType === "location_share_created";
+        if (["location_share_revoked", "location_share_expired"].includes(notificationType)) {
+          await locationPresentation(grantId, { ended: true });
+          if (grantId) await closeDeliveredNotificationTag(`one-location-share:${grantId}`);
+        }
+        if (smsCreated) {
+          const previous = await locationPresentation(grantId);
+          if (smsHasExpired(notificationData) || previous?.ended || previous?.presented) return;
+        }
+        if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
+        if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
+        if (isChat && !await chatCanPresent(notificationData)) return;
+        if (isChat) await applyChatBadge(notificationData);
+        const deliveryId = nextDeliveryId();
+        if (isSilent) {
+          await closeDeliveredNotificationTag(tag);
+          await deliverPushToClients({
+            type: "hushh:fcm_push_received",
+            delivery_id: deliveryId,
+            title,
+            body,
+            url,
+            tag,
+            requireInteraction: false,
+            data: notificationData,
+          });
+          return;
+        }
+        const deliveryAck = waitForForegroundDeliveryAck(deliveryId);
+        const visibleClientCount = await deliverPushToClients({
           type: "hushh:fcm_push_received",
           delivery_id: deliveryId,
           title,
@@ -136,40 +602,58 @@ self.addEventListener("push", function (event) {
           url,
           tag,
           requireInteraction,
-          data: data.data || {},
+          data: notificationData,
         });
-        const acknowledged =
-          visibleClientCount > 0 && handledByVisibleApp
-            ? await deliveryAck
-            : false;
+        const acknowledged = visibleClientCount > 0 ? await deliveryAck : false;
         // Suppress the browser notification only after the visible app bridge
         // confirms receipt. Otherwise the system tray remains the reliable fallback.
         if (!acknowledged) {
-          await self.registration.showNotification(title, notificationOptions);
+          const preview = isChat ? await self.openChatNotificationPreview(notificationData) : null;
+          const identity = isChat ? await self.openChatNotificationPreview(notificationData, "chat_identity") : null;
+          const trusted = notificationData?.type === "location_circle_message" ? identity : preview;
+          const sender = String(trusted?.sender || "New message").slice(0, 80);
+          const group = String(trusted?.group || "").slice(0, 80);
+          const text = Array.from(String(preview?.text || (isChat ? "You have a new message" : body))).slice(0, 160).join("");
+          const avatar = trusted?.avatar;
+          const icon = typeof avatar === "string" && avatar.startsWith("data:image/jpeg;base64,") && avatar.length <= 1023 ? avatar : notificationOptions.icon;
+          if (isChat && !await chatCanPresent(notificationData)) return;
+          if (smsHasExpired(notificationData)) return;
+          await self.registration.showNotification(isChat ? group || sender : title, { ...notificationOptions,
+            ...(isChat ? { body: group ? `${sender}: ${text}` : text, icon, requireInteraction: false } : {}) });
+          if (isChat) await chatCanPresent(notificationData, true);
+        } else if (isChat) {
+          await chatCanPresent(notificationData, true);
         }
-      })(),
+        if (smsCreated) await locationPresentation(grantId, { presented: true });
+      }),
     );
   } catch (_) {
     event.waitUntil(
       (async () => {
         const fallback = {
-          title: "Consent request",
-          body: "You have a new consent request",
+          title: "Notification",
+          body: "You have a new notification",
           url: self.__HUSHH_FCM_DEFAULT_TARGET__,
-          tag: "consent-request",
+          tag: `hushh:notification:${nextDeliveryId()}`,
           requireInteraction: true,
         };
-        const visibleClientCount = await broadcastToClients({
+        const deliveryId = nextDeliveryId();
+        const deliveryAck = waitForForegroundDeliveryAck(deliveryId);
+        const visibleClientCount = await deliverPushToClients({
           type: "hushh:fcm_push_received",
           ...fallback,
+          delivery_id: deliveryId,
           data: {},
         });
-        await self.registration.showNotification(fallback.title, {
-          body: fallback.body,
-          data: { url: fallback.url },
-          tag: fallback.tag,
-          requireInteraction: fallback.requireInteraction,
-        });
+        const acknowledged = visibleClientCount > 0 ? await deliveryAck : false;
+        if (!acknowledged) {
+          await self.registration.showNotification(fallback.title, {
+            body: fallback.body,
+            data: { url: fallback.url },
+            tag: fallback.tag,
+            requireInteraction: fallback.requireInteraction,
+          });
+        }
       })(),
     );
   }
@@ -177,38 +661,30 @@ self.addEventListener("push", function (event) {
 
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
-  const url = event.notification.data?.url || self.__HUSHH_FCM_DEFAULT_TARGET__;
-  event.waitUntil(
-    (async () => {
-      await broadcastToClients({
-        type: "hushh:fcm_notification_clicked",
-        url,
-        reason: "notification_click",
-      });
-      return focusOrOpenClient(url);
-    })(),
-  );
+  const data = event.notification?.data || {};
+  const url = notificationTapTarget(data);
+  event.waitUntil(routeNotificationClick(url, "notification_click", data));
 });
 
 self.addEventListener("message", function (event) {
   const data = event.data || {};
+  if (data.type === "hushh:chat_read") {
+    event.waitUntil(serializeChat(() => applyChatRead(data)));
+    return;
+  }
   if (data.type === "hushh:fcm_push_ack") {
     const acknowledge = pendingForegroundDeliveryAcks.get(data.delivery_id);
     if (acknowledge) acknowledge();
     return;
   }
+  if (data.type === "hushh:fcm_notification_click_ack") {
+    const acknowledge = pendingNotificationClickAcks.get(data.click_id);
+    if (acknowledge) acknowledge(true);
+    return;
+  }
   if (data.type !== "hushh:test_notification_click") {
     return;
   }
-  const url = data.url || self.__HUSHH_FCM_DEFAULT_TARGET__;
-  event.waitUntil(
-    (async () => {
-      await broadcastToClients({
-        type: "hushh:fcm_notification_clicked",
-        url,
-        reason: "test_click",
-      });
-      return focusOrOpenClient(url);
-    })(),
-  );
+  const url = self.__HUSHH_FCM_DEFAULT_TARGET__;
+  event.waitUntil(routeNotificationClick(url, "test_click", {}));
 });

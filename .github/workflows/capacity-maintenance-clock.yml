@@ -1,0 +1,171 @@
+name: "Schedule Capacity Maintenance"
+
+# Makes Capacity Maintenance's hourly policy real without adding a run there
+# every hour. GitHub delivered only 3-6 of the 24 daily runs of its hourly
+# cron on 2026-10-12..14 (verify-protected-lists.yml, on the same cron, got
+# the same), so a retired revision waited 5-10 h for the two passes that
+# delete it, and production admission stayed blocked meanwhile.
+#
+# Each run checks both environments without cloud credentials, with the same
+# --verify-source-only check Capacity Maintenance starts with. It sends one
+# tick only when an environment is due, scoped to the due environments, so
+# quiet hours add no Capacity Maintenance run and one environment's work adds
+# none to the other's checkpoint guard walk. It then re-arms itself: `next-check` waits in the
+# capacity-maintenance-clock environment's 60-minute wait timer, which GitHub
+# holds before assigning a runner, and dispatches the next clock event. The
+# cron below only starts the clock, or restarts it if it stops. Cancel the
+# waiting run to stop the clock; the next delivered cron starts it again.
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  repository_dispatch:
+    types: [capacity-maintenance-clock]
+
+# One running clock and at most one pending: a delivered cron or a second chain
+# collapses into the first. Never cancel a running check.
+concurrency:
+  group: capacity-maintenance-clock
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    name: Check for due maintenance without cloud credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      clock: ${{ steps.authority.outputs.clock }}
+      uat_ready: ${{ steps.uat.outputs.cleanup_ready }}
+      production_ready: ${{ steps.production.outputs.cleanup_ready }}
+    steps:
+      - name: Checkout authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Require main and the clock's own trigger
+        id: authority
+        shell: bash
+        env:
+          CLOCK_EVENT_TYPE: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main || exit 1
+          case "$GITHUB_EVENT_NAME" in
+            schedule) ;;
+            repository_dispatch)
+              [[ "$CLOCK_EVENT_TYPE" = capacity-maintenance-clock ]] || exit 1
+              if [[ "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
+                python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+                python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+              fi
+              ;;
+            *) echo "Unsupported clock trigger" >&2; exit 1 ;;
+          esac
+          echo "clock=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+      # Each check reads only GitHub; a failure in one never hides the other.
+      - name: Check uat
+        id: uat
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --verify-source-only --state-dir "$RUNNER_TEMP/uat-retention-source"
+      - name: Check production
+        id: production
+        continue-on-error: true
+        env:
+          HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --verify-source-only --state-dir "$RUNNER_TEMP/production-retention-source"
+      - name: Report a failed check
+        if: steps.uat.outcome == 'failure' || steps.production.outcome == 'failure'
+        env:
+          UAT_CHECK: ${{ steps.uat.outcome }}
+          PRODUCTION_CHECK: ${{ steps.production.outcome }}
+        run: |
+          echo "::error title=Capacity clock::Due check failed (uat: $UAT_CHECK, production: $PRODUCTION_CHECK). The clock stays armed."
+          exit 1
+
+  wake:
+    name: Wake Capacity Maintenance for due work
+    needs: check
+    if: ${{ !cancelled() && (needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UAT_READY: ${{ needs.check.outputs.uat_ready }}
+      PRODUCTION_READY: ${{ needs.check.outputs.production_ready }}
+    steps:
+      # Scope the tick to the due environments, so one environment's work adds
+      # no run to the other's checkpoint walk (Capacity Maintenance run-name).
+      - name: Send one capacity-maintenance-tick
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$UAT_READY" == true && "$PRODUCTION_READY" == true ]]; then
+            tick=capacity-maintenance-tick
+          elif [[ "$UAT_READY" == true ]]; then
+            tick=capacity-maintenance-tick-uat
+          elif [[ "$PRODUCTION_READY" == true ]]; then
+            tick=capacity-maintenance-tick-production
+          else
+            echo "Nothing is due; not waking Capacity Maintenance."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type="$tick"; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "::error title=Capacity clock::Could not wake Capacity Maintenance."
+          exit 1
+
+  next-check:
+    name: Re-arm the clock after its wait
+    needs: [check, wake]
+    if: ${{ !cancelled() && needs.check.outputs.clock == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: capacity-maintenance-clock
+      deployment: false
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLOCK_MIN_ELAPSED_SECONDS: "3300"
+    steps:
+      - name: Queue the next check after the clock's wait
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Without the wait timer this job would start at once and the clock
+          # would spin a check every few minutes. Refuse to queue early.
+          started="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          elapsed="$(python3 -c 'import sys, datetime as d; s = d.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00")); print(int((d.datetime.now(d.timezone.utc) - s).total_seconds()))' "$started")"
+          if (( elapsed < CLOCK_MIN_ELAPSED_SECONDS )); then
+            echo "::error title=Capacity clock::This check started ${elapsed}s ago; the capacity-maintenance-clock environment must hold a 60-minute wait timer. Not queuing the next check."
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=capacity-maintenance-clock; then
+              echo "Queued the next capacity check ${elapsed}s after this one started." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "::error title=Capacity clock::Could not queue the next check; the cron restarts the clock."
+          exit 1

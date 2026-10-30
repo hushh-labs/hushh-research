@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Optional
+from typing import Mapping, Optional
 
 # ==================== Consent Scopes ====================
 
@@ -45,6 +45,11 @@ class ConsentScope(str, Enum):
 
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
 
+    # Cards specialist invocation. Control-plane only: it never authorizes a
+    # read of the reserved wallet PKM domain, whose data leaves the
+    # vault solely through client-side decryption or an explicit attr.* grant.
+    AGENT_WALLET_MANAGE = "agent.wallet.manage"
+
     AGENT_NAV_REVIEW = "agent.nav.review"
 
     AGENT_KYC_PROCESS = "agent.kyc.process"
@@ -56,6 +61,7 @@ class ConsentScope(str, Enum):
     # scopes, not durable attr.location.* PKM scopes.
     CAP_LOCATION_LIVE_SHARE = "cap.location.live.share"
     CAP_LOCATION_LIVE_VIEW = "cap.location.live.view"
+    CAP_LOCATION_COMMAND_READ = "cap.location.command.read"
     CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
@@ -67,6 +73,62 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_NEARBY_DISCOVER = "cap.location.nearby.discover"
     CAP_LOCATION_NEARBY_REVOKE = "cap.location.nearby.revoke"
 
+    # ==================== PLACE RATING CAPABILITIES ====================
+    # Rating a place the caller was recorded at. These authorize the only
+    # durable person-to-venue link in One Location, so they are deliberately
+    # separate from the nearby triple above: holding a nearby scope must never
+    # imply permission to leave a permanent record of having been somewhere.
+    # Not externally requestable.
+    CAP_LOCATION_PLACE_RATING_PUBLISH = "cap.location.place_rating.publish"
+    CAP_LOCATION_PLACE_RATING_DISCOVER = "cap.location.place_rating.discover"
+    CAP_LOCATION_PLACE_RATING_REVOKE = "cap.location.place_rating.revoke"
+
+    # ==================== CONTACT DISCOVERY ====================
+    # Matching an address book against the user directory. Declared here so the
+    # capability has a name the consent surface can show and an audit row can
+    # carry -- until now, the single most identity-revealing query in the
+    # product was the only one with no scope attached to it at all.
+    #
+    # NOT yet enforced on `POST /api/marketplace/contacts/match`. That route
+    # authenticates with a Firebase ID token, and every shipped client -- web,
+    # iOS and Android -- calls it that way, so requiring a consent token here
+    # would break contact sync on all three the moment it deployed. Making this
+    # a hard gate is a coordinated client change, and it should be one rather
+    # than a silent outage.
+    CAP_CONTACT_DISCOVERY = "cap.contact.discovery"
+    # Registered in `_STATIC_SCOPE_META` (hushh_mcp/consent/scope_helpers.py) so
+    # the consent surface renders a sentence rather than title-casing the raw
+    # handle into "Cap Contact Discovery".
+
+    # ==================== POD DATA DOOR READ CAPABILITIES ====================
+    # Read-only capability scopes that let a KEYLESS per-person pod READ a
+    # DB-backed specialist THROUGH the hub broker (the pod data door, see
+    # hushh_mcp/services/pod_data_door.py). Each is the narrow, owner-revocable,
+    # Nav-narrated scope the relay mints per turn with a short TTL and couriers to
+    # the pod; the broker re-validates it and runs one fixed read-only read. They
+    # are deliberately distinct from vault.owner (which the relay never hands a
+    # pod) and from the write/action capabilities: a VIEW scope can only read a
+    # fail-closed projection, never mutate. `cap.location.live.view` was the first
+    # such door; these open the next ones named in the north-star's staged
+    # door-by-door plan (email, calendar) plus finance CONNECTION STATUS (never the
+    # vault-gated portfolio itself, which no hub-run read can decrypt).
+    CAP_EMAIL_INBOX_VIEW = "cap.email.inbox.view"
+    CAP_CALENDAR_EVENTS_VIEW = "cap.calendar.events.view"
+    CAP_FINANCE_CONNECTIONS_VIEW = "cap.finance.connections.view"
+
+    # Owner-approved inference over the linked Puppy One device relay. This
+    # authorizes model inference only; it never grants vault, shell, or tool
+    # execution authority.
+    CAP_PUPPY_INFERENCE = "cap.puppy.inference"
+
+    # Owner consent for the person's OWN provider (Vertex Memory Bank in their
+    # project) to process agent memory: generate from a turn, retrieve on recall.
+    # Provider-derived memory has its own processing boundary (AGENTS.md doctrine
+    # 1); a sealed log under pod custody does not imply the provider may read it.
+    # Without a recorded consent the pod never calls memories:generate or
+    # memories:retrieve. Never a vault, PKM or action authority.
+    CAP_MEMORY_PROVIDER_PROCESS = "cap.memory.provider.process"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -74,6 +136,13 @@ class ConsentScope(str, Enum):
     # read-only; MANAGE gates owner-confirmed publication and access changes.
     CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
     CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
+
+    # ==================== INTERNAL AGENT-RUNTIME CAPABILITIES ====================
+    # Control-plane capability a Hushh-operated agent runtime (pod) uses to fetch
+    # its own system prompt at runtime (prompt-sync). INTERNAL ONLY: never
+    # external-requestable and never a data authority, so it can never read PKM or
+    # a user's data. Listed in INTERNAL_ONLY_SCOPE_VALUES below.
+    CAP_AGENT_PROMPT_SYNC = "cap.agent.prompt.sync"
 
     @classmethod
     def list(cls):
@@ -143,6 +212,15 @@ class ConsentScope(str, Enum):
 
         # Check dynamic scopes
         if cls.is_dynamic_scope(scope):
+            # Dynamic paths may carry the two PKM collection markers, but only
+            # at their authored manifest positions. Keep token validation in
+            # lockstep with discovery so malformed structural paths cannot be
+            # issued even when they arrive through an old pending request.
+            from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+
+            dynamic_path = str(scope).split(".", 2)[-1].removesuffix(".*")
+            if is_internal_manifest_path(dynamic_path):
+                return False
             # Import here to avoid circular dependency
             from hushh_mcp.consent.scope_generator import get_scope_generator
 
@@ -226,6 +304,7 @@ class ConsentScope(str, Enum):
         """Return all agent operation scopes."""
         return [
             cls.AGENT_KAI_ANALYZE,
+            cls.AGENT_WALLET_MANAGE,
             cls.AGENT_NAV_REVIEW,
             cls.AGENT_KYC_PROCESS,
             cls.AGENT_KYC_REDRAFT_LLM,
@@ -238,14 +317,23 @@ class ConsentScope(str, Enum):
             cls.CAP_ONE_INVOKE,
             cls.CAP_LOCATION_LIVE_SHARE,
             cls.CAP_LOCATION_LIVE_VIEW,
+            cls.CAP_LOCATION_COMMAND_READ,
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
             cls.CAP_LOCATION_NEARBY_PUBLISH,
             cls.CAP_LOCATION_NEARBY_DISCOVER,
             cls.CAP_LOCATION_NEARBY_REVOKE,
+            cls.CAP_LOCATION_PLACE_RATING_PUBLISH,
+            cls.CAP_LOCATION_PLACE_RATING_DISCOVER,
+            cls.CAP_LOCATION_PLACE_RATING_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
+            cls.CAP_EMAIL_INBOX_VIEW,
+            cls.CAP_CALENDAR_EVENTS_VIEW,
+            cls.CAP_FINANCE_CONNECTIONS_VIEW,
+            cls.CAP_PUPPY_INFERENCE,
+            cls.CAP_MEMORY_PROVIDER_PROCESS,
         ]
 
     @classmethod
@@ -267,8 +355,13 @@ SCOPE_POLICY_VERSION = 2
 # external request surface is deliberately narrower and accepts one semantic
 # branch wildcard only.
 _SCOPE_SLUG = r"[a-z](?:[a-z0-9_]{0,62}[a-z0-9])?"
+# PKM manifests use these two explicit collection markers in otherwise
+# requestable leaf paths. They are not general-purpose leading-underscore
+# identifiers: internal-path policy still validates their placement before a
+# scope can enter the discoverable catalog.
+_SCOPE_PATH_SEGMENT = rf"(?:{_SCOPE_SLUG}|_(?:entities|items))"
 _DYNAMIC_SCOPE_PATTERN = re.compile(
-    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_SLUG}(?:\.{_SCOPE_SLUG})*(?:\.\*)?)"
+    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_PATH_SEGMENT}(?:\.{_SCOPE_PATH_SEGMENT})*(?:\.\*)?)"
 )
 _EXTERNAL_DYNAMIC_SCOPE_PATTERN = re.compile(rf"attr\.{_SCOPE_SLUG}\.{_SCOPE_SLUG}\.\*")
 
@@ -278,6 +371,7 @@ INTERNAL_ONLY_SCOPE_VALUES: frozenset[str] = frozenset(
         ConsentScope.VAULT_OWNER.value,
         ConsentScope.PKM_READ.value,
         ConsentScope.PKM_WRITE.value,
+        ConsentScope.CAP_AGENT_PROMPT_SYNC.value,
     }
 )
 EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(
@@ -331,15 +425,36 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # debate agents, HushhAgent manifest default, portfolio import). Keep every
 # agent lane on the same generation; the voice head uses the dedicated Live
 # model via AGENT_ONE_ADK_MODEL instead.
-GEMINI_MODEL = "gemini-3.6-flash"
+#
+# One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
+# at once (manifests say `gemini-default` and resolve here). The default is the
+# configured release target; each lane proves model availability under its own
+# runtime identity before traffic promotion. Its Vertex allowed-models policy
+# must admit the configured id. Founder rule 2026-09-14: the Gemini catalog
+# (runtime_providers/model_catalog.py and registry.py) lists only the last two
+# releases at all times; a roll-forward replaces the oldest, never adds a third.
+# Every text manifest, the memory chain included, names `gemini-default`; only
+# the Live head pins a model directly, and that pin stays explicit in its manifest.
+# Owner decision 2026-10-15: 3.8 Flash passed bounded runtime and quality probes.
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
-# Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.6-flash"
+
+def fleet_text_model_from_env(overrides: "Mapping[str, str] | None" = None) -> str:
+    """The switched fleet text model: HUSSH_GEMINI_TEXT_MODEL, else the proven default."""
+    if overrides is not None:
+        return (overrides.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().text_model
+
+
+GEMINI_MODEL = fleet_text_model_from_env()
+
 
 # ==================== Kai Portfolio Import Defaults ====================
 
-# Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.6-flash"
+# Portfolio import extraction is prompt-first and optimized for lower latency. The
+# model itself is the fleet model; only these sampling settings are import-specific.
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768
@@ -376,8 +491,6 @@ __all__ = [
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
     "GEMINI_MODEL",
-    "GEMINI_MODEL_VERTEX",
-    "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL",
     "KAI_PORTFOLIO_IMPORT_ENABLE_THINKING",
     "KAI_PORTFOLIO_IMPORT_THINKING_LEVEL",
     "KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS",

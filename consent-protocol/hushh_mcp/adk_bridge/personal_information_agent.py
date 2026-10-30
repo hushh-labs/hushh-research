@@ -1,4 +1,4 @@
-"""In-process A2A handler for the Information Marketplace specialist.
+"""In-process A2A handler for the Memory Agent specialist.
 
 Wraps the EXISTING InformationChatService.handle_turn loop unchanged and adapts
 its dict output into the generic SpecialistTurnResult. Consent is enforced
@@ -20,7 +20,7 @@ from typing import Any
 from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
 
 # Label surfaced to the client for delegated turns (SSE start/complete "model").
-DELEGATED_MODEL = "one+marketplace"
+DELEGATED_MODEL = "one+memory"
 
 
 class PersonalInformationAgentA2A:

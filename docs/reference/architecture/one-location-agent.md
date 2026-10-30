@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-31
+Last updated: 2026-10-20
 
 ## Visual Map
 
@@ -26,6 +26,140 @@ points.
 The production direction is One-owned. Authenticated recipient-scoped live
 location remains ciphertext-only. Owner-created public location links are a
 separate, explicit, duration-bounded snapshot-sharing mode.
+
+## Contact Discovery And Results
+
+Connect, the Location People menu, and Location onboarding use the same bounded
+contact-matching pipeline and named results sheet. Exact verified-phone matches
+connect automatically under the visible Connect-directory default; explicit
+contact opt-out, marketplace hide, invalid preference evidence, and disconnect
+tombstones remain protected. The authoritative policy and private-information
+boundary are defined in [IAM Architecture](../iam/architecture.md#contact-sync-relationship-boundary).
+
+Results distinguish `Connected now`, `Already connected`, and `Kept disconnected`.
+The rolling-compatible `request_required` outcome retains its explicit request
+action. Partial reads and uncertain mutations remain visible with their limits;
+unconfirmed contacts never become invitation candidates. A cap-only result
+offers Done because repeating the same bounded scan cannot inspect overflow.
+
+The inline onboarding action, results retry, and Settings return share the
+Location page's in-flight guard. Settings recovery accepts granted or limited
+contact permission, resumes once, and updates both the inline state and named
+report. Finish stays available during the optional scan; if the user opens the
+Location hub before it settles, the page still presents the completed report.
+Opening a contact source always requires the user's contact-check action.
+
+## Onboarding Resume
+
+### Automatic receiving readiness
+
+Root vault unlock starts recipient-key recovery on every route, including
+`/one/setup`, before optional Firebase-token reads and unrelated warm jobs.
+Returning directly to Chat or Connect cannot skip receiving readiness. Warm-up,
+setup and Location join one account-scoped operation.
+The operation adopts the existing vault-encrypted backup across devices; a failed
+remote read or undecryptable backup cannot silently replace a registered key.
+Session and owner generations fence recovery and registration across lock/logout.
+Transient failures retry with bounded backoff; the root provider also retries on
+online/foreground return, valid credential renewal and every visible online
+minute after those attempts are exhausted. Successful sessions deduplicate these
+checks; lock and account transitions release timers and stale work. The setup status
+waits for registration before publishing readiness.
+Receiving readiness requests no GPS permission and enables no location sharing.
+
+Share and Ask use the same account-ID recipient directory. Workspace refreshes
+reconcile both visible pages and retained selections, fence older page responses,
+and reload the directory. A connected person's missing receiving key is shown as
+`Connected · Location receiving unavailable`, never as an invitation requirement.
+The person's action sheet retains Ask and Manage connection. Ask may still send a
+consent request to that person without disclosing coordinates; private sharing
+requires their registered public key and revalidates the complete audience before
+submission. Contact matches never merge different account IDs by display name.
+
+After a material recipient-key change commits, a fresh read captures direct and
+Circle viewers and sends the existing silent `connection_graph_changed` doorbell.
+This closes the race with concurrent connection acceptance: the fresh read sees
+an earlier accepted edge, or the later acceptance event sees the committed key.
+Identical active
+keys and private backup-only backfills do not fan out; rotation, reactivation and
+repair of extra active keys do. Full account deletion captures surviving graph,
+Circle and pending-request viewers under the graph writer lock before erasure,
+then sends the same doorbell only after commit. Failed delivery cannot turn a
+committed erasure or registration into an API failure. Clients invalidate all
+connection-backed projections, including Location and SMS. Open People, Share,
+Ask and SMS surfaces also repair missed transitions while visible every minute.
+Missing recipient keys or optional Location preferences never establish that an
+account is deleted or inactive; proper deletion removes the graph itself.
+
+### Save My Soul recipient readiness
+
+Save My Soul (SMS) delivers encrypted location in One through account-scoped
+notifications and the existing email fallback, not carrier text messages.
+A connected or eligible Circle member with an active receiving key can be added
+and alerted without a verified phone or completed Location onboarding. The
+client, Circle picker, grant routes and voice tools use this same boundary.
+Sending still requires the owner's explicit SMS roster selection, current peer
+eligibility, the recipient's active key and a valid encrypted envelope. Existing
+phone verification for contact discovery and public invitation claims is separate.
+An identity-provider outage cannot block an otherwise ready emergency recipient.
+Only an absent identity projection triggers bounded recovery through the existing
+canonical identity writer, after confirming an existing actor profile. Missing or
+disabled provider accounts and deletion tombstones cannot create replacement
+identities; a missing phone on an existing row never triggers this recovery.
+
+The SMS composer shows the selected Circle without per-person readiness lists,
+attention counts or instructions to make another person unlock. Pending roster
+metadata refreshes automatically on short bounded retries, existing graph events,
+foreground return and minute repair. A known selected Circle stays sendable even
+if a cached key projection is incomplete: the send handler reads the exact current
+roster and keys before creating any grant, and reports actual partial or failed
+delivery. A missing phone claim never becomes an account-verification warning,
+an invitation requirement or evidence of account deletion. The earlier connection lifecycle fix
+(PR #8272) repaired key bootstrap and roster invalidation, but did not remove the
+inherited SMS phone gate or compact this disclosure.
+
+The own recipient-key section is authoritative even in a degraded workspace
+response. A failed key query raises instead of becoming `myRecipientKey: null`;
+only a successful empty read proves absence. Strict bootstrap also rejects an
+omitted key field. A transient read failure cannot authorize generating a
+replacement key and invalidating existing shares. Receiving private keys remain
+recoverable only by their owner's vault; no sender or server fabricates peer keys.
+
+The authored SOS action meanings fit the existing model-catalog budget while
+retaining exact audience confirmation, encrypted publication and verified delivery
+before a sent claim. The capability evolution ledger rejects paused command runs
+for the four revised actions pinned to graph `65ab266e1b246630`; those commands
+need fresh preparation under the current graph. This does not revoke an already
+active SOS share or prevent a fresh Stop SOS request.
+Removing the intermediate draft's manual Refresh action also retires that
+unreleased draft workflow graph `ba18c0e75894966d`; main's existing setup cursor
+compatibility remains intact. This is an exact graph declaration, not a broader
+exception to compatibility validation.
+
+The introduction has three steps: Features, an optional Save a place step, then the
+existing Circle invite, copy/share, Join and Find contacts finale. Continue on
+Features asks for device location and a position once, only to centre the pin;
+it does not turn Location on. The step reuses the Now banner's pin and address
+modal. Skipping it, or a refused permission or failed position, moves straight to
+Ready, so finishing or skipping the introduction never requires a location grant.
+Saving a place does turn the owner's preview on. In root setup, which has no vault
+yet, the place is staged in process memory until Finish setup. One place is
+offered per journey, and the Now banner remains the fallback for anyone who
+skipped it.
+
+
+Location onboarding checkpoints the current screen in tab-scoped session storage,
+separately for each account and for setup versus the workspace. Returning from an
+invite share or another tab still performs the normal session validation; when
+auth guards remount the route, onboarding resumes at the checkpoint instead of
+restarting at Features. Admission refreshes do not reset an active journey.
+
+The checkpoint contains only a screen name. Contacts, invite codes, coordinates,
+saved-place drafts and vault material are not stored there. Legacy Welcome and
+Place checkpoints return to Features, because the place draft is memory-only and
+must capture a fresh position. Restoring Ready
+does not automatically resync contacts or request location permission. Successful
+completion or skip clears the checkpoint; failed settlement retains it for retry.
 
 ## Plaintext Boundary
 
@@ -60,6 +194,21 @@ snapshot is returned by token resolve while the invite is active. It is not a
 live grant, ciphertext envelope, movement trail, raw owner identity, address, or
 reverse-geocoded enrichment.
 
+Share URLs include the owner's safe first name before the bearer token, for
+example `/one/location/view/neelesh.<token>`. The name is decorative; token
+validation and the resolved invite remain authoritative. Existing bare-token
+URLs continue to work, and accounts without a usable display name retain them.
+
+The public viewer refreshes while visible, removes the map when the server
+reports revocation or expiry, and retries transient failures. Resolve includes
+the remaining lifetime measured by the database; the viewer uses a monotonic
+timer to conceal the pin at that deadline if a later check cannot reach the
+server. A device clock cannot expire a link that the server still accepts.
+Navigating to another link
+clears the previous location and ignores its outstanding responses. Hosted
+builds prerender an inert route probe to establish dynamic rendering; native
+builds retain their static fixture without requiring a server connection.
+
 ## Ciphertext Envelope
 
 The web/native client creates one envelope per grant update:
@@ -93,6 +242,19 @@ live-location grants:
   One Location saved-place API
 - Location → Settings reads and mutates saved places only while the vault is
   unlocked; decrypted values remain in memory or the encrypted device cache
+- Explicit checkout saves appear under Checked In Places. New saves keep the
+  venue name, street address, provider place ID and actual check-in timestamp
+  separately inside that same encrypted record. Rows show the address before
+  expansion and the visit date on the right. Older records without a visit
+  timestamp label their existing date as Saved; no visit time is inferred.
+- Older combined name/address labels remain stored intact. Their display uses
+  the first segment as a fallback name, and missing addresses are resolved on
+  load through the existing authenticated reverse-geocoding service, in memory
+  for the current vault session. Provider failures retain the available saved
+  address text and the existing manual recovery action.
+- A checked-in row offers Add to favorites and Remove. Favoriting moves that
+  existing record without changing its pin, visit time, or Home/Work categories;
+  repeating the action is idempotent. Edit is available on favorite rows.
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
@@ -102,16 +264,19 @@ live-location grants:
   rechecks this invariant against the latest PKM state after write conflicts,
   while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
-  onboarding prompt; authenticated Maps autocomplete and place details replace
+  saved-place modal; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
   and free-form coordinate/address mismatches are never exposed
-- active root-setup replay offers the saved-place step once per mounted journey
-  until setup is resolved; workspace onboarding treats encrypted PKM as the
-  saved-state authority and uses device storage only for an explicit skip
-  outcome
-- the old binary prompt marker is cleared only after an empty encrypted-PKM
-  read proves it is ambiguous; no prompt marker contains coordinates, an
-  address, or a place label
+- the Now tab offers a dismissible banner directly below Location. Save a place
+  acquires permission and a current position once through the shared device gate,
+  then opens the existing pin/address modal. Successful saving uses encrypted PKM
+  and enables the owner's preview without granting anyone sharing access
+- dismissal stores only a non-sensitive per-account flag and explains that places
+  remain available in Location settings; no flag contains a coordinate or address
+- desktop web starts a low-accuracy network read when the precise provider reports
+  unavailable/timeout, while preserving its high-accuracy watch and bounded deadline
+- measurement-required actions reject stale display-only fixes; iOS keeps a bounded
+  capture alive through transient Core Location locationUnknown errors
 
 Saved places do not create sharing authority. They enter a consented PKM export
 only when the owner separately approves the applicable Location information
@@ -152,6 +317,15 @@ owner/link metadata plus the attached public location snapshot.
   separately materialize a mutual One Network connection. Claiming never
   creates a live location grant, exposes private owner profile data, or requests
   location permission.
+  The preview's primary action is **Accept invitation**, with short guidance
+  when phone verification or vault unlock is needed. Token invitations retain
+  their return destination through login, phone verification, setup and unlock.
+  Explicit invitation verification remains available to established accounts:
+  their exemption from first-run phone onboarding must not redirect them back
+  before they can verify the phone required by the claim endpoint. An unknown
+  identity offers Retry. Optional phone-based discovery does not interrupt this
+  invitation continuation. Masked inviter phone suffixes use one nonbreaking
+  bullet mask, including labels without a display name.
 - Named Circles are a separate durable metadata graph backed by
   `one_location_circles`, `one_location_circle_memberships`, and
   `one_location_circle_invite_codes`. The user's confirmed Join action on a
@@ -199,7 +373,7 @@ owner/link metadata plus the attached public location snapshot.
   who join after confirmation.
 - Save My Soul keeps the stricter durable `one_location_sms_contacts` boundary.
   Choosing "Add Circle" in SMS contacts explicitly adds only the Circle's
-  current phone-verified, recipient-key-ready members as individual SMS
+  current recipient-key-ready members as individual SMS
   contacts. It never follows future membership automatically, and the user may
   remove any person independently.
 - Check-In and SMS contacts surface an in-context "grow this Circle" affordance
@@ -252,13 +426,15 @@ or an active Nearby presence. Pausing stops new foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
-`Auto-share my location` is a durable user-scoped preference, independent from
-Pause. It controls continuous foreground/background updates only for private
-grants the owner already approved; it never creates a grant or auto-approves a
-request. Turning Auto-share off leaves consent and expiry intact and makes new
-shares publish only the location the owner explicitly confirms. Pause
-temporarily suppresses Auto-share without erasing that preference, so both
-settings remain stable across tab changes and route remounts.
+Automatic approval is an account-wide standing rule stored by the server,
+independent from Pause and off by default. It may cover verified contacts or
+one active, person-created Circle. The server owns its activation time and
+version, then rechecks the current relationship, Circle membership, request
+time, and requested duration in the same transaction that creates the grant.
+Turning it off or changing scope invalidates older browser work immediately.
+Pause remains a device preference: it stops that device from scheduling an
+automatic approval or publishing a new encrypted point, without changing the
+account-wide rule for another device.
 
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming
@@ -287,12 +463,17 @@ grants nearby or live-location visibility.
 
 1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
    captures a foreground point and draws a transient 500-meter search boundary.
-   The drawer shows up to 20 operational, de-duplicated Google places ordered
+   The drawer merges explicit-type and dense-area searches without a total row cap,
+   showing de-duplicated Google places ordered
    by server-computed distance, with explicit category filters that reuse the
-   same boundary. Typed check-in search is restricted to that boundary. The
+   same boundary. Food, Café, Hotels and generic Stays have separate type rules.
+   Incomplete discovery is explained with retry guidance; see
+   [the place taxonomy contract](./one-location-place-taxonomy.md).
+   Typed check-in search is restricted to that boundary. The
    owner then chooses the public place used for admission and display context;
-   opening discovery never checks the owner in. The point and provider results
-   are not persisted. There is no event code.
+   opening discovery never checks the owner in. Neither the point nor provider results are written to durable account storage;
+   provider results use the short-lived cache described in the taxonomy contract.
+   There is no event code.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and
@@ -374,14 +555,35 @@ Public sharing has two modes: snapshot-backed public location links and legacy
 request-only links.
 
 1. The authenticated owner creates a duration-bounded public link from
-   `/one/location`.
+   `/one/location`. It points at `/one/location/view/<token>`; the older
+   `/one/location/request/<token>` path still resolves, and redirects here, so
+   links minted before the rename keep working.
+   One live link per owner: creating while one is live returns that same link
+   with `reused: true`, its window restarted for the duration just asked for
+   and its snapshot refreshed, rather than minting a second resolvable URL.
+   If an active link was minted under an earlier signing key or token format,
+   its bearer still resolves by stored hash through expiry. A new create returns
+   `409 LOCATION_PUBLIC_INVITE_UNRECOVERABLE` and leaves that link intact; the
+   owner may explicitly stop it before making another.
 2. The backend returns the raw token once and stores only its hash.
 3. If the owner attached a `publicLocation` snapshot, the public resolve
    response returns safe owner/link metadata plus that snapshot. The public page
-   displays the map immediately with no name, phone, or message form.
+   displays the map immediately with no name, phone, or message form, and
+   re-reads the link while it is live. The owner's foreground heartbeat posts
+   their position to `POST /api/one/location/public-invites/{invite_id}/location`,
+   which writes `publicLocation` and nothing else - never the window - so the
+   pin follows them without the link outliving what they agreed to.
+   The database clock determines the public expiry in both recipient reads and
+   the owner's read-only link status. The viewer retries proxy failures and
+   treats only typed invalid/inactive invite errors as a final link verdict.
 4. If no snapshot is attached, the link is request-only and the public resolve
-   response exposes only a safe owner label, status, duration, and expiry. By
-   default the safe label is "a trusted person".
+   response exposes only a safe owner label, status, duration, and expiry.
+   The safe label is the sharer's display name, resolved with
+   `allow_email_handle=False` so it is never a phone number and never an email
+   handle; an account that resolves to neither keeps the default,
+   "A trusted person". It is stamped onto the row at create time and resolved
+   again on read, so a link minted before the label existed still names
+   someone.
 5. Request-only public links may submit metadata only. They do not display a map
    or location.
 6. If the phone maps to a verified/keyed Hussh user in a request-only flow, One creates a normal
@@ -440,13 +642,26 @@ Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
 terminal access requests, referrals, and related metadata-only events are
 retained for at most 12 hours after expiry or revocation, then purged from the
 database. The runtime runs opportunistic cleanup during state/read flows.
-Before nearby presence is enabled in a hosted environment, operators must
-configure and verify the hourly `one-location-retention-purge-uat` job through
+The service keeps read-only state projection as its semantic default when
+`ONE_LOCATION_READ_ONLY_STATE_ENABLED` is absent, so a foreground GET does not
+perform expiry writes or notification fan-out. Hosted deployment is a separate
+rollout boundary: dev and production explicitly keep the flag off, and UAT also
+defaults off until an operator opts in. An opted-in UAT deploy fails closed
+unless the canonical `one-location-retention-purge-uat` Cloud Scheduler job
+exists in `hushh-pda-uat/us-central1`, is `ENABLED`, and targets exactly
+`POST /api/one/location/retention/purge?older_than_hours=12`. The deploy check
+privately verifies scheduler state, exact HTTPS URI, method, and the presence of
+a non-empty maintenance-auth header. It prints only sanitized booleans and
+never prints or persists the header value.
+
+Operators configure that hourly job through
 `deploy/one-location/setup_retention_scheduler.sh`. It calls
-`POST /api/one/location/retention/purge?older_than_hours=12` with
-`X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
-the configured scheduler interval even when no feature traffic occurs. Public
+`POST /api/one/location/retention/purge?older_than_hours=12` authenticated by a
+per-invocation Google-signed OIDC token, so due encrypted material is scrubbed
+within the configured scheduler interval even when no feature traffic occurs.
+The job carries no secret: the identity it runs as must appear in
+`ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` and its token's audience
+must equal `ONE_LOCATION_RETENTION_AUDIENCE`. Public
 request-link invites, public submissions, Invite to One links, expired/revoked
 named Circle codes, and checked-out/expired nearby presence follow the same
 terminal-state retention boundary. Pending targeted Circle-member invitations
@@ -518,7 +733,9 @@ The implementation must prove:
   origins
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
-  explicit public snapshot, while request-only links never reveal location
+  explicit public snapshot plus the sharer's display name, while request-only
+  links never reveal location. No public payload ever carries the owner's id,
+  phone number, or email address
 - web, iOS, and Android have foreground permission parity
 - saved places round-trip through encrypted Location PKM without plaintext
   local storage or a plaintext backend table

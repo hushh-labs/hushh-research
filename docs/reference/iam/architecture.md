@@ -46,6 +46,12 @@ Founder-language translation for this doc:
 
 ## Invariants
 
+Independent email OTP and Microsoft sign-in reuse Firebase account/session
+authority. Automatic domain admission and email proof grant no vault or consent
+authority and do not depend on WorkOS organization onboarding. See
+[Independent Email Authentication](./independent-email-auth.md) for the domain,
+enrollment, sender, retention and rollout contracts.
+
 1. Cryptographic Primitives: no plaintext-at-rest for private user data.
 2. Capability Tokens + PCHP: private data access requires active consent-token scope and explicit approval.
 3. Separation of Duties: web, iOS, and Android must keep route/contract parity.
@@ -91,8 +97,117 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 3. Investor receives pending request and can approve/deny/revoke.
 4. Active token grants scoped access only to approved domains/paths.
 5. Revocation and expiry immediately remove access rights.
+6. Connection provenance does not widen or narrow later consent policy: active
+   request-accepted and contact-sync relationships are evaluated identically by
+   owner-configured relationship rules. A connection alone grants no private
+   information or live-location capability.
+7. A resolved person-to-person information request emits a requester-bound,
+   metadata-only update after the owner's consent event. The requester is
+   resolved from the stored bundle and exact request item, never from the
+   notification payload. Chat may use this update to reread current status and
+   open an approved encrypted export in the unlocked browser; the update itself
+   contains no shared values and grants no read authority. A silent push or SSE
+   delivery is best effort, so revisit still rechecks the authoritative bundle.
+8. The Consent Center Connections tab reads the owner-scoped active relationship
+   page, including the original connection creation time. It does not treat
+   accepted or revoked request logs as the current people graph. Historical
+   request records remain available to their owning workflow and deep links;
+   a relationship alone still grants no information access.
 
 ## Ecosystem Contract Mapping
+
+### Financial packet scalar discovery
+
+Financial packet scalar summaries use the explicit default-ON product policy
+`drive-financial-summary-default-v1`, controlled by one vault-owner preference in
+`drive_live_preferences`. A recorded OFF hides all prepared and future periods,
+survives reconnect and does not change background preparation. Migration 428
+preserves legacy explicit hides without treating an untouched old default as a
+personal decision. Public profile and active source-generation gates still apply.
+The summary allowlist includes counts and period metadata only; filenames, Drive
+identifiers, links and contents remain private. An accepted connection, exact
+version owner approval, source permissions and purchase/delivery gates remain
+independent authorities. See [the owning summary contract](../one/drive-public-financial-summary.md).
+
+### Google provider account binding
+
+The shared Google connection owns one verified provider subject per Hussh owner.
+OAuth completion verifies that subject before reusing a refresh token. While a
+connection remains active or needs reauthorization, selecting another Google
+account fails closed; disconnect its services before changing accounts. A
+disconnected connection requires a fresh refresh token. Cached-token admission
+reads the provider credential and service grant in one SQL snapshot. Refresh
+writes compare the original credential and subject plus the current service
+grant. These checks do not make OAuth permission a consent grant.
+
+Workspace Chat compares the credential owner's complete binding before and
+after discovery or reading. Calendar's shared Google binding contains both
+connection and service-grant revisions (six fields); Gmail's legacy single-row
+binding contains one revision (five fields). Neither revision may be dropped to
+normalize these different storage contracts. A change to either Calendar
+revision discards the in-flight result; malformed or mismatched bindings fail
+closed before provider dispatch.
+
+Web and native connection starts capture a generation inside the encrypted
+attempt under the same owner transaction lock used by disconnect. Publication
+rechecks that generation, the claimed attempt and its current expiry, then writes
+provider credentials, the service grant and terminal attempt expiry atomically.
+Every authorization encrypts a fresh refresh envelope; normal access-token
+refresh does not change that generation. Disconnect expires even consumed,
+in-flight attempts for the selected service while preserving sibling grants.
+Late refresh failures cannot mark a newer authorization as needing reconnection.
+Attempt creation and expiry use wall-clock time after lock acquisition, not a
+transaction-start timestamp that may predate a wait.
+
+Native start returns an owner-bound opaque `state`, carried in memory to native
+completion. Matching frontend/backend versions are required; missing state,
+legacy unversioned attempts and web/native interchange fail closed and require a
+fresh connection attempt. Provider calls occur outside database locks. The
+existing last-service Google revoke remains best effort and may race a fresh
+provider grant; local transaction tests do not prove provider-side ordering.
+
+The source-level Drive MCP adapter uses this same credential owner and a
+`drive.readonly` service grant. Because Google tokens may accumulate permissions,
+the adapter additionally admits only six explicitly named read tools at Google's
+fixed MCP endpoint. Copy/create and unknown tools fail before credential retrieval
+or dispatch. Owner-authenticated Drive connection routes use this existing
+credential owner, forbid broader permissions, and expose no file access.
+Shared web completion returns the service from the stored attempt, not browser
+metadata; wrong-service callbacks require a restart. The six reviewed read
+tools are wired to One's authenticated typed Chat roster, but live provider
+and native-device acceptance remain unverified; source wiring alone does not
+establish end-to-end availability.
+Onward sharing and private-agent delegation still require their existing separate
+authorities. Provider file content is untrusted information, not instructions.
+
+Owner-private native MCP tools establish an invocation-local external-content
+barrier before dispatch. Only application-owned native tools using the canonical
+exact-call review callback remain callable after that barrier; a matching tool
+name or provider annotation grants nothing. Each continued call still rechecks
+its owner, connection and schema. Since 2026-09-27 the person's own connectors
+run without review even after the barrier; curated first-party rows and
+owner-blocked tools keep exact-call review. The model-facing roster
+is rebuilt from those admitted objects, excluding unreviewed first-party tools
+and provider built-ins. This permits reviewed connector composition, not general
+post-read mutation authority. Curated-provider and explicit Memory-capture
+continuation parity remain separate acceptance work.
+
+The native MCP binding can retain an immutable credential-owner authority
+revision in addition to numeric connection/credential versions. When supplied,
+that complete snapshot participates in toolset reuse, call-time equality and the
+existing action ledger's resource-binding HMAC. It is not exposed in the review
+card or diagnostic representation. This adapter contract does not itself migrate
+Google providers onto native toolsets or establish live-provider acceptance.
+
+The curated Drive registration now has native admission through its existing
+verified live-grant authority: subject, policy, connection generation and
+credential version bind discovery, review and execution. Selected-file access
+does not satisfy that admission. The shared metadata projector rejects malformed
+listing payloads rather than forwarding unexpected content. This is source-level
+integration; duplicate legacy tool exposure and Gmail/Calendar migration remain
+open, and live provider acceptance must be proved separately.
+
+### Runtime mapping
 
 1. Agents: consume only consent-approved data slices.
 2. Operons: perform business logic only after scope check in calling path.
@@ -105,6 +220,83 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 
 Public discovery data may be shown in marketplace cards.
 Private data is always consent-gated and scoped.
+
+### Contact-sync relationship boundary
+
+Requester admission uses an existing verified phone claim, or, for an active-vault
+or setup-completed account, a fresh Firebase Admin verified Google/Apple email
+that matches the currently verified backend identity. Both the lookup budget and
+relationship mutation check this rule. The fallback establishes account identity,
+does not claim phone ownership, and cannot make a phone-less account discoverable
+by phone. Per-UID lookup quotas and every target-phone/privacy rule below remain
+unchanged. Client hints and setup completion alone provide no admission proof.
+
+1. Contact sync uses `contact_directory_auto_connect_v2`: a current, exact,
+   unambiguous verified-phone match to a visible ONE Connect-directory account
+   is eligible by default. A version-zero preference with no enablement evidence
+   means directory default, not explicit consent. A recorded contact opt-out,
+   `marketplace_public_profiles.is_discoverable=false`, or malformed preference
+   evidence blocks new-person discovery and automatic relationship creation.
+   Missing schema fails closed. Explicit re-enabling still requires
+   `contact_find_auto_connect_v1` and records its disclosure, server timestamp,
+   and monotonic rule version; directory defaults never fabricate that evidence.
+2. Every eligible match without a disconnect tombstone is connected immediately.
+   A requester may also map an exact verified-phone
+   proof to a canonical relationship that is already active, because that
+   person is already visible in the requester's ONE graph. When the target is
+   not currently discoverable, this recognition adds no contact-sync origin or
+   Trusted/Circle projection. An explicit disconnect tombstone remains dominant:
+   when the target is hidden or opted out, a revoked pair is not disclosed;
+   an otherwise directory-eligible revoked pair is reported only as suppressed.
+   A later explicit
+   request/accept flow remains a separate user action.
+3. Contact-sync provenance may create only the canonical relationship, its
+   source ledger and cancellation of redundant unscoped pending requests, not
+   Trusted/Circle membership. A capability-bearing request stays pending for
+   explicit scope review. Contact sync never grants location, PKM,
+   personal-information, consent-scope, Circle sharing, SMS, envelope, or
+   capability access.
+   New provenance records `verified_phone_directory_match`, the match-policy
+   version, and the target preference state; historical v1 consent provenance
+   stays distinguishable. Neither path persists phone proof material.
+4. Disabling the setting prevents discovery by new people and automatic edge
+   creation. It does not hide an exact contact mapping to an already-active
+   relationship. Existing relationships remain visible and individually
+   disconnectable so preference changes do not silently destroy a user's graph.
+   The mutation revalidates verified-phone ownership, directory visibility,
+   preference, and relationship state under transaction locks. Migration 200
+   makes all relevant policy-table writers share the same lock, including
+   concurrent creation of a previously absent preference/profile row.
+5. iOS/native and Google Contacts share one country-aware E.164 normalizer and
+   bounded hash/batch pipeline. Explicit international numbers ignore regional
+   hints. A country code stored without `+` overrides the region only when it
+   resolves to a valid mobile and the regional reading is not itself valid;
+   ambiguous valid local numbers keep the region to prevent wrong-person
+   matches. Google People's E.164 `canonicalForm` outranks its display value.
+   Bare national numbers use the home SIM region first, then the signed-in
+   account's verified-phone country, then locale. Unknown-region national
+   numbers fail closed instead of being guessed.
+6. A verified E.164 phone has at most one identity-cache owner. Migration 198
+   clears every member of a legacy ambiguous group and forces its shadow stale
+   for source-of-truth refresh; the database check and partial unique index stop
+   malformed or duplicate verified bindings from returning.
+
+### Trusted roster admission and disconnect isolation
+
+Trusted is manually curated. Historical automatic connection memberships stay
+stored but do not grant non-owner roster visibility. List, detail, overview and
+paged roster reads admit the owner or an active member whose server-authored
+provenance records `addedVia=direct_add` and `addedBy` equal to the current
+Circle owner. Missing, malformed, unknown or another actor's provenance fails
+closed; ordinary Circle admission is unchanged. Bootstrap never converts old
+rows into owner approval. Reaffirming an existing legacy member remains a
+separate explicit owner operation, not an automatic repair.
+
+Disconnect ends non-owner memberships only in active Circles containing both
+active participants, including shared third-party Circles. Unrelated rosters,
+former memberships and owner rows remain intact. Candidate Circles are resolved
+in one materialized SQL snapshot before either participant is removed; existing
+code/invitation/origin/grant cleanup stays in the disconnect transaction.
 
 ### Storage Boundary
 
@@ -186,6 +378,28 @@ Canonical enrollment, custody, failure, and UAT verification contract:
 [Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md).
 
 ## Change Control
+
+### First-party owner document session renewal
+
+Browser/mobile document Vault keys remain memory-only for that runtime (the
+separately governed iMessage user-presence custody exception is unchanged).
+Temporary auth/ledger unavailability hides protected UI and pauses authority,
+without destroying the local unlock. Renewing the existing 24-hour self-owner
+capability requires the same verified Firebase UID plus signed prior owner
+evidence and an intact `internal_access_events` grant/revocation lineage.
+Expiry is waived only for renewal evidence, never data access. A prior grant
+cannot renew after an intervening owner revocation or upgrade a device/scoped
+principal. Renewal and self-owner revocation serialize on one Postgres transaction
+lock; ledger failure is recoverable/fail-closed, not initial issuance. The ledger
+remains authority if a future Redis/Memorystore admission layer is introduced.
+Late unlock, renewal, and iMessage publication are rejected by the local session
+epoch/generation after lock, sign-out, identity switch, or document disposal.
+Self-owner grants in the same intact lineage may overlap only to each original
+signed expiry, preventing a lost renewal response or another tab from simulating
+revocation. Every later owner revocation invalidates every earlier grant.
+Delegated and device principals retain latest-token-only validation. A new client
+requires `renewalValidated: true` and never accepts a legacy bootstrap response
+as renewal; deploy the matching backend first and coordinate server rollback.
 
 Any IAM contract change must update, in the same PR:
 

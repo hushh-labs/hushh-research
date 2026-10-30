@@ -46,9 +46,10 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 function buildPaginationItems(
   currentPage: number,
@@ -101,8 +102,13 @@ interface DataTableProps<TData, TValue> {
   enableSearch?: boolean;
   tableContainerClassName?: string;
   tableClassName?: string;
+  renderMobileCard?: (
+    row: TData,
+    context: { index: number; tableRow: Row<TData> },
+  ) => React.ReactNode;
   density?: "default" | "compact";
   stickyHeader?: boolean;
+  preserveMobilePaginationPosition?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -121,9 +127,18 @@ export function DataTable<TData, TValue>({
   enableSearch = true,
   tableContainerClassName,
   tableClassName,
+  renderMobileCard,
   density = "default",
   stickyHeader = false,
+  preserveMobilePaginationPosition = false,
 }: DataTableProps<TData, TValue>) {
+  const mobilePaginationRef = React.useRef<HTMLElement>(null);
+  const paginationAnchorRef = React.useRef<number | null>(null);
+  const capturePaginationPosition = () => {
+    if (preserveMobilePaginationPosition && mobilePaginationRef.current) {
+      paginationAnchorRef.current = mobilePaginationRef.current.getBoundingClientRect().top;
+    }
+  };
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
@@ -210,6 +225,24 @@ export function DataTable<TData, TValue>({
 
   const filteredCount = table.getFilteredRowModel().rows.length;
   const pageIndex = table.getState().pagination.pageIndex;
+  // Restore only an explicit mobile page-button action, after the new rows
+  // commit. Absolute scroll offsets cannot preserve a footer across pages of
+  // different heights (especially the shorter final page).
+  React.useLayoutEffect(() => {
+    const previousTop = paginationAnchorRef.current;
+    paginationAnchorRef.current = null;
+    const pagination = mobilePaginationRef.current;
+    if (previousTop === null || !pagination || !pagination.getClientRects().length) return;
+    const delta = pagination.getBoundingClientRect().top - previousTop;
+    const scrollRoot = pagination.closest<HTMLElement>(
+      '[data-profile-pane-scroll-root="true"], [data-app-scroll-root="true"]',
+    );
+    if (scrollRoot) {
+      scrollRoot.scrollBy({ top: delta, behavior: "instant" });
+    } else {
+      window.scrollBy({ top: delta, behavior: "instant" });
+    }
+  }, [pageIndex]);
   const pageSize = table.getState().pagination.pageSize;
   const rangeStart = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
   const rangeEnd =
@@ -230,7 +263,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div
-      className="space-y-[var(--data-table-controls-gap)]"
+      className="w-full min-w-0 max-w-full space-y-[var(--data-table-controls-gap)]"
       data-no-route-swipe={hasMultiplePages ? "true" : undefined}
     >
       {(enableSearch || (filterKey && filterOptions)) && (
@@ -250,8 +283,13 @@ export function DataTable<TData, TValue>({
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 cursor-text"
+                className="cursor-text pl-9 pr-11"
                 aria-label="Search table"
+              />
+              <SearchClearButton
+                visible={searchTerm.length > 0}
+                label="Clear table search"
+                onClear={() => setSearchTerm("")}
               />
             </div>
           )}
@@ -293,9 +331,77 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
+      {renderMobileCard ? (
+        <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:hidden" data-slot="data-table-mobile-list">
+          {table.getRowModel().rows?.length ? (
+            table.getRowModel().rows.map((row, index) => (
+              <React.Fragment key={row.id}>
+                {renderMobileCard(row.original, { index, tableRow: row })}
+              </React.Fragment>
+            ))
+          ) : (
+            <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-8 text-center text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
+              No results found.
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {renderMobileCard && hasMultiplePages ? (
+        <nav
+          ref={mobilePaginationRef}
+          aria-label="Table pagination"
+          aria-live="polite"
+          aria-atomic="true"
+          className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-1 pt-1 text-sm text-muted-foreground md:hidden"
+          data-no-route-swipe
+          data-slot="data-table-mobile-pagination"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!table.getCanPreviousPage()}
+            onClick={() => {
+              if (table.getCanPreviousPage()) {
+                capturePaginationPosition();
+                table.previousPage();
+              }
+            }}
+            aria-label="Go to previous page"
+            className="justify-self-start"
+          >
+            Previous
+          </Button>
+          <span className="whitespace-nowrap text-center font-medium text-foreground">
+            Page {currentPage}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!table.getCanNextPage()}
+            onClick={() => {
+              if (table.getCanNextPage()) {
+                capturePaginationPosition();
+                table.nextPage();
+              }
+            }}
+            aria-label="Go to next page"
+            className="justify-self-end"
+          >
+            Next
+          </Button>
+        </nav>
+      ) : null}
+
       <div
         className={cn(
           surfaceDataTableShellClassName,
+          // The Table primitive owns the one horizontal scroll region. Keep
+          // the rounded surface as a clipping frame, not a second scroller.
+          "w-full min-w-0 max-w-full overflow-hidden",
+          renderMobileCard && "hidden md:block",
           resolvedTableShellClassName,
         )}
         data-slot="surface-data-table-shell"
@@ -382,8 +488,8 @@ export function DataTable<TData, TValue>({
                   }
                   className={cn(
                     onRowClick
-                      ? "cursor-pointer transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
-                      : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
+                      ? "cursor-pointer transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
+                      : "transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original),
                   )}
                   onClick={
@@ -430,11 +536,16 @@ export function DataTable<TData, TValue>({
       </div>
 
       {hasMultiplePages && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className={cn(
+            "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between min-w-0 max-w-full flex-wrap",
+            renderMobileCard && "hidden md:flex",
+          )}
+        >
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex w-full flex-nowrap items-center justify-between gap-3 text-xs text-muted-foreground sm:text-sm"
+            className="flex w-full flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground sm:w-auto sm:justify-start sm:text-sm min-w-0 max-w-full"
             data-slot="data-table-range-controls"
           >
             <DropdownMenu>
@@ -442,7 +553,7 @@ export function DataTable<TData, TValue>({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
+                  className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[72px] sm:px-2.5 sm:text-sm"
                   data-no-route-swipe
                   aria-label="Rows per page"
                 >
@@ -467,13 +578,13 @@ export function DataTable<TData, TValue>({
           </div>
 
           <div
-            className="flex w-full flex-nowrap items-center justify-between gap-3"
+            className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end min-w-0 max-w-full"
             data-slot="data-table-page-controls"
           >
-            <Pagination className="mx-0 w-auto justify-end">
+            <Pagination className="mx-0 w-auto max-w-full overflow-x-auto">
               <PaginationContent
                 data-no-route-swipe
-                className="flex-wrap gap-y-1"
+                className="flex-wrap gap-1"
               >
                 <PaginationItem>
                   <PaginationPrevious
@@ -496,7 +607,7 @@ export function DataTable<TData, TValue>({
                   item === "ellipsis" ? (
                     <PaginationItem
                       key={`ellipsis-${index}`}
-                      className="hidden sm:flex"
+                      className="hidden md:flex"
                     >
                       <PaginationEllipsis />
                     </PaginationItem>
@@ -504,7 +615,7 @@ export function DataTable<TData, TValue>({
                     <PaginationItem
                       key={item}
                       className={
-                        item === currentPage ? undefined : "hidden sm:flex"
+                        item === currentPage ? undefined : "hidden md:flex"
                       }
                     >
                       <PaginationLink

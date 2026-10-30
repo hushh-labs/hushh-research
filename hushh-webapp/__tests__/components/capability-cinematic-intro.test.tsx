@@ -24,7 +24,7 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "A clearer way to understand your money.",
+        name: "Access your finances in one place.",
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Finance preferences")).toBeNull();
@@ -98,33 +98,29 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(screen.getByText("Finance preferences")).toBeTruthy();
   });
 
-  it("uses the shared prologue for AI access without promoting it to a capability", () => {
-    render(
-      <CapabilityCinematicIntroGate capabilityId="connections">
-        <p>Connections settings</p>
-      </CapabilityCinematicIntroGate>,
+  it("does not gate AI access behind the prologue", () => {
+    // AI access is the mandatory step that blocks finishing setup, so it opens
+    // its real two-option choice directly. The gate does not know about it at
+    // all -- neither as a copy fallback nor as a provider-mark special case.
+    const gateSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/onboarding/setup/capability-cinematic-intro.tsx",
+      ),
+      "utf8",
+    );
+    const aiAccessPage = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/connections/gemini-runtime-configuration-page.tsx",
+      ),
+      "utf8",
     );
 
-    expect(
-      screen.getByRole("heading", {
-        name: "Choose the intelligence behind your private agent.",
-      }),
-    ).toBeTruthy();
-    const providerLane = screen.getByRole("list", { name: "AI providers" });
-    expect(providerLane).toBeTruthy();
-    for (const provider of ["Google Gemini", "OpenAI", "Claude", "Grok", "Meta Muse Spark"]) {
-      expect(screen.getByLabelText(provider)).toBeTruthy();
-    }
-    expect(screen.queryByText("Connections settings")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(screen.getByText("Connections settings")).toBeTruthy();
-    expect(
-      window.sessionStorage.getItem(
-        capabilityCinematicIntroSessionKey("connections"),
-      ),
-    ).toBe("1");
+    expect(gateSource).not.toContain('"connections"');
+    expect(gateSource).not.toContain("Choose the intelligence behind");
+    expect(gateSource).not.toContain("RUNTIME_PROVIDER_CATALOG");
+    expect(aiAccessPage).not.toContain("CapabilityCinematicIntroGate");
   });
 
   it("keeps the Continue action centered and full-width on compact viewports", () => {
@@ -137,10 +133,10 @@ describe("CapabilityCinematicIntroGate", () => {
     const action = screen.getByRole("button", { name: "Continue" });
     expect(action.className).toContain("w-full");
     expect(action.className).toContain("justify-center");
-    expect(action.className).toContain("text-center");
+    expect(action.className).toContain("h-[50px]");
   });
 
-  it("top-anchors the shared intro instead of vertically centering the first setup screen", () => {
+  it("uses one fixed centered canvas without a nested fullscreen shell", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="location">
         <p>Location body</p>
@@ -155,12 +151,15 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(intro).toBeTruthy();
-    expect(shell).toBeTruthy();
+    expect(shell).toBeNull();
+    expect(intro?.className).toContain("fixed");
+    expect(intro?.className).toContain("inset-0");
+    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("my-auto");
-    expect(shell?.className).not.toContain("justify-center");
   });
 
-  it("does not add a second viewport-height centering layer when the intro is embedded", () => {
+  it("reuses the same fixed centered canvas when the intro is embedded", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="finance" embedded>
         <p>Finance preferences</p>
@@ -172,48 +171,29 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(intro).toBeTruthy();
+    expect(intro?.className).toContain("fixed");
+    expect(intro?.className).toContain("inset-0");
+    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("min-h-[calc(100dvh");
-    expect(intro?.className).not.toContain("justify-center");
     expect(intro?.className).not.toContain("my-auto");
   });
 
-  it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
-    const gateSource = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "components/onboarding/setup/capability-cinematic-intro.tsx",
-      ),
-      "utf8",
-    );
 
-    expect(gateSource).toContain("data-runtime-provider-lane");
-    expect(gateSource).toContain('className="inline-flex h-12 w-12 items-center justify-center"');
-    expect(gateSource).not.toContain("bg-[color:var(--app-card-surface-compact)]");
-    expect(gateSource).not.toContain("shadow-[var(--shadow-xs)]");
-  });
-
-  it("keeps every authored setup journey on the shared, non-durable gate", () => {
+  it("keeps authored cinematic journeys on the shared, non-durable gate", () => {
     const surfaces = [
-      ["app/one/setup/kai/page.tsx", "finance"],
       ["app/ria/onboarding/page.tsx", "ria"],
       ["components/onboarding/setup/kyc-identity-preface.tsx", "email"],
       [
         "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
         "connected-systems",
       ],
-      [
-        "app/one/setup/location/location-onboarding-setup-client.tsx",
-        "location",
-      ],
+      // Location deliberately dropped the prologue (see the comment in
+      // location-onboarding-setup-client.tsx: "five taps; it is now three"),
+      // so it is not on this list. AI access and Finance enter directly too.
+      // Calendar enters its connection body directly; its illustration is
+      // limited to unfinished initial setup by the existing coordinator.
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
-      [
-        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
-        "calendar",
-      ],
-      [
-        "components/connections/gemini-runtime-configuration-page.tsx",
-        "connections",
-      ],
     ] as const;
 
     for (const [relativePath, capabilityId] of surfaces) {

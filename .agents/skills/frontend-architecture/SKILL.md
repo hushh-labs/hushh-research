@@ -1,0 +1,79 @@
+---
+name: frontend-architecture
+description: Use when changing Hussh frontend structure, route contracts, package-level conventions, or frontend verification ownership.
+---
+
+# Hussh Frontend Architecture Skill
+
+## Purpose and Trigger
+
+- Primary scope: `frontend-architecture`
+- Trigger on frontend structure, route contracts, package conventions, shared frontend governance rules, and verification ownership.
+- Avoid overlap with `frontend-design-system` and `frontend-surface-placement`.
+
+## Coverage and Ownership
+
+- Role: `spoke`
+- Owner family: `frontend`
+
+Owned repo surfaces:
+
+1. `hushh-webapp/lib/navigation`
+2. `hushh-webapp/scripts/architecture`
+3. `hushh-webapp/package.json`
+4. `docs/reference/architecture/route-contracts.md`
+
+Non-owned surfaces:
+
+1. `frontend`
+2. `mobile-native`
+3. `docs-governance`
+
+## Do Use
+
+1. Route-container and route-contract work.
+2. Frontend package-script and verification ownership changes.
+3. Shared frontend structure and governance decisions affecting multiple routes or folders.
+
+## Do Not Use
+
+1. Broad frontend intake where the correct spoke is still unclear.
+2. Purely visual design-system work where structure is not changing.
+3. Native-only plugin or parity work.
+
+## Read First
+
+1. `hushh-webapp/package.json`
+2. `scripts/ci/web-check.sh`
+3. `docs/reference/operations/ci.md`
+4. `docs/reference/quality/frontend-ui-architecture-map.md`
+5. `docs/reference/architecture/route-contracts.md`
+6. `docs/reference/architecture/ui-contract-contributor-guide.md`
+
+## Workflow
+
+1. Inspect current package scripts, route contracts, and frontend docs before changing structure. Read the UI contributor scaffold and run `cd hushh-webapp && npm run ui:doctor` before UI edits; review Back cases and Search actions, then generate with `npm run build:ui-contracts` and verify with `npm run verify:ui-contracts`.
+2. Keep CI and local package verification aligned when adding or changing frontend rules.
+3. Centralize route-container behavior in `AppPageShell` or `FullscreenFlowShell`; signed-in routes use `AppPageHeaderRegion`/`PageHeader` rather than route-local hero or logo chrome.
+4. Keep signed-in route families covered by the contract-driven browser sweep.
+5. When adding Playwright route coverage, distinguish cold-entry checks from Next.js client navigation checks. Browser tests that assert memory, vault, cache, or provider continuity must run as a sequential UI-navigation lane through shell controls with a same-document navigation probe, or use the signed-in route sweep; `page.goto(...)` alone is cold-entry evidence.
+6. Keep Playwright `baseURL`, `webServer.url`, and the dev-server port in one configuration path so local browser proof does not silently wait on a different origin than the one being tested.
+7. For every added, renamed, or split app route, run the route contract cascade in one change: `ROUTES`, route builders, breadcrumbs, bottom-nav/sign-in coverage, route layout contract, generated surface map, cache manifest, voice action reachability, native inventory, docs, and focused route tests.
+8. Durable workspace panels should use finite nested routes when the route set is bounded. Keep query params for transient state, OAuth/redirects, filters/pagination, and static-export-sensitive identifiers.
+9. For a frontend runtime or bundle failure, reproduce it on the affected route and shipped engine, isolate the route/state/build boundary, fix the cause, then keep one focused regression. A working dev-server fallback does not prove the production or native bundle. Follow [Toss's diagnose/reproduce/fix/prevent loop](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/debug/pages/start.md) without copying its tooling into this repo.
+
+## Handoff Rules
+
+1. If the request is still broad or ambiguous, route it back to `frontend`.
+2. If the task is shared visual-system ownership, use `frontend-design-system`.
+3. If the task is deciding where code belongs between layers, use `frontend-surface-placement`.
+4. If the task begins as a cross-domain scan, start with `repo-context`.
+
+## Required Checks
+
+```bash
+cd hushh-webapp && npm run verify:docs
+cd hushh-webapp && npm run typecheck
+cd hushh-webapp && npm run verify:routes
+cd hushh-webapp && npm run ui:doctor
+```

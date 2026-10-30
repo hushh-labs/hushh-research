@@ -1,5 +1,7 @@
 "use client";
 
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
+
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
 // A localStorage key (not sessionStorage, which does not cross the
@@ -12,12 +14,13 @@ const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
 const FALLBACK_SETTLEMENT_KEY = "one_gmail_oauth_popup_settlement_v1";
 const MAX_ATTEMPT_AGE_MS = 15 * 60 * 1000;
 const POPUP_NAME = "hushh-gmail-oauth";
-const POPUP_FEATURES = "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes";
 
 export type GmailOAuthPopupAttempt = {
   version: 1;
   attemptId: string;
   startedAt: number;
+  ownerId: string;
+  purpose?: "read" | "send";
 };
 
 export type GmailOAuthPopupSettlement = {
@@ -59,7 +62,10 @@ function isAttemptId(value: unknown): value is string {
   );
 }
 
-export function createGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt {
+export function createGmailOAuthPopupAttempt(
+  ownerId: string,
+  purpose: "read" | "send" = "read",
+): GmailOAuthPopupAttempt {
   const attemptId =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -68,6 +74,8 @@ export function createGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt {
     version: 1,
     attemptId,
     startedAt: Date.now(),
+    ownerId,
+    purpose,
   };
 }
 
@@ -106,8 +114,14 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
     if (
       parsed.version === 1 &&
       isAttemptId(parsed.attemptId) &&
+      typeof parsed.ownerId === "string" &&
+      parsed.ownerId.length > 0 &&
+      parsed.ownerId.length <= 256 &&
       typeof parsed.startedAt === "number" &&
       Number.isFinite(parsed.startedAt) &&
+      (parsed.purpose === undefined ||
+        parsed.purpose === "read" ||
+        parsed.purpose === "send") &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_ATTEMPT_AGE_MS
     ) {
@@ -123,10 +137,24 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
 
 export function clearGmailOAuthPopupAttempt(
   target?: Window | null,
+  expectedAttemptId?: string,
 ): void {
   const resolvedTarget = target ?? (typeof window === "undefined" ? null : window);
-  getStorage(resolvedTarget)?.removeItem(STORAGE_KEY);
-  getFallbackStorage(resolvedTarget)?.removeItem(FALLBACK_ATTEMPT_KEY);
+  const clear = (storage: Storage | null, key: string) => {
+    if (!storage) return;
+    if (expectedAttemptId !== undefined) {
+      try {
+        const raw = storage.getItem(key);
+        const value = raw ? JSON.parse(raw) : null;
+        if (value?.attemptId !== expectedAttemptId) return;
+      } catch { return; }
+    }
+    storage.removeItem(key);
+  };
+  // Session and fallback storage can belong to different overlapping attempts.
+  // An old popup may clear only its own correlation, not the newer attempt.
+  clear(getStorage(resolvedTarget), STORAGE_KEY);
+  clear(getFallbackStorage(resolvedTarget), FALLBACK_ATTEMPT_KEY);
 }
 
 /**
@@ -139,7 +167,8 @@ export function openGmailOAuthPopup(
   attempt: GmailOAuthPopupAttempt,
 ): Window | null {
   if (typeof window === "undefined") return null;
-  const popup = window.open("about:blank", POPUP_NAME, POPUP_FEATURES);
+  // A refused popup falls back to a new tab with the same settlement contract.
+  const popup = openOAuthWindow(POPUP_NAME)?.target ?? null;
   if (!popup) return null;
 
   if (!persistGmailOAuthPopupAttempt(popup, attempt)) {
@@ -148,7 +177,17 @@ export function openGmailOAuthPopup(
   }
 
   try {
-    popup.document.title = "Connecting Gmail";
+    popup.document.title = "Connecting Mail";
+    if (popup.document.body) {
+      popup.document.body.textContent = "Opening secure Google sign-in…";
+      popup.document.body.style.cssText =
+        'margin:0;display:grid;min-height:100vh;place-items:center;background:#0a0a0a;color:#f5f5f5;font:400 16px "Plus Jakarta Sans",system-ui,sans-serif;';
+      if (popup.document.head) {
+        const fontStyle = popup.document.createElement("style");
+        fontStyle.textContent = '@font-face{font-family:"Plus Jakarta Sans";src:url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-400-normal.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap;}';
+        popup.document.head.appendChild(fontStyle);
+      }
+    }
     popup.focus();
   } catch {
     // The browser owns focus policy. The retained popup remains usable.
@@ -161,6 +200,7 @@ export function navigateGmailOAuthPopup(
   popup: Window,
   authorizeUrl: string,
 ): void {
+  assertOAuthReturnOrigin(authorizeUrl);
   popup.location.replace(authorizeUrl);
 }
 
@@ -190,7 +230,7 @@ export function notifyGmailOAuthPopupOpener(
 ): boolean {
   if (typeof window === "undefined") return false;
   const opener = window.opener;
-  if (!opener || opener.closed) return false;
+  if (!opener) return false;
   try {
     opener.postMessage(settlement, window.location.origin);
     return true;
@@ -216,12 +256,35 @@ export function notifyGmailOAuthPopupOpenerFallback(
       FALLBACK_SETTLEMENT_KEY,
       JSON.stringify({ ...settlement, sentAt: Date.now() }),
     );
-    // Clear it right after so a later reload of this same tab doesn't
-    // replay a stale settlement as if it just happened.
-    window.localStorage.removeItem(FALLBACK_SETTLEMENT_KEY);
     return true;
   } catch {
     return false;
+  }
+}
+
+export function consumeStoredGmailOAuthPopupSettlement(
+  attemptId: string,
+): GmailOAuthPopupSettlement | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(FALLBACK_SETTLEMENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GmailOAuthPopupSettlement & {
+      sentAt?: number;
+    };
+    if (
+      !isGmailOAuthPopupSettlement(parsed) ||
+      parsed.attemptId !== attemptId ||
+      typeof parsed.sentAt !== "number" ||
+      Date.now() - parsed.sentAt < 0 ||
+      Date.now() - parsed.sentAt > MAX_ATTEMPT_AGE_MS
+    ) {
+      return null;
+    }
+    window.localStorage.removeItem(FALLBACK_SETTLEMENT_KEY);
+    return parsed;
+  } catch {
+    return null;
   }
 }
 

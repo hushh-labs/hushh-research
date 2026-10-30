@@ -14,8 +14,7 @@ Security posture
 - The two public routes take no auth at all. Because ``SlowAPIMiddleware`` is
   never added to the app and ``RateLimits.GLOBAL_PER_IP`` is never applied, an
   undecorated public route would carry *zero* limit — so both public routes
-  carry an explicit ``@limiter.limit`` with a forwarded-IP key function (see
-  ``_forwarded_client_ip``).
+  carry an explicit shared limit with the canonical forwarded-IP key helper.
 - The plaintext share token is returned to the owner **only** in the create and
   rotate responses. It is never logged, never echoed on read, and never appears
   in an error body.
@@ -45,10 +44,9 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from slowapi.util import get_remote_address
 
 from api.middleware import require_vault_owner_token
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import get_trusted_forwarded_client_ip, limiter
 from hushh_mcp.services.apple_wallet_pass_service import (
     WALLET_PASS_CONTENT_TYPE,
     WALLET_PASS_FILENAME,
@@ -62,6 +60,7 @@ from hushh_mcp.services.one_wallet_card_service import (
     OneWalletCardService,
     wallet_card_error_detail,
 )
+from hushh_mcp.services.one_wallet_card_username import validate_wallet_username
 from hushh_mcp.services.wallet_pass_provider import (
     build_wallet_pass,
 )
@@ -118,38 +117,14 @@ _DB_FAILED_MESSAGE = "Wallet Profile request failed."
 TRUSTED_PROXY_HOPS_ENV = "ONE_WALLET_CARD_TRUSTED_PROXY_HOPS"
 
 
-def _trusted_proxy_hops() -> int:
-    raw = str(os.getenv(TRUSTED_PROXY_HOPS_ENV) or "").strip()
-    try:
-        hops = int(raw)
-    except ValueError:
-        return 0
-    return hops if hops >= 0 else 0
-
-
-def _forwarded_client_ip(request: Request) -> str:
-    """Best available visitor IP for an unauthenticated request.
-
-    ``slowapi``'s default key function falls back to ``get_remote_address``,
-    which behind Cloud Run is the ingress address — every visitor would then
-    share one bucket and the limit would be meaningless. Read the forwarded
-    chain instead, counting from the right (the hop our edge appended) and
-    skipping ``TRUSTED_PROXY_HOPS_ENV`` entries. Falls back to the socket peer
-    when no forwarded header is present (local/dev).
-    """
-
-    forwarded = str(request.headers.get("x-forwarded-for") or "")
-    chain = [part.strip() for part in forwarded.split(",") if part.strip()]
-    if not chain:
-        return get_remote_address(request) or "unknown"
-    index = max(len(chain) - 1 - _trusted_proxy_hops(), 0)
-    return chain[index][:64]
-
-
 def public_rate_limit_key(request: Request) -> str:
     """Rate-limit bucket for the public Wallet Profile surfaces."""
 
-    return f"one_wallet_card_public:{_forwarded_client_ip(request)}"
+    visitor_ip = get_trusted_forwarded_client_ip(
+        request,
+        trusted_proxy_hops_env=TRUSTED_PROXY_HOPS_ENV,
+    )
+    return f"one_wallet_card_public:{visitor_ip}"
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +181,7 @@ class WalletCardPayload(_StrictModel):
     """Closed, server-validated allowlist for the shared card (contract §3)."""
 
     full_name: str | None = Field(default=None, alias="fullName", max_length=80)
+    username: str | None = Field(default=None, max_length=30)
     headline: str | None = Field(default=None, max_length=120)
     organisation: str | None = Field(default=None, max_length=80)
     location_label: str | None = Field(default=None, alias="locationLabel", max_length=80)
@@ -252,6 +228,11 @@ class WalletCardPayload(_StrictModel):
                 raise ValueError(f"Each skill must be {_MAX_SKILL_LENGTH} characters or fewer")
         return cleaned or None
 
+    @field_validator("username")
+    @classmethod
+    def _check_username(cls, value: str | None) -> str | None:
+        return validate_wallet_username(value) if value else None
+
     @field_validator("email")
     @classmethod
     def _check_email(cls, value: str | None) -> str | None:
@@ -279,6 +260,20 @@ class UpsertWalletCardRequest(_StrictModel):
     expires_at: str | None = Field(default=None, alias="expiresAt", max_length=64)
 
 
+class EnsureWalletCardRequest(_StrictModel):
+    user_id: str = Field(alias="userId", min_length=1, max_length=160)
+    card_payload: WalletCardPayload = Field(default_factory=WalletCardPayload, alias="cardPayload")
+    avatar_url: str | None = Field(default=None, alias="avatarUrl", max_length=300)
+    share_token: str | None = Field(
+        default=None, alias="shareToken", min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    @field_validator("avatar_url")
+    @classmethod
+    def _check_avatar(cls, value: str | None) -> str | None:
+        return _validate_https_url(value)
+
+
 class WalletCardOwnerActionRequest(_StrictModel):
     user_id: str = Field(alias="userId", min_length=1, max_length=160)
 
@@ -301,8 +296,7 @@ class WalletCardView(_ResponseModel):
 
 class WalletCardResponse(_ResponseModel):
     """Owner view. ``share_token``/``share_url`` are populated on create and
-    rotate only — every other route leaves them null and the client reuses the
-    URL it stored locally."""
+    rotate and authenticated ensure recovery. Plain GET omits the token."""
 
     card: WalletCardView | None = None
     share_token: str | None = Field(default=None, alias="shareToken")
@@ -517,6 +511,7 @@ def _pass_content(material: dict[str, Any]) -> WalletPassContent:
         display_name=_clean_optional(material.get("displayName") or material.get("display_name")),
         headline=_clean_optional(material.get("headline")),
         expires_at=_as_datetime(material.get("expiresAt") or material.get("expires_at")),
+        variant=str(material.get("variant") or "profile"),
     )
 
 
@@ -564,6 +559,26 @@ def get_wallet_card(
     if card is None:
         return WalletCardResponse(card=None)
     return _card_response({"card": card})
+
+
+@router.post("/ensure", response_model=WalletCardResponse)
+def ensure_wallet_card(
+    payload: EnsureWalletCardRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> WalletCardResponse:
+    """Create missing profiles and recover their link without replacing owner choices."""
+    _require_owner_feature_enabled()
+    owner_id = _owner_user_id(token_data, payload.user_id)
+    try:
+        result = _card_service().ensure_card(
+            user_id=owner_id,
+            card_payload=payload.card_payload.model_dump(exclude_none=True),
+            avatar_url=payload.avatar_url,
+            share_token=payload.share_token,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return _card_response(result)
 
 
 @router.post("", response_model=WalletCardResponse)
@@ -731,6 +746,7 @@ def resolve_public_wallet_card(
 def download_wallet_pass(
     request: Request,
     share_token: _ShareToken,
+    variant: Literal["profile", "referral", "nws"] = "profile",
 ) -> Response:
     """Return the signed `.pkpass` bundle for an active card.
 
@@ -742,7 +758,11 @@ def download_wallet_pass(
     if not _feature_enabled():
         return _public_status_response(_NOT_FOUND)
     try:
-        result = _card_service().resolve_pass_material(share_token=share_token)
+        result = (
+            _card_service().resolve_pass_material(share_token=share_token)
+            if variant == "profile"
+            else _card_service().resolve_pass_material(share_token=share_token, variant=variant)
+        )
     except OneWalletCardError as exc:
         logger.warning("wallet_card.pass_resolve_rejected code=%s", exc.code)
         return _public_status_response(_NOT_FOUND)

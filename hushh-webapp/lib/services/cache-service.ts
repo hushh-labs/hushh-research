@@ -163,12 +163,18 @@ class CacheService {
    */
   invalidateUser(userId: string): void {
     const keysToDelete = new Set<string>([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_ROUTES(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
       CACHE_KEYS.PKM_METADATA(userId),
       CACHE_KEYS.PKM_BLOB(userId),
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.WALLET_PRESENTATIONS(userId),
+      `pkm_memory_document_${userId}`,
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),
+      CACHE_KEYS.TRUSTED_DEVICES(userId),
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
       CACHE_KEYS.PENDING_CONSENTS(userId),
@@ -192,11 +198,15 @@ class CacheService {
       CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
       CACHE_KEYS.FEED_UNREAD_COUNT(userId),
       CACHE_KEYS.FEED_LIST(userId),
+      CACHE_KEYS.FEED_PRESENTATION(userId),
       CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+      CACHE_KEYS.CONNECTOR_FEATURES(userId),
     ]);
 
     for (const key of this.cache.keys()) {
       if (
+        key.startsWith(`mail_kyc_display_${userId}_`) ||
+        key.startsWith(`mail_kyc_intake_${userId}_`) ||
         key.startsWith(`pkm_domain_resource_${userId}_`) ||
         key.startsWith(`domain_manifest_${userId}_`) ||
         key.startsWith(`domain_data_${userId}_`) ||
@@ -213,7 +223,14 @@ class CacheService {
         key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`) ||
-        key.startsWith(`connected_systems_${userId}_`)
+        key.startsWith(`connected_systems_${userId}_`) ||
+        key.startsWith(`connections_first_page_${userId}_`) ||
+        key.startsWith(`connect_directory_first_page_${userId}_`) ||
+        key.startsWith(`google_connection_${userId}_`) ||
+        key.startsWith(`calendar_invitations_${userId}_`) ||
+        key.startsWith(`calendar_insights_${userId}_`) ||
+        key.startsWith(`drive_packet_${userId}_`)
+        || key.startsWith(`referral_dashboard_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -226,16 +243,14 @@ class CacheService {
       }
     }
 
-    if (deletedKeys.length > 0) {
-      this.emit({ type: "invalidate_user", userId, keys: deletedKeys });
-    }
+    // Lifecycle listeners must also retire cold requests with no snapshot yet.
+    this.emit({ type: "invalidate_user", userId, keys: deletedKeys });
   }
 
   /**
    * Clear all cached data
    */
   clear(): void {
-    if (this.cache.size === 0) return;
     this.cache.clear();
     this.emit({ type: "clear" });
   }
@@ -274,6 +289,13 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  CONNECTOR_FEATURES: (userId: string) => `connector_features_${userId}`,
+  WALLET_PRESENTATIONS: (userId: string) => `wallet_presentations_${userId}`,
+  DIRECT_MESSAGE_THREADS: (userId: string) => `direct_message_threads_${userId}`,
+  DIRECT_MESSAGE_ROUTES: (userId: string) => `direct_message_routes_${userId}`,
+  DIRECT_MESSAGE_SESSION: (userId: string) => `direct_message_session_${userId}`,
+  GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
+    `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
   PKM_BLOB: (userId: string) => `pkm_blob_${userId}`,
   PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,
@@ -281,13 +303,14 @@ export const CACHE_KEYS = {
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   ACCOUNT_IDENTITY: (userId: string) => `account_identity_${userId}`,
+  TRUSTED_DEVICES: (userId: string) => `trusted_devices_${userId}`,
   PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
   DEVELOPER_ACCESS: (userId: string) => `developer_access_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,
   PORTFOLIO_DATA: (userId: string) => `portfolio_data_${userId}`,
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
-    `kai_market_home_${userId}_baseline_${daysBack}`,
+    `kai_market_home_${userId}_baseline_v5_${daysBack}`,
   KAI_MARKET_NEWS: (
     userId: string,
     scope: string,
@@ -316,6 +339,7 @@ export const CACHE_KEYS = {
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
+  FEED_PRESENTATION: (userId: string) => `feed_presentation_${userId}`,
   // First page only; "load more" pagination stays live/uncached so a
   // stale-while-revalidate render on revisit doesn't need to reason about
   // cursor-scoped entries beyond the initial view.
@@ -323,6 +347,16 @@ export const CACHE_KEYS = {
   // Incoming connection requests, read by the Feed's actionable ("Needs you")
   // zone so a revisit renders the pending Confirm/Decline rows instantly.
   CONNECTIONS_INCOMING: (userId: string) => `connections_incoming_${userId}`,
+  // Connect's "My connections" first page, so a revisit paints the list at
+  // once and refreshes behind it. Without it Connect opened on "My
+  // connections (0) · No connections yet" and jumped when the list landed.
+  CONNECTIONS_FIRST_PAGE: (userId: string, audience: string) =>
+    `connections_first_page_${userId}_${audience}`,
+  // Connect's People/Advisors first page (browse only). It paints a revisit at
+  // once and, kept past its freshness, stands in for a read the server refused
+  // so people already known are never replaced by an error.
+  CONNECT_DIRECTORY_FIRST_PAGE: (userId: string, audience: string) =>
+    `connect_directory_first_page_${userId}_${audience}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   // Cached licence-verify result, keyed by normalized regulator:license so a

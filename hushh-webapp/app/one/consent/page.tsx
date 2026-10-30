@@ -6,7 +6,7 @@ import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallba
 
 export default function OneConsentPage() {
   return (
-    <Suspense fallback={<RouteSuspenseFallback label="Loading access manager…" />}>
+    <Suspense fallback={<div className="consent-presentation-surface contents"><RouteSuspenseFallback label="Loading access manager…" /></div>}>
       <>
         <NativeTestBeacon
           routeId="/one/consent"

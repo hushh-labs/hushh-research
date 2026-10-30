@@ -1,0 +1,1706 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+const fetcher = vi.hoisted(() => vi.fn());
+const streamer = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({
+  nativeStreamFetch: streamer,
+}));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: {
+    apiFetch: fetcher,
+    getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
+  },
+}));
+import {
+  DriveSharingService,
+  DriveSharingError,
+  StreamUnavailable,
+  parseDriveQueryView,
+  validDocumentRequestPeriod,
+  validDocumentRequestTerms,
+  validDriveQuery,
+} from "@/lib/services/drive-sharing-service";
+import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import {
+  documentShareRequestId,
+  documentShareSelectionId,
+  isDocumentShareSelection,
+} from "@/lib/consent/document-share-consent";
+import {
+  driveQueryRequestId,
+  driveSharingSelectionId,
+  isDriveQueryEntry,
+  isDriveQuerySelection,
+  isDriveSharingEntry,
+} from "@/lib/consent/drive-query-consent";
+import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
+import type { DriveSearchStatus } from "@/lib/services/drive-search-service";
+const requestId = "11111111-1111-4111-8111-111111111111";
+const documentId = "22222222-2222-4222-8222-222222222222";
+const guard = () => {};
+
+describe("requester document payment boundary", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("reads only vault-authorized request context without caching or trusting another request", async () => {
+    const purpose = { purpose: "Standup notes", periodStart: "2026-10-01", periodEnd: "2026-10-08" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, files: [{ name: "private.pdf" }], agentPackage: { summary: "Owner-only assessment" } }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard))
+      .toEqual({ requestId, purpose });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/context`);
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: "no-store", headers: { Authorization: "Bearer vault" } });
+    fetcher.mockResolvedValueOnce(reply({ requestId: documentId, purpose }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose: { ...purpose, purpose: "x".repeat(2001) } }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("accepts a request-bound no-charge completion and rejects a mismatched one", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, existingAccess: true }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId))
+      .resolves.toEqual({ requestId, existingAccess: true });
+    fetcher.mockResolvedValueOnce(reply({ requestId: documentId, existingAccess: true }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId))
+      .rejects.toThrow("Invalid checkout response");
+  });
+
+  it("uses Firebase auth and accepts only the fixed Stripe checkout host", async () => {
+    fetcher.mockResolvedValueOnce(reply({ status: "awaiting_payment", amountCents: 1000, currency: "usd" }));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "awaiting_payment" });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/payment`);
+    expect(fetcher.mock.calls[0][1].headers).toMatchObject({ Authorization: "Bearer firebase" });
+    fetcher.mockResolvedValueOnce(reply({ checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123" }));
+    expect(await DriveRequestPaymentService.checkout("firebase", requestId)).toContain("checkout.stripe.com");
+    expect(fetcher.mock.calls[1][1].method).toBe("POST");
+    fetcher.mockResolvedValueOnce(reply({ status: "paid", amountCents: 0, currency: "usd" }));
+    await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+    fetcher.mockResolvedValueOnce(reply({ checkoutUrl: "https://evil.invalid/checkout" }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toThrow("Invalid checkout response");
+  });
+
+  it("parses only sealed buyer disclosure fields and rejects invalid coverage dates", async () => {
+    const purpose = { purpose: "Statements", periodStart: "2026-09-01", periodEnd: "2026-10-09" };
+    const packageDisclosure = { schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
+      selectedCount: 1, coverageStatus: "partial", periods: [{ start: "2026-09-01", end: "2026-09-30" }],
+      limitations: ["October coverage is missing."] };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, packageDisclosure: { ...packageDisclosure, rawModelNarrative: "private" } }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard)).toEqual({ requestId, purpose, packageDisclosure });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, packageDisclosure: { ...packageDisclosure, periods: [{ start: "2026-02-30", end: "2026-03-01" }] } }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("preserves actionable pre-charge access outcomes without opening checkout", async () => {
+    for (const code of ["request_already_accessible", "package_existing_access_requires_review"]) {
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code } }), { status: 409 }));
+      await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toMatchObject({ code });
+    }
+  });
+
+  it("preserves an unset price while setup is pending without inventing an amount", async () => {
+    const payment = { status: "preparing", amountCents: null, currency: "usd",
+      ownerPriceRequired: true, ownerPayoutAccountReady: false, paymentsReady: false };
+    fetcher.mockResolvedValueOnce(reply(payment));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toEqual(payment);
+    fetcher.mockResolvedValueOnce(reply({ ...payment, status: "expired" }));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "expired", amountCents: null });
+    for (const status of ["awaiting_payment", "checkout_open", "paid", "refunded", "not_required"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...payment, status }));
+      await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+    }
+    fetcher.mockResolvedValueOnce(reply({ ...payment, ownerPriceRequired: false }));
+    await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+  });
+
+  it("preserves paid history independently of current setup and validates readiness flags", async () => {
+    const payment = { status: "paid", amountCents: 2500, currency: "usd",
+      ownerPriceRequired: false, ownerPayoutAccountReady: false, paymentsReady: false };
+    fetcher.mockResolvedValueOnce(reply(payment));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toEqual(payment);
+    for (const field of ["ownerPriceRequired", "ownerPayoutAccountReady", "paymentsReady"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...payment, [field]: "false" }));
+      await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+    }
+  });
+
+  it("accepts owner-set integer cents and rejects amounts outside the Drive policy", async () => {
+    fetcher.mockResolvedValueOnce(reply({ status: "checkout_open", amountCents: 51, currency: "usd" }));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ amountCents: 51 });
+    for (const amountCents of [49, 60_000, 2000.5]) {
+      fetcher.mockResolvedValueOnce(reply({ status: "checkout_open", amountCents, currency: "usd" }));
+      await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+    }
+    fetcher.mockResolvedValueOnce(reply({ status: "not_required", amountCents: 1000, currency: "usd" }));
+    await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+  });
+
+  it("keeps the requester's payment and price views, failing closed on malformed ones", async () => {
+    const payment = {
+      state: "payable", amountCents: 2500, currency: "usd",
+      checkoutExpiresAt: "2026-10-11T12:30:00.000Z", requestExpiresAt: "2026-10-12T12:00:00.000Z",
+      refund: null, nextAction: "pay", withdrawn: false,
+    };
+    const price = { estimateCents: 1000, currentCents: 2500, finalCents: 2500, state: "final" };
+    const status = { requestId, status: "pending", revision: 2, paymentRequired: true };
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "outgoing", payment, price }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject({ payment, price });
+    fetcher.mockResolvedValueOnce(reply({
+      ...status, direction: "outgoing",
+      payment: { ...payment, amountCents: 49 }, price: { ...price, state: "locked" },
+    }));
+    // The request still loads; a bad view never becomes a Pay action.
+    expect(await DriveSharingService.status("vault", requestId, guard))
+      .toMatchObject({ status: "pending", payment: null, price: null });
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", payment, price }));
+    const owner = await DriveSharingService.status("vault", requestId, guard);
+    expect(owner).not.toHaveProperty("payment");
+    expect(owner).not.toHaveProperty("price");
+  });
+
+  it("parses bounded terminal evidence without leaking owner counts or coercing a reason", async () => {
+    for (const direction of ["incoming", "outgoing"]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "no_match", revision: 1, direction,
+        outcomeReason: "matching_files_unshareable", matchedFileCount: 12, unshareableFileCount: 12 }));
+      const result = await DriveSharingService.status("vault", requestId, guard);
+      expect(result.outcomeReason).toBe("matching_files_unshareable");
+      expect(result.matchedFileCount).toBe(direction === "incoming" ? 12 : undefined);
+    }
+    for (const outcomeReason of [undefined, "unknown", ["matching_files_unshareable"], {}]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "no_match", revision: 1,
+        direction: "incoming", outcomeReason, matchedFileCount: 12, unshareableFileCount: 12 }));
+      const result = await DriveSharingService.status("vault", requestId, guard);
+      expect(result).not.toHaveProperty("outcomeReason");
+      expect(result).not.toHaveProperty("matchedFileCount");
+    }
+  });
+
+  it("reads the additive queue pair and price rule, dropping a malformed pair", async () => {
+    const queue = { queuedAt: "2026-10-17T02:32:50+00:00", queueDelayed: true };
+    const status = { requestId, status: "pending", revision: 0 };
+    for (const direction of ["incoming", "outgoing"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...status, direction, ...queue }));
+      expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(queue);
+    }
+    for (const malformed of [{ queuedAt: "soon", queueDelayed: true }, { queuedAt: queue.queuedAt }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", ...malformed }));
+      const read = await DriveSharingService.status("vault", requestId, guard);
+      expect(read).not.toHaveProperty("queuedAt");
+      expect(read).not.toHaveProperty("queueDelayed");
+    }
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), wholeDollarPrice: true, ...queue }));
+    expect(await DriveSharingService.review("vault", requestId, guard))
+      .toMatchObject({ wholeDollarPrice: true, ...queue });
+    fetcher.mockResolvedValueOnce(reply(rawReview()));
+    expect(await DriveSharingService.review("vault", requestId, guard)).not.toHaveProperty("wholeDollarPrice");
+    // Started work that no worker moves: one additive time, dropped when malformed.
+    const work = { workDelayedSince: "2026-10-17T03:10:00+00:00" };
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "outgoing", ...work }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), ...work }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", workDelayedSince: "later" }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).not.toHaveProperty("workDelayedSince");
+  });
+
+  it("returns a withdrawal's payment view and surfaces a paid refusal", async () => {
+    const payment = {
+      state: "refund_pending", amountCents: 2500, currency: "usd",
+      checkoutExpiresAt: null, requestExpiresAt: null,
+      refund: { status: "queued", amountCents: 2500 }, nextAction: "none", withdrawn: true,
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "cancelled", revision: 2, payment }));
+    expect(await DriveSharingService.decide("vault", requestId, "cancel", 2, guard))
+      .toMatchObject({ status: "cancelled", payment });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/cancel`);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 2 });
+    fetcher.mockResolvedValueOnce(reply({ detail: { code: "request_paid", message: "Paid." } }, 409));
+    await expect(DriveSharingService.decide("vault", requestId, "cancel", 2, guard))
+      .rejects.toMatchObject({ code: "request_paid" });
+  });
+});
+const rawReview = () => ({
+  requestId,
+  revision: 3,
+  status: "review_ready",
+  canApprove: true,
+  recipientEmail: "b@example.invalid",
+  purpose: {
+    purpose: "Statements",
+    periodStart: "2026-01-01",
+    periodEnd: "2026-06-30",
+  },
+  files: [{ documentId, name: "<script>untrusted</script>.pdf" }],
+  coverage: {
+    coverage_summary: "Only January",
+    coverage_status: "partial",
+    gaps: ["February–June"],
+    truncated: true,
+  },
+  reviewDigest: "a".repeat(64),
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+});
+const requestSearch = (): DriveSearchStatus => ({
+  jobId: documentId, status: "completed", revision: 5, matched: 525,
+  pagesScanned: 6, incompleteSearch: false, unshareableCount: 5,
+  canStop: false, createdAt: "2026-09-28T00:00:00Z",
+  updatedAt: "2026-09-28T00:01:00Z", expiresAt: "2026-09-29T00:00:00Z", errorCode: null,
+  coverage: { corpora: ["user"], fileKind: "document", requestedPeriod: null,
+    dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,
+    providerRowsScanned: 525, excludedByDateCount: 0, deduplicatedCount: 0,
+    unavailableShortcutCount: 0, providerPagesExhausted: true, shareabilityVerified: true },
+});
+const requestBulk = () => ({
+  shareId: "33333333-3333-4333-8333-333333333333", searchJobId: documentId,
+  status: "review_ready", revision: 1, reviewDigest: "b".repeat(64),
+  fileCount: 518, recipientCount: 1,
+  recipients: [{ name: null, email: "b@example.invalid" }], excluded: [],
+  counts: { total: 518, processed: 0, shared: 0, alreadyShared: 0, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 518 },
+  notifications: { settled: 0, pending: 0, unavailable: 0 }, canApprove: true, canStop: false,
+  createdAt: "2026-09-28T00:00:00Z", updatedAt: "2026-09-28T00:01:00Z",
+  expiresAt: "2026-09-29T00:00:00Z",
+});
+
+describe("saved-search bulk sharing boundary", () => {
+  const view = {
+    shareId: documentId, searchJobId: requestId, status: "review_ready", revision: 4,
+    reviewDigest: "a".repeat(64), fileCount: 4, recipientCount: 1,
+    recipients: [{ name: "Alex", email: "alex@example.com" }], excluded: [],
+    counts: { total: 4, processed: 0, shared: 0, alreadyShared: 0, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 4 },
+    notifications: { settled: 0, pending: 0, unavailable: 0 }, canApprove: true, canStop: true,
+    createdAt: "2026-09-27T00:00:00Z", updatedAt: "2026-09-27T00:00:00Z", expiresAt: "2026-09-28T00:00:00Z",
+  };
+  beforeEach(() => vi.resetAllMocks());
+
+  it("binds a complete saved search to a reviewed share and sends only its digest on approval", async () => {
+    fetcher.mockResolvedValueOnce(reply(view));
+    const prepared = await DriveSharingService.prepareBulkShare("vault", requestId, guard);
+    expect(fetcher.mock.calls[0][0]).toBe("/api/connectors/google_drive/sharing/bulk");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ searchJobId: requestId,
+      clientRequestId: requestId, audience: "trusted_circle" });
+    fetcher.mockResolvedValueOnce(reply({ ...view, status: "queued", revision: 5, canApprove: false }));
+    await DriveSharingService.approveBulkShare("vault", prepared, guard);
+    expect(fetcher.mock.calls[1][0]).toBe(`/api/connectors/google_drive/sharing/bulk/${documentId}/approve`);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 4, reviewDigest: "a".repeat(64), confirmed: true });
+    await expect(DriveSharingService.approveBulkShare("vault", { ...prepared, canApprove: false }, guard))
+      .rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("rejects a foreign search, invalid review and unsafe recipient links", async () => {
+    fetcher.mockResolvedValueOnce(reply({ shares: [{ ...view, searchJobId: documentId }] }));
+    await expect(DriveSharingService.bulkSharesForSearch("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ ...view, counts: { ...view.counts, processed: 5 } }));
+    await expect(DriveSharingService.bulkShareStatus("vault", documentId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ shareId: documentId, sharedCount: 1,
+      files: [{ name: "Private", openUrl: "https://evil.invalid/file", modifiedTime: null }], nextCursor: null }));
+    await expect(DriveSharingService.receivedBulkFiles("vault", documentId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("preserves safe outcome counts, issue reasons and owner original-file outcomes", async () => {
+    const counts = { total: 4, processed: 4, shared: 2, alreadyShared: 1, skipped: 1,
+      failed: 0, needsReview: 0, unknown: 0, pending: 0 };
+    fetcher.mockResolvedValueOnce(reply({ ...view, status: "partial", canApprove: false, counts,
+      issues: [{ reasonCode: "source_not_shareable", count: 1 }] }));
+    const share = await DriveSharingService.bulkShareStatus("vault", documentId, guard);
+    expect(share.issues).toEqual([{ reasonCode: "source_not_shareable", count: 1 }]);
+    fetcher.mockResolvedValueOnce(reply({ shareId: documentId, files: [{ position: 1, name: "Original",
+      mimeType: "application/vnd.google-apps.document", modifiedTime: null,
+      openUrl: "https://drive.google.com/file/d/original/view",
+      outcomes: [{ status: "skipped", reasonCode: "source_not_shareable" }] }], nextCursor: null }));
+    expect((await DriveSharingService.bulkShareFiles("vault", documentId, guard)).files[0].outcomes)
+      .toEqual([{ status: "skipped", reasonCode: "source_not_shareable" }]);
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], bulkShareId: documentId,
+      bulkStatus: "partial", fileCount: 4, sharedCount: 3, counts,
+      issues: [{ reasonCode: "source_not_shareable", count: 1 }] }));
+    expect(await DriveSharingService.delivery("vault", requestId, guard)).toMatchObject({ bulkStatus: "partial", counts,
+      issues: [{ reasonCode: "source_not_shareable", count: 1 }] });
+    fetcher.mockResolvedValueOnce(reply({ ...view, status: "partial", canApprove: false, counts,
+      issues: [{ reasonCode: "date_range_required", count: 1 }] }));
+    expect((await DriveSharingService.bulkShareStatus("vault", documentId, guard)).issues)
+      .toEqual([{ reasonCode: "date_range_required", count: 1 }]);
+  });
+
+  it("shows exact additive reasons only when every code is known, else the released codes", async () => {
+    const counts = { total: 4, processed: 4, shared: 2, alreadyShared: 0, skipped: 0,
+      failed: 2, needsReview: 0, unknown: 0, pending: 0 };
+    const known = [{ reasonCode: "permission_rejected", count: 2 }];
+    const exact = [{ reasonCode: "drive_policy_blocked", count: 1 }, { reasonCode: "permission_rejected", count: 1 }];
+    const status = (issueDetails?: unknown) => {
+      fetcher.mockResolvedValueOnce(reply({ ...view, status: "partial", canApprove: false, counts,
+        issues: known, ...(issueDetails === undefined ? {} : { issueDetails }) }));
+      return DriveSharingService.bulkShareStatus("vault", documentId, guard);
+    };
+    expect((await status(exact)).issues).toEqual(exact);
+    // Negative controls: an older server, a code newer than this client, or a
+    // list that disagrees with the released one keeps the released codes.
+    expect((await status()).issues).toEqual(known);
+    expect((await status([{ reasonCode: "future_reason", count: 2 }])).issues).toEqual(known);
+    expect((await status([{ reasonCode: "drive_policy_blocked", count: 1 }])).issues).toEqual(known);
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], bulkShareId: documentId,
+      bulkStatus: "partial", fileCount: 4, sharedCount: 2, counts, issues: known,
+      issueDetails: [{ reasonCode: "recipient_needs_google_account", count: 2 }] }));
+    expect((await DriveSharingService.delivery("vault", requestId, guard)).issues)
+      .toEqual([{ reasonCode: "recipient_needs_google_account", count: 2 }]);
+    fetcher.mockResolvedValueOnce(reply({ shareId: documentId, files: [{ position: 1, name: "Original",
+      mimeType: "application/pdf", modifiedTime: null, openUrl: null, outcomes: [
+        { status: "queued", reasonCode: "provider_unavailable", reasonDetail: "sharing_rate_limited" },
+        { status: "failed", reasonCode: "permission_rejected", reasonDetail: "future_reason" },
+        { status: "failed", reasonCode: "permission_rejected" },
+      ] }], nextCursor: null }));
+    expect((await DriveSharingService.bulkShareFiles("vault", documentId, guard)).files[0].outcomes).toEqual([
+      { status: "queued", reasonCode: "sharing_rate_limited" },
+      { status: "failed", reasonCode: "permission_rejected" },
+      { status: "failed", reasonCode: "permission_rejected" },
+    ]);
+  });
+
+  it.each([
+    { issues: [{ reasonCode: "private_provider_message", count: 1 }] },
+    { issues: [{ reasonCode: "stopped", count: 5 }] },
+    { counts: { ...view.counts, shared: 1 } },
+  ])("rejects unsafe or contradictory outcome summaries", async overrides => {
+    fetcher.mockResolvedValueOnce(reply({ ...view, ...overrides }));
+    await expect(DriveSharingService.bulkShareStatus("vault", documentId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("retries only a server-approved subset of the same frozen review", async () => {
+    const retryable = { ...view, status: "partial" as const, canApprove: false, canRetry: true, retryableCount: 1,
+      counts: { total: 4, processed: 4, shared: 2, alreadyShared: 1, skipped: 1,
+        failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    fetcher.mockResolvedValueOnce(reply({ ...retryable, status: "queued", canRetry: false, retryableCount: 0,
+      counts: { ...retryable.counts, processed: 3, skipped: 0, pending: 1 } }));
+    await DriveSharingService.retryBulkShare("vault", retryable, guard);
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/bulk/${documentId}/retry`);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 4, reviewDigest: "a".repeat(64), confirmed: true });
+    await expect(DriveSharingService.retryBulkShare("vault", { ...retryable, canRetry: false }, guard))
+      .rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+const reply = (payload: unknown, status = 200) =>
+  new Response(JSON.stringify(payload), { status });
+
+describe("private sharing transport", () => {
+  beforeEach(() => vi.resetAllMocks());
+  it("loads the owner's review of a running autoshare search", async () => {
+    // The /review payload the server merges for every new Trusted or allowed
+    // request once its search starts: no owner file review.
+    const search = { ...requestSearch(), status: "running" as const, canStop: true,
+      coverage: { ...requestSearch().coverage!, requestedPeriod: {
+        start: "2026-09-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+      dateBasis: "title_date_then_created_then_modified" as const,
+      timeIntent: "document_coverage" as const, ownerReviewRequired: false,
+      providerPagesExhausted: false } };
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true, autoshare: true,
+      search, bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.search?.coverage).toMatchObject({ ownerReviewRequired: false,
+      dateBasis: "title_date_then_created_then_modified" });
+  });
+  it("uses request-bound durable search pages, freezes exclusions, and reads paged delivery", async () => {
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true,
+      search: requestSearch(), bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.durableAvailable).toBe(true);
+    expect(review.search?.matched).toBe(525);
+    expect(review.search?.unshareableCount).toBe(5);
+    fetcher.mockResolvedValueOnce(reply(requestSearch()));
+    await DriveSharingService.startRequestSearch("vault", requestId, guard);
+    expect(fetcher.mock.calls[1][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/search`);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).timeZone).toBeTypeOf("string");
+    fetcher.mockResolvedValueOnce(reply({ jobId: documentId, revision: 5, matched: 525,
+      files: [{ position: 26, id: "shortcut-26", name: "Broken shortcut", mimeType: "application/vnd.google-apps.shortcut",
+        modifiedTime: null, openUrl: null, shareable: false, unavailableReason: "shortcut_target_unavailable" }],
+      nextCursor: "page-3" }));
+    const page = await DriveSharingService.requestSearchFiles("vault", requestId, documentId, guard, "page-2");
+    expect(page.files[0]).toMatchObject({ position: 26, shareable: false });
+    expect(fetcher.mock.calls[2][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/search/files?cursor=page-2`);
+    fetcher.mockResolvedValueOnce(reply(requestBulk()));
+    const frozen = await DriveSharingService.prepareRequestBulk("vault", requestId, review.search!, [26, 1], guard);
+    expect(frozen.fileCount).toBe(518);
+    expect(JSON.parse(fetcher.mock.calls[3][1].body)).toEqual({ excludedPositions: [1, 26] });
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "completed", files: [],
+      bulkShareId: requestBulk().shareId, fileCount: 518, sharedCount: 518, nextCursor: null }));
+    const delivery = await DriveSharingService.delivery("vault", requestId, guard);
+    expect(delivery).toMatchObject({ bulkShareId: requestBulk().shareId, fileCount: 518, sharedCount: 518, files: [] });
+    fetcher.mockResolvedValueOnce(reply({ requestId, files: [{ name: "Standup 26", status: "succeeded",
+      openUrl: "https://drive.google.com/file/d/file-26/view", managed: false }], nextCursor: null }));
+    expect((await DriveSharingService.deliveryFiles("vault", requestId, guard)).files[0].name).toBe("Standup 26");
+  });
+
+  it("rejects incomplete request searches and a bulk set larger than the reviewed selection", async () => {
+    const search = { ...requestSearch(), status: "limited" } as const;
+    await expect(DriveSharingService.prepareRequestBulk("vault", requestId, search, [], guard))
+      .rejects.toMatchObject({ code: "invalid_selection" });
+    await expect(DriveSharingService.prepareRequestBulk("vault", requestId, {
+      ...requestSearch(), coverage: { ...requestSearch().coverage!, shareabilityVerified: false },
+    }, [], guard)).rejects.toMatchObject({ code: "invalid_selection" });
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 525 }));
+    await expect(DriveSharingService.prepareRequestBulk("vault", requestId, requestSearch(), [1, 26], guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("reviews a finalized bounded selection without accepting unfinished or unbounded exhaustion bypasses", async () => {
+    const search: DriveSearchStatus = { ...requestSearch(), matched: 100, unshareableCount: 0,
+      coverage: { ...requestSearch().coverage!, providerPagesExhausted: false,
+        requestedResultLimit: 100, resultOrder: "modifiedTime desc", selectionFinalized: true,
+        candidateCount: 125, candidateCountScope: "retained_pool", candidatePoolPruned: true } };
+    for (const invalid of [
+      { ...search, incompleteSearch: true },
+      { ...search, status: "limited" as const },
+      { ...search, matched: 101 },
+      { ...search, coverage: { ...search.coverage!, selectionFinalized: false } },
+      { ...search, coverage: { ...search.coverage!, requestedResultLimit: undefined } },
+      { ...search, coverage: { ...search.coverage!, shareabilityVerified: false } },
+      { ...requestSearch(), coverage: { ...requestSearch().coverage!, providerPagesExhausted: false } },
+    ]) {
+      await expect(DriveSharingService.prepareRequestBulk("vault", requestId, invalid, [], guard))
+        .rejects.toMatchObject({ code: "invalid_selection" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true, search, bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.search?.coverage).toEqual(search.coverage);
+    fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 100,
+      counts: { ...requestBulk().counts, total: 100, pending: 100 } }));
+    await expect(DriveSharingService.prepareRequestBulk("vault", requestId, review.search!, [], guard))
+      .resolves.toMatchObject({ fileCount: 100 });
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ excludedPositions: [] });
+  });
+
+  it("defaults to every shareable file without sending hundreds of IDs", async () => {
+    fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 520,
+      counts: { ...requestBulk().counts, total: 520, pending: 520 } }));
+    const prepared = await DriveSharingService.prepareRequestBulk("vault", requestId, requestSearch(), [], guard);
+    expect(prepared.fileCount).toBe(520);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ excludedPositions: [] });
+    fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 520, status: "queued", canApprove: false,
+      counts: { ...requestBulk().counts, total: 520, pending: 520 } }));
+    await DriveSharingService.approveBulkShare("vault", prepared, guard);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+      revision: 1, reviewDigest: "b".repeat(64), confirmed: true,
+    });
+  });
+  it("freezes only 25 committed positions while Drive search continues and preserves claimed positions", async () => {
+    const running = { ...requestSearch(), status: "running" as const,
+      coverage: { ...requestSearch().coverage!, providerPagesExhausted: false } };
+    const batch = { ...requestBulk(), fileCount: 2, positions: [1, 25],
+      counts: { ...requestBulk().counts, total: 2, pending: 2 } };
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true,
+      search: running, bulkShare: batch, batches: [batch], batchCount: 1,
+      claimedPositions: [1, 25], progressiveAllowed: true,
+      aggregateCounts: { ...batch.counts } }));
+    const current = await DriveSharingService.review("vault", requestId, guard);
+    expect(current.claimedPositions).toEqual([1, 25]);
+    expect(current.batches?.[0].positions).toEqual([1, 25]);
+    expect(current.aggregateCounts?.total).toBe(2);
+
+    fetcher.mockResolvedValueOnce(reply(batch));
+    const prepared = await DriveSharingService.prepareRequestBatch("vault", requestId, running, [25, 1], guard);
+    expect(prepared.fileCount).toBe(2);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ positions: [1, 25] });
+    expect(fetcher.mock.calls[1][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/bulk`);
+    await expect(DriveSharingService.prepareRequestBatch("vault", requestId, running, [], guard))
+      .rejects.toMatchObject({ code: "invalid_selection" });
+    await expect(DriveSharingService.prepareRequestBatch("vault", requestId, running, [1, 1], guard))
+      .rejects.toMatchObject({ code: "invalid_selection" });
+    await expect(DriveSharingService.prepareRequestBatch("vault", requestId, running,
+      Array.from({ length: 26 }, (_, index) => index + 1), guard))
+      .rejects.toMatchObject({ code: "invalid_selection" });
+    await expect(DriveSharingService.prepareRequestBatch("vault", requestId, running,
+      [running.matched + 1], guard)).rejects.toMatchObject({ code: "invalid_selection" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("accepts only previously claimed positions as explicit manual recovery candidates", async () => {
+    const running = { ...requestSearch(), status: "running" as const,
+      coverage: { ...requestSearch().coverage!, providerPagesExhausted: false } };
+    const candidate = { ...rawReview(), durableAvailable: true, trustedAuto: false,
+      search: running, bulkShare: null, batches: [], batchCount: 0,
+      claimedPositions: [2], recoverablePositions: [2], progressiveAllowed: true };
+    fetcher.mockResolvedValueOnce(reply(candidate));
+    expect((await DriveSharingService.review("vault", requestId, guard)).recoverablePositions).toEqual([2]);
+    fetcher.mockResolvedValueOnce(reply({ ...candidate, recoverablePositions: [3] }));
+    await expect(DriveSharingService.review("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+  // GET /review before the request's Drive search starts, exactly as older servers send it.
+  const notStartedReview = () => ({
+    requestId, revision: 0, status: "pending", recipientEmail: "b@example.invalid",
+    purpose: { purpose: "Statements", periodStart: "2026-01-01", periodEnd: "2026-06-30" },
+    files: [], coverage: null, canApprove: false, preparationError: null, trustedAuto: false,
+    durableAvailable: true, search: null, bulkShare: null, batches: [], batchCount: 0,
+    claimedPositions: [], recoverablePositions: [], progressiveAllowed: true,
+    aggregateCounts: { total: 0, processed: 0, shared: 0, alreadyShared: 0, skipped: 0,
+      failed: 0, needsReview: 0, unknown: 0, pending: 0 },
+  });
+  it("reads a review whose Drive search has not started as no search yet, never as progress", async () => {
+    fetcher.mockResolvedValueOnce(reply(notStartedReview()));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review).toMatchObject({ status: "pending", durableAvailable: true, search: null, bulkShare: null });
+    for (const field of ["batches", "batchCount", "claimedPositions", "recoverablePositions",
+      "progressiveAllowed", "aggregateCounts"])
+      expect(review).not.toHaveProperty(field);
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), progressiveAllowed: false }));
+    await expect(DriveSharingService.review("vault", requestId, guard)).resolves.toMatchObject({ search: null });
+    // Recorded progress without a search is contradictory and still fails closed.
+    for (const progress of [
+      { batches: [requestBulk()] },
+      { batchCount: 1 },
+      { claimedPositions: [1] },
+      { recoverablePositions: [1] },
+      { aggregateCounts: { ...requestBulk().counts, total: 1, pending: 1 } },
+      { progressiveAllowed: "yes" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ...progress }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+  it("prices a trusted request through the dedicated price boundary, never Allow", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, revision: 2, status: "pending" }));
+    await DriveSharingService.setRequestPrice("vault", requestId, { revision: 1, amountCents: 500 }, guard);
+    expect(fetcher.mock.lastCall?.[0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/price`);
+    expect(JSON.parse(fetcher.mock.lastCall?.[1].body)).toEqual({ revision: 1, amountCents: 500, confirmed: true });
+    await expect(DriveSharingService.setRequestPrice("vault", requestId, { revision: 1, amountCents: null }, guard))
+      .rejects.toMatchObject({ code: "invalid_argument" });
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), priceOnlyAvailable: true }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).priceOnlyAvailable).toBe(true);
+  });
+
+  it("accepts typed setup prerequisites without defaulting historical requests into setup", async () => {
+    const setup = { ownerDriveReady: false, ownerPayoutAccountReady: false, ownerPriceRequired: true, paymentsReady: true };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ...setup, preparationError: "owner_payout_required" }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject(setup);
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 0, direction: "outgoing", ...setup }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(setup);
+    fetcher.mockResolvedValueOnce(reply(notStartedReview()));
+    expect((await DriveSharingService.review("vault", requestId, guard)).ownerPriceRequired).toBeUndefined();
+    for (const bad of [{ ownerDriveReady: "false" }, { ownerPriceRequired: "true" }, { ownerPayoutAccountReady: null }, { paymentsReady: 1 }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ...bad }));
+      await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("offers Allow only on a pending request not yet allowed, with a valid Drive price", async () => {
+    const decision = { ...notStartedReview(), allowAvailable: true, paymentRequired: true,
+      ownerAllowed: false, priceCents: null };
+    fetcher.mockResolvedValueOnce(reply(decision));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject({
+      allowAvailable: true, paymentRequired: true, ownerAllowed: false, priceCents: null });
+    fetcher.mockResolvedValueOnce(reply({ ...decision, status: "review_ready" }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).allowAvailable).toBe(false);
+    fetcher.mockResolvedValueOnce(reply({ ...decision, ownerAllowed: true, priceCents: 2000 }));
+    expect(await DriveSharingService.review("vault", requestId, guard))
+      .toMatchObject({ allowAvailable: false, ownerAllowed: true, priceCents: 2000 });
+    for (const invalid of [
+      { priceCents: 49 }, { priceCents: 0 }, { priceCents: 50_100 }, { priceCents: "2000" },
+      { allowAvailable: "true" }, { paymentRequired: 1 }, { ownerAllowed: null },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...decision, ...invalid }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+  it("carries the estimate the requester saw to the owner's review; a malformed one never blocks it", async () => {
+    const decision = { ...notStartedReview(), allowAvailable: true, paymentRequired: true,
+      ownerAllowed: false, priceCents: null };
+    fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents: 1000 }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).estimateCents).toBe(1000);
+    for (const estimateCents of [null, 49, 0, 50_100, "1000"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents }));
+      const review = await DriveSharingService.review("vault", requestId, guard);
+      expect(review.allowAvailable).toBe(true);
+      expect(review).not.toHaveProperty("estimateCents");
+    }
+  });
+  it("accepts only the owner's request-bound payout projection and keeps unsettled earnings hidden", async () => {
+    const payout = {
+      requestId, currency: "usd", grossAmountCents: 1000,
+      retainedAmountCents: null, platformFeeCents: null,
+      processingFeeCents: null, ownerEarningCents: null,
+      status: "awaiting_fee",
+    };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ownerPayout: payout }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).ownerPayout)
+      .toEqual(payout);
+    for (const invalid of [
+      { requestId: "22222222-2222-4222-8222-222222222222" },
+      { currency: "eur" },
+      { status: "paid_to_bank" },
+      { ownerEarningCents: "970" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ownerPayout: { ...payout, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+  it("preserves the owner package assessment and rejects unsafe approval projections", async () => {
+    const agentPackage = { status: "ready", revision: 2, digest: "a".repeat(64),
+      selectedCount: 4, selectedFileCount: 4,
+      selectedFiles: [
+        { position: 1, name: "eStmt-09.pdf", weightageOutOf10: 9.5, confidenceScore: 94 },
+        { position: 2, name: "eStmt-10.pdf", weightageOutOf10: 9, confidenceScore: 91 },
+        { position: 3, name: "Statement A.pdf", weightageOutOf10: 8, confidenceScore: 87 },
+        { position: 4, name: "Statement B.pdf", weightageOutOf10: 7, confidenceScore: 83 },
+      ], evaluatedCount: 8, candidateCount: 12,
+      confidenceScore: 82, confidenceBasis: "model_assessment", importanceScore: 175,
+      suggestedPriceCents: 1051, priceReason: "Four records.", summary: "Partial coverage.",
+      coverageStatus: "partial", gaps: ["February missing"], canAllow: true };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).agentPackage).toEqual(agentPackage);
+    for (const invalid of [{ digest: null }, { digest: "wrong" }, { status: "preparing" },
+      { selectedCount: 0 }, { confidenceScore: 101 }, { confidenceScore: 0.8 },
+      { confidenceBasis: "probability" }, { importanceScore: 0 }, { importanceScore: 501 },
+      { suggestedPriceCents: 49 }, { suggestedPriceCents: 50.5 }, { canAllow: "true" },
+      { selectedFileCount: 3 }, { selectedFiles: [{ position: 1, name: "one.pdf" }] },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 1 ? { ...file, position: 1 } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, name: "unsafe\nname.pdf" } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, weightageOutOf10: 10.5 } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, confidenceScore: 101 } : file) },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage: { ...agentPackage, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("accepts bounded V1 provisional matches and rejects inconsistent progress", async () => {
+    const agentPackage = { status: "preparing", revision: 2, digest: null,
+      selectedCount: 0, evaluatedCount: 3, candidateCount: 5,
+      provisionalFiles: [{ position: 2, name: "eStmt-09.pdf", weightageOutOf10: 9, confidenceScore: 93 }],
+      verifiedCount: 1, pendingCount: 2, confidenceScore: null,
+      confidenceBasis: "model_assessment", importanceScore: null,
+      suggestedPriceCents: null, priceReason: "", summary: "", coverageStatus: "unknown",
+      gaps: [], canAllow: false };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1LiveRequest: true, agentPackage }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).agentPackage).toEqual(agentPackage);
+    for (const invalid of [{ verifiedCount: 4 }, { pendingCount: 1 },
+      { provisionalFiles: [{ ...agentPackage.provisionalFiles[0], weightageOutOf10: 11 }] },
+      { provisionalFiles: [{ ...agentPackage.provisionalFiles[0], name: "unsafe\nfile.pdf" }] }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1LiveRequest: true,
+        agentPackage: { ...agentPackage, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("accepts only a bounded non-Trusted V1 verified manual review projection", async () => {
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1ManualReview: true, verifiedCount: 2 }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject({
+      v1ManualReview: true, verifiedCount: 2,
+    });
+    for (const invalid of [
+      { verifiedCount: 0 }, { verifiedCount: 121 }, { verifiedCount: "2" },
+      { trustedAuto: true }, { agentPackage: { status: "ready" } },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1ManualReview: true, verifiedCount: 2, ...invalid }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("binds package Allow to its revision and digest and refuses incomplete package inputs", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4 }));
+    await DriveSharingService.allow("vault", requestId, {
+      revision: 3, amountCents: 50, packageRevision: 2, packageDigest: "a".repeat(64),
+    }, guard);
+    expect(JSON.parse(fetcher.mock.lastCall?.[1].body)).toEqual({ revision: 3, amountCents: 50,
+      packageRevision: 2, packageDigest: "a".repeat(64), confirmed: true });
+    for (const fields of [{ packageRevision: 2 }, { packageDigest: "a".repeat(64) },
+      { packageRevision: 2, packageDigest: "wrong" }, { packageRevision: -1, packageDigest: "a".repeat(64) }]) {
+      // Deliberately test values crossing the typed boundary from untrusted callers.
+      const input = { revision: 3, amountCents: 50, ...fields } as Parameters<typeof DriveSharingService.allow>[2];
+      await expect(DriveSharingService.allow("vault", requestId, input, guard)).rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows with the revision, explicit confirmation and a price only when one is set", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4,
+      ownerAllowed: true, amountCents: 2000 }, 202));
+    await expect(DriveSharingService.allow("owner", requestId, { revision: 4, amountCents: 2000 }, guard))
+      .resolves.toEqual({ requestId, status: "pending", revision: 4 });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/allow`);
+    expect(options).toMatchObject({ method: "POST", cache: "no-store", headers: { Authorization: "Bearer owner" } });
+    expect(JSON.parse(options.body)).toEqual({ revision: 4, amountCents: 2000, confirmed: true });
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4,
+      ownerAllowed: true, amountCents: null }, 202));
+    await DriveSharingService.allow("owner", requestId, { revision: 4, amountCents: null }, guard);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 4, confirmed: true });
+    for (const input of [{ revision: 4, amountCents: 49 }, { revision: 4, amountCents: 50_100 },
+      { revision: -1, amountCents: null }]) {
+      await expect(DriveSharingService.allow("owner", requestId, input, guard))
+        .rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    fetcher.mockResolvedValueOnce(reply({ requestId: documentId, status: "pending", revision: 4 }, 202));
+    await expect(DriveSharingService.allow("owner", requestId, { revision: 4, amountCents: null }, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+  it("keeps a historical frozen share larger than 25 files on the legacy review path", async () => {
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true,
+      search: requestSearch(), bulkShare: requestBulk(), batches: [requestBulk()],
+      batchCount: 1, progressiveAllowed: false }));
+    const current = await DriveSharingService.review("vault", requestId, guard);
+    expect(current.bulkShare?.fileCount).toBe(518);
+    expect(current.progressiveAllowed).toBeUndefined();
+  });
+  it("creates a request with separate Firebase identity and vault authority, without a Drive token", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "pending", revision: 0 }, 202),
+    );
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+    };
+    await expect(
+      DriveSharingService.create("vault", "firebase", draft, guard),
+    ).resolves.toEqual({ requestId, status: "pending", revision: 0 });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/requests");
+    expect(options).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      headers: { Authorization: "Bearer firebase", "X-Hushh-Consent": "vault" },
+    });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(JSON.parse(options.body)).toEqual({
+      ...draft,
+      ...(timeZone ? { timeZone } : {}),
+    });
+    expect(options.isEffectCurrent()).toBe(true);
+  });
+  it("sends the displayed quote version while preserving legacy unversioned clients", async () => {
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      expectedQuoteVersion: 3,
+      purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 0 }, 202));
+    await DriveSharingService.create("vault", "firebase", draft, guard);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).expectedQuoteVersion).toBe(3);
+    await expect(DriveSharingService.create("vault", "firebase", {
+      ...draft, expectedQuoteVersion: -1,
+    }, guard)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [null, null, true],
+    ["2026-01-01", "2026-06-30", true],
+    ["2024-02-29", "2024-02-29", true],
+    ["2026-02-29", "2026-03-01", false],
+    ["2026-01-01", null, false],
+    [null, "2026-06-30", false],
+    ["2026-06-30", "2026-01-01", false],
+    ["2026-1-1", "2026-06-30", false],
+    ["0000-01-01", "2026-06-30", false],
+  ])("validates the complete calendar period %s/%s", (start, end, expected) => {
+    expect(validDocumentRequestPeriod(start, end)).toBe(expected);
+  });
+  it("requires explicit dates for every file request", () => {
+    expect(validDocumentRequestTerms("last 3 days standup notes", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("previous two business days statements", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("this week standup notes", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("last 3 days standup notes", "2026-09-29", "2026-10-01")).toBe(true);
+    expect(validDocumentRequestTerms("Tax return", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("Tax return", "2026-01-01", "2026-12-31")).toBe(true);
+  });
+  it("rejects invalid request purposes before dispatch and late creation results after locking", async () => {
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      purpose: { purpose: " ", periodStart: null, periodEnd: null },
+    };
+    await expect(
+      DriveSharingService.create("vault", "firebase", draft, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(
+      DriveSharingService.create("vault", "firebase", {
+        ...draft,
+        purpose: { purpose: "last 3 days standup notes", periodStart: null, periodEnd: null },
+      }, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+    let current = true;
+    fetcher.mockImplementationOnce(async () => {
+      current = false;
+      return reply({ requestId, status: "pending", revision: 0 });
+    });
+    await expect(
+      DriveSharingService.create(
+        "vault",
+        "firebase",
+        { ...draft, purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" } },
+        () => {
+          if (!current) throw new DriveSharingError("session_changed");
+        },
+      ),
+    ).rejects.toMatchObject({ code: "session_changed" });
+  });
+  it("posts the exact reviewed set, digest and revision without caching", async () => {
+    fetcher
+      .mockResolvedValueOnce(reply(rawReview()))
+      .mockResolvedValueOnce(reply({ status: "approved" }, 202));
+    const review = await DriveSharingService.review(
+      "owner-token",
+      requestId,
+      guard,
+    );
+    expect(review.coverage?.gaps).toEqual(["February–June"]);
+    await DriveSharingService.approve("owner-token", requestId, review, guard, [documentId]);
+    const [url, options] = fetcher.mock.calls[1];
+    expect(url).toBe(
+      `/api/connectors/google_drive/sharing/requests/${requestId}/approve`,
+    );
+    expect(options.cache).toBe("no-store");
+    expect(JSON.parse(options.body)).toEqual({
+      revision: 3,
+      reviewDigest: "a".repeat(64),
+      documentIds: [documentId],
+      confirmed: true,
+    });
+    expect(options.isEffectCurrent()).toBe(true);
+  });
+  it("keeps a known preparation result and drops anything else", async () => {
+    for (const code of [
+      "no_relevant_files",
+      "no_ready_files",
+      "narrow_selection_required",
+      "source_changed",
+      "preparation_unavailable",
+      "trust_revoked",
+      "date_range_required",
+    ]) {
+      fetcher.mockResolvedValueOnce(
+        reply({ ...rawReview(), coverage: null, preparationError: code }),
+      );
+      expect(
+        (await DriveSharingService.review("t", requestId, guard))
+          .preparationError,
+      ).toBe(code);
+    }
+    for (const value of ["drive_token_raw_error", 7, { code: "x" }, null]) {
+      fetcher.mockResolvedValueOnce(
+        reply({ ...rawReview(), preparationError: value }),
+      );
+      expect(
+        (await DriveSharingService.review("t", requestId, guard))
+          .preparationError,
+      ).toBeNull();
+    }
+    fetcher.mockResolvedValueOnce(reply(rawReview()));
+    expect(
+      (await DriveSharingService.review("t", requestId, guard))
+        .preparationError,
+    ).toBeNull();
+  });
+  it("accepts the API bound of 25 files but rejects 26 or duplicate selections", async () => {
+    const files = Array.from({ length: 25 }, (_, i) => ({
+      documentId: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`,
+      name: "File",
+    }));
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), files }));
+    expect(
+      (await DriveSharingService.review("t", requestId, guard)).files,
+    ).toHaveLength(25);
+    fetcher.mockResolvedValueOnce(
+      reply({ ...rawReview(), files: [...files, files[0]] }),
+    );
+    await expect(
+      DriveSharingService.review("t", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(
+      reply({ ...rawReview(), files: [files[0], files[0]] }),
+    );
+    await expect(
+      DriveSharingService.review("t", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+  it("refuses expired approval locally without dispatching", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ ...rawReview(), expiresAt: "2020-01-01" }),
+    );
+    const review = await DriveSharingService.review("t", requestId, guard);
+    expect(() =>
+      DriveSharingService.approve("t", requestId, review, guard, [documentId]),
+    ).toThrow(DriveSharingError);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each([[[]], [["not-reviewed"]], [[documentId, documentId]]])(
+    "refuses a selection %j that is empty, repeated or outside the review",
+    async (selection) => {
+      fetcher.mockResolvedValueOnce(reply(rawReview()));
+      const review = await DriveSharingService.review("t", requestId, guard);
+      expect(() =>
+        DriveSharingService.approve("t", requestId, review, guard, selection),
+      ).toThrow(DriveSharingError);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("checks the session again at the actual API dispatch boundary", async () => {
+    let current = true;
+    fetcher.mockImplementationOnce(async (_url, options) => {
+      current = false;
+      options.isEffectCurrent();
+      return reply({});
+    });
+    await expect(
+      DriveSharingService.decide("t", requestId, "cancel", 1, () => {
+        if (!current) throw new DriveSharingError("session_changed");
+      }),
+    ).rejects.toMatchObject({ code: "session_changed" });
+  });
+  it.each([
+    "https://evil.invalid/file",
+    "https://drive.google.com.evil.invalid/file/d/a/view",
+    "javascript:alert(1)",
+  ])("rejects a noncanonical provider link: %s", async (openUrl) => {
+    fetcher.mockResolvedValueOnce(
+      reply({
+        requestId,
+        status: "completed",
+        files: [{ name: "File", status: "succeeded", openUrl }],
+      }),
+    );
+    await expect(
+      DriveSharingService.delivery("t", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+  it("does not surface raw provider errors", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply(
+        {
+          detail: {
+            code: "provider_unavailable",
+            message: "secret-token private filename",
+          },
+        },
+        503,
+      ),
+    );
+    await expect(
+      DriveSharingService.status("t", requestId, guard),
+    ).rejects.toMatchObject({
+      code: "provider_unavailable",
+      message:
+        "Could not complete the document request. Refresh and try again.",
+    });
+  });
+  it("does not infer the caller role from a deep link", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "pending", revision: 1 }),
+    );
+    await expect(
+      DriveSharingService.status("t", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+  it("preserves a document namespace without allowing malformed links into generic consent", () => {
+    const id = `document_share_request:${requestId}`;
+    expect(documentShareRequestId(id)).toBe(requestId);
+    expect(documentShareRequestId(requestId)).toBeNull();
+    expect(isDocumentShareSelection("document_share_request:wrong")).toBe(true);
+    expect(documentShareRequestId("document_share_request:wrong")).toBeNull();
+    expect(
+      documentShareSelectionId({
+        id,
+        request_id: requestId,
+      } as ConsentCenterEntry),
+    ).toBe(id);
+  });
+});
+
+describe("drive question transport", () => {
+  const ownerRef = "33333333-3333-4333-8333-333333333333";
+  const clientRequestId = "44444444-4444-4444-8444-444444444444";
+  const rawView = (overrides: Record<string, unknown> = {}) => ({
+    requestId,
+    direction: "outgoing",
+    status: "pending",
+    revision: 1,
+    query: "potential bank statement",
+    counterpartName: "A",
+    createdAt: "2026-09-24T10:00:00Z",
+    expiresAt: "2026-10-01T10:00:00Z",
+    decidedAt: null,
+    answer: null,
+    canDecide: false,
+    lastError: null,
+    ...overrides,
+  });
+  beforeEach(() => vi.resetAllMocks());
+
+  it("creates a pending question with vault authority only and the exact body", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView(), 202));
+    const view = await DriveSharingService.createQuery(
+      "vault",
+      { ownerPersonRef: ownerRef, clientRequestId, query: "potential bank statement" },
+      guard,
+    );
+    expect(view).toMatchObject({ requestId, direction: "outgoing", status: "pending", answer: null });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/queries");
+    expect(options).toMatchObject({ method: "POST", cache: "no-store" });
+    expect(options.headers).toEqual({
+      Authorization: "Bearer vault",
+      "Content-Type": "application/json",
+    });
+    expect(options.headers).not.toHaveProperty("X-Hushh-Consent");
+    expect(JSON.parse(options.body)).toEqual({
+      ownerPersonRef: ownerRef,
+      clientRequestId,
+      query: "potential bank statement",
+    });
+    expect(options.isEffectCurrent()).toBe(true);
+  });
+
+  it("sends ownerUserId instead of a person ref when that is the only owner", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView(), 202));
+    await DriveSharingService.createQuery(
+      "vault",
+      { ownerUserId: "firebaseUid_123", clientRequestId, query: "Q" },
+      guard,
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      ownerUserId: "firebaseUid_123",
+      clientRequestId,
+      query: "Q",
+    });
+  });
+
+  it.each([
+    ["blank", " \n "],
+    ["over 2000 characters", "a".repeat(2001)],
+    ["over 2048 UTF-8 bytes", "€".repeat(700)],
+  ])("rejects a %s question before dispatch", async (_label, query) => {
+    await expect(
+      DriveSharingService.createQuery("vault", { ownerPersonRef: ownerRef, clientRequestId, query }, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts exactly 2000 characters and 2048 bytes", () => {
+    expect(validDriveQuery("a".repeat(2000))).toBe(true);
+    expect(validDriveQuery("€".repeat(682) + "ab")).toBe(true); // 2046 + 2 bytes
+    expect(validDriveQuery("€".repeat(683))).toBe(false); // 2049 bytes
+  });
+
+  it("requires exactly one well-formed owner and a UUID retry key", async () => {
+    for (const draft of [
+      { ownerPersonRef: ownerRef, ownerUserId: "uid", clientRequestId, query: "Q" },
+      { clientRequestId, query: "Q" },
+      { ownerPersonRef: "not-a-uuid", clientRequestId, query: "Q" },
+      { ownerPersonRef: ownerRef, clientRequestId: "retry", query: "Q" },
+    ]) {
+      await expect(
+        DriveSharingService.createQuery("vault", draft as never, guard),
+      ).rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("allows with the revision and the owner's time zone, denies with the revision only", async () => {
+    const answered = rawView({
+      direction: "incoming",
+      status: "answered",
+      revision: 3,
+      decidedAt: "2026-09-24T10:05:00Z",
+      answer: { text: "Found it.", titles: ["March.pdf"], truncated: false },
+    });
+    fetcher
+      .mockResolvedValueOnce(reply(answered))
+      .mockResolvedValueOnce(reply({ ...answered, status: "denied", answer: null }));
+    const zone = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ timeZone: "Asia/Kolkata" } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      await expect(
+        DriveSharingService.allowQuery("owner", requestId, 2, guard),
+      ).resolves.toMatchObject({ status: "answered", answer: { titles: ["March.pdf"] } });
+      await DriveSharingService.denyQuery("owner", requestId, 2, guard);
+    } finally {
+      zone.mockRestore();
+    }
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/allow`,
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 2, timeZone: "Asia/Kolkata" });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/deny`,
+    );
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 2 });
+  });
+
+  it("omits a time zone that is not a plain IANA name", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView({ direction: "incoming", status: "running" })));
+    const zone = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ timeZone: "Bad Zone;drop" } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      await DriveSharingService.allowQuery("owner", requestId, 1, guard);
+    } finally {
+      zone.mockRestore();
+    }
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 1 });
+  });
+
+  it("parses a cancelled question and cancels with its revision", async () => {
+    const cancelled = rawView({
+      status: "cancelled",
+      revision: 5,
+      decidedAt: "2026-09-24T10:05:00Z",
+    });
+    expect(parseDriveQueryView(cancelled)).toMatchObject({
+      status: "cancelled",
+      answer: null,
+    });
+    fetcher.mockResolvedValueOnce(reply(cancelled));
+    await expect(
+      DriveSharingService.cancelQuery("vault", requestId, 4, guard),
+    ).resolves.toMatchObject({ requestId, status: "cancelled", answer: null });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/cancel`,
+    );
+    expect(fetcher.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 4 });
+    await expect(
+      DriveSharingService.cancelQuery("vault", requestId, -1, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists one direction with bounded paging", async () => {
+    fetcher.mockResolvedValueOnce(reply({ items: [rawView()], hasMore: true }));
+    await expect(
+      DriveSharingService.listQueries("vault", "outgoing", guard),
+    ).resolves.toMatchObject({ items: [{ requestId }], hasMore: true });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "/api/connectors/google_drive/sharing/queries?direction=outgoing&limit=20&offset=0",
+    );
+    expect(fetcher.mock.calls[0][1].method).toBe("GET");
+    fetcher.mockResolvedValueOnce(reply({ items: [rawView()], hasMore: false }));
+    await expect(
+      DriveSharingService.listQueries("vault", "incoming", guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it.each([
+    ["an unknown status", { status: "approved" }],
+    ["an unknown direction", { direction: "sideways" }],
+    ["an answer before answering", { answer: { text: "x", titles: [], truncated: false } }],
+    ["an answered view without an answer", { status: "answered" }],
+    ["a non-array title list", { status: "answered", answer: { text: "x", titles: "a.pdf", truncated: false } }],
+    ["too many titles", { status: "answered", answer: { text: "x", titles: Array(26).fill("a"), truncated: false } }],
+    ["a missing truncation flag", { status: "answered", answer: { text: "x", titles: [] } }],
+    ["an unknown last error", { lastError: "provider_secret" }],
+    ["a malformed request id", { requestId: "not-a-uuid" }],
+    ["an unparseable expiry", { expiresAt: "tomorrow-ish" }],
+    ["an overlong question", { query: "q".repeat(2001) }],
+    [
+      "the owner's file list in the asker's view",
+      {
+        direction: "outgoing",
+        status: "answered",
+        answer: { text: "x", titles: [], truncated: false, files: [{ ref: "f1", name: "a.pdf" }] },
+      },
+    ],
+    [
+      "a malformed file reference",
+      {
+        direction: "incoming",
+        status: "answered",
+        answer: { text: "x", titles: [], truncated: false, files: [{ ref: "x9", name: "a.pdf" }] },
+      },
+    ],
+    [
+      "a malformed share id",
+      { status: "answered", answer: { text: "x", titles: [], truncated: false, shareRequestId: "nope" } },
+    ],
+  ])("rejects a view with %s", async (_label, overrides) => {
+    fetcher.mockResolvedValueOnce(reply(rawView(overrides)));
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("shares only a valid, non-empty selection of answer files", async () => {
+    for (const refs of [[], ["f0"], ["f1", "f1"], ["f11"]]) {
+      expect(() =>
+        DriveSharingService.shareQueryFiles("vault", requestId, refs, guard),
+      ).toThrow(DriveSharingError);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(
+      reply(
+        rawView({
+          direction: "incoming",
+          status: "answered",
+          answer: { text: "x", titles: [], truncated: false, files: [], shareRequestId: requestId },
+        }),
+      ),
+    );
+    await expect(
+      DriveSharingService.shareQueryFiles("vault", requestId, ["f1", "f2"], guard),
+    ).resolves.toMatchObject({ answer: { shareRequestId: requestId } });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe(`/api/connectors/google_drive/sharing/queries/${requestId}/share`);
+    expect(JSON.parse(options.body)).toEqual({ fileRefs: ["f1", "f2"] });
+  });
+
+  it("restores an owner's reserved answer selection and accepts older answers without one", () => {
+    const answer = {
+      text: "Found files", titles: [], truncated: false,
+      files: [{ ref: "f1", name: "a.pdf" }, { ref: "f2", name: "b.pdf" }],
+      shareRequestId: null,
+    };
+    expect(parseDriveQueryView(rawView({ direction: "incoming", status: "answered", answer })).answer)
+      .not.toHaveProperty("selectedFileRefs");
+    expect(parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered", answer: { ...answer, selectedFileRefs: ["f2"] },
+    })).answer).toMatchObject({ selectedFileRefs: ["f2"] });
+  });
+
+  it.each([
+    ["empty", []], ["duplicate", ["f1", "f1"]], ["not a list", "f1"],
+    ["not in the answer", ["f2"]], ["invalid reference", ["f9"]],
+    ["not a string", [1]], ["too many", Array(9).fill("f1")],
+  ])("rejects an owner's %s reserved answer selection", (_label, selectedFileRefs) => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "incoming", status: "answered",
+      answer: {
+        text: "Found files", titles: [], truncated: false,
+        files: [{ ref: "f1", name: "a.pdf" }], selectedFileRefs,
+      },
+    }))).toThrow(DriveSharingError);
+  });
+
+  it("rejects owner reservation references in the asker's answer", () => {
+    expect(() => parseDriveQueryView(rawView({
+      direction: "outgoing", status: "answered",
+      answer: { text: "Found files", titles: [], truncated: false, selectedFileRefs: ["f1"] },
+    }))).toThrow(DriveSharingError);
+  });
+
+  it("searches the owner's own Drive by person reference and shares only found references", async () => {
+    const personRef = "33333333-3333-4333-8333-333333333333";
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        requestId,
+        status: "ready",
+        recipientName: "Bo",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: "2026-09-24T18:00:00Z" }],
+        shareRequestId: null,
+        expiresAt: "2026-09-25T20:00:00Z",
+      }),
+    );
+    const view = await DriveSharingService.prepareOwnerShare(
+      "vault",
+      { recipientPersonRef: personRef, clientRequestId, query: "Chris recordings", timeZone: "Asia/Kolkata" },
+      guard,
+    );
+    expect(view).toMatchObject({ status: "ready", recipientName: "Bo", files: [{ ref: "f1" }] });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/owner-shares");
+    expect(JSON.parse(options.body)).toEqual({
+      recipientPersonRef: personRef,
+      clientRequestId,
+      query: "Chris recordings",
+      timeZone: "Asia/Kolkata",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "shared", recipientName: "Bo", shareRequestId: documentId,
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.shareOwnerFiles("vault", requestId, ["f1"], guard),
+    ).resolves.toMatchObject({ status: "shared", shareRequestId: documentId });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      `/api/connectors/google_drive/sharing/owner-shares/${requestId}/share`,
+    );
+    for (const refs of [[], ["f9"], ["f1", "f1"], ["1AbCdEfGhIjKlMnOpQrStUvWxYz012345"]]) {
+      await expect(
+        DriveSharingService.shareOwnerFiles("vault", requestId, refs, guard),
+      ).rejects.toThrow(DriveSharingError);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores only valid reserved selections and their terminal expiry", async () => {
+    const raw = {
+      requestId, status: "ready", recipientName: "Bo", shareRequestId: null,
+      files: [{ ref: "f1", name: "Notes", modifiedTime: null }],
+      selectedFileRefs: ["f1"], selectionExpired: true,
+    };
+    fetcher.mockResolvedValueOnce(reply(raw));
+    const draft = { recipientPersonRef: requestId, clientRequestId: documentId, query: "Notes" };
+    await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+      .resolves.toMatchObject({ selectedFileRefs: ["f1"], selectionExpired: true });
+    for (const invalid of [
+      { selectedFileRefs: [] }, { selectedFileRefs: ["f2"] },
+      { selectedFileRefs: ["f1", "f1"] }, { selectedFileRefs: null },
+      { selectionExpired: "true" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...raw, ...invalid }));
+      await expect(DriveSharingService.prepareOwnerShare("vault", draft, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("keeps a no-match search empty and refuses a found file carrying a Drive id", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId: null, status: "no_match", files: [], message: "Which file do you mean?" }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).resolves.toEqual({
+      requestId: null,
+      status: "no_match",
+      recipientName: null,
+      files: [],
+      shareRequestId: null,
+      message: "Which file do you mean?",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "ready", files: [{ ref: "fileid", name: "x", modifiedTime: null }] }),
+    );
+    await expect(
+      DriveSharingService.prepareOwnerShare(
+        "vault",
+        { recipientPersonRef: requestId, clientRequestId: documentId, query: "x" },
+        guard,
+      ),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
+  it("searches for the Trusted circle and parses who can and cannot receive", async () => {
+    const clientRequestId = "44444444-4444-4444-8444-444444444444";
+    fetcher.mockResolvedValueOnce(
+      reply({
+        status: "ready",
+        files: [{ ref: "f1", name: "Chris onboarding.mp4", modifiedTime: null }],
+        recipients: [{ requestId, name: "Bo", status: "ready", shareRequestId: null }],
+        excluded: [{ name: "Cy", reason: "contacts" }, { name: null, reason: "not_connected" }],
+        message: null,
+      }),
+    );
+    const view = await DriveSharingService.prepareTrustedShare(
+      "vault",
+      { clientRequestId, query: "Chris recordings" },
+      guard,
+    );
+    expect(view.recipients).toEqual([
+      { requestId, name: "Bo", status: "ready", shareRequestId: null, selectedFileRefs: null, selectionExpired: false },
+    ]);
+    expect(view.excluded.map((item) => item.reason)).toEqual(["contacts", "not_connected"]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      audience: "trusted_circle",
+      clientRequestId,
+      query: "Chris recordings",
+    });
+    fetcher.mockResolvedValueOnce(
+      reply({ status: "ready", files: [], recipients: [], excluded: [{ name: "x", reason: "because" }] }),
+    );
+    await expect(
+      DriveSharingService.prepareTrustedShare("vault", { clientRequestId, query: "x" }, guard),
+    ).rejects.toThrow(DriveSharingError);
+  });
+
+  it("never grants decisions or owner errors to the person who asked", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ canDecide: true, lastError: "reconnect_required" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).resolves.toMatchObject({ canDecide: false, lastError: null });
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ direction: "incoming", status: "denied", canDecide: true, decidedAt: "2026-09-24T10:05:00Z" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).resolves.toMatchObject({ canDecide: false });
+  });
+
+  it("rejects a view for a different question and surfaces only the error code", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ requestId: "55555555-5555-4555-8555-555555555555" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(
+      reply({ detail: { code: "reconnect_required", message: "private detail" } }, 409),
+    );
+    await expect(
+      DriveSharingService.allowQuery("owner", requestId, 1, guard),
+    ).rejects.toMatchObject({ code: "reconnect_required", status: 409 });
+  });
+
+  it("recognizes Drive questions separately from document requests", () => {
+    const entry = {
+      id: `drive_query_request:${requestId}`,
+      request_id: requestId,
+      action: "DRIVE_QUERY_REVIEW",
+      metadata: { request_source: "drive_live_query_request" },
+    } as unknown as ConsentCenterEntry;
+    expect(isDriveQueryEntry(entry)).toBe(true);
+    expect(isDriveSharingEntry(entry)).toBe(true);
+    expect(driveSharingSelectionId(entry)).toBe(entry.id);
+    expect(driveQueryRequestId(entry.id)).toBe(requestId);
+    expect(driveQueryRequestId("drive_query_request:wrong")).toBeNull();
+    expect(isDriveQuerySelection("drive_query_request:wrong")).toBe(true);
+    expect(documentShareRequestId(entry.id)).toBeNull();
+    // A malformed row still fails closed by source or action alone.
+    expect(isDriveSharingEntry({ id: "x", action: "DRIVE_QUERY_REVIEW" } as ConsentCenterEntry)).toBe(true);
+    expect(isDriveSharingEntry({ id: "x", action: "REQUESTED", metadata: { request_source: "drive_live_query_request" } } as unknown as ConsentCenterEntry)).toBe(true);
+    expect(isDriveSharingEntry({ id: "x", action: "REQUESTED" } as ConsentCenterEntry)).toBe(false);
+  });
+});
+
+describe("streamed preparation", () => {
+  beforeEach(() => vi.resetAllMocks());
+  const encoder = new TextEncoder();
+  const frame = (event: string, payload: Record<string, unknown> = {}) =>
+    `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+  const streamOf = (chunks: string[], { hang = false } = {}) => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        if (!hang) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return {
+      response: new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+      cancelled: () => cancelled,
+    };
+  };
+  const run = (
+    onStage = vi.fn(),
+    signal?: AbortSignal,
+    check = guard,
+  ) =>
+    DriveSharingService.prepareStream("owner-a", requestId, check, {
+      onStage,
+      signal,
+    });
+
+  it("reports stages in order and returns the committed status", async () => {
+    const whole =
+      frame("stage", { stage: "starting" }) +
+      frame("heartbeat") +
+      frame("stage", { stage: "searching" }) +
+      frame("stage", { stage: "checking" }) +
+      frame("stage", { stage: "choosing" }) +
+      frame("complete", { status: "review_ready" });
+    // Frames split mid-line across reads are reassembled.
+    const chunks = [whole.slice(0, 17), whole.slice(17, 90), whole.slice(90)];
+    streamer.mockResolvedValueOnce(streamOf(chunks).response);
+    const onStage = vi.fn();
+    await expect(run(onStage)).resolves.toBe("review_ready");
+    expect(onStage.mock.calls.map(([stage]) => stage)).toEqual([
+      "starting",
+      "searching",
+      "checking",
+    ]);
+    const [path, init] = streamer.mock.calls[0];
+    expect(path).toBe(
+      `/api/connectors/google_drive/sharing/requests/${requestId}/prepare/stream`,
+    );
+    expect(init).toMatchObject({ method: "POST", cache: "no-store", body: "{}" });
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer owner-a",
+      Accept: "text/event-stream",
+    });
+  });
+
+  it("rejects an unknown stage, an unknown status and oversized frames", async () => {
+    for (const body of [
+      frame("stage", { stage: "reading-private-file.pdf" }),
+      frame("complete", { status: "shared" }),
+      frame("stage", { stage: "starting", pad: "x".repeat(2000) }),
+      `event: stage\ndata: {"event":"complete","status":"review_ready"}\n\n`,
+    ]) {
+      streamer.mockResolvedValueOnce(streamOf([body]).response);
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("surfaces only an allowlisted server code and never a client-internal one", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([
+        frame("error", { code: "reconnect_required", message: "<b>provider</b>" }),
+      ]).response,
+    );
+    const error = await run().catch((cause) => cause);
+    expect(error).toBeInstanceOf(DriveSharingError);
+    expect(error.code).toBe("reconnect_required");
+    expect(error.message).not.toContain("provider");
+    streamer.mockResolvedValueOnce(
+      streamOf([frame("error", { code: "bulk_changed", message: "private detail" })]).response,
+    );
+    await expect(run()).rejects.toMatchObject({ code: "bulk_changed" });
+    for (const code of ["session_changed", "request_failed", "made_up"]) {
+      streamer.mockResolvedValueOnce(
+        streamOf([frame("error", { code, message: "x" })]).response,
+      );
+      await expect(run()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("treats a stream that ends or breaks without a result as interrupted", async () => {
+    streamer.mockResolvedValueOnce(
+      streamOf([frame("stage", { stage: "starting" })]).response,
+    );
+    await expect(run()).resolves.toBe("interrupted");
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError("network"));
+      },
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(broken, { headers: { "content-type": "text/event-stream" } }),
+    );
+    await expect(run()).resolves.toBe("interrupted");
+  });
+
+  it("asks for the POST fallback only when this route cannot stream", async () => {
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockResolvedValueOnce(Response.json({ status: "review_ready" }));
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    streamer.mockRejectedValueOnce(
+      Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A busy stream route defers to the plain POST.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "sharing_unavailable", message: "x" },
+        }),
+        { status: 503 },
+      ),
+    );
+    await expect(run()).rejects.toBeInstanceOf(StreamUnavailable);
+    // A coded refusal is a real error, not a missing route.
+    streamer.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { code: "request_unavailable", message: "x" },
+        }),
+        { status: 404 },
+      ),
+    );
+    await expect(run()).rejects.toMatchObject({
+      code: "request_unavailable",
+      status: 404,
+    });
+    streamer.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Owner authorization required" }), {
+        status: 401,
+      }),
+    );
+    await expect(run()).rejects.toMatchObject({ code: "request_failed", status: 401 });
+  });
+
+  it("stops reading and cancels the stream once the session changes or the run is aborted", async () => {
+    const stream = streamOf([frame("stage", { stage: "starting" })], { hang: true });
+    streamer.mockResolvedValueOnce(stream.response);
+    let current = true;
+    const onStage = vi.fn(() => {
+      current = false;
+    });
+    const check = () => {
+      if (!current) throw new DriveSharingError("session_changed");
+    };
+    const controller = new AbortController();
+    const pending = run(onStage, controller.signal, check);
+    await vi.waitFor(() => expect(onStage).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    expect(stream.cancelled()).toBe(true);
+    expect(onStage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("requester terms and recovery transport", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("reads the sealed Google account and send time from newer context replies", async () => {
+    const purpose = { purpose: "Standup notes", periodStart: "2026-10-01", periodEnd: "2026-10-08" };
+    const terms = { recipientEmail: "b@gmail.test", requestedAt: "2026-10-09T10:00:00+00:00", timeZone: "Asia/Kolkata" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, ...terms }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard))
+      .toEqual({ requestId, purpose, ...terms });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, recipientEmail: "not an email" }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("keeps a delivery readable but drops a malformed recovery, so no action or refund is claimed", async () => {
+    const recovery = {
+      undeliveredCount: 1,
+      reasons: [{ reasonCode: "provider_unavailable", count: 1 }],
+      ownerRetry: { state: "available", retryableCount: 1, requestedAt: null },
+      refund: { state: "none", amountCents: null, grossCents: 1000, expectedFiles: null, confirmedFiles: null },
+    };
+    const price = { estimateCents: 1000, currentCents: 2500, finalCents: 2500, state: "final" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], recovery, price }));
+    const delivered = await DriveSharingService.delivery("vault", requestId, guard);
+    expect(delivered.recovery).toEqual(recovery);
+    expect(delivered.price).toEqual(price);
+    for (const broken of [
+      { ...recovery, refund: { ...recovery.refund, state: "refunded" } },
+      { ...recovery, ownerRetry: { ...recovery.ownerRetry, state: "soon" } },
+      { ...recovery, refund: { ...recovery.refund, amountCents: 50_001 } },
+      { ...recovery, reasons: [{ reasonCode: "<b>", count: 1 }] },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], recovery: broken }));
+      const result = await DriveSharingService.delivery("vault", requestId, guard);
+      expect(result.status).toBe("partial");
+      expect(result.recovery).toBeNull();
+    }
+    const notice = {
+      requestedAt: "2026-10-11T08:00:00Z", count: 1, unsharedCount: 1,
+      refund: { state: "succeeded", amountCents: 500 },
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], reviewRequest: notice }));
+    expect((await DriveSharingService.delivery("vault", requestId, guard)).reviewRequest).toEqual(notice);
+  });
+});
+
+
+describe("private owner request search diagnostics", () => {
+  beforeEach(() => vi.resetAllMocks());
+  it("accepts a not-yet-created search only as a successful JSON null", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(null));
+    expect(await DriveSharingService.requestSearchStatus("vault", requestId, guard)).toBeNull();
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/search`);
+    fetcher.mockResolvedValueOnce(Response.json(null, { status: 403 }));
+    await expect(DriveSharingService.requestSearchStatus("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(Response.json(null));
+    await expect(DriveSharingService.startRequestSearch("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+  });
+});

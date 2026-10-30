@@ -22,24 +22,44 @@ _AUTH_STATE_KEY = "hushh_a2a_authority"
 
 
 class _ConsentHeaderMiddleware(BaseHTTPMiddleware):
-    """Reject unauthenticated A2A writes before ADK's request handler."""
+    """Admit only fresh messages until task storage binds tasks to owners.
+
+    The SDK's default task store ignores caller context. Its tasks/get,
+    resubscribe, cancel, and continuation handlers can otherwise return or
+    alter another owner's task without entering our consent-gated executor.
+    """
+
+    @staticmethod
+    def _reject(status: int, code: int, message: str) -> JSONResponse:
+        return JSONResponse(
+            status_code=status,
+            content={
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": code, "message": message},
+            },
+        )
 
     async def dispatch(self, request: Any, call_next: Callable[..., Any]) -> Any:
-        if (
-            request.method == "POST"
-            and not str(request.headers.get("x-consent-token") or "").strip()
+        if request.method != "POST":
+            return await call_next(request)
+        if not str(request.headers.get("x-consent-token") or "").strip():
+            return self._reject(401, -32001, "CONSENT_REQUIRED: X-Consent-Token is required.")
+        try:
+            payload = await request.json()
+        except ValueError:
+            return self._reject(400, -32600, "Invalid A2A request.")
+        if not isinstance(payload, dict) or payload.get("method") not in {
+            "message/send",
+            "message/stream",
+        }:
+            return self._reject(403, -32003, "A2A task operations are unavailable.")
+        params = payload.get("params")
+        message = params.get("message") if isinstance(params, dict) else None
+        if not isinstance(message, dict) or any(
+            field in message for field in ("taskId", "contextId", "task_id", "context_id")
         ):
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": -32001,
-                        "message": "CONSENT_REQUIRED: X-Consent-Token is required.",
-                    },
-                },
-            )
+            return self._reject(403, -32003, "A2A task continuation is unavailable.")
         return await call_next(request)
 
 
@@ -185,11 +205,14 @@ def create_kai_official_a2a_app(*, host: str = "localhost", port: int = 8001) ->
         supports_authenticated_extended_card=False,
     )
     agent = get_kai_agent()
+    from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
     # ``kai`` is the ADK app identity inferred from the checked-in agent
     # directory. Supplying it explicitly avoids a mismatched inferred runner
     # identity and makes local transport behavior deterministic.
     runner = Runner(
         app_name="kai",
+        plugins=product_activity_plugins("agent_kai"),
         agent=agent,
         session_service=InMemorySessionService(),
         auto_create_session=True,

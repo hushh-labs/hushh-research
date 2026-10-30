@@ -1,23 +1,29 @@
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useSetupCapabilityCoordinator } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
 
 const mocks = vi.hoisted(() => ({
   cachedJourney: null as Record<string, unknown> | null,
+  ownerId: "user-1",
   bootstrapState: vi.fn(),
   syncOnboardingJourney: vi.fn(),
   replace: vi.fn(),
   requestNavigation: vi.fn(() => false),
   localActionHandler: vi.fn(),
+  syncSetupCapabilities: vi.fn(),
+  syncDeclinedCapabilities: vi.fn(),
+  sourceSettler: null as null | ((source: "plaid" | "statement" | "later", attempt?: string) => Promise<boolean>),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "user-1" }, loading: false }),
+  useAuth: () => ({ user: { uid: mocks.ownerId }, userId: mocks.ownerId, loading: false }),
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -28,8 +34,19 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
       journey?.setupCompleted === true,
     syncOnboardingJourney: (...args: unknown[]) =>
       mocks.syncOnboardingJourney(...args),
-    syncSetupCapabilities: vi.fn(),
+    syncSetupCapabilities: (...args: unknown[]) => mocks.syncSetupCapabilities(...args),
+    syncDeclinedCapabilities: (...args: unknown[]) => mocks.syncDeclinedCapabilities(...args),
     settleOnboardingCapability: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ vaultOwnerToken: "synthetic-owner-token" }),
+}));
+vi.mock("@/components/kai/kai-flow", () => ({
+  KaiFlow: ({ onSetupSourceSettled }: { onSetupSourceSettled: typeof mocks.sourceSettler }) => {
+    mocks.sourceSettler = onSetupSourceSettled;
+    return null;
   },
 }));
 
@@ -47,7 +64,7 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
     mocks.requestNavigation(...args),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 
@@ -61,6 +78,7 @@ function setupJourney(
   return {
     setupCompleted: false,
     setupCapabilityIds: [],
+    setupCapabilityDeclinedIds: [],
     onboardingPhase: "capability_setup",
     onboardingActiveCapability: "location",
     onboardingCallbackState: "none",
@@ -96,6 +114,7 @@ function expectTerminalActionsDisabled() {
 describe("setup coordinator completed Location entry", () => {
   beforeEach(() => {
     mocks.cachedJourney = null;
+    mocks.ownerId = "user-1";
     mocks.bootstrapState.mockReset();
     mocks.syncOnboardingJourney.mockReset();
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
@@ -103,9 +122,55 @@ describe("setup coordinator completed Location entry", () => {
     mocks.requestNavigation.mockReset();
     mocks.requestNavigation.mockReturnValue(false);
     mocks.localActionHandler.mockReset();
+    mocks.syncSetupCapabilities.mockReset().mockResolvedValue(undefined);
+    mocks.syncDeclinedCapabilities.mockReset().mockResolvedValue(undefined);
+    mocks.sourceSettler = null;
+    window.history.replaceState(null, "", "/");
   });
 
   afterEach(cleanup);
+
+  it.each([
+    { cached: true, setupCompleted: false, completed: false, expected: true },
+    { cached: false, setupCompleted: false, completed: false, expected: true },
+    { cached: true, setupCompleted: false, completed: true, expected: false },
+    { cached: false, setupCompleted: false, completed: true, expected: false },
+    { cached: true, setupCompleted: true, completed: false, expected: false },
+    { cached: false, setupCompleted: true, completed: false, expected: false },
+  ])("uses durable Calendar setup state for first-time presentation: %j", async ({ cached, setupCompleted, completed, expected }) => {
+    const journey = setupJourney({ setupCompleted, setupCapabilityIds: completed ? ["calendar"] : [], onboardingActiveCapability: "calendar" });
+    mocks.cachedJourney = cached ? journey : null;
+    mocks.bootstrapState.mockResolvedValue(journey);
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "calendar", isOperationallyReady: false,
+      finishActionId: "setup.finish_calendar", skipActionId: "setup.skip_calendar",
+    }));
+    if (!cached) expect(result.current.isInitialSetup).toBe(false);
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.isInitialSetup).toBe(expected);
+    // Calendar's existing entry/terminal route policy is unchanged.
+    expect(result.current.isAlreadyComplete).toBe(false);
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("does not transfer first-time eligibility to another owner or accept a late bootstrap", async () => {
+    let resolveOld!: (value: unknown) => void;
+    let resolveNew!: (value: unknown) => void;
+    mocks.bootstrapState.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
+    const { result, rerender } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "calendar", isOperationallyReady: false,
+      finishActionId: "setup.finish_calendar", skipActionId: "setup.skip_calendar",
+    }));
+    expect(result.current.isInitialSetup).toBe(false);
+    mocks.ownerId = "user-2";
+    rerender();
+    await act(async () => resolveOld(setupJourney({ onboardingActiveCapability: "calendar" })));
+    expect(result.current.isInitialSetup).toBe(false);
+    await act(async () => resolveNew(setupJourney({ setupCapabilityIds: ["calendar"], onboardingActiveCapability: "calendar" })));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.isInitialSetup).toBe(false);
+  });
 
   it("acknowledges cached completion without reclaiming the onboarding journey", async () => {
     mocks.cachedJourney = setupJourney({
@@ -173,5 +238,56 @@ describe("setup coordinator completed Location entry", () => {
         activeCapability: "location",
       }),
     );
+  });
+
+  it.each(["finish", "skip"] as const)("retains the Finance invitation until durable %s succeeds", async (kind) => {
+    const invite = "/circle/join?code=23456789ABCD";
+    mocks.cachedJourney = setupJourney({ setupCompleted: true, onboardingActiveCapability: null });
+    mocks.bootstrapState.mockResolvedValue(mocks.cachedJourney);
+    let complete!: () => void;
+    const persist = kind === "finish" ? mocks.syncSetupCapabilities : mocks.syncDeclinedCapabilities;
+    persist.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "finance", isOperationallyReady: true,
+      finishActionId: "setup.finish_finance", skipActionId: "setup.skip_finance", returnTo: invite,
+    }));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    let settling!: ReturnType<typeof result.current.finish>;
+    act(() => { settling = result.current[kind](); });
+    await waitFor(() => expect(persist).toHaveBeenCalledOnce());
+    expect(mocks.requestNavigation).not.toHaveBeenCalled();
+    await act(async () => { complete(); await settling; });
+    expect(mocks.requestNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: invite }));
+    expect((await settling).routeAfter).toBe(invite);
+  });
+
+  it.each(["statement", "plaid", "later"] as const)("keeps a deferred %s source on its explicit Finance terminal without reviving the old journey", async (source) => {
+    const invite = "/circle/join?invite=opaque_token";
+    window.history.replaceState(null, "", "/one/setup/finance/import?return_to=" + encodeURIComponent(invite));
+    mocks.cachedJourney = setupJourney({ setupCompleted: true, onboardingActiveCapability: null });
+    mocks.bootstrapState.mockResolvedValue(mocks.cachedJourney);
+    render(<FinanceImportOnboardingSetupClient />);
+    await waitFor(() => expect(mocks.sourceSettler).not.toBeNull());
+    await act(async () => { expect(await mocks.sourceSettler?.(source)).toBe(true); });
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+    expect(mocks.requestNavigation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Finish Finance setup" }));
+    await waitFor(() => expect(mocks.requestNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: invite })));
+    expect(mocks.syncSetupCapabilities).toHaveBeenCalledWith("user-1", ["finance"]);
+  });
+
+  it("does not leave Finance for the invitation when durable completion fails", async () => {
+    mocks.cachedJourney = setupJourney({ setupCompleted: true, onboardingActiveCapability: null });
+    mocks.bootstrapState.mockResolvedValue(mocks.cachedJourney);
+    mocks.syncSetupCapabilities.mockRejectedValue(new Error("synthetic save failure"));
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "finance", isOperationallyReady: true,
+      finishActionId: "setup.finish_finance", skipActionId: "setup.skip_finance",
+      returnTo: "/circle/join?invite=opaque_token",
+    }));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    await act(async () => { expect((await result.current.finish()).status).toBe("failed"); });
+    expect(mocks.requestNavigation).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 });

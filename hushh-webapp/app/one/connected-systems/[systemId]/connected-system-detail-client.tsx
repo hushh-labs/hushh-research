@@ -28,8 +28,8 @@ export function ConnectedSystemDetailClient({
   systemId: string;
   routeId?: "/one/connected-systems" | "/one/connected-systems/[systemId]";
 }) {
-  const { user, phoneNumber } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { user, userId, phoneNumber } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
   const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
@@ -68,6 +68,7 @@ export function ConnectedSystemDetailClient({
     <AppPageShell
       as="main"
       width="reading"
+      headerContentSpacing="compact"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId,
@@ -95,8 +96,7 @@ export function ConnectedSystemDetailClient({
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
-          cacheUserId={user?.uid}
-          vaultKey={vaultKey}
+          cacheUserId={userId}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
@@ -117,7 +117,7 @@ export function ConnectedSystemDetailClient({
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Unlock vault"
-          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
+          description="Unlock to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

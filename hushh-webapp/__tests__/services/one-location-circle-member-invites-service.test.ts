@@ -23,11 +23,60 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { OneLocationService } from "@/lib/one-location/service";
+import { customCircleTypeGroups } from "@/lib/one-location/circle-types";
+import type { OneLocationCircleDetail } from "@/lib/one-location/types";
+import type { CircleManagementAction } from "@/lib/one-location/command-circle-management";
 
 describe("OneLocationService Circle member invitations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockResolvedValue({});
+  });
+
+  it("keeps a new custom type through the create payload, response and refreshed list", async () => {
+    const stored: OneLocationCircleDetail[] = [];
+    mockApiJson.mockImplementation(async (path: string, options?: RequestInit) => {
+      expect(path).toBe("/api/one/location/circles");
+      if (options?.method === "POST") {
+        const draft = JSON.parse(String(options.body));
+        expect(draft).toEqual({ name: expect.any(String), kind: "other", customTypeLabel: "Finance" });
+        const circle = { ...draft, id: String(stored.length), role: "owner", memberCount: 1, memberLimit: 20, members: [] };
+        stored.push(circle);
+        return { circle: structuredClone(circle) };
+      }
+      return { circles: structuredClone(stored), customTypePolicy: { version: 1, maxTypes: 3 } };
+    });
+    for (const name of ["Investments", "Tax records"]) {
+      const created = await OneLocationService.createNamedCircle({ vaultOwnerToken: "fixture", name, kind: "other", customTypeLabel: "Finance" });
+      expect(created.name).toBe(name);
+      expect(created.customTypeLabel).toBe("Finance");
+    }
+    const workspace = await OneLocationService.listCircleWorkspace("fixture");
+    const groups = customCircleTypeGroups(workspace.circles);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("Finance");
+    expect(groups[0].circles.map(circle => circle.name)).toEqual(["Investments", "Tax records"]);
+  });
+
+  it.each<[CircleManagementAction, string, string]>([
+    ["location.rename_circle", "/circles/circle-1", "PATCH"],
+    ["location.delete_circle", "/circles/circle-1", "DELETE"],
+    ["location.leave_circle", "/circles/circle-1/members/me", "DELETE"],
+    ["location.remove_from_circle", "/circles/circle-1/members/friend-1", "DELETE"],
+    ["location.accept_circle_invite", "/circle-member-invites/invite-1/accept", "POST"],
+    ["location.decline_circle_invite", "/circle-member-invites/invite-1/decline", "POST"],
+  ])("carries stable command authority through the owning endpoint: %s", async (action, path, method) => {
+    const binding = { owner: "owner", action, circleId: "circle-1", circleName: "Goa", memberId: "friend-1", inviteId: "invite-1", newName: "Goa trip" };
+    const receipt = { operation_id: "ab".repeat(32), action_id: action, circle_id: "circle-1", result: "fixture" };
+    mockApiJson.mockResolvedValueOnce({ operationReceipt: receipt });
+    expect(await OneLocationService.executeCircleManagementCommand({ vaultOwnerToken: "fixture", operationId: receipt.operation_id, binding })).toEqual(receipt);
+    expect(mockApiJson).toHaveBeenCalledWith(`/api/one/location${path}`, {
+      method, headers: { Authorization: "Bearer fixture", "Content-Type": "application/json" },
+      body: JSON.stringify({ commandOperationId: receipt.operation_id, commandBinding: binding, ...(method === "PATCH" ? { name: "Goa trip" } : {}) }),
+    });
+    mockApiJson.mockClear().mockRejectedValueOnce(new Error("lost response"));
+    await expect(OneLocationService.executeCircleManagementCommand({ vaultOwnerToken: "fixture", operationId: receipt.operation_id, binding })).rejects.toThrow("lost response");
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
   });
 
   it("loads eligible direct connections and outgoing pending invitations", async () => {
@@ -39,6 +88,13 @@ describe("OneLocationService Circle member invitations", () => {
           displayName: "Asha",
           photoUrl: null,
           connectedAt: "2026-07-24T00:00:00Z",
+          isRia: true,
+        },
+        {
+          connectionId: "connection-2",
+          userId: "friend-2",
+          displayName: "Neel",
+          photoUrl: null,
         },
       ],
       pendingInvites: [],
@@ -56,6 +112,8 @@ describe("OneLocationService Circle member invitations", () => {
       { headers: { Authorization: "Bearer vault-token" } },
     );
     expect(result.eligibleConnections[0]?.userId).toBe("friend-1");
+    expect(result.eligibleConnections[0]?.isRia).toBe(true);
+    expect(result.eligibleConnections[1]?.isRia).toBe(false);
     expect(result.remainingCapacity).toBe(3);
   });
 
@@ -130,4 +188,38 @@ describe("OneLocationService Circle member invitations", () => {
       "/api/one/location/circle-member-invites/invite-3",
     ]);
   });
+  it("reports who actually went into the Circle", async () => {
+    // The route is called circle-member-invites and returns `invites: []`
+    // unconditionally -- it adds outright now, and names the people it added in
+    // `added`. Reading only `invites` meant this returned an empty array from a
+    // call that had just added two people.
+    mockApiJson.mockResolvedValueOnce({
+      invites: [],
+      added: ["friend-1", "friend-2"],
+    });
+
+    const added = await OneLocationService.createNamedCircleMemberInvites({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      inviteeUserIds: ["friend-1", "friend-2"],
+    });
+
+    expect(added).toEqual(["friend-1", "friend-2"]);
+  });
+
+  it("still answers a server that predates the added array", async () => {
+    // A native build can outlive a backend deploy in either direction.
+    mockApiJson.mockResolvedValueOnce({
+      invites: [{ id: "invite-1", inviteeUserId: "friend-1" }],
+    });
+
+    const added = await OneLocationService.createNamedCircleMemberInvites({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      inviteeUserIds: ["friend-1"],
+    });
+
+    expect(added).toEqual(["friend-1"]);
+  });
+
 });

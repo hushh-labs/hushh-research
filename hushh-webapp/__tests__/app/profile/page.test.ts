@@ -205,11 +205,11 @@ describe("sanitizeGmailUserMessage", () => {
         "DB operation failed [<raw_sql>.execute_raw]: (psycopg2.OperationalError) server closed the connection unexpectedly",
         {
           fallback:
-            "Something went wrong while syncing your emails. Please try again in a moment.",
+            "Something went wrong while syncing your mail messages. Please try again in a moment.",
         },
       ),
     ).toBe(
-      "Something went wrong while syncing your emails. Please try again in a moment.",
+      "Something went wrong while syncing your mail messages. Please try again in a moment.",
     );
   });
 
@@ -217,24 +217,33 @@ describe("sanitizeGmailUserMessage", () => {
     expect(
       sanitizeGmailUserMessage("fetch failed: connection refused", {
         fallback:
-          "Something went wrong while syncing your emails. Please try again in a moment.",
+          "Something went wrong while syncing your mail messages. Please try again in a moment.",
       }),
     ).toBe(
-      "Something went wrong while syncing your emails. Please try again in a moment.",
+      "Something went wrong while syncing your mail messages. Please try again in a moment.",
     );
   });
 });
 
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
-    expect(resolveGmailStatusSummary({ status: null }).detail).toContain(
-      "Receipt emails capture purchase interactions.",
+    expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
+      "Syncs receipts into a private shopping summary.",
+    );
+  });
+
+  it("does not repeat the call to action already carried by the title and button", () => {
+    // The card states "Gmail not connected" above this line and offers a
+    // "Connect Gmail" button below it, so a third "Connect Gmail to start."
+    // in the body was the same instruction a third time.
+    expect(resolveGmailStatusSummary({ status: null }).detail).not.toContain(
+      "Connect Gmail to start.",
     );
   });
 
   it("uses only available scan counts when explaining receipt progress", () => {
     expect(describeGmailReceiptScanProgress({ scanned: 12, matched: 3 })).toBe(
-      "12 emails checked. 3 receipts matched so far. Receipt-based purchase interactions help One understand the brands you care about.",
+      "12 mail messages checked. 3 receipts matched.",
     );
   });
 
@@ -260,6 +269,43 @@ describe("resolveGmailStatusSummary", () => {
     });
   });
 
+  it("keeps saved receipts healthy after an interrupted background worker", () => {
+    expect(
+      resolveGmailStatusSummary({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "failed",
+          last_sync_error:
+            "Gmail sync worker stopped before reporting a final status.",
+          last_sync_at: "2026-04-03T10:00:00.000Z",
+          auto_sync_enabled: true,
+          revoked: false,
+          latest_run: {
+            run_id: "run_interrupted",
+            user_id: "user_123",
+            trigger_source: "auto_reconcile",
+            status: "failed",
+            listed_count: 0,
+            filtered_count: 0,
+            synced_count: 0,
+            extracted_count: 0,
+            duplicates_dropped: 0,
+            extraction_success_rate: 0,
+            error_message:
+              "Gmail sync worker stopped before reporting a final status.",
+          },
+        },
+      }),
+    ).toMatchObject({
+      tone: "success",
+      title: "Receipts are up to date",
+    });
+  });
+
   it("formats last updated labels directly from raw timestamps", () => {
     const label = resolveGmailLastUpdatedLabel({
       configured: true,
@@ -274,5 +320,55 @@ describe("resolveGmailStatusSummary", () => {
     });
 
     expect(label).toMatch(/^Last updated /);
+  });
+});
+
+
+describe("receipt run status precedence", () => {
+  const status = {
+    configured: true,
+    connected: true,
+    status: "connected" as const,
+    scope_csv: "gmail.readonly",
+    last_sync_status: "running",
+    auto_sync_enabled: true,
+    revoked: false,
+  };
+
+  it.each(["completed", "failed", "canceled"] as const)(
+    "stops presenting an active sync after the run is %s despite stale aggregate status",
+    (runStatus) => {
+      const presentation = resolveGmailConnectionPresentation({
+        status: {
+          ...status,
+          latest_run: {
+            run_id: "settled-run", user_id: "owner", trigger_source: "manual",
+            status: runStatus, listed_count: 1, filtered_count: 1,
+            synced_count: 1, extracted_count: 1, duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        },
+      });
+      expect(presentation.state).not.toBe("syncing");
+      expect(presentation.state).not.toBe("connected_backfill_running");
+      expect(presentation.state).not.toBe("connected_initial_scan_running");
+    },
+  );
+
+  it.each(["queued", "running"] as const)("keeps %s runs active", (runStatus) => {
+    expect(resolveGmailConnectionPresentation({status: {
+      ...status,
+      last_sync_status: "completed",
+      latest_run: {
+        run_id: "active-run", user_id: "owner", trigger_source: "manual",
+        status: runStatus, listed_count: 0, filtered_count: 0,
+        synced_count: 0, extracted_count: 0, duplicates_dropped: 0,
+        extraction_success_rate: 0,
+      },
+    }}).state).toBe("syncing");
+  });
+
+  it.each(["queued", "running"])("uses aggregate %s only before a run is available", (last_sync_status) => {
+    expect(resolveGmailConnectionPresentation({status: {...status, last_sync_status}}).state).toBe("syncing");
   });
 });

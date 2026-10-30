@@ -1,0 +1,12 @@
+BEGIN;
+DELETE FROM feed_events WHERE id IN (SELECT feed_event_id FROM circle_chat_recipients);
+DROP TRIGGER IF EXISTS circle_chat_circle_deleted ON one_location_circles;
+DROP FUNCTION IF EXISTS circle_chat_circle_deleted();
+DROP TRIGGER IF EXISTS circle_chat_recipient_deleted ON circle_chat_recipients;
+DROP FUNCTION IF EXISTS circle_chat_recipient_deleted();
+DROP TRIGGER IF EXISTS circle_chat_membership_ended ON one_location_circle_memberships;
+DROP FUNCTION IF EXISTS circle_chat_membership_ended();
+DROP TABLE IF EXISTS circle_chat_preferences;
+DROP TABLE IF EXISTS circle_chat_recipients;
+DROP TABLE IF EXISTS circle_chat_messages;
+COMMIT;

@@ -242,6 +242,30 @@ CREATE INDEX IF NOT EXISTS idx_kai_gmail_connections_last_sync
 CREATE INDEX IF NOT EXISTS idx_kai_gmail_connections_watch_expiration
     ON kai_gmail_connections(watch_expiration_at DESC);
 
+CREATE TABLE IF NOT EXISTS gmail_owner_send_actions (
+    action_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES vault_keys(user_id) ON DELETE CASCADE,
+    envelope_hmac TEXT NOT NULL,
+    idempotency_hmac TEXT NOT NULL,
+    recipient_count INTEGER NOT NULL CHECK (recipient_count BETWEEN 1 AND 50),
+    state TEXT NOT NULL CHECK (state IN (
+        'prepared', 'sending', 'sent', 'failed', 'outcome_unknown', 'expired'
+    )),
+    expires_at TIMESTAMPTZ NOT NULL,
+    sending_at TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
+    gmail_message_id TEXT,
+    gmail_thread_id TEXT,
+    safe_error_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, idempotency_hmac)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gmail_owner_send_actions_expiry
+    ON gmail_owner_send_actions (expires_at)
+    WHERE state = 'prepared';
+
 CREATE TABLE IF NOT EXISTS kai_gmail_sync_runs (
     run_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES vault_keys(user_id) ON DELETE CASCADE,

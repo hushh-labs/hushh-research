@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +26,20 @@ _PLAID_BASE_URLS = {
 _TX_HISTORY_DAYS_DEFAULT = 730
 _DEFAULT_COUNTRY_CODES = ["US"]
 _DEFAULT_LANGUAGE = "en"
-_DEFAULT_CLIENT_NAME = "Hussh Kai"
+_DEFAULT_CLIENT_NAME = "Agent One"
 _DEFAULT_MANUAL_ENTRY_ENABLED = False
 _DEFAULT_CRYPTO_WALLET_ENABLED = False
 _DEFAULT_REDIRECT_PATH = "/one/kai/plaid/oauth/return"
 _LEGACY_REDIRECT_PATH = "/kai/plaid/oauth/return"
 _DEFAULT_WEBHOOK_PATH = "/api/kai/plaid/webhook"
+# Plaid's Android SDK identifies the app by package name instead of an OAuth
+# redirect URI: `/link/token/create` must carry `android_package_name` and must
+# not carry `redirect_uri`. The value is the Android application id (public,
+# not a secret) and must also be allowlisted in the Plaid Dashboard.
+_DEFAULT_ANDROID_PACKAGE_NAME = "com.hussh.app"
+_ANDROID_PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
+
+PlaidLinkPlatform = Literal["web", "ios", "android"]
 
 
 def _clean_text(value: Any, *, default: str = "") -> str:
@@ -37,6 +47,12 @@ def _clean_text(value: Any, *, default: str = "") -> str:
         return default
     text = value.strip()
     return text or default
+
+
+def _normalize_client_name(value: Any) -> str:
+    # Older deployments still supply the former public brand as an override.
+    name = _clean_text(value, default=_DEFAULT_CLIENT_NAME)
+    return _DEFAULT_CLIENT_NAME if name.casefold() in {"hushh kai", "hussh kai"} else name
 
 
 def _to_bool(value: Any, *, default: bool = False) -> bool:
@@ -65,6 +81,30 @@ def _normalize_redirect_uri(value: str | None) -> str | None:
         return None
     path = parsed.path or "/"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def normalize_link_platform(value: Any) -> PlaidLinkPlatform:
+    """Map a client-reported Link runtime to a known platform, defaulting to web.
+
+    Clients that predate the field send nothing and keep today's web/iOS
+    behaviour (redirect URI, no package name).
+    """
+    text = _clean_text(value).lower()
+    if text == "android":
+        return "android"
+    if text == "ios":
+        return "ios"
+    return "web"
+
+
+def _normalize_android_package_name(value: str | None) -> str:
+    raw = _clean_text(value)
+    if not raw:
+        return _DEFAULT_ANDROID_PACKAGE_NAME
+    if not _ANDROID_PACKAGE_NAME_PATTERN.match(raw):
+        logger.warning("plaid.android_package_name_invalid_ignored raw_value=%s", raw)
+        return _DEFAULT_ANDROID_PACKAGE_NAME
+    return raw
 
 
 def _normalize_webhook_url(value: str | None) -> str | None:
@@ -98,6 +138,7 @@ class PlaidRuntimeConfig:
     tx_history_days: int
     manual_entry_enabled: bool
     crypto_wallet_enabled: bool
+    android_package_name: str = _DEFAULT_ANDROID_PACKAGE_NAME
 
     @property
     def configured(self) -> bool:
@@ -202,10 +243,7 @@ class PlaidRuntimeConfig:
             secret=secret,
             country_codes=country_codes or list(_DEFAULT_COUNTRY_CODES),
             language=_clean_text(os.getenv("PLAID_LANGUAGE"), default=_DEFAULT_LANGUAGE),
-            client_name=_clean_text(
-                os.getenv("PLAID_CLIENT_NAME"),
-                default=_DEFAULT_CLIENT_NAME,
-            ),
+            client_name=_normalize_client_name(os.getenv("PLAID_CLIENT_NAME")),
             webhook_url=webhook_url,
             frontend_url=frontend_url,
             redirect_path=redirect_path,
@@ -218,6 +256,9 @@ class PlaidRuntimeConfig:
             crypto_wallet_enabled=_to_bool(
                 os.getenv("PLAID_INVESTMENTS_CRYPTO_WALLET_ENABLED"),
                 default=_DEFAULT_CRYPTO_WALLET_ENABLED,
+            ),
+            android_package_name=_normalize_android_package_name(
+                os.getenv("PLAID_ANDROID_PACKAGE_NAME")
             ),
         )
 
@@ -250,14 +291,35 @@ class PlaidRuntimeConfig:
         allowed = _normalize_redirect_uri(default_redirect_uri)
         if allowed is None:
             raise RuntimeError("Plaid redirect URI requires a configured frontend origin.")
-        allowed_parts = urlsplit(allowed)
-        if (
-            requested_parts.scheme != allowed_parts.scheme
-            or requested_parts.netloc != allowed_parts.netloc
-        ):
+        allowed_callback = urlunsplit((*urlsplit(allowed)[:2], requested_parts.path, "", ""))
+        if requested not in allowed_oauth_callback_uris(allowed_callback):
             raise RuntimeError("Plaid redirect URI does not match the configured frontend origin.")
 
         return requested
+
+    def apply_link_platform(
+        self,
+        payload: dict[str, Any],
+        *,
+        platform: Any,
+        requested_redirect_uri: str | None,
+    ) -> str | None:
+        """Set the platform-specific `/link/token/create` fields on ``payload``.
+
+        Android (Plaid's native SDK) gets ``android_package_name`` and never a
+        ``redirect_uri``; Plaid rejects the pair, and the SDK owns the OAuth
+        return itself. Web and iOS resolve the redirect URI exactly as before.
+        Returns the redirect URI actually sent, which is ``None`` on Android,
+        so no OAuth resume session is minted for it.
+        """
+        if normalize_link_platform(platform) == "android":
+            payload.pop("redirect_uri", None)
+            payload["android_package_name"] = self.android_package_name
+            return None
+        resolved_redirect_uri = self.resolve_redirect_uri(requested_redirect_uri)
+        if resolved_redirect_uri:
+            payload["redirect_uri"] = resolved_redirect_uri
+        return resolved_redirect_uri
 
 
 def local_plaid_environment_choices() -> list[str]:

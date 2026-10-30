@@ -1,3 +1,5 @@
+import { withQuery } from "./route-query";
+
 /**
  * Central route contract for the web + Capacitor app.
  * Keep every app-level navigation target here to avoid drift.
@@ -5,30 +7,19 @@
 
 export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids";
 
+/** Presentation-only guest entry. It grants no connection or Circle access. */
+export const INVITE_TO_ONE_PATH = "/?invite=one";
+
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
+/** Canonical thread route for private, connection-gated 1:1 messages. */
+export const DIRECT_MESSAGES_PATH = "/one/messages";
+/** Browser-only Firebase handoff; never part of signed-in app navigation. */
+export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
-  "holdings" | "allocation" | "performance" | "sources";
-
-function withQuery(
-  pathname: string,
-  entries: Record<string, string | null | undefined>,
-) {
-  const [basePath = pathname, existingQuery = ""] = pathname.split("?", 2);
-  const params = new URLSearchParams(existingQuery);
-
-  for (const [key, value] of Object.entries(entries)) {
-    const normalized = String(value ?? "").trim();
-    if (normalized) {
-      params.set(key, normalized);
-    }
-  }
-
-  const query = params.toString();
-  return query ? `${basePath}?${query}` : basePath;
-}
+  "holdings" | "allocation" | "performance" | "sources" | "analysis";
 
 /** Build every canonical Finance workspace URL from one path and explicit tab. */
 export function buildKaiMarketRoute(
@@ -37,6 +28,13 @@ export function buildKaiMarketRoute(
 ) {
   const { tab: _ignoredTab, ...safeEntries } = entries;
   return withQuery(KAI_MARKET_PATH, { tab, ...safeEntries });
+}
+
+/** Retain the Finance screen that opened the statement import flow. */
+export function buildKaiImportRoute(from: string) {
+  return withQuery(ROUTES.KAI_IMPORT, {
+    from: normalizeInternalRouteHref(from),
+  });
 }
 
 export function buildKaiPortfolioSectionRoute(
@@ -53,40 +51,101 @@ export function isKaiMarketPathname(value: string | null | undefined): boolean {
   return financeRoutePathname(value) === KAI_MARKET_PATH;
 }
 
+export function buildPersonProfileRoute(
+  personRef: string,
+  entries?: { from?: string | null },
+): string {
+  const normalized = String(personRef || "").trim();
+  if (!normalized) throw new Error("A public person reference is required.");
+  return withQuery(`/people/${encodeURIComponent(normalized)}`, {
+    from: normalizeInternalRouteHref(entries?.from),
+  });
+}
+
+/**
+ * Opens a private 1:1 conversation without exposing an internal user id in
+ * the URL. A person reference starts a draft conversation; a conversation id
+ * reopens an existing thread for the authenticated person.
+ */
+export function buildDirectMessageRoute(entries?: {
+  personRef?: string | null;
+  conversationId?: string | null;
+}): string {
+  const conversationId = String(entries?.conversationId ?? "").trim();
+  if (conversationId) {
+    return withQuery(DIRECT_MESSAGES_PATH, { conversation: conversationId });
+  }
+
+  const personRef = String(entries?.personRef ?? "").trim();
+  return withQuery(DIRECT_MESSAGES_PATH, { person: personRef });
+}
+
+export function resolvePersonRefFromProfilePathname(
+  pathname: string | null | undefined,
+): string | null {
+  const match = String(pathname || "").match(/^\/people\/([^/?#]+)/);
+  const rawRef = match?.[1]?.trim();
+  if (!rawRef) return null;
+  try {
+    return decodeURIComponent(rawRef);
+  } catch {
+    return rawRef;
+  }
+}
+
 export const ROUTES = {
+  CALENDAR_RESCHEDULE: "/calendar/reschedule",
   HOME: "/",
-  /** Canonical public knowledge workspace; root remains anonymous onboarding. */
+  PERSON_PROFILE: "/people/[personRef]",
+  /** Canonical public knowledge workspace; root is dual-mode Chat/onboarding. */
   WELCOME: "/welcome",
   ONE_HOME: "/one",
   DEVELOPERS: "/developers",
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
+  DELETE_ACCOUNT: "/delete-account",
+  PRIVACY: "/privacy",
+  TERMS: "/terms",
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
   PROFILE: "/one/profile",
+  ONE_PROFILE_DISCOVERY: "/one/profile/discovery",
   PROFILE_REGULATORY: "/one/profile/regulatory",
+  PROFILE_HOSTING: "/one/profile/hosting",
+  PROFILE_SOFTWARE_UPDATES: "/one/profile/software-updates",
   PROFILE_ACCOUNT: "/one/profile/account",
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",
   PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
   PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
+  PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
+  PROFILE_PREFERENCES_VOICE_CHANGELOG:
+    "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_EXAMPLES:
+    "/one/profile/preferences/voice/examples",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
-  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
+  PROFILE_WORLD_MODEL: "/one/profile/world-model",
   PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_PAYOUTS: "/one/profile/payouts",
+  PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
   PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_CONNECTORS: "/one/profile/connectors",
+  PROFILE_CONNECTOR_OAUTH_RETURN: "/one/profile/connectors/oauth/return",
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_REFERRALS: "/one/profile/referrals",
   PROFILE_SUPPORT: "/one/profile/support",
   PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
   PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",
@@ -99,6 +158,7 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
+  ONE_WELCOME: "/one/welcome",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
@@ -108,13 +168,26 @@ export const ROUTES = {
   ONE_SETUP_EMAIL: "/one/setup/email",
   ONE_SETUP_RIA: "/one/setup/ria",
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
+  ONE_SETUP_CLOUD: "/one/setup/cloud",
+  ONE_SETUP_CLOUD_AZURE_RETURN: "/one/setup/cloud/azure/return",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
+  EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
+  PKM_RECENT: "/one/pkm/recent",
+  PKM_LOCATION: "/one/pkm/location",
+  PKM_LOCATION_DETAIL: "/one/pkm/location/detail",
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
+  ONE_WALLET: "/one/wallet",
+  /** Anonymous, local-only reader for password-encrypted payment-card files. */
+  WALLET_CARD_OPEN: "/wallet/open",
+  /** Puppy One: the agent running on the owner's own machine. */
+  ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -122,13 +195,24 @@ export const ROUTES = {
   ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
+  /** Compatibility alias retained for the owner-pod legacy surface. */
   AGENT: "/agent",
+  /** Compatibility-only inbound path; the active chat surface is `/`. */
+  LEGACY_AGENT: "/agent",
+  /** Private 1:1 message route. Direct messaging remains separate from One agent chat. */
+  ONE_MESSAGES: "/one/messages",
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
-  ONE_KYC: "/one/kyc",
+  /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
+  ONE_KYC: "/one/email",
+  ONE_FILES: "/one/files",
+  ONE_DOCUMENTS_OPEN: "/one/documents/open",
+  ONE_CAREER: "/one/career",
+  /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
+  ONE_REFERRALS: "/one/referrals",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
@@ -139,6 +223,18 @@ export const ROUTES = {
    * as the same feature.
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Eligibility-gated hotel online check-in. Hidden unless a supported stay is
+   * returned by the hotel-check-in provider seam.
+   */
+  ONE_LOCATION_HOTEL_CHECK_IN: "/one/location/check-in/hotel",
+  /**
+   * Recipient landing for a shared Circle join link. An entry point from
+   * outside the app, like LOGIN — the destination is the reason the person
+   * opened the app at all, so it must render before setup is checked.
+   */
+  WORLD_MODEL_INVITE: "/world-model/invite",
+  CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
@@ -149,7 +245,6 @@ export const ROUTES = {
   LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
   LEGACY_KAI_IMPORT: "/kai/import",
   LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
-  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
@@ -170,17 +265,38 @@ export const ROUTES = {
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
-  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
   KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
   KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",
   KAI_PORTFOLIO_PERFORMANCE: "/one/kai/portfolio/performance",
+  KAI_PORTFOLIO_ANALYSIS: "/one/kai/portfolio/analysis",
   KAI_PORTFOLIO_SOURCES: "/one/kai/portfolio/sources",
   KAI_DASHBOARD: buildKaiMarketRoute("portfolio"),
   KAI_ANALYSIS: buildKaiMarketRoute("analysis"),
   /** One-release redirect only. Optimize is no longer a product surface. */
   KAI_OPTIMIZE_COMPAT: "/one/kai/optimize",
 } as const;
+
+/**
+ * Mail tabs a link may open directly (`/one/gmail?workspace=kyc`). Overview is
+ * the page's own default, so it never needs a link.
+ */
+export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "receipts"] as const;
+export type GmailDeepLinkWorkspace = (typeof GMAIL_DEEP_LINK_WORKSPACES)[number];
+
+/** The Mail tab a `workspace` query names, or undefined for anything else. */
+export function gmailDeepLinkWorkspace(
+  value: string | null | undefined,
+): GmailDeepLinkWorkspace | undefined {
+  return (GMAIL_DEEP_LINK_WORKSPACES as readonly string[]).includes(String(value ?? ""))
+    ? (value as GmailDeepLinkWorkspace)
+    : undefined;
+}
+
+/** The link that opens Mail on one tab; the tab name is the only query. */
+export function buildGmailWorkspaceRoute(workspace: GmailDeepLinkWorkspace): string {
+  return withQuery(ROUTES.GMAIL, { workspace });
+}
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
@@ -199,9 +315,30 @@ export function buildPhoneMandateRoute(redirect?: string | null) {
  * missing or unsafe value resolves to the canonical root route.
  */
 export function buildWelcomeRoute(redirect?: string | null) {
+  const safeRedirect = normalizeInternalRouteHref(redirect);
+  if (
+    safeRedirect &&
+    (safeRedirect === INVITE_TO_ONE_PATH ||
+      isInvitationPreviewRoute(safeRedirect.split(/[?#]/, 1)[0] ?? ""))
+  )
+    return safeRedirect;
   return withQuery(ROUTES.HOME, {
-    redirect: normalizeInternalRouteHref(redirect),
+    redirect: safeRedirect,
   });
+}
+
+/** A root terminal, outside the completed setup route family. */
+export function buildInitialContactsWelcomeRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_WELCOME, {
+    return_to: initialContactsWelcomeDestination(returnTo),
+  });
+}
+
+export function initialContactsWelcomeDestination(returnTo?: string | null): string {
+  const safe = normalizeInternalRouteHref(returnTo);
+  const path = normalizeStaticExportPathname(safe?.split(/[?#]/, 1)[0] ?? "");
+  const financeResume = path === ROUTES.ONE_SETUP_FINANCE_IMPORT || path === ROUTES.ONE_SETUP_FINANCE;
+  return safe && path !== ROUTES.ONE_WELCOME && (financeResume || !isOneSetupSurfaceRoute(path ?? "")) ? safe : ROUTES.HOME;
 }
 
 export function normalizeInternalRouteHref(
@@ -210,8 +347,15 @@ export function normalizeInternalRouteHref(
   const href = String(value ?? "").trim();
   if (!href) return null;
   if (!href.startsWith("/") || href.startsWith("//")) return null;
-  if (/[\r\n]/.test(href)) return null;
-  return href;
+  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
+  try {
+    const parsed = new URL(href, "https://one.local");
+    if (parsed.origin !== "https://one.local") return null;
+    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return canonical === href ? canonical : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInternalRouteHref(
@@ -267,6 +411,15 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
  * generated voice action.
  */
 export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  // The hub itself is a browsable home for "what's left to set up" — its own
+  // header contract says a person who has finished onboarding can still browse
+  // here without being trapped. Ejecting the setup-complete owner from the hub
+  // stranded exactly the person the pod-provisioning journey needs: they could
+  // deep-link to the cloud step but never reach it through the product.
+  ROUTES.ONE_SETUP,
+  // Product order: the cloud is named and authorized before AI access is chosen.
+  ROUTES.ONE_SETUP_CLOUD,
+  ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN, // one-time code: admit during and after setup
   ROUTES.ONE_SETUP_CONNECTIONS,
 ];
 
@@ -420,6 +573,7 @@ export function isCompletedLocationWorkspaceRoute(
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -427,17 +581,35 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
+    isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.DELETE_ACCOUNT ||
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Local-only visual fixture; it must not be blocked by the signed-in
+    // setup admission gate when reviewing UI without mail authentication.
+    normalizedPathname === "/one-location-links-visual-preview" ||
     // Reached straight from the phone mandate when the number the adviser just
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith("/people/") ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    isInvitationPreviewRoute(normalizedPathname)
   );
+}
+
+/** Routes that require Firebase identity, but no setup or private-place state. */
+export function isFirebaseSessionOnlyRoute(pathname: string): boolean {
+  const pathOnly = String(pathname || "/").split(/[?#]/, 1)[0] || "/";
+  return normalizeStaticExportPathname(pathOnly) === HUSHH_TECH_LAUNCH_PATH;
 }
 
 /**
@@ -456,6 +628,47 @@ export function buildOneSetupRoute(entries?: {
     from: normalizeInternalRouteHref(entries?.from),
     return_to: normalizeInternalRouteHref(entries?.returnTo),
   });
+}
+
+/** A setup return target is navigation intent, never completion authority. */
+export function resolveOneSetupReturnTo(
+  value: string | null | undefined,
+): string | null {
+  const safe = normalizeInternalRouteHref(value);
+  return safe && !isOneSetupSurfaceRoute(safe.split(/[?#]/, 1)[0] ?? "")
+    ? safe
+    : null;
+}
+
+export function buildOneSetupConnectionsRoute(
+  returnTo?: string | null,
+): string {
+  return withQuery(ROUTES.ONE_SETUP_CONNECTIONS, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
+export function buildOneSetupCloudRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_SETUP_CLOUD, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
+/** Resume the memory-only Finance selection without losing its later return. */
+export function buildOneSetupFinanceImportRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_SETUP_FINANCE_IMPORT, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
+/** Shared by the root terminal and its admission guard during cache settlement. */
+export function resolveOneSetupCompletionTarget(
+  returnTo: string | null | undefined,
+  hasFinanceIntent: boolean,
+): string {
+  return hasFinanceIntent
+    ? buildOneSetupFinanceImportRoute(returnTo)
+    : resolveOneSetupReturnTo(returnTo) ?? ROUTES.HOME;
 }
 
 export function buildProfileVaultRoute(returnTo?: string | null) {
@@ -659,20 +872,53 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
  */
 const WALLET_CARD_PUBLIC_PREFIX = "/c";
 
+/** Only invitation presentation is public; neighboring Location routes are not. */
+export function isInvitationPreviewRoute(pathname: string): boolean {
+  const path = normalizeStaticExportPathname(pathname);
+  return (
+    path === ROUTES.WORLD_MODEL_INVITE || path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
+  );
+}
+
+/** Exact, sanitized invitation destinations admitted by the Profile lock flow. */
+export function normalizeInvitationReturnTo(
+  value: string | null | undefined,
+): string | null {
+  const safe = normalizeInternalRouteHref(value);
+  if (!safe) return null;
+  const url = new URL(safe, "https://one.local");
+  const isCircleJoin =
+    normalizeStaticExportPathname(url.pathname) === ROUTES.CONNECT &&
+    url.searchParams.get("action") === "join-circle";
+  return isInvitationPreviewRoute(url.pathname) || isCircleJoin ? safe : null;
+}
+
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
     normalizedPathname === ROUTES.LOGIN ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.DELETE_ACCOUNT ||
+    normalizedPathname === ROUTES.PRIVACY ||
+    normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
+    isInvitationPreviewRoute(normalizedPathname) ||
+    // Both prefixes. `/view/` is where public live-location links point now;
+    // `/request/` is what every link minted before the rename carries, and it
+    // has to stay public or those land on /login instead of on the forwarder
+    // that would have taken them to the right page.
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
@@ -690,6 +936,8 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
@@ -709,7 +957,8 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
-    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
   );
 }
 

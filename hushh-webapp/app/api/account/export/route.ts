@@ -17,23 +17,34 @@ export async function GET(request: NextRequest) {
       headers: {
         Authorization: authHeader,
       },
+      signal: request.signal,
+      cache: "no-store",
     });
 
-    const responseText = await response.text();
     if (!response.ok) {
+      await response.body?.cancel();
       return NextResponse.json(
         { error: "Failed to export account data" },
         { status: response.status }
       );
     }
 
-    try {
-      return NextResponse.json(JSON.parse(responseText));
-    } catch {
+    if (!response.body || !response.headers.get("content-type")?.includes("application/json")) {
+      await response.body?.cancel();
       return NextResponse.json({ error: "Invalid response from backend" }, { status: 502 });
     }
-  } catch (error) {
-    console.error("[API] Account export proxy error:", error);
+
+    // Preserve backpressure/cancellation: never text()/parse/stringify this bulk body.
+    // The service validates the completed JSON envelope; a broken stream must reject.
+    return new Response(response.body, {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch {
+    console.error("[API] Account export proxy failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

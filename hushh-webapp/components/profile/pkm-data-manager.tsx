@@ -1,15 +1,21 @@
 "use client";
 
 import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
+import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+import { scopeItemsFromPermissions } from "@/lib/consent/consent-scope-items";
 import {
-  AlertTriangle,
-  ChevronRight,
-  Database,
-  Eye,
-  Folder,
-  RefreshCw,
-  X,
-} from "lucide-react";
+  WarningIcon as AlertTriangle,
+  ChevronRightIcon as ChevronRight,
+  DatabaseIcon as Database,
+  FolderSimpleIcon as Folder,
+  ArrowsClockwiseIcon as RefreshCw,
+  XIcon as X,
+} from "@/components/icons";
+import {
+  FolderRowIcon,
+  SyncRowIcon,
+  WarningRowIcon,
+} from "@/components/icons/agents";
 
 import {
   SurfaceCard,
@@ -34,11 +40,11 @@ import { Input } from "@/components/ui/input";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
 } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import {
   buildPkmAccessConnections,
+  formatPkmTimestamp as formatTimestamp,
   type PkmDomainPermissionPresentation,
   type PkmAccessConnectionPresentation,
   type PkmDomainPresentation,
@@ -51,23 +57,15 @@ import type {
 } from "@/lib/profile/pkm-section-preview";
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { PkmPermissionActions } from "@/components/profile/pkm-permission-actions";
+import { ReviewRowIcon } from "@/components/icons/agents";
+import { HelperText } from "@/components/app-ui/typography";
 
 const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
   "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
 );
-
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function initials(label: string | null | undefined): string {
   return (
@@ -127,8 +125,8 @@ function DomainCard({
 
   return (
     <SettingsRow
-      icon={Folder}
-      iconTone="purple"
+      icon={FolderRowIcon}
+      iconTone="capability"
       title={domain.title}
       description={description || "Saved details ready to review."}
       onClick={onOpen}
@@ -173,7 +171,7 @@ function MemoryBackgroundStatus({
       ) : (
         <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
       )}
-      <span>{children}</span>
+      <HelperText>{children}</HelperText>
     </div>
   );
 }
@@ -291,40 +289,32 @@ export function PkmDataManagerPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-sm text-muted-foreground">
-          {savedDetailsSummary}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? (
-            <Button type="button" onClick={onOpenSharing}>
-              Manage sharing
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="none"
-            effect="fade"
-            onClick={onRefresh}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <SettingsGroup description={savedDetailsSummary}>
+        {!needsUnlock ? <SettingsRow icon={ReviewRowIcon} iconTone="capability"
+          title="Manage sharing" chevron onClick={onOpenSharing} /> : null}
+        <SettingsRow icon={SyncRowIcon} iconTone="capability"
+          title="Refresh" onClick={onRefresh} />
+      </SettingsGroup>
 
       {shouldShowSearch ? (
-        <Input
-          type="search"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search saved details"
-          aria-label="Search saved details"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          className="h-10"
-        />
+        <div className="relative">
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search saved details"
+            aria-label="Search saved details"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-10 pr-11"
+          />
+          <SearchClearButton
+            visible={searchQuery.length > 0}
+            label="Clear saved details search"
+            onClear={() => setSearchQuery("")}
+          />
+        </div>
       ) : null}
 
       {metadataStatus ? (
@@ -341,8 +331,8 @@ export function PkmDataManagerPanel({
           <SettingsGroup separatorInset testId="memory-saved-details-group">
             {filteredDomains.length === 0 ? (
               <SettingsRow
-                icon={Folder}
-                iconTone="purple"
+                icon={FolderRowIcon}
+                iconTone="capability"
                 title={
                   domains.length === 0
                     ? "No saved details yet"
@@ -350,8 +340,8 @@ export function PkmDataManagerPanel({
                 }
                 description={
                   domains.length === 0
-                    ? "Once One saves your first detail or import, it will appear here for review and sharing."
-                    : "Try a different search term to find saved details."
+                    ? "Details you save will appear here."
+                    : "Try another search."
                 }
               />
             ) : (
@@ -370,8 +360,8 @@ export function PkmDataManagerPanel({
       {loadingDomainCount > 0 || domainErrorCount > 0 ? (
         <SettingsGroup title="Availability" separatorInset>
           <SettingsRow
-            icon={domainErrorCount > 0 ? AlertTriangle : RefreshCw}
-            iconTone={domainErrorCount > 0 ? "orange" : "gray"}
+            icon={domainErrorCount > 0 ? WarningRowIcon : SyncRowIcon}
+            iconTone="capability"
             title={
               domainErrorCount > 0
                 ? "Refresh needed"
@@ -442,7 +432,7 @@ function ConnectionCard({
             </span>
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
       </div>
     </button>
   );
@@ -494,6 +484,14 @@ export function PkmDomainDetailPanel({
     nextPosture: PkmVisibilityPosture,
   ) => void;
 }) {
+
+  // One adapter call, so this surface renders the same rows as chat and the
+  // person profile instead of a third hand-rolled card.
+  const scopeItems = useMemo(() => scopeItemsFromPermissions(permissions), [permissions]);
+  const permissionsByKey = useMemo(
+    () => new Map(permissions.map((permission) => [permission.key, permission])),
+    [permissions],
+  );
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   return (
     <div className="space-y-4">
@@ -594,91 +592,22 @@ export function PkmDomainDetailPanel({
               Loading shareable sections...
             </SurfaceInset>
           ) : permissions.length > 0 ? (
-            permissions.map((permission) => {
-              const pending =
-                pendingPermissionKeys?.includes(permission.key) ?? false;
-              const disabled = pending || Boolean(permission.disabledReason);
-              const postureOptions: Array<{
-                value: PkmVisibilityPosture;
-                label: string;
-              }> = [
-                { value: "private", label: "Private" },
-                { value: "consent_required", label: "Ask first" },
-              ];
-              return (
-                <div
-                  key={permission.key}
-                  className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground">
-                          {permission.label}
-                        </p>
-                        <Badge variant="outline">{permission.stateLabel}</Badge>
-                      </div>
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {permission.description}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {permission.stateDescription}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {permission.counterpartSummary}
-                      </p>
-                      {permission.requesterLabels.length > 0 ? (
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {permission.requesterLabels.map((label) => (
-                            <Badge key={label} variant="secondary">
-                              {label}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-                      {permission.disabledReason ? (
-                        <p className="text-xs text-muted-foreground">
-                          {permission.disabledReason}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        onClick={() => onPreviewPermission(permission)}
-                        aria-label={`View ${permission.label} information`}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {pending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : null}
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "mt-3",
-                      disabled && "pointer-events-none opacity-60",
-                    )}
-                  >
-                    <SettingsSegmentedTabs
-                      value={permission.visibilityPosture}
-                      onValueChange={(next) =>
-                        onTogglePermission(
-                          permission,
-                          next as PkmVisibilityPosture,
-                        )
-                      }
-                      options={postureOptions}
-                      mobileColumns={1}
-                    />
-                  </div>
-                </div>
-              );
-            })
+            // Was a flat permissions.map with no grouping, no search and no
+            // collapse: every section of a domain, all at once, in hand-rolled
+            // cards that bypassed the settings primitives the rest of the app
+            // uses. groupByDomain is off because these are one domain's own
+            // sections, so every heading would say the same word.
+            <ConsentScopeList
+              items={scopeItems}
+              groupByDomain={false}
+              testIdPrefix="pkm-permission"
+              emptyText="No shareable sections yet."
+              renderTrailing={(scopeItem) => {
+                const permission = permissionsByKey.get(scopeItem.id);
+                if (!permission) return null;
+                return <PkmPermissionActions permission={permission} pending={pendingPermissionKeys?.includes(permission.key) ?? false} onPreview={onPreviewPermission} onToggle={onTogglePermission} />;
+              }}
+            />
           ) : (
             <SurfaceInset className="p-4 text-sm text-muted-foreground">
               Section-level sharing controls will appear here once these details

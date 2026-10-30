@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 
 import { useFeatureRailTrail } from "@/lib/morphy-ux/hooks/use-feature-rail-trail";
 import { FeatureRail } from "@/lib/morphy-ux/ui/feature-rail";

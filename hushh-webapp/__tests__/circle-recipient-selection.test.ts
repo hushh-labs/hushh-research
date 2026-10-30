@@ -1,8 +1,14 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  countSelectedCircleRecipients,
+  isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
+  mergeShareAudienceRecipientIds,
   resolveCircleRecipientSelection,
+  sourceCircleIdForRecipient,
 } from "@/lib/one-location/circle-recipient-selection";
 import type {
   OneLocationCircleDetail,
@@ -31,6 +37,7 @@ function circle(): OneLocationCircleDetail {
       {
         userId: "ready",
         displayName: "Ready",
+        connectedFromContacts: true,
         role: "member",
         phoneVerified: true,
         secureLocationReady: true,
@@ -60,8 +67,90 @@ function circle(): OneLocationCircleDetail {
   };
 }
 
+describe("isCircleSelectionFullySelected", () => {
+  const selection = () =>
+    resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        members: [
+          ...circle().members!,
+          {
+            userId: "second-ready",
+            displayName: "Second Ready",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+            canReceiveLocation: true,
+            keyId: "second-key",
+            publicKeyJwk: { kty: "EC" },
+          },
+        ],
+      },
+      currentUserId: "owner",
+    });
+
+  it("holds only while every ready Circle member is still selected", () => {
+    const resolved = selection();
+    // Location sharing does not require phone verification, so "no-phone" is
+    // part of the roster the Circle row claims to have selected.
+    const readyIds = resolved.ready.map((target) => target.recipient.userId);
+    expect(readyIds).toEqual(["ready", "no-phone", "second-ready"]);
+
+    expect(isCircleSelectionFullySelected(resolved, readyIds)).toBe(true);
+    // Extra hand-picked people outside the Circle do not break it.
+    expect(
+      isCircleSelectionFullySelected(resolved, [...readyIds, "outsider"]),
+    ).toBe(true);
+    // Deselecting one member below means this is no longer "the Circle".
+    expect(
+      isCircleSelectionFullySelected(resolved, readyIds.slice(0, -1)),
+    ).toBe(false);
+    expect(isCircleSelectionFullySelected(resolved, ["ready"])).toBe(false);
+    expect(isCircleSelectionFullySelected(resolved, [])).toBe(false);
+  });
+
+  it("is false without a selection, and for a Circle with nobody ready", () => {
+    expect(isCircleSelectionFullySelected(null, ["ready"])).toBe(false);
+    expect(
+      isCircleSelectionFullySelected({ ...selection(), ready: [] }, []),
+    ).toBe(false);
+  });
+});
+
+describe("countSelectedCircleRecipients", () => {
+  it("does not let hand-picked outsiders inflate the Circle row count", () => {
+    const resolved = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const readyIds = resolved.ready.map((target) => target.recipient.userId);
+
+    expect(readyIds).toEqual(["ready", "no-phone"]);
+    expect(
+      countSelectedCircleRecipients(resolved, [
+        ...readyIds,
+        "outsider-one",
+        "outsider-two",
+      ]),
+    ).toBe(2);
+  });
+
+  it("counts the unique selected intersection for partial or empty state", () => {
+    const resolved = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+
+    expect(
+      countSelectedCircleRecipients(resolved, ["ready", "ready", "outsider"]),
+    ).toBe(1);
+    expect(countSelectedCircleRecipients(resolved, [])).toBe(0);
+    expect(countSelectedCircleRecipients(null, ["ready"])).toBe(0);
+  });
+});
+
 describe("resolveCircleRecipientSelection", () => {
-  it("returns a current ready snapshot and preserves exact Circle provenance", () => {
+  it("includes phone-less ready members and preserves exact Circle provenance", () => {
     const result = resolveCircleRecipientSelection({
       circle: circle(),
       currentUserId: "owner",
@@ -73,25 +162,11 @@ describe("resolveCircleRecipientSelection", () => {
     ]);
     expect(result.ready.every((target) => target.sourceCircleId === "circle-1"))
       .toBe(true);
+    expect(result.ready[0]?.recipient.connectedFromContacts).toBe(true);
     expect(result.excluded.map((item) => item.reason)).toEqual([
       "self",
       "location_setup_needed",
     ]);
-  });
-
-  it("excludes unverified phone members only for SMS contact selection", () => {
-    const result = resolveCircleRecipientSelection({
-      circle: circle(),
-      currentUserId: "owner",
-      requirePhoneVerified: true,
-    });
-
-    expect(result.ready.map((target) => target.recipient.userId)).toEqual([
-      "ready",
-    ]);
-    expect(result.excluded.map((item) => item.reason)).toContain(
-      "phone_verification_needed",
-    );
   });
 
   it("deduplicates malformed duplicate roster entries", () => {
@@ -104,6 +179,121 @@ describe("resolveCircleRecipientSelection", () => {
         currentUserId: "owner",
       }).ready.filter((target) => target.recipient.userId === "ready"),
     ).toHaveLength(1);
+  });
+});
+
+describe("multi-Circle share audiences", () => {
+  it("deduplicates overlapping Circle members without mixing in direct choices", () => {
+    const first = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const second = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-2",
+        name: "Friends",
+        members: [
+          circle().members![1]!,
+          {
+            userId: "friend",
+            displayName: "Friend",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+            canReceiveLocation: true,
+            keyId: "friend-key",
+            publicKeyJwk: { kty: "EC" },
+          },
+        ],
+      },
+      currentUserId: "owner",
+    });
+
+    expect(
+      mergeShareAudienceRecipientIds(
+        ["direct", "ready"],
+        [first, second],
+      ),
+    ).toEqual(["direct", "ready", "no-phone", "friend"]);
+    expect(sourceCircleIdForRecipient([first, second], "ready")).toBe(
+      "circle-1",
+    );
+    expect(
+      sourceCircleIdForRecipient([first, second], "ready", ["ready"]),
+    ).toBeUndefined();
+    expect(sourceCircleIdForRecipient([first, second], "friend")).toBe(
+      "circle-2",
+    );
+    expect(
+      sourceCircleIdForRecipient([first, second], "direct"),
+    ).toBeUndefined();
+  });
+
+  it("uses valid provenance when ordinary and joined SMS Circles overlap", () => {
+    const ordinary = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const joinedSms = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-sms",
+        name: "Riya's SMS Circle",
+        role: "member",
+        isSystem: true,
+        systemKind: "sms",
+        members: [
+          {
+            ...circle().members[0]!,
+            userId: "viewer",
+            role: "member",
+          },
+          circle().members[1]!,
+        ],
+      },
+      currentUserId: "viewer",
+    });
+
+    // Two non-owner members of an SMS Circle are not introduced to one
+    // another. The ordinary Circle remains valid even when SMS was selected
+    // first, and an explicit contact choice remains direct.
+    expect(sourceCircleIdForRecipient([joinedSms, ordinary], "ready")).toBe(
+      "circle-1",
+    );
+    expect(
+      sourceCircleIdForRecipient([joinedSms, ordinary], "ready", ["ready"]),
+    ).toBeUndefined();
+  });
+
+  it("allows a joined product Circle member to share with that Circle's owner", () => {
+    const joinedSms = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-sms",
+        name: "Riya's SMS Circle",
+        role: "member",
+        isSystem: true,
+        systemKind: "sms",
+        members: [
+          {
+            ...circle().members[0]!,
+            userId: "viewer",
+            role: "member",
+          },
+          {
+            ...circle().members[1]!,
+            userId: "circle-owner",
+            role: "owner",
+          },
+        ],
+      },
+      currentUserId: "viewer",
+    });
+
+    expect(
+      sourceCircleIdForRecipient([joinedSms], "circle-owner"),
+    ).toBe("circle-sms");
   });
 });
 
@@ -134,5 +324,28 @@ describe("mergeRecipientsByUserId", () => {
         recommendationTier: "trusted_circle",
       }),
     ]);
+  });
+});
+
+
+describe("Share uses the current Circle selection contract", () => {
+  it("keeps Circles atomic, multi-selectable, and separate from contacts", () => {
+    const hub = readFileSync(join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+    const start = hub.indexOf("function ShareFlow(");
+    const end = hub.indexOf("function AskFlow(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const share = hub.slice(start, end);
+    expect(share).toContain('circle.systemKind !== "trusted"');
+    expect(share).toContain("!isForeignSmsSystemCircle(circle)");
+    expect(share).toContain("vm.onSelectShareCircle(circle.id)");
+    expect(share).not.toContain("shareCircleSections");
+    expect(share).toContain("vm.selectedShareCircleSelections.some(");
+    expect(share).toContain("circleMemberCountLabel(");
+    expect(share).toContain("vm.selectedDirectRecipientIds.includes(");
+    expect(share).toContain('textOverflow="truncate"');
+    expect(share).toContain("vm.pendingShareCircleIds.includes(circle.id)");
+    expect(share).toContain('"Adding Circle…"');
+    expect(share).not.toContain("selectedShareCircleRecipientCount");
   });
 });

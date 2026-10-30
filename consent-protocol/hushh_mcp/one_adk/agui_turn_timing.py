@@ -1,0 +1,870 @@
+"""Turn timing for the private agent's canonical AG-UI transport.
+
+``ADKAgent`` streams AG-UI protocol events straight to the client and records
+nothing about how long a turn took. ``TimedADKAgent`` wraps ``run`` and logs one
+line per turn in the same shape as ``one_text_turn_complete`` in
+``text_runtime``. The line carries only timing counters, a head label and the
+first eight characters of the client-random ``run_id``. It never carries the
+user id, the thread id, the state projection or any message text.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import contextvars
+import itertools
+import json
+import logging
+import os
+import re
+import threading
+import time
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import aclosing
+from dataclasses import dataclass, field
+from typing import Any, cast
+from uuid import uuid4
+
+from ag_ui.core import (
+    BaseEvent,
+    CustomEvent,
+    EventType,
+    Interrupt,
+    RunAgentInput,
+    RunFinishedInterruptOutcome,
+    ToolMessage,
+)
+from ag_ui_adk import ADKAgent
+from google.adk.models.llm_response import LlmResponse
+
+from hushh_mcp.one_adk import queued_input
+from hushh_mcp.one_adk.drive_result_privacy import (
+    ConfirmationWireProjection,
+    governed_call_ids,
+    redact_drive_wire_event,
+)
+from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+from hushh_mcp.one_adk.mcp_call_approval import supersede_unanswered_reviews
+from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
+from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
+from hushh_mcp.one_adk.output_privacy import (
+    CHAT_KEY_RUN_ERROR,
+    ThoughtSummaryReplayFilter,
+    drop_empty_history_parts,
+    drop_replayed_tool_placeholders,
+    normalize_history_error,
+    public_event,
+    safe_exception_event,
+)
+from hushh_mcp.one_adk.run_errors import (
+    error_class as _error_class,
+)
+from hushh_mcp.one_adk.run_errors import (
+    error_code as _error_code,
+)
+from hushh_mcp.one_adk.run_errors import (
+    server_is_draining,
+)
+from hushh_mcp.one_adk.text_attachments import render_text_attachments_for_model
+from hushh_mcp.services.chat_key import (
+    current_chat_key_markers,
+    retain_request_chat_key,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def event_carries_chat_key(event: BaseEvent, markers: tuple[str, ...]) -> bool:
+    """True when a wire event would carry the request's chat key in any form."""
+    if not markers:
+        return False
+    try:
+        serialized = event.model_dump_json()
+    except Exception:  # noqa: BLE001 - an unserializable event is refused, not sent
+        return True
+    return any(marker in serialized for marker in markers)
+
+
+def _bridge_failure_kind(exc_info: Any) -> str:
+    """Classify an exception without logging provider-controlled class names."""
+    if not isinstance(exc_info, tuple) or not exc_info:
+        return "unknown"
+    error_type = exc_info[0]
+    if not isinstance(error_type, type):
+        return "unknown"
+    if issubclass(error_type, TimeoutError):
+        return "timeout"
+    if issubclass(error_type, ConnectionError):
+        return "connection"
+    if issubclass(error_type, PermissionError):
+        return "permission"
+    if issubclass(error_type, ValueError):
+        return "validation"
+    if issubclass(error_type, KeyError):
+        return "missing_key"
+    return "other"
+
+
+def _bridge_failure_phase(message: Any) -> str:
+    """Recognize only fixed bridge log prefixes, never emit raw log text."""
+    if not isinstance(message, str):
+        return "other"
+    if message.startswith("Background execution error:"):
+        return "background"
+    if message.startswith("Error in new execution:"):
+        return "execution"
+    if message.startswith("Error handling tool results:"):
+        return "tool_results"
+    return "other"
+
+
+class _NoModelTextPreview(logging.Filter):
+    """Keep adapter previews and exception bodies out of hosted logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            # The installed adapter interpolates raw provider exceptions and
+            # attaches tracebacks. Retain only fixed phase and exception-kind
+            # labels; never emit provider-controlled messages or class names.
+            phase = _bridge_failure_phase(record.msg)
+            kind = _bridge_failure_kind(record.exc_info)
+            record.msg = f"[ADK_BRIDGE] phase={phase} kind={kind} details=[redacted]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            record.stack_info = None
+        elif record.getMessage().startswith("[ADK_EVENT]"):
+            record.msg = "[ADK_EVENT] content=[redacted]"
+            record.args = ()
+        return True
+
+
+_bridge_logger = logging.getLogger("ag_ui_adk.adk_agent")
+if not any(isinstance(item, _NoModelTextPreview) for item in _bridge_logger.filters):
+    _bridge_logger.addFilter(_NoModelTextPreview())
+
+
+class _NoEndpointPayload(_NoModelTextPreview):
+    """The installed SSE endpoint logs full serialized events at DEBUG."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            return False
+        return super().filter(record)
+
+
+_endpoint_logger = logging.getLogger("ag_ui_adk.endpoint")
+if not any(isinstance(item, _NoEndpointPayload) for item in _endpoint_logger.filters):
+    _endpoint_logger.addFilter(_NoEndpointPayload())
+
+HEAD_ONE = "one"
+HEAD_INTRO = "intro"
+HEAD_UNLABELED = "unlabeled"
+
+OUTCOME_FINISHED = "finished"
+OUTCOME_ERROR = "error"
+OUTCOME_CLIENT_DISCONNECT = "client_disconnect"
+OUTCOME_SERVER_RESTARTING = "server_restarting"
+
+_FIRST_VISIBLE_EVENT_TYPES = frozenset(
+    {EventType.TEXT_MESSAGE_CONTENT, EventType.TOOL_CALL_START, EventType.CUSTOM}
+)
+_SPECIALIST_TOOL_PREFIX = "ask_"
+_RUN_LABEL_LENGTH = 8
+_DETAILED_TIMING_ENV = "HUSHH_ONE_CHAT_TIMING_DETAIL"
+_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_CURRENT_TURN: contextvars.ContextVar[TurnTiming | None] = contextvars.ContextVar(
+    "one_chat_turn_timing", default=None
+)
+_ANONYMOUS_OWNER_PREFIX = "anonymous:"
+# Process-local turn counter and warmup flag. A worker's first turn pays one-time
+# setup that later turns do not (measured 2026-09-27: 3.6-41 s before the first
+# model call against 94 ms warm), so the timing line says which kind it was.
+_PROCESS_TURNS = itertools.count(1)
+_TURN_PATH_WARMED = threading.Event()
+# The detached-turn hook reads the sealed session and sends one bare push. It is
+# bounded so a slow store or provider can never hold the retained chat key long.
+DETACHED_TURN_HOOK_TIMEOUT_SECONDS = 20.0
+# The background run can settle while its answer still sits in the unbounded
+# queue; the reader then decides, by delivering it or leaving. Wait this long.
+CONSUMER_SETTLE_GRACE_SECONDS = 5.0
+# Only a client that asks for it gets the push: the native app. A web tab's
+# closed stream must not wake the person's phone.
+NOTIFY_ON_DETACH_PROP = "notifyOnDetach"
+
+DetachedTurnHook = Callable[[str, str], Awaitable[None]]
+
+
+@dataclass
+class DetachWatch:
+    """Whether the stream consumer left before the bridge's background run settled.
+
+    The bridge runs the ADK turn in its own task and keeps it running after the
+    client disconnects, so the turn still finishes and persists. This records
+    only what the completion notice needs: the owner and the conversation id. It
+    never holds message text, state or a key.
+    """
+
+    owner_id: str
+    conversation_id: str
+    consumer_detached: bool = False
+    # Set once the reader either handed on the terminal event or left.
+    resolved: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+_CURRENT_DETACH: contextvars.ContextVar[DetachWatch | None] = contextvars.ContextVar(
+    "one_chat_detach_watch", default=None
+)
+
+
+def run_label(input_data: RunAgentInput) -> str:
+    """Return the short, client-random run label used in the timing line."""
+    return str(getattr(input_data, "run_id", "") or "")[:_RUN_LABEL_LENGTH]
+
+
+def _ms_since(started_at: float, at: float | None) -> int | None:
+    if at is None:
+        return None
+    return round((at - started_at) * 1000)
+
+
+@dataclass
+class TurnTiming:
+    """Counters for one AG-UI run. Holds no identifying records by construction."""
+
+    head: str
+    run: str
+    started_at: float
+    first_visible_at: float | None = None
+    first_activity_at: float | None = None
+    first_answer_token_at: float | None = None
+    first_tool_call_at: float | None = None
+    events: int = 0
+    tool_calls: int = 0
+    specialist_calls: int = 0
+    model_calls: int = 0
+    model_call_total_ms: float = 0.0
+    first_model_call_ms: float | None = None
+    first_model_call_at: float | None = None
+    # Set when ADK starts the root agent: the session is loaded, the bridge has
+    # synced state and the person's message is appended.
+    agent_started_at: float | None = None
+    instruction_ms: float = 0.0
+    connector_discovery_ms: float = 0.0
+    session_read_ms: float = 0.0
+    session_decrypt_ms: float = 0.0
+    session_append_ms: float = 0.0
+    # Includes serialization/encryption plus the database write.
+    session_persistence_ms: float = 0.0
+    session_read_count: int = 0
+    session_decrypt_count: int = 0
+    session_append_count: int = 0
+    session_persistence_count: int = 0
+    process_turn: int = 0
+    path_warmed: bool = False
+    model_id: str = "unavailable"
+    thinking_level: str = "unavailable"
+    pending_model_call_starts: list[float] | None = None
+    prompt_chars_peak: int | None = None
+    tool_schema_chars_peak: int | None = None
+    history_items_peak: int | None = None
+    outcome: str = OUTCOME_FINISHED
+    error_class: str = "none"
+    error_code: str = "none"
+    tools_peak: int | None = None
+    terminal_observed: bool = False
+
+    def begin_agent(self) -> None:
+        if self.agent_started_at is None:
+            self.agent_started_at = time.perf_counter()
+
+    def begin_model_call(self, request: Any) -> None:
+        now = time.perf_counter()
+        if self.first_model_call_ms is None:
+            self.first_model_call_ms = _ms_since(self.started_at, now)
+            self.first_model_call_at = now
+        self.model_calls += 1
+        if self.model_id == "unavailable":
+            candidate_model_id = str(getattr(request, "model", "") or "").strip()
+            if _MODEL_ID_PATTERN.fullmatch(candidate_model_id):
+                self.model_id = candidate_model_id
+        if self.thinking_level == "unavailable":
+            config = getattr(request, "config", None)
+            thinking_config = getattr(config, "thinking_config", None)
+            level = getattr(thinking_config, "thinking_level", None)
+            level = getattr(level, "value", level)
+            self.thinking_level = str(level or "provider_default").upper()
+        if self.pending_model_call_starts is None:
+            self.pending_model_call_starts = []
+        self.pending_model_call_starts.append(now)
+        config = getattr(request, "config", None)
+        # A count is cheap and carries nothing private; it shows how many tools every
+        # model step is asked to weigh (the sizes below stay behind the detailed switch).
+        declared = sum(
+            len(getattr(tool, "function_declarations", None) or [])
+            for tool in (getattr(config, "tools", None) or [])
+        )
+        self.tools_peak = max(self.tools_peak or 0, declared)
+        if os.getenv(_DETAILED_TIMING_ENV) != "1":
+            return
+
+        contents = getattr(request, "contents", None) or []
+        system_instruction = getattr(config, "system_instruction", None)
+        instruction_chars = len(_request_text(system_instruction))
+        history_chars = sum(
+            len(_request_text(part))
+            for content in contents
+            for part in (getattr(content, "parts", None) or [])
+        )
+        tool_schemas = getattr(config, "tools", None) or []
+        # Tool declarations contain authored schemas only; repr length avoids
+        # serializing request contents or retaining any private text.
+        schema_chars = len(repr(tool_schemas))
+        self.prompt_chars_peak = max(self.prompt_chars_peak or 0, instruction_chars + history_chars)
+        self.tool_schema_chars_peak = max(self.tool_schema_chars_peak or 0, schema_chars)
+        self.history_items_peak = max(self.history_items_peak or 0, len(contents))
+
+    def finish_model_call(self) -> None:
+        starts = self.pending_model_call_starts
+        if not starts:
+            return
+        started_at = starts.pop(0)
+        self.model_call_total_ms += (time.perf_counter() - started_at) * 1000
+
+    def observe(self, event: BaseEvent) -> None:
+        self.events += 1
+        event_type = getattr(event, "type", None)
+        if self.first_visible_at is None and event_type in _FIRST_VISIBLE_EVENT_TYPES:
+            self.first_visible_at = time.perf_counter()
+        if self.first_activity_at is None and event_type in {
+            EventType.ACTIVITY_SNAPSHOT,
+            EventType.ACTIVITY_DELTA,
+        }:
+            self.first_activity_at = time.perf_counter()
+        if self.first_answer_token_at is None and event_type == EventType.TEXT_MESSAGE_CONTENT:
+            self.first_answer_token_at = time.perf_counter()
+        if event_type == EventType.RUN_ERROR:
+            self.terminal_observed = True
+            self.outcome = OUTCOME_ERROR
+            self.error_class = _error_class(getattr(event, "code", None))
+            self.error_code = _error_code(getattr(event, "code", None))
+        elif event_type == EventType.RUN_FINISHED:
+            self.terminal_observed = True
+        if event_type != EventType.TOOL_CALL_START:
+            return
+        if self.first_tool_call_at is None:
+            self.first_tool_call_at = time.perf_counter()
+        self.tool_calls += 1
+        tool_name = str(getattr(event, "tool_call_name", "") or "")
+        if tool_name.startswith(_SPECIALIST_TOOL_PREFIX):
+            self.specialist_calls += 1
+
+    def request_build_ms(self) -> int | None:
+        """Agent start to first model call: instruction, history, tools, discovery."""
+        if self.agent_started_at is None or self.first_model_call_at is None:
+            return None
+        return _ms_since(self.agent_started_at, self.first_model_call_at)
+
+    def session_other_ms(self) -> int | None:
+        session_ms = _ms_since(self.started_at, self.agent_started_at)
+        if session_ms is None:
+            return None
+        measured = round(
+            self.session_read_ms
+            + self.session_decrypt_ms
+            + self.session_append_ms
+            + self.session_persistence_ms
+        )
+        return max(0, session_ms - measured)
+
+    def log(self) -> None:
+        completed_at = time.perf_counter()
+        pending_model_calls = self.pending_model_call_starts or []
+        # A missing after-model callback leaves model_call_total_ms at zero.
+        # This is wall time since the before-model callback, including any
+        # bridge unwind; it does not identify the provider as the cause.
+        model_inflight_ms = round(
+            sum(max(0.0, completed_at - started_at) for started_at in pending_model_calls) * 1000
+        )
+        logger.info(
+            "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
+            "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
+            "first_model_call_ms=%s session_ms=%s request_build_ms=%s instruction_ms=%s "
+            "connector_discovery_ms=%s session_read_ms=%s session_decrypt_ms=%s "
+            "session_append_ms=%s session_persistence_ms=%s session_other_ms=%s "
+            "session_read_count=%s session_decrypt_count=%s session_append_count=%s "
+            "session_persistence_count=%s process_turn=%s path_warmed=%s "
+            "model_calls=%s model_call_total_ms=%s model_inflight_calls=%s model_inflight_ms=%s "
+            "model_id=%s thinking_level=%s "
+            "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
+            "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
+            "error_code=%s tools_peak=%s",
+            self.head,
+            self.run,
+            _ms_since(self.started_at, self.first_visible_at),
+            _ms_since(self.started_at, self.first_activity_at),
+            _ms_since(self.started_at, self.first_answer_token_at),
+            _ms_since(self.started_at, self.first_tool_call_at),
+            _ms_since(self.started_at, completed_at),
+            self.first_model_call_ms,
+            _ms_since(self.started_at, self.agent_started_at),
+            self.request_build_ms(),
+            round(self.instruction_ms),
+            round(self.connector_discovery_ms),
+            round(self.session_read_ms),
+            round(self.session_decrypt_ms),
+            round(self.session_append_ms),
+            round(self.session_persistence_ms),
+            self.session_other_ms(),
+            self.session_read_count,
+            self.session_decrypt_count,
+            self.session_append_count,
+            self.session_persistence_count,
+            self.process_turn,
+            str(self.path_warmed).lower(),
+            self.model_calls,
+            round(self.model_call_total_ms),
+            len(pending_model_calls),
+            model_inflight_ms,
+            self.model_id,
+            self.thinking_level,
+            self.prompt_chars_peak,
+            self.tool_schema_chars_peak,
+            self.history_items_peak,
+            self.events,
+            self.tool_calls,
+            self.specialist_calls,
+            self.outcome,
+            self.error_class,
+            self.error_code,
+            self.tools_peak,
+        )
+
+
+def resume_as_confirmation_results(input: RunAgentInput) -> RunAgentInput:
+    """Translate AG-UI resume entries into the tool results ag_ui_adk consumes.
+
+    The installed bridge ignores ``RunAgentInput.resume``. Only an unanswered
+    ``adk_request_confirmation`` call already in this thread's messages is
+    admitted, and only a boolean reaches ADK. This is not approval: the action
+    ledger still authorizes every connector dispatch with its exact receipt.
+    """
+    entries = list(input.resume or [])
+    if not entries:
+        return input
+    answered = {
+        getattr(message, "tool_call_id", None)
+        for message in input.messages
+        if getattr(message, "role", None) == "tool"
+    }
+    pending = {
+        call.id
+        for message in input.messages
+        if getattr(message, "role", None) == "assistant"
+        for call in (getattr(message, "tool_calls", None) or [])
+        if call.function.name == "adk_request_confirmation" and call.id not in answered
+    }
+    results = []
+    for entry in entries[:32]:
+        if entry.interrupt_id not in pending:
+            continue
+        pending.discard(entry.interrupt_id)
+        payload = entry.payload if isinstance(entry.payload, dict) else {}
+        confirmed = entry.status == "resolved" and payload.get("confirmed") is True
+        results.append(
+            ToolMessage(
+                id=f"resume-{uuid4().hex}",
+                role="tool",
+                tool_call_id=entry.interrupt_id,
+                content=json.dumps({"confirmed": confirmed}),
+            )
+        )
+    return input.model_copy(update={"messages": [*input.messages, *results], "resume": None})
+
+
+def with_review_interrupts(event: BaseEvent, review_call_ids: list[str]) -> BaseEvent:
+    """Mark a run that paused on connector review as an AG-UI interrupt."""
+    if event.type != EventType.RUN_FINISHED or not review_call_ids:
+        return event
+    return event.model_copy(
+        update={
+            "outcome": RunFinishedInterruptOutcome(
+                interrupts=[
+                    Interrupt(id=call_id, reason="mcp_call_review", tool_call_id=call_id)
+                    for call_id in dict.fromkeys(review_call_ids)
+                ]
+            )
+        }
+    )
+
+
+class TimedADKAgent(ADKAgent):
+    """``ADKAgent`` that logs one timing line per run for the labelled head."""
+
+    head: str = HEAD_UNLABELED
+    # Called once, from the background run, when a turn whose client had already
+    # disconnected settles. Only authenticated One turns are watched.
+    detached_turn_hook: DetachedTurnHook | None = None
+
+    def _detach_watch(self, input: RunAgentInput) -> DetachWatch | None:
+        if self.head != HEAD_ONE or self.detached_turn_hook is None:
+            return None
+        forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
+        if forwarded.get(NOTIFY_ON_DETACH_PROP) is not True:
+            return None
+        state = input.state if isinstance(input.state, dict) else {}
+        owner_id = str(state.get("hussh:user_id") or "").strip()
+        conversation_id = str(input.thread_id or "").strip()
+        if not owner_id or owner_id.startswith(_ANONYMOUS_OWNER_PREFIX) or not conversation_id:
+            return None
+        return DetachWatch(owner_id=owner_id, conversation_id=conversation_id)
+
+    def _default_run_config(self, input: RunAgentInput):
+        from hushh_mcp.hushh_adk.telemetry import private_telemetry
+
+        config = super()._default_run_config(input)
+        config.telemetry = private_telemetry()
+        return config
+
+    @classmethod
+    def from_app(cls, app: Any, *, head: str, **kwargs: Any) -> TimedADKAgent:
+        """Build the agent from an ADK ``App`` and label it with ``head``.
+
+        ``ADKAgent.from_app`` constructs through ``cls(...)``, so the instance is
+        already a ``TimedADKAgent``. The label is set right after construction
+        because ``ADKAgent`` is a plain class, not a frozen model.
+        """
+        instance = cast("TimedADKAgent", super().from_app(app, **kwargs))
+        instance.head = head
+        return instance
+
+    def _mcp_turn_resources(self, conversation_id: str, *, owner_id, configurations):
+        return mcp_turn_scope(conversation_id, owner_id=owner_id, configurations=configurations)
+
+    async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
+        timing = TurnTiming(
+            head=self.head,
+            run=run_label(input),
+            started_at=time.perf_counter(),
+            process_turn=next(_PROCESS_TURNS),
+            path_warmed=_TURN_PATH_WARMED.is_set(),
+        )
+        timing_context = _CURRENT_TURN.set(timing)
+        # Set before the bridge starts its background task, which copies this
+        # context and so shares the same watch object.
+        detach_watch = self._detach_watch(input)
+        detach_context = _CURRENT_DETACH.set(detach_watch)
+        interrupted = False
+        queued_key: queued_input.RunKey | None = None
+        private_call_ids: set[str] = set()
+        confirmations = ConfirmationWireProjection()
+        summary_replays = ThoughtSummaryReplayFilter()
+        try:
+            # Judged on the request as received: translating a resume below
+            # rewrites its messages.
+            new_user_turn = self.head == HEAD_ONE and _is_new_user_turn(input)
+            if self.head == HEAD_ONE:
+                input = resume_as_confirmation_results(input)
+                private_call_ids.update(governed_call_ids(input.messages))
+            state = input.state if isinstance(input.state, dict) else {}
+            if new_user_turn:
+                owner = str(state.get("hussh:user_id") or "")
+                if owner and not owner.startswith(_ANONYMOUS_OWNER_PREFIX):
+                    # Before the run, so a review this turn issues is never touched.
+                    await supersede_unanswered_reviews(owner, str(input.thread_id or ""))
+            configurations = consume_turn_configurations(
+                state,
+                owner_id=str(state.get("hussh:user_id") or ""),
+                conversation_id=input.thread_id,
+            )
+            async with (
+                queued_input.run_scope(
+                    str(state.get("hussh:user_id") or "") if self.head == HEAD_ONE else "",
+                    str(input.thread_id or ""),
+                    str(input.run_id or ""),
+                    accepting=queued_input.clubbing_admitted(state, resuming=_is_resume(input)),
+                ) as queued_key,
+                pending_resume_scope(state.get("temp:hussh:mcp_approval")),
+                self._mcp_turn_resources(
+                    input.thread_id,
+                    owner_id=str(state.get("hussh:user_id") or "") or None,
+                    configurations=configurations,
+                ),
+                aclosing(super().run(input)) as run,
+            ):
+                async for event in run:
+                    event = normalize_history_error(event)
+                    events = confirmations.project(event) if self.head == HEAD_ONE else [event]
+                    for event in events:
+                        if self.head == HEAD_ONE:
+                            event = with_review_interrupts(event, confirmations.review_call_ids)
+                            event = redact_drive_wire_event(event, private_call_ids)
+                            if event is None:
+                                continue
+                        timing.observe(event)
+                        if timing.terminal_observed and detach_watch is not None:
+                            detach_watch.resolved.set()
+                        projected = (
+                            public_event(event, allow_thought_summary=self.head == HEAD_ONE)
+                            if self.head in (HEAD_ONE, HEAD_INTRO)
+                            else event
+                        )
+                        if projected is not None and summary_replays.admit(projected):
+                            if event_carries_chat_key(projected, current_chat_key_markers()):
+                                # The key is never placed in state, prompts or tool
+                                # results. If one ever reaches the wire, end the run
+                                # rather than send it or silently drop an event.
+                                logger.error("one.chat_key_stream_leak_blocked")
+                                timing.outcome = OUTCOME_ERROR
+                                timing.observe(CHAT_KEY_RUN_ERROR)
+                                yield CHAT_KEY_RUN_ERROR
+                                return
+                            terminal = _is_terminal(projected)
+                            if terminal and (notice := _queued_notice(queued_key, settled=True)):
+                                yield notice
+                            yield projected
+                            if not terminal and (
+                                notice := _queued_notice(queued_key, settled=False)
+                            ):
+                                yield notice
+        except (asyncio.CancelledError, GeneratorExit):
+            interrupted = True
+            # Consumers commonly close immediately after the terminal event.
+            # observe() runs before yield so that normal closure cannot replace
+            # an emitted finish or error with a disconnect diagnosis.
+            if not timing.terminal_observed and server_is_draining():
+                # The stream guard sends the terminal event; this is not a
+                # person leaving, so no detached-turn notice is due.
+                timing.outcome = OUTCOME_SERVER_RESTARTING
+            elif not timing.terminal_observed:
+                timing.outcome = OUTCOME_CLIENT_DISCONNECT
+                if detach_watch is not None:
+                    detach_watch.consumer_detached = True
+            if detach_watch is not None:
+                detach_watch.resolved.set()
+            raise
+        except Exception as exc:
+            # Otherwise the installed endpoint catches this exception and
+            # serializes str(exception) into a second, unprojected RUN_ERROR.
+            # Keep the failure terminal and content-free at this boundary.
+            safe_error = safe_exception_event(exc)
+            timing.observe(safe_error)
+            if timing.error_class != "refusal":
+                timing.error_class = "escaped_exception"
+            if notice := _queued_notice(queued_key, settled=True):
+                yield notice
+            yield safe_error
+        finally:
+            if interrupted or timing.outcome in (OUTCOME_ERROR, OUTCOME_CLIENT_DISCONNECT):
+                await self._release_execution(input)
+            timing.log()
+            if detach_watch is not None:
+                detach_watch.resolved.set()
+            # A finalizer may close this generator from another Context; one
+            # failed reset must not skip the other.
+            with contextlib.suppress(ValueError):
+                _CURRENT_DETACH.reset(detach_context)
+            with contextlib.suppress(ValueError):
+                _CURRENT_TURN.reset(timing_context)
+
+    async def _run_adk_in_background(self, *args: Any, **kwargs: Any) -> Any:
+        """Keep the request's chat key alive until this background run settles.
+
+        The bridge signals end-of-stream and then still closes the runner and
+        writes the session (LRO id remap) in its ``finally``. Without a reference
+        of its own the request could release the key between the two and the
+        write would fail. The binding still has a hard ceiling in ``chat_key``.
+        """
+        with retain_request_chat_key():
+            try:
+                result = await super()._run_adk_in_background(*args, **kwargs)
+            finally:
+                # A reader that left never received the settlement; close the
+                # inbox when the run itself ends so nothing waits in memory.
+                queued_input.settle(queued_input.current_run())
+            # Still inside the retained binding: the hook reads the sealed
+            # session with the key this turn received and never stores it.
+            await self._settle_detached_turn()
+            return result
+
+    async def _settle_detached_turn(self) -> None:
+        """Hand a turn that finished after its client left to the completion hook.
+
+        A consumer that is still attached receives the terminal event itself, so
+        only a detached turn is handed over. The hook never raises into the run.
+        """
+        watch = _CURRENT_DETACH.get()
+        hook = self.detached_turn_hook
+        if watch is None or hook is None:
+            return
+        if not watch.resolved.is_set():
+            # Settled first: let the reader deliver the answer or leave.
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(CONSUMER_SETTLE_GRACE_SECONDS):
+                    await watch.resolved.wait()
+        if not watch.consumer_detached:
+            return
+        try:
+            async with asyncio.timeout(DETACHED_TURN_HOOK_TIMEOUT_SECONDS):
+                await hook(watch.owner_id, watch.conversation_id)
+        except Exception as exc:  # noqa: BLE001 - a notice never fails the turn
+            logger.warning(
+                "one.detached_turn_hook_failed kind=%s", _bridge_failure_kind((type(exc),))
+            )
+
+    async def _release_execution(self, input: RunAgentInput) -> None:
+        """Drop the bridge's execution entry for a run that ended in error or disconnect.
+
+        The bridge keeps an execution registered after a run when the session
+        still shows a pending tool call, so a resume can find it. A run that
+        died between a function call and its response (a provider 504 mid
+        tool loop, a client that went away) leaves exactly that shape behind and
+        would hold one of the process-wide execution slots until it is stale
+        (600 s by default). Nothing can resume such a run, so the slot is
+        released here. Measured 2026-09-14: a handful of these locked the whole
+        route with "Maximum concurrent executions (10) reached".
+        """
+        registry = getattr(self, "_active_executions", None)
+        lock = getattr(self, "_execution_lock", None)
+        if not isinstance(registry, dict) or lock is None:
+            return
+        try:
+            user_id = self._get_user_id(input)
+        except Exception:  # noqa: BLE001 - a run that never resolved its user holds no slot
+            return
+        key = (input.thread_id, user_id)
+        try:
+            async with lock:
+                registry.pop(key, None)
+        except Exception:  # noqa: BLE001 - never let slot release mask the run outcome
+            logger.debug("one_agent_chat_execution_release_failed", exc_info=True)
+
+
+def _is_terminal(event: BaseEvent) -> bool:
+    return getattr(event, "type", None) in (EventType.RUN_FINISHED, EventType.RUN_ERROR)
+
+
+def _is_resume(input: RunAgentInput) -> bool:
+    """A confirmation or tool-result resume, which never takes queued input."""
+    if getattr(input, "resume", None):
+        return True
+    messages = input.messages or []
+    return bool(messages) and getattr(messages[-1], "role", None) == "tool"
+
+
+def _is_new_user_turn(input: RunAgentInput) -> bool:
+    """A typed message, not a resume or tool result answering a paused call."""
+    if _is_resume(input):
+        return False
+    messages = input.messages or []
+    return bool(messages) and getattr(messages[-1], "role", None) == "user"
+
+
+def _queued_notice(key: queued_input.RunKey | None, *, settled: bool) -> CustomEvent | None:
+    """Where queued messages landed, as ids only. Never message text."""
+    if key is None:
+        return None
+    if settled:
+        settlement = queued_input.settle(key)
+        joined, returned = settlement.delivered, settlement.returned
+        if not joined and not returned:
+            return None
+    else:
+        joined = tuple(
+            queued_input.registry.take_announcements(key.owner_id, key.conversation_id, key.run_id)
+        )
+        returned = ()
+        if not joined:
+            return None
+    return CustomEvent(
+        type=EventType.CUSTOM,
+        name=queued_input.QUEUED_INPUT_EVENT,
+        value=queued_input.queued_input_event_value(
+            joined=joined, returned=returned, settled=settled
+        ),
+    )
+
+
+def _request_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    text = getattr(value, "text", None)
+    if isinstance(text, str):
+        return text
+    parts = getattr(value, "parts", None)
+    if not isinstance(parts, list):
+        return ""
+    return "".join(
+        part_text for part in parts if isinstance((part_text := getattr(part, "text", None)), str)
+    )
+
+
+def mark_turn_path_warmed() -> None:
+    """Record that this process already ran the One turn path once at startup."""
+    _TURN_PATH_WARMED.set()
+
+
+def record_instruction_build(elapsed_ms: float) -> None:
+    """Add one runtime-instruction build to the current turn's timing line."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.instruction_ms += max(0.0, elapsed_ms)
+
+
+def timed_one_before_agent(callback_context: Any) -> None:
+    """Mark when ADK starts One: session loaded and the new message appended."""
+    del callback_context
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.begin_agent()
+
+
+def record_connector_discovery(elapsed_ms: float) -> None:
+    """Add one connector-catalog discovery to the current turn's timing line."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.connector_discovery_ms += max(0.0, elapsed_ms)
+
+
+def record_session_phase(phase: str, elapsed_ms: float) -> None:
+    """Add a privacy-safe encrypted-session phase duration to this turn."""
+    timing = _CURRENT_TURN.get()
+    if timing is None or timing.agent_started_at is not None:
+        return
+    value = max(0.0, elapsed_ms)
+    if phase == "read":
+        timing.session_read_ms += value
+        timing.session_read_count += 1
+    elif phase == "decrypt":
+        timing.session_decrypt_ms += value
+        timing.session_decrypt_count += 1
+    elif phase == "append":
+        timing.session_append_ms += value
+        timing.session_append_count += 1
+    elif phase == "persistence":
+        timing.session_persistence_ms += value
+        timing.session_persistence_count += 1
+
+
+def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """Preserve the external-read barrier and record privacy-safe request sizes."""
+    drop_empty_history_parts(llm_request)
+    drop_replayed_tool_placeholders(llm_request)
+    render_text_attachments_for_model(llm_request)
+    guarded_response = before_external_read_model(callback_context, llm_request)
+    if guarded_response is not None:
+        return guarded_response
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.begin_model_call(llm_request)
+    return None
+
+
+def timed_one_after_model(_callback_context: Any, _llm_response: Any) -> None:
+    """Finish provider timing on the final response, after all streamed chunks."""
+    if getattr(_llm_response, "partial", False):
+        return
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.finish_model_call()

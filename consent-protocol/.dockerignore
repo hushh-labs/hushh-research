@@ -4,6 +4,10 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+coverage.xml
 
 # Virtual env
 venv/
@@ -18,6 +22,8 @@ env/
 .pytest_cache/
 tests/
 test.py
+# Offline evaluation packages never ship in the runtime image.
+hushh_eval/
 
 # Git
 .git
@@ -26,10 +32,18 @@ test.py
 # Docs
 docs/
 
-# Local env
-.env
-.env.local
+# Local environment files must never enter application image layers.
+.env*
+**/.env*
 
 # Misc
 *.md
+# Authored runtime prompts are loaded by agent manifests, not documentation.
+!hushh_mcp/agents/*.md
+!hushh_mcp/agents/**/*.md
 submissions/
+tmp/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json

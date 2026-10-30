@@ -30,6 +30,9 @@ function walk(dir) {
 
 function isAllowed(filePath) {
   const rel = path.relative(repoRoot, filePath).split(path.sep);
+  // Colocated tests may mention or mock fetch to enforce this very boundary.
+  // They are not application UI surfaces.
+  if (rel.includes("__tests__") || /\.(test|spec)\.[cm]?[jt]sx?$/.test(rel.at(-1) || "")) return true;
   if (rel[0] === "app" && allowedPathParts.has(rel[1])) return true;
   if (rel.at(-1)?.startsWith("route.")) return true;
   return false;

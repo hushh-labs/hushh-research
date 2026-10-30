@@ -7,11 +7,14 @@ export retrieval with the same small decision function.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from hushh_mcp.services.domain_contracts import (
     DOMAIN_SHARING_POLICY_REGISTRY,
+    INTERNAL_ONLY_DOMAIN_SLUGS,
     get_domain_sharing_policy,
+    is_owner_managed_reserved_domain,
 )
 
 
@@ -30,6 +33,41 @@ def is_source_library_pkm_scope(scope: str | None) -> bool:
 
     domain, _path = normalize_pkm_scope(scope)
     return domain == "source_library"
+
+
+def is_reserved_domain_scope(scope: str | None) -> bool:
+    """Whether an ``attr.*`` scope addresses an owner-managed reserved PKM domain.
+
+    Reserved domains (``secrets``, ``source_library``, ``wallet``) are protocol-owned:
+    natural-language structuring must never invent or repurpose them, and
+    consent surfaces render them with an explicit reserved indicator so a
+    reserved grant is never mistaken for an ordinary dynamic-domain grant.
+    """
+
+    domain, _path = normalize_pkm_scope(scope)
+    return bool(domain) and is_owner_managed_reserved_domain(domain)
+
+
+def is_owner_item_grant_scope(scope: str | None) -> bool:
+    """Whether ``scope`` is the exact shape of an owner-started per-item grant.
+
+    Only a domain whose policy names a ``per_item_grant_branch`` has one, and
+    the shape is exactly ``attr.<domain>.<branch>.<item_id>``: no wildcard, no
+    deeper path, no branch-level scope, and an item id of the domain's own
+    form. This is the ONLY way an item there may ever be shared, and only the
+    owner may start it; :func:`is_external_requestable_pkm_scope` stays False
+    for every such scope, so a requester can never ask for one.
+    """
+    raw_parts = [part.strip() for part in str(scope or "").split(".")]
+    if len(raw_parts) != 4 or raw_parts[0] != "attr" or any(not part for part in raw_parts):
+        return False
+    _attr, domain, branch, item_id = raw_parts
+    policy = DOMAIN_SHARING_POLICY_REGISTRY.get(domain)
+    if policy is None or not policy.per_item_grant_branch or not policy.per_item_id_pattern:
+        return False
+    return branch == policy.per_item_grant_branch and bool(
+        re.fullmatch(policy.per_item_id_pattern, item_id)
+    )
 
 
 def consent_token_scope_value(token_obj: Any) -> str:
@@ -107,6 +145,8 @@ def is_private_pkm_export_scope(scope: str | None) -> bool:
     requestable when materialized and consented.
     """
     domain, _path = normalize_pkm_scope(scope)
+    if domain in INTERNAL_ONLY_DOMAIN_SLUGS:
+        return True
     if domain not in DOMAIN_SHARING_POLICY_REGISTRY:
         return False
     return not is_external_requestable_pkm_scope(scope)

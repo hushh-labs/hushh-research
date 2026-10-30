@@ -12,6 +12,7 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
+import { getPersistablePreviewCards } from "@/lib/profile/pkm-agent-lab-preview";
 
 export type PkmAgentLabDomainChoice = {
   domain_key: string;
@@ -51,6 +52,10 @@ export type PkmAgentLabPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  } | null;
 };
 
 export type PkmAgentLabResponse = {
@@ -93,7 +98,11 @@ function toRecord(value: unknown): Record<string, unknown> {
 export function getPkmAgentLabPersistableCards(
   response: PkmAgentLabResponse | null | undefined
 ): PkmAgentLabPreviewCard[] {
-  return (response?.preview_cards || []).filter(
+  const cards = (response?.preview_cards || []).map((card) => ({
+    ...card,
+    preview_degraded: card.preview_degraded === true || response?.used_fallback === true,
+  }));
+  return getPersistablePreviewCards(cards).filter(
     (card) => card.write_mode === "can_save" || card.write_mode === "confirm_first"
   );
 }

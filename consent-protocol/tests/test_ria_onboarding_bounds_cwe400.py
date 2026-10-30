@@ -272,6 +272,10 @@ class TestRIAPicksSyncRequestBounds:
         with pytest.raises(ValidationError):
             RIAPicksSyncRequest(package_note="a" * 1001)
 
+    def test_investor_debate_thesis_max_length_2000(self):
+        with pytest.raises(ValidationError):
+            RIAPicksSyncRequest(investor_debate_thesis="a" * 2001)
+
     def test_top_picks_list_bounded_5000(self):
         """Test that top_picks list enforces max_length=5000."""
         with pytest.raises(ValidationError):

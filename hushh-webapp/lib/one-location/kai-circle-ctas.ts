@@ -54,7 +54,7 @@ export function resolveKaiCircleCtas(params: {
   } else {
     ctas.push({
       id: "request_location",
-      label: "Request Location",
+      label: "Request location",
       enabled: viewerCapabilities?.canRequestLocation !== false,
       reason:
         viewerCapabilities?.hasLocationRecipientKey === false

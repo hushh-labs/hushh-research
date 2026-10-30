@@ -1,6 +1,6 @@
 // 1. Removed "use client" so this becomes a React Server Component (RSC)
 
-import type { ComponentPropsWithoutRef, ElementType, CSSProperties } from "react";
+import type { ComponentPropsWithoutRef, ComponentPropsWithRef, ElementType, CSSProperties } from "react";
 
 import {
   NativeTestBeacon,
@@ -20,10 +20,11 @@ export type AppPageShellWidth =
   | "profile";
 
 export type AppPageDensity = "compact" | "comfortable";
+export type AppPageHeaderContentSpacing = "standard" | "compact";
 
 // 2. Mapped directly to Tailwind classes instead of raw string values
 export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
-  reading: "max-w-[720px]",
+  reading: "max-w-[54rem]",
   agent: "max-w-[880px]",
   narrow: "max-w-[720px]",
   profile: "max-w-[720px]",
@@ -51,6 +52,8 @@ type AppPageShellProps<T extends ElementType> = {
   as?: T;
   width?: AppPageShellWidth;
   density?: AppPageDensity;
+  /** Opt into the tighter agent-header to first-content handoff. */
+  headerContentSpacing?: AppPageHeaderContentSpacing;
   /**
    * Let the page height fit its content instead of being stretched to fill the
    * viewport. Sparse screens (empty states, short lists) otherwise force a
@@ -68,7 +71,7 @@ type AppPageShellProps<T extends ElementType> = {
     errorCode?: string | null;
     errorMessage?: string | null;
   };
-} & Omit<ComponentPropsWithoutRef<T>, "as">;
+} & Omit<ComponentPropsWithRef<T>, "as">;
 
 type AppPageRegionProps<T extends ElementType> = {
   as?: T;
@@ -78,6 +81,7 @@ export function AppPageShell<T extends ElementType = "main">({
   as,
   width = "standard",
   density = "compact",
+  headerContentSpacing = "standard",
   fitContent = false,
   nativeTest,
   className,
@@ -96,6 +100,7 @@ export function AppPageShell<T extends ElementType = "main">({
         className
       )}
       data-app-density={density}
+      data-app-header-content-spacing={headerContentSpacing}
       data-app-shell-width={width}
       data-app-shell-fit-content={fitContent ? "true" : undefined}
       data-top-content-anchor="true"

@@ -14,7 +14,12 @@ import {
   DeviceResourceCacheService,
 } from "@/lib/services/device-resource-cache-service";
 
+import { withStableOverviewFromCache } from "./market-overview-stability";
+export { withStableOverviewFromCache } from "./market-overview-stability";
+
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+// Retire snapshots whose session status was selected from the viewer's timezone.
+const MARKET_HOME_RESOURCE_VERSION = "v6";
 const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2 | null>>();
 
 const TICKER_CANDIDATE_RE = /^[A-Z][A-Z0-9.-]{0,5}$/;
@@ -34,39 +39,11 @@ const EXCLUDED_SYMBOLS = new Set([
 ]);
 
 function toSymbolsKey(symbols: string[]): string {
-  if (!Array.isArray(symbols) || symbols.length === 0) return "default";
-  return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
-}
-
-function hasUsefulOverviewValue(value: string | number | null | undefined): boolean {
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value !== "string") return false;
-  const text = value.trim().toLowerCase();
-  return Boolean(text) && !["n/a", "na", "unknown", "unavailable", "none", "null", "--", "-"].includes(text);
-}
-
-function countUsableOverviewRows(payload: KaiHomeInsightsV2 | null | undefined): number {
-  const rows = payload?.market_overview;
-  if (!Array.isArray(rows)) return 0;
-  return rows.reduce((count, row) => {
-    if (!row) return count;
-    return hasUsefulOverviewValue(row.value) ? count + 1 : count;
-  }, 0);
-}
-
-function withStableOverviewFromCache(
-  nextPayload: KaiHomeInsightsV2,
-  cachedPayload: KaiHomeInsightsV2 | null
-): KaiHomeInsightsV2 {
-  const nextUsableCount = countUsableOverviewRows(nextPayload);
-  const cachedUsableCount = countUsableOverviewRows(cachedPayload);
-  if (nextUsableCount > 0 || cachedUsableCount === 0) {
-    return nextPayload;
-  }
-  return {
-    ...nextPayload,
-    market_overview: cachedPayload?.market_overview ?? nextPayload.market_overview,
-  };
+  const symbolPart =
+    !Array.isArray(symbols) || symbols.length === 0
+      ? "default"
+      : [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
+  return `${MARKET_HOME_RESOURCE_VERSION}-${symbolPart}`;
 }
 
 function readCachedPortfolioHoldings(userId: string): Array<Record<string, unknown>> {
@@ -86,10 +63,8 @@ function readCachedPortfolioHoldings(userId: string): Array<Record<string, unkno
 }
 
 function toStoredBaselineRecordKey(daysBack: number): string {
-  // v2 excludes baseline records written before the backend corrected mover
-  // percentage normalization. A stale device record must not keep showing a
-  // dollar change as a percent on the One dashboard for up to its 24h TTL.
-  return `kai_market_home:baseline:v2:${daysBack}`;
+  // Exclude snapshots containing ETF proxies or retrieval times labeled as quote times.
+  return `kai_market_home:baseline:${MARKET_HOME_RESOURCE_VERSION}:${daysBack}`;
 }
 
 function toStoredPersonalizedRecordKey(params: {
@@ -97,15 +72,7 @@ function toStoredPersonalizedRecordKey(params: {
   daysBack: number;
   symbolsKey: string;
 }): string {
-  return `kai_market_home:personalized:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
-}
-
-function toLegacyStoredRecordKey(params: {
-  pickSource: string;
-  daysBack: number;
-  symbolsKey: string;
-}): string {
-  return `kai_market_home:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
+  return `kai_market_home:personalized:${MARKET_HOME_RESOURCE_VERSION}:${params.pickSource}:${params.daysBack}:${params.symbolsKey}`;
 }
 
 type CachedMarketCandidate = {
@@ -127,7 +94,7 @@ function readAnyCachedPersonalizedMarketHome(params: {
   const cache = CacheService.getInstance();
   const daysBack = params.daysBack ?? 7;
   const pickSource = params.pickSource ?? "default";
-  const prefix = `kai_market_home_${params.userId}_`;
+  const prefix = `kai_market_home_${params.userId}_${MARKET_HOME_RESOURCE_VERSION}-`;
   const preferredSuffix = `_${daysBack}_${pickSource}`;
   const keys = cache
     .getStats()
@@ -162,17 +129,10 @@ async function readAnyStoredPersonalizedMarketHome(params: {
 }): Promise<StoredMarketCandidate | null> {
   const daysBack = params.daysBack ?? 7;
   const pickSource = params.pickSource ?? "default";
-  const [modern, legacy] = await Promise.all([
-    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
-      userId: params.userId,
-      resourcePrefix: `kai_market_home:personalized:${pickSource}:${daysBack}:`,
-    }),
-    DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
-      userId: params.userId,
-      resourcePrefix: `kai_market_home:${pickSource}:${daysBack}:`,
-    }),
-  ]);
-  const stored = modern ?? legacy;
+  const stored = await DeviceResourceCacheService.readLatestByPrefix<KaiHomeInsightsV2>({
+    userId: params.userId,
+    resourcePrefix: `kai_market_home:personalized:${MARKET_HOME_RESOURCE_VERSION}:${pickSource}:${daysBack}:`,
+  });
   return stored
     ? {
         payload: stored.value,
@@ -369,7 +329,6 @@ export class KaiMarketHomeResourceService {
           TICKER_CANDIDATE_RE.test(symbol) &&
           arr.indexOf(symbol) === index
       )
-      .sort((a, b) => a.localeCompare(b))
       .slice(0, 8);
   }
 
@@ -553,15 +512,10 @@ export class KaiMarketHomeResourceService {
     }
 
     if (!params.forceRefresh) {
-      const stored =
-        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
-          userId: params.userId,
-          resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
-        })) ??
-        (await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
-          userId: params.userId,
-          resourceKey: toLegacyStoredRecordKey({ pickSource, daysBack, symbolsKey }),
-        }));
+      const stored = await DeviceResourceCacheService.read<KaiHomeInsightsV2>({
+        userId: params.userId,
+        resourceKey: toStoredPersonalizedRecordKey({ pickSource, daysBack, symbolsKey }),
+      });
       if (stored) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         logRequest("device_hit", {

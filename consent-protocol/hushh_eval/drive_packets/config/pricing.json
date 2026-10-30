@@ -1,0 +1,41 @@
+{
+  "schema_version": "dpe.pricing.v1",
+  "note": "Assumed list prices per 1M tokens, chosen conservatively for the hard cost cap. Not verified against current Vertex billing; replace with billed prices before quoting cost as fact.",
+  "models": {
+    "gemini-3.6-flash": {
+      "input_per_1m_usd": 0.5,
+      "output_per_1m_usd": 3.0,
+      "source": "assumed_gemini_flash_preview_list_price_2025",
+      "as_of": "2026-10-15",
+      "verified": false
+    },
+    "gemini-3.7-flash": {
+      "input_per_1m_usd": 0.5,
+      "output_per_1m_usd": 3.0,
+      "source": "assumed_gemini_flash_preview_list_price_2025",
+      "as_of": "2026-10-15",
+      "verified": false
+    },
+    "gemini-3.8-flash": {
+      "input_per_1m_usd": 0.5,
+      "output_per_1m_usd": 3.0,
+      "source": "assumed_gemini_flash_preview_list_price_2025",
+      "as_of": "2026-10-15",
+      "verified": false
+    },
+    "gemini-3.1-pro-preview": {
+      "input_per_1m_usd": 2.0,
+      "output_per_1m_usd": 12.0,
+      "source": "assumed_gemini_pro_preview_list_price_2025",
+      "as_of": "2026-10-15",
+      "verified": false
+    },
+    "gemini-2.5-pro": {
+      "input_per_1m_usd": 1.25,
+      "output_per_1m_usd": 10.0,
+      "source": "assumed_gemini_2_5_pro_list_price_2025",
+      "as_of": "2026-10-15",
+      "verified": false
+    }
+  }
+}

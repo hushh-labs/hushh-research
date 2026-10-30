@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SharingStatusCard } from "@/components/one-location/redesign/sharing-status-card";
 
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: null }),
+}));
+
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => null,
+}));
+
 const baseProps = {
   isSharing: false,
   title: "Private right now",
@@ -66,7 +74,9 @@ describe("SharingStatusCard", () => {
     const root = container.firstElementChild as HTMLElement;
     // The hero card must not pin dark mode to a white surface.
     expect(root.className).not.toContain("dark:bg-white");
-    expect(root.className).toContain("dark:bg-[#1f1f24]");
+    expect(root.className).toContain(
+      "dark:bg-[color:var(--app-primary-surface)]",
+    );
     // The stylised map backdrop inverts for dark so it cannot glow white.
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("class") ?? "").toContain("dark:[filter:");

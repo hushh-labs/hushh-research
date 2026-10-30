@@ -1,0 +1,18 @@
+{
+  "status": {
+    "latestReadyRevisionName": "consent-protocol-candidate",
+    "traffic": [
+      {
+        "percent": 0,
+        "revisionName": "consent-protocol-candidate",
+        "tag": "account-deletion-123",
+        "url": "https://account-deletion-123---consent-protocol.example.run.app"
+      },
+      {
+        "percent": 100,
+        "revisionName": "consent-protocol-serving"
+      }
+    ],
+    "url": "https://consent-protocol.example.run.app"
+  }
+}

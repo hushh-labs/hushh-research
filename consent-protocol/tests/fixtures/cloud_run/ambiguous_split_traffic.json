@@ -1,0 +1,15 @@
+{
+  "status": {
+    "traffic": [
+      {
+        "percent": 50,
+        "revisionName": "consent-protocol-a"
+      },
+      {
+        "percent": 50,
+        "revisionName": "consent-protocol-b"
+      }
+    ],
+    "url": "https://consent-protocol.example.run.app"
+  }
+}

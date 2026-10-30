@@ -1,6 +1,37 @@
 import { NextResponse } from "next/server";
+import { scopeCommerceSandboxAssociations } from "@/lib/capacitor/scope-commerce-sandbox-associations";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Paths iOS should hand back to the app instead of Safari.
+ *
+ * OAuth returns and shared invitations belong inside an installed app.
+ * Before this list existed
+ * the applinks block was empty, so iOS had nothing to match and opened the
+ * browser, which is exactly what a person saw after connecting a bank account.
+ *
+ * Adding a path here is half the claim. The app must also declare
+ * `applinks:<domain>` in its entitlements, or iOS never asks for this file.
+ */
+const OAUTH_LINK_PATHS = [
+  "/one/kai/plaid/oauth/return",
+  "/one/profile/google/oauth/return",
+  "/one/profile/gmail/oauth/return",
+  "/one/profile/connectors/oauth/return",
+  "/kai/plaid/oauth/return",
+  "/profile/google/oauth/return",
+  "/profile/gmail/oauth/return",
+] as const;
+
+export const INVITATION_LINK_PATHS = [
+  "/",
+  "/circle/join",
+  "/circle/join/",
+  "/one/location/invite/*",
+] as const;
+
+export const UNIVERSAL_LINK_PATHS = [...OAUTH_LINK_PATHS, ...INVITATION_LINK_PATHS] as const;
 
 function resolveAssociatedAppId(): string | null {
   const teamId =
@@ -15,6 +46,18 @@ function resolveAssociatedAppId(): string | null {
 }
 
 export async function GET() {
+  try {
+    const sandbox = scopeCommerceSandboxAssociations();
+    if (sandbox) return NextResponse.json(sandbox.aasa, { headers: { "Cache-Control": "public, max-age=300" } });
+  } catch {
+    return NextResponse.json({ error: "Sandbox link associations are not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+  // Old installed iOS bundles cannot render arbitrary invite tokens. Activate
+  // the expanded claim only after the matching native bundle is distributed.
+  // Until then, shared links keep opening the web introduction, not a broken app.
+  const paths = process.env.NATIVE_INVITATION_LINKS_ENABLED === "true"
+    ? UNIVERSAL_LINK_PATHS
+    : OAUTH_LINK_PATHS;
   const appId = resolveAssociatedAppId();
   if (!appId) {
     return NextResponse.json(
@@ -36,7 +79,23 @@ export async function GET() {
     {
       applinks: {
         apps: [],
-        details: [],
+        details: [
+          {
+            appIDs: [appId],
+            // Deliberately narrow. Claiming "*" would route every link to this
+            // domain into the app, including public consent links, share pages
+            // and marketing, which is a worse bug than the one this fixes. Only
+            // provider returns and invitation entry points are claimed.
+            components: [...paths.map((path) => ({
+              "/": path,
+              comment: `Open the matching One screen (${path})`,
+            })), ...["/one/profile/account", "/one/profile/payouts"].map(path => ({
+              "/": path,
+              "?": { commerceReturn: "1", commerceAttemptId: "????????????????*" },
+              comment: "Return from Stripe to Payments and earnings; server status remains authoritative.",
+            }))],
+          },
+        ],
       },
       webcredentials: {
         apps: [appId],

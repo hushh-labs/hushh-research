@@ -6,12 +6,6 @@ function normalizeUrl(value: string | undefined | null): string {
   return normalizeText(value).replace(/\/+$/, "");
 }
 
-function isTruthy(raw: string | undefined | null): boolean {
-  return ["1", "true", "yes", "on", "enabled"].includes(
-    normalizeText(raw).toLowerCase()
-  );
-}
-
 export const FIREBASE_ADMIN_CREDENTIALS_JSON_ENV =
   "FIREBASE_ADMIN_CREDENTIALS_JSON";
 
@@ -43,18 +37,7 @@ export function resolveMailApiKey(): string {
   return normalizeText(process.env.MAIL_API_KEY);
 }
 
-export function resolveVoiceFailFastPolicy(): boolean {
-  return false;
-}
-
-export function resolveVoiceDirectBackendPreference(): boolean {
-  return isTruthy(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND);
-}
-
-export function resolveVoiceForceProxyPreference(): boolean {
-  return isTruthy(process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY);
-}
-
-export function resolveLegacyLocalTtsCompatEnabled(): boolean {
-  return isTruthy(process.env.NEXT_PUBLIC_ENABLE_LEGACY_LOCAL_TTS_COMPAT);
+/** Exact server-side application origin; callers enforce their own origin contract. */
+export function resolveServerAppFrontendOrigin(): string {
+  return normalizeText(process.env.APP_FRONTEND_ORIGIN);
 }

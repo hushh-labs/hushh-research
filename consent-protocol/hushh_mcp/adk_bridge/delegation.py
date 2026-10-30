@@ -6,6 +6,60 @@ from dataclasses import dataclass
 
 from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.types import HushhConsentToken
+
+
+class OwnerTokenValidationUnavailable(RuntimeError):
+    """Authority could not be checked; this is not a confirmed revocation."""
+
+
+async def validate_first_party_owner_token(
+    user_id: str, consent_token: str, *, conn=None, report_unavailable: bool = False
+) -> HushhConsentToken | None:
+    """Validate exact self-owner authority, without the generic DB outage grace.
+
+    This is an ingress prerequisite for scoped first-party invocation, not an
+    information export or action confirmation. Never emit credential diagnostics.
+    """
+    if not isinstance(user_id, str) or not user_id.strip():
+        return None
+    if not isinstance(consent_token, str) or not consent_token:
+        return None
+    try:
+        valid, _reason, payload = validate_token(
+            consent_token, ConsentScope.VAULT_OWNER, require_commercial=False
+        )
+        if (
+            not valid
+            or payload is None
+            or payload.user_id != user_id
+            or payload.agent_id != "self"
+            or payload.scope != ConsentScope.VAULT_OWNER
+            or payload.scope_str != ConsentScope.VAULT_OWNER.value
+            or payload.commercial is not False
+        ):
+            return None
+        from hushh_mcp.services.consent_db import ConsentDBService
+
+        active = await ConsentDBService().is_token_active(
+            user_id,
+            ConsentScope.VAULT_OWNER.value,
+            "self",
+            token_id=consent_token,
+            **({"conn": conn} if conn is not None else {}),
+        )
+        if active is not True and active is not False and report_unavailable:
+            raise OwnerTokenValidationUnavailable("Owner authority validation unavailable")
+        return payload if active is True else None
+    except Exception:
+        # Missing grants, backend failures and malformed validation results must
+        # never authorize a new delegation. Cancellation still propagates.
+        if report_unavailable:
+            raise OwnerTokenValidationUnavailable(
+                "Owner authority validation unavailable"
+            ) from None
+        return None
+
 
 SPECIALIST_A2A_SCOPE_MAP: dict[str, ConsentScope] = {
     "agent_one": ConsentScope.CAP_ONE_INVOKE,
@@ -60,6 +114,16 @@ async def validate_a2a_consent_token_with_db(
     status cannot be confirmed.
     """
     required_scope = get_a2a_required_scope(agent_id)
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+        try:
+            verdict = await require_owner_scope(consent_token, expected_scope=required_scope.value)
+        except PermissionError:
+            return A2AConsentValidation(False, "consent denied", None, required_scope)
+        return A2AConsentValidation(True, "verified by hub", verdict.user_id, required_scope)
     valid, reason, payload = await validate_token_with_db(consent_token, required_scope)
     return A2AConsentValidation(
         ok=bool(valid and payload),

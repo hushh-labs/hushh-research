@@ -3,6 +3,11 @@
 Status: canonical reference. Source of truth for how setup is structured,
 gated, reset, resumed, and skipped across the app.
 
+The optional [initial Contacts welcome](../../guides/initial-signup-contacts.md)
+is a post-root terminal at `/one/welcome`. It preserves Finance and invitation
+continuations, delays the chat entry welcome until Continue, and leaves existing
+capability setup and Connect/Location contact acquisition unchanged.
+
 > Naming: the account‑level flow and its surfaces are now called **setup**
 > (formerly "onboarding"). The canonical routes are `/one/setup` (hub),
 > `/one/setup/finance` (Finance preferences), and static
@@ -18,6 +23,97 @@ gated, reset, resumed, and skipped across the app.
 > the orchestrator above every surface, and each surface owns its own
 > setup the way each sub‑agent owns its own job.
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). The setup
+journey's detailed visual map follows the guest invitation contract below.
+
+## Guest introduction and invitation continuity
+
+Before sign-in, `/?invite=one`, `/circle/join?code=…`, and
+`/one/location/invite/[token]` share `GuestPreview`: the existing welcome,
+followed by the mentor's four V7.2 product stories in order: **Big plans. Less
+busywork.**, **Find answers. Not more tabs.**, **Your people. Right here.**, and
+**Your information. Your call.** `Create your One` opens the first story without
+signing in. The supplied PNG/WebP assets, illustration geometry, Inter tokens,
+copy and responsive layout live in `components/onboarding/mentor-onboarding`
+and `public/onboarding/mentor-v72`.
+These stories are examples only. They do not create an account, join a Circle,
+connect a provider, or grant access. Back and progress sit above the action row;
+Skip stays left and compact Next stays right. Skip or the final Get started
+action opens sign-in. Voice sign-in remains gated to the final story. The host
+preserves the original invitation
+as its internal redirect target. Already-authenticated recipients skip this
+introduction and use the existing invitation confirmation and prerequisites.
+An ordinary signed-out visit to `/` shows the public Claim your One introduction,
+not an automatic login redirect. Its account action opens `/login` with the
+validated destination preserved; login Back returns to this public entry.
+Session-recovery and already-authenticated admission guards remain separate.
+The generic Invite to One share URL carries `invite=one` only as a presentation
+marker; it is not an invite token and grants no connection or Circle authority.
+
+One story mounts at a time. Its supplied mascot plays one three-second cycle
+and returns to its still image; reduced motion and hidden pages show the still.
+Below 800px the art and copy stack; wider layouts use the supplied two-column
+composition. Effective app safe areas supplement browser insets, and short
+windows or enlarged text can scroll vertically rather than clipping content.
+
+Named Circle previews use the anonymous, rate-limited
+`POST /api/one/location/circle-codes/public-preview` metadata allowlist (Circle
+name and owner display name only). Invalid, expired, disabled, exhausted, and
+system-Circle codes remain unavailable. Authenticated previews and joining keep
+their existing Firebase and vault-owner boundaries.
+The One API mounts this presentation endpoint on Location's separate public
+router, outside the protected workflow catalog; existing setup semantics and
+in-progress workflow revision compatibility remain unchanged.
+Public metadata is optional presentation, not admission: a slow response, 429,
+or temporary outage never blocks the final sign-in action. Definite invalid or
+expired responses disable the invitation CTA and offer recovery. This matters
+for launch traffic where anonymous web requests can share a proxy IP bucket;
+the authenticated confirmation still validates the code before joining.
+
+The existing post-auth route service carries invitation intent through phone
+verification, setup, and Profile unlock. Setup links preserve a sanitized
+`return_to`; completing AI choice and the outer setup guard use that same
+destination. The final Connect join/Invite to One confirmation remains explicit:
+opening a link or completing the guest introduction never grants membership.
+
+A pending memory-only Finance source takes precedence over that return target.
+Both root-completion paths resume `/one/setup/finance/import?return_to=…`; the
+source chooser retains the validated continuation until its existing explicit
+Finish or skip succeeds. A source result does not revive the completed root
+journey, and extraction cancellation still returns to the chooser. Failed
+capability persistence cannot navigate to the invitation; unsafe or setup-loop
+return targets fall back to the normal Finance destination.
+
+Guest routes own their viewport without persistent app chrome. The shared UI
+uses existing typography, icons, motion, and safe-area tokens; enlarged text and
+short landscape viewports may scroll to keep actions reachable.
+
+The existing native link handler admits the shared HTTPS root with its
+`invite=one` query (generic Invite
+to One), `/circle/join?code=…`, and legacy `/one/location/invite/<token>` links.
+The legacy token becomes `/circle/join?invite=…` inside the native app: a static
+export cannot emit every future token. The same client owns both token entry
+points, including phone, setup and unlock return paths. A delayed launch URL
+cannot overwrite a newer live link. No custom-scheme invitation or auto-join
+authority is introduced. The generic root invite has no inviter or code and
+therefore cannot create a connection; signed-in people reach their usual home.
+
+Release sequencing is required: ship and test the rebuilt iOS/Android bundle
+before enabling `NATIVE_INVITATION_LINKS_ENABLED=true` on the hosted web domain.
+Association files cannot select an installed app version: publishing a new
+binary alone does not upgrade existing installations. Keep the switch off
+until the supported installed versions can handle these links, or an enforced
+update path has been verified.
+It defaults off so a web rollout cannot strand older iOS installations on an
+unexported token route. iOS already declares the associated domains; Android's
+new path filters require a new binary. Verify served AASA/team/bundle identity
+and Android signing association, plus cold/warm taps from another app, on each
+release domain. Same-domain Safari navigation may remain in Safari by OS policy.
+Installing the app later is not deferred-link recovery: reopen the original
+message link; no cross-install tracking or token persistence is added.
+
 ## Visual Map
 
 The end‑to‑end setup journey stays inside static setup workspaces. Feature bodies
@@ -29,22 +125,47 @@ create the first vault. Vault keys and owner tokens remain in memory only.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)\ntiles + live status\nmaster Finish setup"]
-  Connections["/one/setup/connections\nrequired explicit managed or BYOK choice"]
-  Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
-  Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
-  Wizard["/one/setup/finance (wizard)\nquestionnaire -> persona"]
-  Import["/one/setup/finance/import\nPlaid, statement, or set up later"]
+  Hub["/one/setup (hub)<br/>tiles + live status<br/>master Finish setup"]
+  Placement["/one/setup/cloud<br/>verify hosting first"]
+  Shared["Hussh Shared<br/>shared runtime; no personal pod"]
+  Byoc["BYOC<br/>owner's Google Cloud or Azure pod"]
+  Hosted["Hussh Pods<br/>Hussh-operated pod; new assignments gated"]
+  Connections["AI access inside the cloud wizard<br/>save verified provider and credential"]
+  Pod["Assigned private-agent pod"]
+  Gmail["/one/setup/gmail (workspace)<br/>Connect, review receipt signals, Finish Gmail setup"]
+  Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
+  Wizard["/one/setup/finance (wizard)<br/>questionnaire then persona"]
+  Import["/one/setup/finance/import<br/>Plaid, statement, or set up later"]
+  Dash["/one (dashboard)<br/>reached after the master acknowledgement"]
 
-  Hub -->|choose how One runs| Connections -->|durable choice marker| Hub
+  Hub --> Placement
+  Placement -->|no assignment or pending setup| Shared
+  Placement -->|verified owner-cloud setup| Byoc
+  Placement -->|only when the hosted gate opens| Hosted
+  Byoc -.-> Pod
+  Hosted -.-> Pod
+  Placement -->|verified hosting| Connections
+  Connections -->|Finish agent setup| Hub
+  Connections -.->|"verified model access may start assigned-pod provisioning"| Pod
   Hub -->|Connect Gmail| Gmail
   Gmail -->|verified connection + Finish Gmail setup| Hub
   Hub -->|choose capability| Static
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after Connections: Finish setup -> required vault| Dash
+  Hub -->|after both saved choices: Finish setup then required vault| Dash
 ```
+
+The evidenced legacy Shared cohort retains Shared. An account with unknown placement
+must choose explicitly; missing or pending setup is never silently moved.
+The hosting selector offers BYOC and Hussh Pods as alternatives; new Hussh Pods
+assignments remain server-gated. Existing pod assignments and pending setup are
+preserved. Model provider and credential remain a separate decision in the same wizard.
+
+The dotted edges are deliberately dotted: provisioning does not block the setup
+journey. A verified model connection can start pod provisioning only when an
+owner-cloud or hosted pod target is already assigned. Hussh Shared never creates
+a pod as a side effect of connecting a model.
 
 The setup catalog is a deliberate subset of the broader One capability catalog
 (single source of truth:
@@ -97,13 +218,24 @@ therefore resumes the existing feature body without replaying the introduction.
 Do not add a second wizard, route-local intro, or durable completion marker for
 presentation alone.
 
+Calendar enters its feature body directly, without a cinematic introduction.
+Its connection illustration appears only during unfinished root onboarding,
+while Calendar is absent from the existing durable `setupCapabilityIds` and
+its verified connection status is `disconnected`. Completed setup, normal
+workspace visits, and reauthorization use the compact Calendar body. A deliberate
+disconnect also keeps that compact body for the remainder of the owner's visit.
+The existing Finish/Skip coordinator remains the completion authority; this
+presentation does not add a persistent shown marker or change OAuth behavior.
+
 ## 1. The hierarchy
 
 ```mermaid
 flowchart TD
-  One["One setup (ROOT)\n/one/setup\nonce per account"]
-  Kai["Finance preferences (SUB)\n/one/setup/finance"]
-  Cap["Static capability setup (SUB)\n/one/setup/<capability>"]
+  One["One setup (ROOT)<br/>/one/setup<br/>once per account"]
+  Kai["Finance preferences (SUB)<br/>/one/setup/finance"]
+  Cap["Static capability setup (SUB)<br/>/one/setup/&lt;capability&gt;"]
+  Ria["RIA advisor verification (SUB)<br/>/one/setup/ria"]
+  Kyc["KYC identity workflow (SUB)<br/>/one/setup/email"]
   One --> Kai
   One --> Cap
   One --> Ria
@@ -124,11 +256,15 @@ registry — add or extend an `OnboardingDefinition` instead.**
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
 gate only after its Finish setup action and successful private-vault creation
-or unlock. The action remains disabled until the person explicitly selects
-Hussh-managed Gemini or BYOK at `/one/setup/connections`. The visible surface
-is named AI access; `connections` remains the route/action compatibility ID. AI access is a
-root prerequisite, not an agent capability: it does not change the capability
-count or publish a generated voice action. `/one/setup/finance` is the Finance preferences wizard and
+or unlock. The action remains disabled until the hosting choice and AI access
+prerequisites are complete. `/one/setup/cloud` selects Hussh Shared, BYOC, or
+the gated Hussh Pods option, then reuses the existing AI selector within that
+same wizard. Existing assignments and pending setup remain intact. There is
+no separate AI tile on the hub. The hosting and `connections` markers remain
+independent durable prerequisites; the older AI route remains a compatibility
+entrypoint; its legacy action remains hidden from the hub. AI access is a root prerequisite, not an
+agent capability: it does not change the capability count or publish a generated
+voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
 capability has its own static setup route. The legacy `/one/setup/[capability]`
 and `/one/setup/kai` routes are redirect-only compatibility paths with no
@@ -200,7 +336,7 @@ See the note in
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
 via its own shared bottom action: **Finish setup**. It is not available until
-the durable Connections-choice marker exists. The click/voice handler
+the durable placement and Connections markers exist. The click/voice handler
 force-revalidates that marker immediately, then shows the required vault flow.
 Only vault success acknowledges the root gate, primes the local completion
 latch, mirrors it account-wide, and redirects. The shared top-bar Back action
@@ -208,9 +344,47 @@ never acknowledges root setup. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
 Root acknowledgement never writes Finance completion into the Kai profile.
-The AI access setup preface writes only the bounded `connections` marker in
+The embedded AI selector writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
+
+Historical cloud-workflow cursors that cannot satisfy the combined finish gate
+are rejected by exact graph revision in the owning capability evolution manifest.
+Re-entering setup preserves the saved hosting assignment; no owner resource or
+setup marker is reset.
+
+### Hosting placement and AI access are separate decisions
+
+Hosting placement determines whether a person has a personal pod. Shared is
+explicitly selected or retained for the evidenced legacy cohort; unplaced
+accounts and unreadable placement never default into it. The selected deployment
+target is authoritative for BYOC (`user_gcp` or `user_azure`) and Hussh Pods (`gcp`). The model provider and credential are a separate axis.
+
+When a pod target is already assigned, the model connection is verified before
+provisioning begins:
+
+| Choice | Route | What proves it |
+| --- | --- | --- |
+| Hussh-managed | `POST /api/one/runtime/managed/select` | a real generation against the managed provider |
+| Bring your own key | `POST /api/one/runtime/gemini/validate` | a real generation against the person's own key |
+
+These endpoints report whether pod provisioning was scheduled. An absent or
+failed model connection does not create a pod. A successful connection on Hussh
+Shared also does not create one; pending placement or unreadable setup evidence
+fails closed rather than silently switching tiers.
+
+That ordering is the correction of a real defect, and the reason is worth
+keeping. Provisioning used to fire on phone verification, which put billable,
+warm, heart-beating compute behind an event that says nothing about whether the
+agent could ever answer a question. Signing in is not evidence of a working
+agent; a successful model call is.
+
+The consequence is that hosting placement is not inferred from model access.
+The setup map shows the placement and credential steps separately. The pod
+journey itself lives in
+[Architecture § 1a](../architecture/architecture.md) and the dynamic view in the
+[Architecture View Catalog](../architecture/architecture-view-catalog.md);
+do not restate its internals here.
 
 ### Static capability workspaces
 
@@ -289,7 +463,9 @@ the asynchronous connector-start call, then uses the existing backend-owned
 callback URI. The parent page retains its memory-only vault session. The popup
 holds only an opaque attempt and setup correlation; on verified settlement it
 posts a same-origin terminal result to the exact opener, which refreshes the
-connector before rendering Finish. It never transfers a vault key, owner token,
+connector before rendering Finish. Settlement waits only for the encrypted
+OAuth grant and durable initial-sync record to persist; Gmail watch registration
+and the scan worker continue after the callback response. It never transfers a vault key, owner token,
 Firebase token, OAuth artifact, or receipt content between windows. A blocked
 popup never falls back to a same-tab redirect. Shopping-summary PKM persistence
 is an explicit action; Gmail does not auto-save inferred memory.
@@ -374,3 +550,17 @@ When adding a new setup screen or control:
    backend prompt allowlist, not a ranking hint.
 4. Regenerate and verify: `npm run build:voice-gateway && npm run
 verify:voice-gateway`.
+
+## First chat preferences
+
+One's scripted first conversation offers a name, a first capability, and a
+reply tone. “Something else” exits these optional questions immediately and
+focuses ordinary chat. The choice is persisted so no name prompt or preference
+recommendations return on another visit. It does not capture the next message
+as a name or save preferences to memory.
+
+First-capability choices appear in this order: Location, Mail, Calendar,
+Finance, Advisor, Wallet, Consent, Memory, Messages. They reuse existing
+connector and workspace actions without granting access. Phones show three
+rows of three; “Skip for now” sits on a separate row. Names and reply tone
+still require confirmation before encrypted memory storage.

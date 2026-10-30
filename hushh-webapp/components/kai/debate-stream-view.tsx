@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
@@ -25,6 +25,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
+import { formatDebateAnalysisForDisplay } from "@/lib/kai/format-debate-analysis";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   DebateRunManagerService,
@@ -33,8 +34,6 @@ import {
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import {
   fetchLatestMarketSnapshot,
-  getLatestMarketSnapshotFromCache,
-  pickPreferredMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -53,6 +52,7 @@ export interface AgentState {
   stage: "idle" | "active" | "complete" | "error";
   text: string;
   thoughts: string[];
+  statusMessage?: string;
   error?: string;
   // Rich data from agent_complete
   recommendation?: string;
@@ -449,30 +449,12 @@ interface DebateStreamViewProps {
   showHeader?: boolean;
 }
 
-type MarketSnapshot = {
-  last_price: number | null;
-  change_pct: number | null;
-  observed_at: string | null;
-  source: string;
-};
-
 type HeaderMarketQuote = {
   last_price: number | null;
   change_pct: number | null;
   observed_at: string | null;
   source: string;
 };
-
-function toDecisionMarketSnapshot(quote: HeaderMarketQuote | null): NonNullable<
-  NonNullable<DecisionResult["raw_card"]>["market_snapshot"]
-> {
-  return {
-    last_price: quote?.last_price ?? null,
-    change_pct: quote?.change_pct ?? null,
-    observed_at: quote?.observed_at ?? null,
-    source: quote?.source ?? "unavailable",
-  };
-}
 
 type StreamPayload = Record<string, unknown>;
 
@@ -483,56 +465,6 @@ function toMarketNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
-}
-
-function extractMarketSnapshotFromDecision(data: StreamPayload): MarketSnapshot {
-  const rawCard =
-    data.raw_card && typeof data.raw_card === "object" ? (data.raw_card as Record<string, unknown>) : {};
-  const keyMetrics =
-    rawCard.key_metrics && typeof rawCard.key_metrics === "object"
-      ? (rawCard.key_metrics as Record<string, unknown>)
-      : {};
-  const valuationMetrics =
-    keyMetrics.valuation && typeof keyMetrics.valuation === "object"
-      ? (keyMetrics.valuation as Record<string, unknown>)
-      : {};
-  const priceTargets =
-    rawCard.price_targets && typeof rawCard.price_targets === "object"
-      ? (rawCard.price_targets as Record<string, unknown>)
-      : {};
-
-  const candidates: Array<{ value: unknown; source: string }> = [
-    { value: rawCard.current_price, source: "raw_card.current_price" },
-    { value: valuationMetrics.current_price, source: "raw_card.key_metrics.valuation.current_price" },
-    { value: valuationMetrics.price, source: "raw_card.key_metrics.valuation.price" },
-    { value: priceTargets.current_price, source: "raw_card.price_targets.current_price" },
-    { value: priceTargets.current, source: "raw_card.price_targets.current" },
-    { value: priceTargets.market_price, source: "raw_card.price_targets.market_price" },
-  ];
-  for (const candidate of candidates) {
-    const parsed = toMarketNumber(candidate.value);
-    if (parsed !== null) {
-      return {
-        last_price: parsed,
-        change_pct: toMarketNumber(rawCard.day_change_pct ?? rawCard.change_pct ?? data.day_change_pct),
-        observed_at:
-          (typeof rawCard.analysis_updated_at === "string" && rawCard.analysis_updated_at) ||
-          (typeof data.analysis_updated_at === "string" && data.analysis_updated_at) ||
-          new Date().toISOString(),
-        source: candidate.source,
-      };
-    }
-  }
-
-  return {
-    last_price: null,
-    change_pct: null,
-    observed_at:
-      (typeof rawCard.analysis_updated_at === "string" && rawCard.analysis_updated_at) ||
-      (typeof data.analysis_updated_at === "string" && data.analysis_updated_at) ||
-      null,
-    source: "unavailable",
-  };
 }
 
 function toEpoch(value: string | null | undefined): number {
@@ -875,19 +807,6 @@ export function DebateStreamView({
     setHeaderQuoteLoading(Boolean(showHeader && vaultOwnerToken) && !cached);
     if (!cancelled) {
       setHeaderMarketQuote(cached);
-      if (cached) {
-        setDecision((prev) =>
-          prev
-            ? {
-                ...prev,
-                raw_card: {
-                  ...(prev.raw_card || {}),
-                  market_snapshot: toDecisionMarketSnapshot(cached),
-                },
-              }
-            : prev
-        );
-      }
     }
 
     if (!vaultOwnerToken) {
@@ -908,17 +827,6 @@ export function DebateStreamView({
         if (!cancelled) {
           setHeaderMarketQuote((prev) => {
             const nextQuote = pickPreferredHeaderQuote(prev, liveQuote);
-            setDecision((currentDecision) =>
-              currentDecision
-                ? {
-                    ...currentDecision,
-                    raw_card: {
-                      ...(currentDecision.raw_card || {}),
-                      market_snapshot: toDecisionMarketSnapshot(nextQuote),
-                    },
-                  }
-                : currentDecision
-            );
             return nextQuote;
           });
         }
@@ -1043,7 +951,10 @@ export function DebateStreamView({
             activeRoundRef.current = 2;
             setActiveRound(2);
           }
-          updateAgentState(r, (data.agent || "").toString(), { stage: "active" });
+          updateAgentState(r, (data.agent || "").toString(), {
+            stage: "active",
+            statusMessage: sanitizeStatusMessage(data.message),
+          });
           break;
         }
         case "agent_token": {
@@ -1073,7 +984,16 @@ export function DebateStreamView({
           const r = resolveRoundForEnvelope(data);
           updateAgentState(r, (data.agent || "").toString(), {
             stage: "complete",
-            text: toInvestorStreamText(data.summary || ""),
+            statusMessage: "Analysis complete",
+            // The final summary arrives as one complete XML-compatible
+            // statement. Keep its debate sections before applying the
+            // investor-language cleanup so new saved runs replay with the
+            // same headings as legacy transcripts.
+            text: toInvestorStreamText(
+              formatDebateAnalysisForDisplay(
+                typeof data.summary === "string" ? data.summary : "",
+              ),
+            ),
             thoughts: [],
             recommendation: optionalString(data.recommendation),
             confidence: optionalNumber(data.confidence),
@@ -1099,9 +1019,7 @@ export function DebateStreamView({
             setKaiThinking("Preparing your final recommendation...");
             if (!finalizingNotifiedRef.current) {
               finalizingNotifiedRef.current = true;
-              toast.message("Final recommendation in progress", {
-                description: "Final consensus is being prepared.",
-              });
+              toast.message("Final recommendation in progress. Final consensus is being prepared.");
             }
           }
           break;
@@ -1156,13 +1074,6 @@ export function DebateStreamView({
               ? data.final_statement.trim().slice(0, 280)
               : "Final recommendation synthesized from the completed debate.";
 
-          const marketSnapshot = extractMarketSnapshotFromDecision(data);
-          const cachedMarketSnapshot = getLatestMarketSnapshotFromCache(
-            userId,
-            String(data.ticker || ticker).toUpperCase()
-          );
-          const resolvedMarketSnapshot =
-            pickPreferredMarketSnapshot(marketSnapshot, cachedMarketSnapshot) || marketSnapshot;
           const incomingRawCard: Record<string, unknown> =
             data.raw_card && typeof data.raw_card === "object"
               ? ((data.raw_card as DecisionResult["raw_card"]) ?? {})
@@ -1226,7 +1137,8 @@ export function DebateStreamView({
               typeof data.valuation_summary === "string" ? data.valuation_summary : undefined,
             raw_card: {
               ...incomingRawCard,
-              market_snapshot: resolvedMarketSnapshot,
+              analysis_degraded: Boolean(data.analysis_degraded || incomingRawCard.analysis_degraded),
+              degraded_agents: degradedAgents,
               pick_source: incomingRawCard.pick_source || fallbackPickSource,
               pick_source_label:
                 incomingRawCard.pick_source_label || fallbackPickSourceLabel,
@@ -1299,7 +1211,6 @@ export function DebateStreamView({
       ticker,
       queueTokenPaint,
       updateAgentState,
-      userId,
     ]
   );
 
@@ -1639,12 +1550,12 @@ export function DebateStreamView({
             <div>
               {decision ? (
                 <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-semibold">
-                  <Icon icon={CheckCircle2} size={12} className="mr-1" /> Complete
+                  <Icon icon={CheckCircle2} size={12} className="mr-1" /> {decision.analysis_degraded ? "Limited analysis" : "Complete"}
                 </Badge>
               ) : loading && kaiThinking ? (
                 <Badge
                   variant="outline"
-                  className="max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
+                  className="max-w-[180px] xs:max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
                 >
                   <Icon icon={Loader2} size={12} className="mr-1 animate-spin" /> {kaiThinking}
                 </Badge>

@@ -20,6 +20,14 @@
   background: transparent;
 }
 
+.solid .base {
+  background: #f6f5fc;
+}
+
+:global(.dark) .solid .base {
+  background: #000;
+}
+
 .moteLayer {
   position: absolute;
   inset: 0;
@@ -45,6 +53,11 @@
     transparent 0.7px
   );
   background-size: 4px 4px;
+}
+
+.solid .moteLayer,
+.solid .grain {
+  display: none;
 }
 
 @keyframes mote-drift {

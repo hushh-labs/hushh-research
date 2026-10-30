@@ -1,0 +1,385 @@
+"""HTTP auth and privacy contract for live Gmail receipt scan/detail."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes.kai import gmail
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+
+@pytest.fixture(autouse=True)
+def shared_owner_placement(monkeypatch, active_account_lifecycle):
+    """These route fixtures exercise Shared mail; private refusals live in the route-wall suite."""
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
+
+def test_captured_live_uat_scan_passes_actual_response_model():
+    # Live UAT 200 supplied for this incident. Only its signed cursor is
+    # replaced in the committed fixture; the raw capture stays in ignored tmp/.
+    capture = os.getenv("GMAIL_RECEIPT_LIVE_CAPTURE")
+    path = (
+        Path(capture)
+        if capture
+        else Path(__file__).parent / "fixtures/gmail_live_receipt_uat_scan.json"
+    )
+    payload = json.loads(path.read_text())
+    response = gmail.GmailLiveReceiptScanResponse.model_validate(payload).model_dump()
+    assert response == {
+        "sync_mode": "bootstrap",
+        "checkpoint": None,
+        "unavailable_events": [],
+        **payload,
+    }
+
+
+def _item(source_id: str = "gmail_live_source.sig") -> dict:
+    return {
+        "id": -1,
+        "source_id": source_id,
+        "durable_source_ref": "grs1_" + "a" * 40,
+        "receipt_key": source_id,
+        "source_kind": "gmail_live",
+        "gmail_message_id": "provider-message-id",
+        "gmail_thread_id": "provider-thread-id",
+        "merchant_name": "Myntra",
+        "merchant_domain": "myntra.com",
+        "sender_domain": "updates.myntra.com",
+        "from_name": "Myntra",
+        "from_email": "receipts@myntra.com",
+        "order_id": "ORDER-100",
+        "amount": 100.0,
+        "amount_decimal": "100.00",
+        "currency": "INR",
+        "receipt_date": "2026-10-04T00:00:00+00:00",
+        "gmail_internal_date": "2026-10-04T00:00:00+00:00",
+        "subject": "Order receipt",
+        "preview": "Order receipt preview",
+        "snippet": "Order receipt preview",
+        "classification_confidence": 0.98,
+        "classification_source": "agent",
+        "event_type": "purchase",
+        "status": "paid",
+        "identifier_kind": "order",
+        "identifier_value": "ORDER-100",
+        "short_detail": "Monthly membership",
+        "cleaned_preview": "Monthly membership paid INR 100.00",
+    }
+
+
+def _app(*, firebase_uid: str = "owner", vault_owner: str | None = "owner") -> FastAPI:
+    app = FastAPI()
+    app.include_router(gmail.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: firebase_uid
+    if vault_owner is not None:
+        app.dependency_overrides[require_vault_owner_token] = lambda: {
+            "user_id": vault_owner,
+            "token": "vault-token",
+        }
+    return app
+
+
+def test_scan_requires_three_way_owner_match_before_service(monkeypatch):
+    service = MagicMock()
+    service.scan = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    wrong_firebase = TestClient(_app(firebase_uid="other")).post(
+        "/gmail/receipts/scan", json={"user_id": "owner"}
+    )
+    wrong_vault = TestClient(_app(vault_owner="other")).post(
+        "/gmail/receipts/scan", json={"user_id": "owner"}
+    )
+
+    assert wrong_firebase.status_code == 403
+    assert wrong_vault.status_code == 403
+    service.scan.assert_not_awaited()
+
+
+def test_scan_requires_vault_authorization_before_service(monkeypatch):
+    service = MagicMock()
+    service.scan = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    response = TestClient(_app(vault_owner=None), raise_server_exceptions=False).post(
+        "/gmail/receipts/scan", json={"user_id": "owner"}
+    )
+
+    assert response.status_code == 401
+    service.scan.assert_not_awaited()
+
+
+def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
+    service = MagicMock()
+    service.scan = AsyncMock(
+        return_value={
+            "items": [_item()],
+            "page": 1,
+            "per_page": 6,
+            "returned_count": 1,
+            "has_more": False,
+            "coverage": {
+                "source": "gmail_live",
+                "listed_count": 1,
+                "candidate_count": 1,
+                "matched_count": 1,
+                "pages_scanned": 1,
+                "max_messages": 6,
+                "max_pages": 10,
+                "reached_limit": False,
+                "query_scope": "receipt_signals_all_mail_except_spam_trash",
+                "rejection_counts": {
+                    "missing_receipt_signal": 0,
+                    "extractor_not_receipt": 0,
+                },
+                "evidence_counts": {
+                    "gmail_category": 0,
+                    "subject_signal": 0,
+                    "body_signal": 0,
+                    "verified_merchant": 0,
+                    "order_candidate": 0,
+                    "total_candidate": 0,
+                },
+            },
+        }
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    revalidate = AsyncMock()
+    monkeypatch.setattr(gmail, "_revalidate_live_receipt_access", revalidate)
+
+    response = TestClient(_app()).post(
+        "/gmail/receipts/scan",
+        json={"user_id": "owner", "page": 1, "per_page": 6},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["durable_source_ref"] == _item()["durable_source_ref"]
+    assert response.json()["items"][0]["amount_decimal"] == "100.00"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"
+    kwargs = service.scan.await_args.kwargs
+    assert kwargs["user_id"] == "owner"
+    assert kwargs["consent_token"] == "vault-token"
+    assert kwargs["page"] == 1
+    assert kwargs["per_page"] == 6
+    assert callable(kwargs["require_access"])
+    asyncio.run(kwargs["require_access"]())
+    revalidate.assert_awaited_once()
+    asyncio.run(kwargs["require_access"]())
+    assert revalidate.await_count == 2
+
+
+async def test_disconnected_receipt_request_cancels_only_its_scan():
+    cancelled = asyncio.Event()
+
+    class _DisconnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return True
+
+    async def blocked_scan() -> dict:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+        return {}
+
+    with pytest.raises(HTTPException) as caught:
+        await gmail._await_live_receipt_scan(
+            request=_DisconnectedRequest(),  # type: ignore[arg-type]
+            operation=blocked_scan(),
+        )
+
+    assert caught.value.status_code == 499
+    assert cancelled.is_set()
+
+
+def test_detail_accepts_only_bounded_source_id_in_post_body(monkeypatch):
+    service = MagicMock()
+    service.detail = AsyncMock(return_value={"item": _item(), "email_excerpt": None})
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    revalidate = AsyncMock()
+    monkeypatch.setattr(gmail, "_revalidate_live_receipt_access", revalidate)
+
+    response = TestClient(_app()).post(
+        "/gmail/receipts/detail",
+        json={"user_id": "owner", "source_id": "gmail_live_source.sig"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    kwargs = service.detail.await_args.kwargs
+    assert kwargs["user_id"] == "owner"
+    assert kwargs["source_id"] == "gmail_live_source.sig"
+    assert "gmail_message_id" not in kwargs
+    asyncio.run(kwargs["require_access"]())
+    revalidate.assert_not_awaited()
+    asyncio.run(kwargs["require_access"]())
+    revalidate.assert_awaited_once()
+
+
+def test_detail_requires_three_way_owner_and_vault_authorization(monkeypatch):
+    service = MagicMock()
+    service.detail = AsyncMock(return_value={"item": _item(), "email_excerpt": None})
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    payload = {"user_id": "owner", "source_id": "gmail_live_source.sig"}
+    wrong_firebase = TestClient(_app(firebase_uid="other")).post(
+        "/gmail/receipts/detail", json=payload
+    )
+    wrong_vault = TestClient(_app(vault_owner="other")).post("/gmail/receipts/detail", json=payload)
+    missing_vault = TestClient(_app(vault_owner=None), raise_server_exceptions=False).post(
+        "/gmail/receipts/detail", json=payload
+    )
+
+    assert wrong_firebase.status_code == 403
+    assert wrong_vault.status_code == 403
+    assert missing_vault.status_code == 401
+    service.detail.assert_not_awaited()
+
+
+def test_live_receipt_request_bounds_reject_before_service(monkeypatch):
+    service = MagicMock()
+    service.scan = AsyncMock(return_value={"items": []})
+    service.detail = AsyncMock(return_value={"item": {}})
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    too_many = TestClient(_app()).post(
+        "/gmail/receipts/scan", json={"user_id": "owner", "per_page": 13}
+    )
+    oversized = TestClient(_app()).post(
+        "/gmail/receipts/detail",
+        json={"user_id": "owner", "source_id": "x" * 341},
+    )
+
+    assert too_many.status_code == 422
+    assert oversized.status_code == 422
+    service.scan.assert_not_awaited()
+    service.detail.assert_not_awaited()
+
+
+def _coverage(**overrides: object) -> dict:
+    base = {
+        "source": "gmail_live",
+        "listed_count": 1,
+        "candidate_count": 1,
+        "matched_count": 1,
+        "pages_scanned": 1,
+        "max_messages": 6,
+        "max_pages": 10,
+        "reached_limit": False,
+        "query_scope": "receipt_signals_all_mail_except_spam_trash",
+        "rejection_counts": {"missing_receipt_signal": 0, "extractor_not_receipt": 0},
+        "evidence_counts": {
+            "gmail_category": 0,
+            "subject_signal": 0,
+            "body_signal": 0,
+            "verified_merchant": 0,
+            "order_candidate": 0,
+            "total_candidate": 0,
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def test_scan_classifies_a_response_shape_mismatch_instead_of_crashing(monkeypatch, caplog):
+    # A regression seen live on UAT: one extracted item failed the response
+    # model's schema (observed via Cloud Run logs landing inside FastAPI's
+    # own serialize_response, outside this route's try/except), which this
+    # route previously returned as an opaque, unclassified 500 -- a shape the
+    # frontend's retry logic cannot distinguish from a dependency crash, so it
+    # gave up without retrying. A currency outside the declared Literal set
+    # reproduces the same response-model mismatch deterministically.
+    bad_item = _item()
+    bad_item["currency"] = "CAD"
+    bad_item["merchant_name"] = "private-merchant-name"
+    service = MagicMock()
+    service.scan = AsyncMock(
+        return_value={
+            "items": [bad_item],
+            "page": 1,
+            "per_page": 6,
+            "returned_count": 1,
+            "has_more": False,
+            "coverage": _coverage(),
+        }
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    monkeypatch.setattr(gmail, "_revalidate_live_receipt_access", AsyncMock())
+
+    response = TestClient(_app(), raise_server_exceptions=False).post(
+        "/gmail/receipts/scan", json={"user_id": "owner"}
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
+        "code": "GMAIL_RECEIPT_CONTRACT_MISMATCH",
+        "message": "Receipt sync could not validate its response. Please try again later.",
+        "retryable": False,
+    }
+    assert "private-merchant-name" not in response.text + caplog.text
+
+
+def test_live_receipt_errors_do_not_echo_provider_or_mailbox_values(monkeypatch, caplog):
+    service = MagicMock()
+    service.scan = AsyncMock(
+        side_effect=GmailApiError(
+            "private-owner private-message private-order private-amount",
+            status_code=502,
+            code="UNTRUSTED_PROVIDER_CODE",
+            payload={"access_token": "private-token", "body": "private-body"},
+        )
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    monkeypatch.setattr(gmail, "_revalidate_live_receipt_access", AsyncMock())
+
+    response = TestClient(_app()).post("/gmail/receipts/scan", json={"user_id": "owner"})
+    rendered = response.text + caplog.text
+
+    assert response.status_code == 502
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["detail"] == {
+        "code": "GMAIL_RECEIPT_UNAVAILABLE",
+        "message": "Receipts are temporarily unavailable. Please try again.",
+        "retryable": False,
+    }
+    for private_value in (
+        "private-owner",
+        "private-message",
+        "private-order",
+        "private-amount",
+        "private-token",
+        "private-body",
+    ):
+        assert private_value not in rendered
+
+
+@pytest.mark.parametrize(
+    "code", ["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", "GMAIL_RECEIPT_ACCOUNT_CHANGED"]
+)
+def test_scan_preserves_safe_continuity_recovery_codes(monkeypatch, code):
+    service = MagicMock()
+    service.scan = AsyncMock(
+        side_effect=GmailApiError("private provider detail", status_code=409, code=code)
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    response = TestClient(_app()).post(
+        "/gmail/receipts/scan",
+        json={"user_id": "owner", "incremental": True, "account_key": "account"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == code
+    assert "private provider detail" not in response.text

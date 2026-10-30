@@ -44,7 +44,7 @@ Intentional destructive cold-start audit:
 cd hushh-webapp && npm run verify:capacitor:cold:audit
 ```
 
-The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a visible, non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device.
+The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device. iOS stays headless by default; append `-- --visible` only when a desktop window is requested.
 
 ## Route Classification Policy
 
@@ -64,17 +64,40 @@ OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
 explicit exclusions rather than presenting a native Google authorization flow
 that cannot complete.
 
+Files is also initially web-only: `/one/files` requires native acceptance for
+streaming transfers, file-picker behavior, owner key continuity, and direct-pod
+admission. Its web surface is not evidence of iOS or Android parity.
+
 Current inventory policy:
 
-- 89 functional routes are native-required and must pass on iOS and Android.
-- 14 routes are explicit web-only exclusions: `/kai/optimize`,
-  `/one/kai/optimize`, `/welcome`, `/oauth/authorize`, `/developers`,
-  `/one/profile/pkm-agent-lab`, `/one/calendar`, `/one/setup/calendar`,
-  `/one/profile/google/oauth/return`, `/one/profile/integrations`, `/blog`,
-  `/blog/[slug]`, `/research`, and `/research/protocol`.
+- Route counts and the complete exclusions list are owned by
+  `native-route-inventory.json`; `/circle/join` is now native-required.
+- Explicit exclusions include `/blog`, `/blog/[slug]`,
+  `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
+  `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
+  `/one/profile/integrations`, `/one/profile/pkm-agent-lab`, `/one/puppy`,
+  `/one/setup/calendar`, `/research`, `/research/protocol`, and `/welcome`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
 
 Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/one/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
+
+The consent-aware public person surface is the narrow exception. Its sole
+product route remains `/people/[personRef]`; Capacitor emits one inert UUID
+fixture to include the dynamic client bundle, then resolves the actual opaque
+reference through the shared native-aware API transport. No public identity,
+scope metadata, grant, or plaintext value is compiled into the application.
+
+Shared invitations use the existing static `/circle/join` surface. Native
+HTTPS `/one/location/invite/<token>` arrivals normalize to
+`/circle/join?invite=<token>` before routing, without claiming the invitation.
+The generic Invite to One URL is the exact root and carries no inviter identity.
+See [invitation continuity and release sequencing](../quality/one-onboarding-architecture.md#guest-introduction-and-invitation-continuity)
+for the iOS association rollout switch and the required real-device checks.
+
+`/one/referrals` is native-required and shares the web dashboard through the
+existing native-aware `ApiService` transport. `/one/profile/referrals` is its
+compatibility redirect. Static inventory coverage does not establish device
+runtime parity; real authenticated device verification remains required.
 
 ## Browser API Policy
 
@@ -100,6 +123,35 @@ Direct usage is allowed only in:
 - explicitly exempt web-only plugin implementations
 - documented accepted exceptions in the mobile docs
 
+## Notification Lifecycle Parity
+
+Web, iOS, and Android share one notification lifecycle contract. While the app
+is active, receipt refreshes `/one/feed` and the owning domain state without a
+popup toast, foreground system banner, or sound. While
+an iOS or Android app is backgrounded or terminated, the operating system owns
+the notification; the same applies when no visible web client can claim it. A
+notification body tap normally opens `/one/feed`. Incoming `location_share_created`
+and `location_access_approved` alerts instead open `/one/location?section=shared`
+(Shared with me). This list-only destination drops historical grant/request IDs;
+current received-share state still controls whether location can be viewed.
+Warm taps use the shared internal navigation event, preserving the memory-only
+vault; startup taps retain that destination until the router mounts and follow
+the normal auth/unlock recovery path. Silent location lifecycle updates remain
+silent, and owner-facing requests and unrelated notifications retain Feed routing.
+On iOS, registered consent action buttons remain confirmation-only deep links. Save My
+Soul is the sole foreground presentation exception and must not produce both a
+native banner and the shared emergency alarm. Capacitor's Firebase Messaging
+router remains the iOS notification delegate and presents only the badge in the
+foreground, while the shared UI owns the emergency card and the native
+notification bridge owns repeating foreground sound/vibration. Recipient
+dismissal, opening/unwatching, sender cancellation and lifecycle cleanup stop
+the cue. SOS cancellation is silent on every platform. Background notification
+sounds retain their platform limits; this is not a persistent locked-screen
+alarm implementation. Its explicit
+iOS `Open live location` safety action retains a validated direct One Location
+route. Consent request identity survives the Feed handoff so the backend can stop reminders after the
+user attends the system notification.
+
 ## Gemini runtime configuration parity
 
 Connections setup and settings use the shared web vault/PKM path inside both
@@ -121,6 +173,14 @@ Current accepted parity exceptions are:
 - None.
 
 Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in the mobile docs in the same change.
+
+## Render Performance
+
+This audit checks routes, plugins, markers and auth states. It does not
+measure frame pacing. That bar, the in-app probe, the native instruments and
+the gesture card live in [render-performance-charter.md](./render-performance-charter.md);
+`npm run verify:render-performance` is its static gate, and a dated device
+baseline under `perf/` is its evidence.
 
 ## Native Project Sanity
 
@@ -184,10 +244,29 @@ run a cold audit merely to inspect a normally unlocked session.
 
 Native parity for authenticated flows now includes the verified phone mandate after login.
 
+- `HushhSessionPrivacy` is the native resume privacy boundary on both iOS and
+  Android. The host must cover the WebView before inactivity, expose the
+  current process-local generation through `getState`, and accept
+  `completeSessionValidation` only for the same generation while active.
+  This acknowledgement releases the screenshot/privacy cover; it is not an
+  account/session validation request, and neither platform may auto-release
+  its cover from a resume callback.
+- The shield must block more than taps. iOS keeps the cover accessibility-modal;
+  Android applies `FLAG_SECURE`, hides the underlying WebView descendants from
+  TalkBack, and restores the exact prior accessibility mode only after an
+  accepted release or activity destruction.
+- The TypeScript bridge remains a web-safe no-op. `AuthProvider` is the sole
+  caller that may acknowledge a native generation after the resumed document
+  is ready; route and vault components do not release the native cover.
+
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- Siri/App Shortcuts is an explicit iOS system-surface specialization. Its
+  `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
+  handoff methods on iOS; Android and web return unsupported/no pending
+  invocation and do not create a parallel assistant integration.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
@@ -198,10 +277,60 @@ Native parity for authenticated flows now includes the verified phone mandate af
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
   a platform permission surface, not a web-only route.
-- Web, iOS, and Android must all produce the same product truth: a signed-in user without
-  `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
+- `/one/location/check-in/hotel` is explicitly excluded until a supported hotel
+  stay provider exists. The route fails closed and must not become a native
+  functional screen without updating the provider, inventory, and route
+  contracts together.
+- Web, iOS, and Android use the verified app-level backend claim, which need
+  not appear on the primary `FirebaseAuth.currentUser.phoneNumber`. Established
+  vault/setup accounts do not repeat signup verification; unknown reads remain
+  retryable. New incomplete accounts still require a verified phone. Explicit
+  OTP completion requires fresh exact-owner persistence proof, including native
+  finalization with the exact requested E.164 phone in the refresh body. The
+  backend checks the current provider UID/phone and persists through the
+  serialized phone writer. Ordinary metadata refreshes cannot replace a saved
+  phone. Ship the updated shared JavaScript with this backend for native
+  replacement; older clients fail exact-number completion safely. A cached
+  phone hint alone cannot complete verification.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not
   currently ship a dedicated Android OTP automation harness.
+
+## Plaid Link (native SDK on both platforms)
+
+Bank linking on the native shell opens Plaid's own SDK through the
+`HushhPlaidLink` plugin, never web Link inside the WebView. Web Link cannot
+finish an OAuth bank there: the bank's OAuth leg leaves for the external
+browser, the redirect chain ends on the https frontend origin, and neither
+Universal Links nor App Links can catch a redirect chain. The native SDK owns
+that leg and the return into the app.
+
+- **iOS** uses LinkKit. **Android** uses `com.plaid.link:sdk-core` (pinned
+  exactly in `android/app/build.gradle`) through Capacitor's
+  `startActivityForResult` and the SDK's `OpenPlaidLink` contract. Both return
+  the same shape: `{ publicToken, metadata }` or `{ exit: true, error?, metadata }`,
+  with the same error codes (`MISSING_TOKEN`, `ALREADY_OPEN`, `CREATE_FAILED`)
+  and events on `plaidLinkEvent`. Nothing is stored natively.
+- Plaid documents Android 8.0 (API 26) as the SDK minimum while the app
+  installs on API 24. The manifest overrides the SDK's minSdk; on older devices
+  the plugin's `isAvailable` returns false and the page uses web Link.
+- The link token is shaped by the Link runtime. The app sends `platform`
+  (`web`, `ios`, `android`) on `/api/kai/plaid/link-token`,
+  `/api/kai/plaid/link-token/update` and `/api/kai/plaid/funding/link-token`.
+  `android` is sent only when the native SDK will open the token; the backend
+  then sends `android_package_name` (from `PLAID_ANDROID_PACKAGE_NAME`, default
+  `com.hussh.app`) and **omits** `redirect_uri`, as Plaid requires. Web and iOS
+  keep `redirect_uri`. A client that omits `platform` is treated as web.
+- The Android SDK merges `READ_BASIC_PHONE_STATE`, a `plaid://` redirect
+  activity and a file provider into the app manifest; account for them in the
+  Play data-safety declaration.
+
+Plaid Dashboard actions (founder, per Plaid environment, production and
+sandbox): under **Developers > API**, add `com.hussh.app` to **Allowed
+Android package names**, and keep the https redirect URIs used by web and iOS
+(for example `https://uat.one.hushh.ai/one/kai/plaid/oauth/return` and
+`https://one.hushh.ai/one/kai/plaid/oauth/return`) on the **Allowed redirect
+URIs** list. A token minted for a package name or redirect URI that is not
+allowlisted fails at `/link/token/create`.
 
 ## Release Standard
 

@@ -1,0 +1,117 @@
+"""ONE_VOICE_LIVE_ENABLED / VERTEX_LIVE_MODEL_ID / VERTEX_LIVE_LOCATION contract."""
+
+from __future__ import annotations
+
+import pytest
+
+from hushh_mcp.one_voice.config import (
+    HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV,
+    MAIL_SCHEDULED_DRAIN_ENABLED_ENV,
+    ONE_VOICE_LIVE_ENABLED_ENV,
+    ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV,
+    ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_ENV,
+    VERTEX_LIVE_LOCATION_ENV,
+    VERTEX_LIVE_MODEL_ID_ENV,
+    OneVoiceConfigError,
+    OneVoiceLiveConfig,
+    OneVoiceMailAdmission,
+    live_voice_enabled,
+    voice_mail_drafts_enabled,
+    voice_mail_schedule_send_enabled,
+    voice_mail_scheduled_drain_enabled,
+)
+
+
+def test_flag_off_never_reads_the_model_contract(monkeypatch):
+    monkeypatch.delenv(ONE_VOICE_LIVE_ENABLED_ENV, raising=False)
+    monkeypatch.delenv(VERTEX_LIVE_MODEL_ID_ENV, raising=False)
+    monkeypatch.delenv(VERTEX_LIVE_LOCATION_ENV, raising=False)
+    config = OneVoiceLiveConfig.from_environment()
+    assert config.enabled is False
+    assert config.model_id == ""
+    assert live_voice_enabled() is False
+
+
+def test_flag_on_uses_profile_model_when_no_local_override(monkeypatch):
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.delenv(VERTEX_LIVE_MODEL_ID_ENV, raising=False)
+    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "us-central1")
+    assert OneVoiceLiveConfig.from_environment().model_id == "gemini-live-2.5-flash-native-audio"
+
+
+@pytest.mark.parametrize("location", ["global", "us", "eu", "US-CENTRAL1!"])
+def test_flag_on_rejects_non_regional_locations(monkeypatch, location):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, location)
+    with pytest.raises(OneVoiceConfigError, match=VERTEX_LIVE_LOCATION_ENV):
+        OneVoiceLiveConfig.from_environment()
+
+
+def test_flag_on_reads_the_pinned_contract(monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "US-Central1")
+    monkeypatch.setenv("ONE_VOICE_SESSION_MAX_MINUTES", "10")
+    config = OneVoiceLiveConfig.from_environment()
+    assert config.enabled is True
+    assert config.model_id == "gemini-live-2.5-flash-native-audio"
+    assert config.location == "us-central1"
+    assert config.vertex_project == "hushh-pda-uat"
+    assert config.session_max_seconds == 600
+    assert config.idle_close_seconds == 90
+
+
+def test_voice_uses_shared_uat_project_ignoring_retired_override(monkeypatch):
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "retired-project")
+    assert OneVoiceLiveConfig.from_environment().vertex_project == "hushh-gemini-bridge"
+
+
+def test_limits_must_be_positive_integers(monkeypatch):
+    monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
+    monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
+    monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, "us-central1")
+    monkeypatch.setenv("ONE_VOICE_IDLE_CLOSE_SECONDS", "0")
+    with pytest.raises(OneVoiceConfigError, match="ONE_VOICE_IDLE_CLOSE_SECONDS"):
+        OneVoiceLiveConfig.from_environment()
+
+
+@pytest.mark.parametrize(
+    ("env", "predicate", "method"),
+    [
+        (
+            ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_ENV,
+            voice_mail_schedule_send_enabled,
+            "mail_schedule_send_enabled",
+        ),
+        (ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV, voice_mail_drafts_enabled, "mail_drafts_enabled"),
+        (
+            MAIL_SCHEDULED_DRAIN_ENABLED_ENV,
+            voice_mail_scheduled_drain_enabled,
+            "mail_scheduled_drain_enabled",
+        ),
+    ],
+)
+def test_new_mail_capabilities_are_off_until_explicitly_enabled(
+    monkeypatch, env, predicate, method
+):
+    """Scheduled sends, the drain that fires them, and draft sends are new
+    delivery paths: unset is OFF, and the facade the tools consult reads the
+    same switch at call time."""
+    admission = OneVoiceMailAdmission()
+    monkeypatch.delenv(env, raising=False)
+    assert predicate() is False
+    assert getattr(admission, method)() is False
+    for value in ("", "false", "0", "maybe"):
+        monkeypatch.setenv(env, value)
+        assert predicate() is False, value
+    monkeypatch.setenv(env, "true")
+    assert predicate() is True
+    assert getattr(admission, method)() is True
