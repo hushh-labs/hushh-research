@@ -183,7 +183,7 @@ for (const width of [393, 1440]) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.longMutualName = "1"; });
     await expect(page).toHaveTitle("Connect layout fixture");
     await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
     await expect(page.getByTestId("mutual-connections-list")).toBeVisible();

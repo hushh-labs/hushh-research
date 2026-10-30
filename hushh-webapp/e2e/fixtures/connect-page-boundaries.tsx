@@ -113,7 +113,7 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
   listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => ({
-    person: { publicPersonRef: personRef, displayName: "Avery Stone" },
+    person: { publicPersonRef: personRef, displayName: dataset().longMutualName === "1" ? "Avery".repeat(50) : "Avery Stone" },
     items: Array.from({ length: page === 1 ? 20 : 5 }, (_, index) => ({
       publicPersonRef: `mutual_${(page - 1) * 20 + index}`,
       displayName: `Mutual Person ${String((page - 1) * 20 + index + 1).padStart(2, "0")}`,

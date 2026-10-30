@@ -104,7 +104,7 @@ export function MutualConnectionsList({ personRef, href }: { personRef: string; 
               <h1 className="mt-4 text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
                 {result ? `${result.totalCount} mutual ${result.totalCount === 1 ? "connection" : "connections"}` : "Mutual connections"}
               </h1>
-              <p className="mt-2 max-w-2xl text-base leading-6 text-muted-foreground">
+              <p className="mt-2 max-w-2xl text-base leading-6 text-muted-foreground [overflow-wrap:anywhere]">
                 {displayedPerson
                   ? `You and ${displayedPerson} are both connected to these people.`
                   : "People connected to both of you."}
@@ -122,7 +122,7 @@ export function MutualConnectionsList({ personRef, href }: { personRef: string; 
             </div>
 
             {result ? (
-              <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 md:min-w-56">
+              <div className="flex w-full shrink-0 items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 md:w-64 md:max-w-[40%]">
                 <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-background text-primary shadow-sm ring-1 ring-border/70">
                   <UsersThreeIcon className="size-5" aria-hidden="true" />
                 </span>

@@ -11,6 +11,8 @@ export async function assertMutualListLayout(page: Page, width: number) {
   if (!listBox) throw new Error("Mutual connections list should have a rendered box.");
   expect(listBox.width).toBeGreaterThan(width === 393 ? 300 : 900);
   expect(listBox.width).toBeLessThanOrEqual(width === 393 ? 393 : 1120);
+  const header = page.getByTestId("mutual-connections-list").locator("header");
+  expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 
   const firstAction = page.getByRole("button", {
     name: "Open Mutual Person 01's profile",
