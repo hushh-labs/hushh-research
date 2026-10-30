@@ -47,7 +47,6 @@ import { circleChatHref } from "@/lib/circle-chat/routes";
 import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
-
 export type FeedItemPresentation = {
   icon: ComponentType<{ className?: string; color?: string }>;
   domainLabel: string;
