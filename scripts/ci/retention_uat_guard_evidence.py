@@ -60,7 +60,7 @@ SOURCE_PROFILES = (
     {
         base.OWNER: ("1e7f8973cea0f5fea7ada3033935856bb4428f37", 87255),
         base.WORKFLOW: ("8f0660ff9a8ec42747dc338e56ad83e3dde98ce5", 20685),
-        PUBLICATION: ("a286dcf227f538fa1bf7105e86799180967e927b", 18975),
+        PUBLICATION: ("939f07cd6f1330375544983279d5e801e4e5a260", 18759),
     },
 )
 OWNER_BLOBS = frozenset(profile[base.OWNER][0] for profile in SOURCE_PROFILES)

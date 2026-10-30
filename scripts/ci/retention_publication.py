@@ -14,8 +14,8 @@ REPOSITORY = "hushh-labs/hushh-research"
 LEGACY_BLOBS = evidence.LEGACY_BLOBS
 LEGACY_STEPS = evidence._STEP_NAMES
 RUNNER_WARNING = evidence.RUNNER_WARNING
-# The clock's tick for both environments. For UAT its bot dispatch is the same
-# authority as a scoped tick; production's proof never qualifies a bot dispatch.
+# The clock's tick for both environments. Its bot dispatch carries the same
+# authority as a scoped tick; each environment's proof decides what qualifies.
 UNSCOPED_TICK_TITLE = "Capacity Maintenance"
 
 
@@ -183,12 +183,6 @@ def qualify(owner, repository, environment, run, job):
     )
 
 
-def _tick_titles(owner, environment):
-    """Run titles that carry the clock's bot-tick authority for this environment."""
-    scoped = owner.SCOPED_TICK_TITLES[environment]
-    return {scoped, UNSCOPED_TICK_TITLE} if environment == "uat" else {scoped}
-
-
 def _legacy_actor(owner, attempt, run, number, environment):
     policy = json.loads(
         (
@@ -206,7 +200,8 @@ def _legacy_actor(owner, attempt, run, number, environment):
             or (
                 attempt.get("event") == "repository_dispatch"
                 and actor == "github-actions[bot]"
-                and run.get("display_title") in _tick_titles(owner, environment)
+                and run.get("display_title")
+                in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}
             )
         )
         and (

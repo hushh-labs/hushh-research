@@ -171,7 +171,6 @@ class PublicationRoutingTest(unittest.TestCase):
         refusals = (
             ("uat", maintenance.SCOPED_TICK_TITLES["production"], "repository_dispatch", source, "actor is ungoverned"),
             ("uat", publication.UNSCOPED_TICK_TITLE, "workflow_dispatch", source, "actor is ungoverned"),
-            ("production", publication.UNSCOPED_TICK_TITLE, "repository_dispatch", source, "actor is ungoverned"),
             ("uat", publication.UNSCOPED_TICK_TITLE, "repository_dispatch", unknown, "source is unknown"),
         )
         for environment, title, event, served, reason in refusals:
