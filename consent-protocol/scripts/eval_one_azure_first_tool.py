@@ -46,19 +46,35 @@ AzureCall = Callable[[str, list[types.Content], dict | None], str | None]
 
 async def admitted_root(
     token_supplier: Callable[[], str] | None = None,
-) -> tuple[Any, types.GenerateContentConfig]:
-    """The exact UAT root model and the request settings production Chat sends."""
+) -> tuple[Any, types.GenerateContentConfig, list[Any]]:
+    """The exact UAT root model, its tool declarations and production Chat's settings."""
     from hushh_mcp.one_adk.agent_tree import _one_chat_thinking_config
     from scripts.probe_one_text_root import _root_contract
 
-    model, _, _ = await _root_contract()
+    model, _, root_declarations = await _root_contract()
     if model.primary_provider != "azure_openai":
         raise ValueError("This environment does not serve One's root from managed Azure")
     if token_supplier is not None:
         model = model.model_copy(update={"token_supplier": token_supplier})
     # Production Chat builds its root with thought summaries (api/routes/one/agent_chat.py).
     thinking = _one_chat_thinking_config(model, include_summaries=True)
-    return model, types.GenerateContentConfig(thinking_config=thinking)
+    config = types.GenerateContentConfig(thinking_config=thinking)
+    return model, config, chat_roster(root_declarations)
+
+
+def chat_roster(root_declarations: Sequence[Any]) -> list[Any]:
+    """The managed head's declarations plus typed chat's device receipt tools, in harness order.
+
+    The harness builds its roster with a dummy model, so its google_search lacks the
+    managed head's finish_turn parameter. Send what production sends; refuse a drift.
+    """
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
+    by_name = {item.name: item for item in root_declarations}
+    roster = harness.build_roster_declarations()
+    if {item.name for item in roster} - RECEIPT_TOOL_NAMES != set(by_name):
+        raise ValueError("The harness roster drifted from the managed root's tools")
+    return [by_name.get(item.name, item) for item in roster]
 
 
 async def _final_response(model: Any, request: LlmRequest) -> Any:
@@ -69,9 +85,9 @@ async def _final_response(model: Any, request: LlmRequest) -> Any:
     return final
 
 
-def make_azure_call(model: Any, config: types.GenerateContentConfig) -> AzureCall:
-    declarations = harness.build_roster_declarations()
-
+def make_azure_call(
+    model: Any, config: types.GenerateContentConfig, declarations: Sequence[Any]
+) -> AzureCall:
     def _call(instruction: str, contents: list[types.Content], rules: dict | None) -> str | None:
         request_config = config.model_copy(deep=True)
         request_config.system_instruction = instruction
@@ -166,8 +182,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--reps", type=int, default=harness.DEFAULT_REPS)
     parser.add_argument("--report-dir", type=Path, default=harness.DEFAULT_REPORT_DIR)
     args = parser.parse_args(argv)
-    model, config = asyncio.run(admitted_root())
-    call, label = make_azure_call(model, config), f"azure_openai:{model.model}"
+    model, config, declarations = asyncio.run(admitted_root())
+    call, label = make_azure_call(model, config, declarations), f"azure_openai:{model.model}"
     exit_code = 0
     if args.suite in ("first_turn", "all"):
         exit_code |= harness.run_eval(

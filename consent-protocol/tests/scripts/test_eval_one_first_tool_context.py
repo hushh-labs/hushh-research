@@ -166,14 +166,20 @@ def test_azure_follow_ups_ask_the_admitted_root_with_production_chat_settings(mo
     from scripts import probe_one_text_root
 
     root = _StubRoot()
+    # The managed head's own declarations; its google_search differs from the dummy roster's.
+    head = [d for d in harness.build_roster_declarations() if d.name not in RECEIPT_TOOL_NAMES]
+    head = [
+        d.model_copy(update={"description": "head"}) if d.name == "google_search" else d
+        for d in head
+    ]
 
     async def admitted():
-        return root, "", []
+        return root, "", head
 
     monkeypatch.setattr(probe_one_text_root, "_root_contract", admitted)
     cases = list(_turns().values())
-    model, settings = asyncio.run(azure.admitted_root())
-    results = azure.score_follow_ups(cases, azure.make_azure_call(model, settings), reps=1)
+    model, settings, roster = asyncio.run(azure.admitted_root())
+    results = azure.score_follow_ups(cases, azure.make_azure_call(model, settings, roster), reps=1)
     assert {result.id for result in results if result.hit} == {
         "email.followup_second_mail_question",
         "receipts.unanswered_device_call_then_question",
@@ -184,14 +190,17 @@ def test_azure_follow_ups_ask_the_admitted_root_with_production_chat_settings(mo
         assert request.config.thinking_config == _one_chat_thinking_config(
             root, include_summaries=True
         )
-        assert RECEIPT_TOOL_NAMES <= {d.name for d in request.config.tools[0].function_declarations}
+        sent = {d.name: d for d in request.config.tools[0].function_declarations}
+        assert RECEIPT_TOOL_NAMES <= set(sent) and sent["google_search"].description == "head"
         assert request.contents[-1].parts[0].text == case["prompt"]
     # A provider failure stops the measurement; later cases are never graded.
     outage = azure.score_follow_ups(
-        cases, azure.make_azure_call(_StubRoot(fail=True), settings), reps=1
+        cases, azure.make_azure_call(_StubRoot(fail=True), settings, roster), reps=1
     )
     assert [result.status for result in outage] == ["infrastructure_error"] + ["unattempted"] * 3
     assert outage[0].infrastructure_failure["error_type"] == "TimeoutError"
+    with pytest.raises(ValueError, match="drifted"):
+        azure.chat_roster(head[1:])
     root.primary_provider = "vertex"
     with pytest.raises(ValueError, match="managed Azure"):
         asyncio.run(azure.admitted_root())

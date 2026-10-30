@@ -22,9 +22,14 @@ history hygiene, so only the final prompt is graded; v1 loaders refuse that
 schema. A case may add argument rules (`required`, `nonempty_any`). A right
 tool that drops them grades as `<tool>:args_incomplete`, a named miss.
 `scripts/eval_one_azure_first_tool.py` scores both suites on the managed Azure
-root that UAT serves: the exact admitted deployment and settings, production
-Chat's thinking policy and the same grader. A live run needs the environment's
-managed Azure identity; offline tests stub the model.
+root that UAT serves: the exact admitted deployment and settings, the managed
+head's own tool declarations, production Chat's thinking policy and the same
+grader. A live run needs the environment's managed Azure identity; offline
+tests stub the model. One known difference remains: `typed_chat` composes
+without the owner keys production's `_extract_state` always sets (PKM context,
+screen context, timezone), so the graded instruction lacks the "NO OWNER
+INFORMATION THIS TURN" block and the dated clock line. Closing it needs a
+versioned owner context derived from that function, with a frozen clock.
 
 Where a fixture case accepts more than one first tool, the EvalSet pins the
 fixture's primary (first-listed) tool, which is always the read-first path
