@@ -23,7 +23,6 @@ import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./finance-sharing.module.css";
 
 const sectionLabel = { allocation: "Allocation", performance: "Performance", holdings: "Selected stocks", note: "Your note" };
-const advisorSections = ["allocation", "performance", "holdings"] as const;
 const sharingSteps = [
   { value: "people", label: "Contacts" },
   { value: "sections", label: "What to share" },
