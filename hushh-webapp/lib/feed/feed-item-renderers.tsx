@@ -18,7 +18,6 @@ import {
 } from "@/components/icons";
 import { CalendarAgentIcon } from "@/components/icons/agents";
 import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
-
 import {
   consentInformationLabel,
   joinInformationLabels,
