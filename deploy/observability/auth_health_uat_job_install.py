@@ -61,10 +61,23 @@ def install_job(
             "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
             "timer_created": False,
         }
-        existing = run(
-            ["run", "jobs", "describe", health.JOB, f"--region={health.REGION}"],
-            optional=True,
+        resource = f"projects/{PROJECT}/locations/{health.REGION}/jobs/{health.JOB}"
+        observed = health._existing_resource(
+            api, f"https://run.googleapis.com/v2/{resource}", resource
         )
+        existing = None
+        if observed is not None:
+            existing = run(
+                ["run", "jobs", "describe", health.JOB, f"--region={health.REGION}"]
+            )
+            metadata = existing.get("metadata") if isinstance(existing, dict) else None
+            if (
+                not isinstance(observed.get("uid"), str)
+                or not observed["uid"]
+                or not isinstance(metadata, dict)
+                or metadata.get("uid") != observed["uid"]
+            ):
+                _refuse("Cloud Run job identity changed during preflight")
         if existing is not None:
             return _accept_existing_job(
                 existing, project_number, checker, image, intent, receipt_path
