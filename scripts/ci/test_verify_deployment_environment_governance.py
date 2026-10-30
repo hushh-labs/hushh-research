@@ -307,6 +307,79 @@ def test_capacity_clock_wakes_maintenance_scoped_to_due_environments() -> None:
         assert recorded == [post + tick for tick in expected], (uat, production, recorded)
 
 
+def _run_clock_summary(values: dict[str, str]) -> str:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+    match = re.search(
+        r"      - name: Summarize capacity clock checks\n.*?"
+        r"        run: \|\n(.*?)(?=\n  [\w-]+:\n|\n      - name:|\Z)",
+        source,
+        re.DOTALL,
+    )
+    assert match is not None, "Capacity clock summary step is missing"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temporary:
+        summary = Path(temporary) / "summary.md"
+        result = subprocess.run(
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                textwrap.dedent(match.group(1)),
+            ],
+            cwd=root,
+            env={**os.environ, **values, "GITHUB_STEP_SUMMARY": str(summary)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        return summary.read_text()
+
+
+def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / ".github/workflows/capacity-maintenance-clock.yml"
+    ).read_text()
+    assert 'run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"' in source
+    uat_only = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | due | success | uat-only | 60-minute environment wait" in uat_only
+    assert "| Production | not due | success | none | 60-minute environment wait" in uat_only
+    both_due = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "true",
+            "UAT_DUE": "true",
+            "UAT_CHECK": "success",
+            "PRODUCTION_DUE": "true",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "all (UAT + production)" in both_due
+    failed = _run_clock_summary(
+        {
+            "CLOCK_AUTHORITY": "false",
+            "UAT_DUE": "unknown",
+            "UAT_CHECK": "failure",
+            "PRODUCTION_DUE": "false",
+            "PRODUCTION_CHECK": "success",
+        }
+    )
+    assert "| UAT | unknown | failure | unknown | not armed |" in failed
+
+
 def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
@@ -365,6 +438,7 @@ def main() -> int:
         test_capacity_clock_tick_carries_only_scheduled_authority,
         test_capacity_clock_accepts_only_its_own_trigger,
         test_capacity_clock_wakes_maintenance_scoped_to_due_environments,
+        test_capacity_clock_summary_reports_due_checks_scope_and_next_wait,
         test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
     for test in tests:

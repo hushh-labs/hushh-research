@@ -14,6 +14,7 @@ import subprocess
 
 import production_restoration_receipt as owner
 import release_acceptance_provenance as provenance
+import production_phone_nonproducer as production_job_names
 
 ORIGIN = "prod-restoration-activation-origin.json"
 REPOSITORY = "hushh-labs/hushh-research"
@@ -96,15 +97,30 @@ def active_run(maintenance):
             and current.get("status") == "in_progress"
             and current.get("head_sha") == os.environ["GITHUB_SHA"]
             and current.get("run_attempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
-            and os.environ.get("GITHUB_JOB") == "complete-restoration-activation",
+            and os.environ.get("GITHUB_JOB") == production_job_names.JOB_ID,
             "verifier identity or job changed")
     jobs = maintenance.api(REPOSITORY, f"runs/{current['id']}/attempts/{current['run_attempt']}/jobs?per_page=100")
-    matches = [job for job in jobs.get("jobs", []) if job.get("status") == "in_progress"
-               and job.get("name") == "Deploy Production Scope"
-               and job.get("run_id") == current["id"] and job.get("run_attempt") == current["run_attempt"]
-               and job.get("head_sha") == current["head_sha"] and job.get("head_branch") == "main"]
-    require(jobs.get("total_count") == len(jobs.get("jobs", [])) and len(matches) == 1,
-            "canonical active verification job is unproved")
+    rows = jobs.get("jobs")
+    require(isinstance(rows, list) and jobs.get("total_count") == len(rows)
+            and len(rows) <= 100 and all(isinstance(job, dict) for job in rows),
+            "verification job inventory is incomplete")
+    candidates = [job for job in rows
+                  if job.get("name") in production_job_names.PRODUCTION_JOB_NAME_ALIASES]
+    bound = {"run_id": current["id"], "run_attempt": current["run_attempt"],
+             "head_sha": current["head_sha"], "head_branch": "main"}
+    active = []
+    for job in candidates:
+        require(all(job.get(key) == value for key, value in bound.items()),
+                "production job is not bound to the verifier attempt")
+        if job.get("status") == "completed" and job.get("conclusion") == "skipped":
+            require(job.get("steps") == [], "skipped production job contains steps")
+            continue
+        active.append(job)
+    matches = [job for job in active
+               if job.get("status") == "in_progress"
+               and job.get("name") in production_job_names.RESTORATION_ACTIVE_JOB_NAMES]
+    require(len(active) == len(matches) == 1,
+            "canonical active restoration job is unproved")
     manual(current)
     return current
 

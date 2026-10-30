@@ -10,7 +10,7 @@
 .choice input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0; }
 .choice small { display: block; color: var(--muted-foreground); font-size: 12px; line-height: 18px; margin-top: 3px; }
 .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.mode button { position: relative; isolation: isolate; overflow: hidden; padding: 14px; text-align: left; border: 1px solid var(--border); border-radius: 14px; min-height: 80px; font-size: 14px; line-height: 21px; }
+.mode button { position: relative; isolation: isolate; overflow: hidden; padding: 14px; text-align: left; border: 1px solid var(--border); border-radius: 14px; min-height: 56px; font-size: 14px; line-height: 21px; }
 .mode button::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--accent-surface); opacity: 0; pointer-events: none; content: ""; }
 .mode button[aria-pressed="true"] { border-color: var(--primary); color: var(--accent-strong); }
 .mode button[aria-pressed="true"]::before { opacity: 1; }

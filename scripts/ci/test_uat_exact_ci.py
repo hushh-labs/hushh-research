@@ -34,7 +34,8 @@ def _attempt_run(candidate):
     }
     return run
 
-def _attempt_jobs(candidate, base):
+def _attempt_jobs(candidate, base, exact_name=None):
+    exact_name = exact_name or f"Exact UAT Candidate ({base})"
     jobs = [
         {
             "name": name,
@@ -45,14 +46,14 @@ def _attempt_jobs(candidate, base):
             "steps": [],
         }
         for name in sorted(
-            subject.REQUIRED_JOBS | {f"Exact UAT Candidate ({base})"}
+            subject.REQUIRED_JOBS | {exact_name}
         )
     ]
     for job in jobs:
         name = job["name"]
         step = (
             "Verify the exact UAT checkout"
-            if name.startswith("Exact UAT Candidate (")
+            if name in {"Exact UAT Candidate", f"Exact UAT Candidate ({base})"}
             else "Run targeted web contract checks"
             if name.startswith("Web Targeted Contracts (")
             else "Run serial database contracts"
@@ -229,7 +230,9 @@ class ExactUatAttemptTest(unittest.TestCase):
         run = _attempt_run(candidate)
         jobs = _attempt_jobs(candidate, base)
         exact = next(
-            job for job in jobs if job["name"].startswith("Exact UAT Candidate (")
+            job
+            for job in jobs
+            if job["name"] in {"Exact UAT Candidate", f"Exact UAT Candidate ({base})"}
         )
         database = next(job for job in jobs if job["name"] == "Protocol Database (1/2)")
         runs = [run]
@@ -288,13 +291,50 @@ class ExactUatAttemptTest(unittest.TestCase):
         runs.pop()
         # A later rerun of an older run has a smaller run ID, but is still
         # the most recent attempt and must invalidate the old green result.
-        runs.append({**run, "id": 122, "run_attempt": 2, "conclusion": "failure",
-                     "run_started_at": "2026-10-28T00:02:00Z",
-                     "updated_at": "2026-10-28T00:02:10Z"})
+        runs.append(
+            {
+                **run,
+                "id": 122,
+                "run_attempt": 2,
+                "conclusion": "failure",
+                "run_started_at": "2026-10-28T00:02:00Z",
+                "updated_at": "2026-10-28T00:02:10Z",
+            }
+        )
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
 
+    def test_static_name_and_historical_alias_are_exact_and_unique(self):
+        candidate, base = "a" * 40, "b" * 40
+        run = _attempt_run(candidate)
+        runs = [run]
+        check = {
+            "name": "Branch Validation Gate",
+            "head_sha": candidate,
+            "status": "completed",
+            "conclusion": "success",
+            "app": {"id": 15368, "slug": "github-actions"},
+            "check_suite": {"id": 77},
+        }
+        for exact_name in ("Exact UAT Candidate", f"Exact UAT Candidate ({base})"):
+            jobs = _attempt_jobs(candidate, base, exact_name=exact_name)
+            api = _AttemptAPI(run, jobs, runs, check)
+            self.assertEqual(
+                subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"],
+                1,
+            )
+
+        jobs = _attempt_jobs(candidate, base, exact_name="Exact UAT Candidate")
+        historical = next(
+            job
+            for job in _attempt_jobs(candidate, base)
+            if job["name"] == f"Exact UAT Candidate ({base})"
+        )
+        jobs.append(historical)
+        api = _AttemptAPI(run, jobs, runs, check)
+        with self.assertRaises(subject.Refused):
+            subject.verify_attempt(api, candidate, base, 123, 1)
 
 
 class ExactUatPartitionTest(unittest.TestCase):

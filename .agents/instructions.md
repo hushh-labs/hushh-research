@@ -345,6 +345,10 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
 
+Freshness drift or a newer Main head can require branch resynchronization and
+CI revalidation; neither that drift nor green CI authorizes deployment to an
+environment the current request did not ask to deploy.
+
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
 3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.

@@ -307,6 +307,7 @@ def _artifact_case(state):
         "head_branch": "main",
         "name": "Deploy Production Scope",
         "status": "completed",
+        "conclusion": "success",
         "steps": [
             {
                 "name": state.module.UPLOAD,
