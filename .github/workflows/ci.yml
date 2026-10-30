@@ -198,6 +198,8 @@ jobs:
           tests/test_auth_health_deployment.py
           tests/test_auth_health_inventory.py
           tests/test_auth_health_lease_rest.py
+          tests/test_auth_health_uat_activation.py
+          tests/test_auth_health_uat_installation.py
           tests/test_auth_health_wif_scopes.py
           tests/test_phone_list_health.py
 
@@ -337,17 +339,35 @@ jobs:
               - '.github/workflows/ci.yml'
             auth_health:
               - 'deploy/observability/auth_health_job.py'
+              - 'deploy/observability/setup_auth_health.py'
+              - 'deploy/observability/auth_health_uat_common.py'
+              - 'deploy/observability/auth_health_uat_job_install.py'
+              - 'deploy/observability/auth_health_uat_timer_activation.py'
+              - 'deploy/observability/auth_health_uat_installer.py'
               - 'consent-protocol/tests/test_auth_health_deployment.py'
               - 'consent-protocol/tests/test_auth_health_inventory.py'
               - 'consent-protocol/tests/test_auth_health_lease_rest.py'
+              - 'consent-protocol/tests/auth_health_uat_cloud_fakes.py'
+              - 'consent-protocol/tests/auth_health_uat_installer_fixtures.py'
+              - 'consent-protocol/tests/test_auth_health_uat_activation.py'
+              - 'consent-protocol/tests/test_auth_health_uat_installation.py'
               - 'consent-protocol/tests/test_auth_health_wif_scopes.py'
               - 'consent-protocol/tests/test_phone_list_health.py'
             non_auth_health:
               - '**'
               - '!deploy/observability/auth_health_job.py'
+              - '!deploy/observability/setup_auth_health.py'
+              - '!deploy/observability/auth_health_uat_common.py'
+              - '!deploy/observability/auth_health_uat_job_install.py'
+              - '!deploy/observability/auth_health_uat_timer_activation.py'
+              - '!deploy/observability/auth_health_uat_installer.py'
               - '!consent-protocol/tests/test_auth_health_deployment.py'
               - '!consent-protocol/tests/test_auth_health_inventory.py'
               - '!consent-protocol/tests/test_auth_health_lease_rest.py'
+              - '!consent-protocol/tests/auth_health_uat_cloud_fakes.py'
+              - '!consent-protocol/tests/auth_health_uat_installer_fixtures.py'
+              - '!consent-protocol/tests/test_auth_health_uat_activation.py'
+              - '!consent-protocol/tests/test_auth_health_uat_installation.py'
               - '!consent-protocol/tests/test_auth_health_wif_scopes.py'
               - '!consent-protocol/tests/test_phone_list_health.py'
             # The macOS editor and drawer latency steps (web-editor-performance-check):
