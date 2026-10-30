@@ -9,6 +9,70 @@ useDefault = true
     regex = '''(?i)(hushh_secret_|hushh_token_|pkm_key_)[a-z0-9\-_\.=]{16,64}'''
     tags = ["key", "api", "hushh", "secret"]
 
+# Source-aware exceptions for exact findings independently verified by Gitleaks
+# 8.24.2 history and current-tree reports. Rule, path, and source context must
+# all match; historical fixture exceptions also require their exact commit.
+[[rules]]
+    id = "generic-api-key"
+
+[[rules.allowlists]]
+    description = "Nonliteral VoiceSession keyword expression; credential-shaped values in this file remain scanned."
+    condition = "AND"
+    paths = ['''(^|/)consent-protocol/hushh_mcp/one_voice/session\.py$''']
+    regexTarget = "match"
+    regexes = ['''^auth\.user_id, conversation_id=self\.claims\.conversation_id$''']
+
+[[rules.allowlists]]
+    description = "Five verified idempotency test inputs in their historical commit only."
+    condition = "AND"
+    commits = ["b80a2169ed5d7f00f4f23b417403e9834e2317b5"]
+    paths = ['''(^|/)consent-protocol/tests/test_information_sharing_lifecycle_e2e\.py$''']
+    regexTarget = "line"
+    regexes = ['''^\s*idempotency_key\s*=''']
+
+[[rules.allowlists]]
+    description = "Verified public Firebase test-fixture key name in its historical commit only."
+    condition = "AND"
+    commits = ["ffbab446c327ddffac2446d401237c7a4c5e725b"]
+    paths = ['''(^|/)consent-protocol/tests/scripts/test_measure_agent_chat_latency\.py$''']
+    regexTarget = "line"
+    regexes = ['''^\s*"NEXT_PUBLIC_FIREBASE_API_KEY"\s*:''']
+
+[[rules.allowlists]]
+    description = "Verified fake vault-token fixture in its historical commit only."
+    condition = "AND"
+    commits = ["ffbab446c327ddffac2446d401237c7a4c5e725b"]
+    paths = ['''(^|/)consent-protocol/tests/scripts/test_measure_agent_chat_latency\.py$''']
+    regexTarget = "line"
+    regexes = ['''^\s*FAKE_VAULT_TOKEN\s*=''']
+
+[[rules.allowlists]]
+    description = "The historical synthetic Stripe classifier assertion also matches the generic rule; exact commit, file, and assertion only."
+    condition = "AND"
+    commits = ["6b330b0ac32af63ff097799debd111a8421cf47f"]
+    paths = ['''(^|/)consent-protocol/tests/services/test_pkm_agent_lab_service\.py$''']
+    regexTarget = "line"
+    regexes = ['''^\s*assert S\._contains_sensitive_secret\(.+\)\s*==\s*["']credential["']\s*$''']
+
+[[rules.allowlists]]
+    description = "One verified check-in route-token fixture in its historical commit only."
+    condition = "AND"
+    commits = ["4b2a240007921c3a4b19a57ab016d2e0c195bcee"]
+    paths = ['''(^|/)hushh-webapp/__tests__/components/one-location-check-in-destination\.contract\.test\.ts$''']
+    regexTarget = "line"
+    regexes = ['''^\s*const token\s*=''']
+
+[[rules]]
+    id = "stripe-access-token"
+
+[[rules.allowlists]]
+    description = "One verified historical classifier assertion; no other Stripe-shaped value is exempt."
+    condition = "AND"
+    commits = ["6b330b0ac32af63ff097799debd111a8421cf47f"]
+    paths = ['''(^|/)consent-protocol/tests/services/test_pkm_agent_lab_service\.py$''']
+    regexTarget = "line"
+    regexes = ['''^\s*assert S\._contains_sensitive_secret\(.+\)\s*==\s*["']credential["']\s*$''']
+
 [allowlist]
 description = "Documented backend env placeholders + test fixtures"
 paths = [
