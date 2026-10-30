@@ -5,7 +5,7 @@ export const limitationText: Record<string, string> = {
   resource_denied: "Google denied access to an exact linked file. Check its sharing or organization policy.",
   meet_discovery_denied: "Google denied the Meet discovery check. Whether a recording or notes exist is unknown.",
   account_mismatch: "The selected Google account no longer matches this meeting grant. Refresh the account.",
-  provider_configuration: "Google's meeting-file service is not available for this connection. Check the provider configuration.",
+  provider_configuration: "Google's meeting-file service isn't enabled for Hushh One yet. Retrying won't help; this needs a setup change on our side.",
   provider_policy: "Your Google organization does not allow this meeting-file check.",
   processing: "Google is still preparing meeting files. Refresh later.",
   temporarily_unavailable: "Google could not finish checking meeting files. Try again.",
@@ -18,6 +18,59 @@ export const limitationText: Record<string, string> = {
   attendee_discovery_limited: "An attendee's shared meeting files may be missing from this check.",
 };
 
+export type RequestRecovery = {
+  /** "terminal": repeating the request cannot succeed. "retry": it may. */
+  tone: "terminal" | "retry";
+  message: string;
+  connect: boolean;
+  invite: boolean;
+  copy: boolean;
+};
+
+const UNREACHABLE_ORGANIZER =
+  "The organizer isn't connected to you on One, so this request can't be delivered there. Connect with them or invite them, or copy your request and send it directly.";
+
+/**
+ * What to offer after a meeting-file request fails.
+ *
+ * A refusal that describes the selection (not an attendee, no reachable
+ * organizer) cannot be fixed by sending the same request again, so it never keeps
+ * a Send action. Only failures that did not finish (a lookup or network problem)
+ * stay retryable.
+ */
+export function requestRecovery(
+  failure: { status?: number; code?: string; reason?: string; message?: string } | null,
+): RequestRecovery {
+  const code = failure?.code;
+  const reason = failure?.reason;
+  const terminal = (message: string, actions: Partial<Omit<RequestRecovery, "tone" | "message">> = {}): RequestRecovery =>
+    ({ tone: "terminal", message, connect: false, invite: false, copy: false, ...actions });
+  if (code === "calendar_attendee_required") {
+    switch (reason) {
+      case "requester_is_organizer":
+        return terminal("You organized this meeting, so there is no organizer to ask. Open its files from Google Drive.");
+      case "event_cancelled":
+        return terminal("This meeting was cancelled, so there are no files to request.");
+      case "requester_declined":
+        return terminal("You declined this meeting. Accept the invitation in Google Calendar to request its files.");
+      default:
+        return terminal(
+          "The selected Google account isn't verified as an invited attendee of this meeting, so One can't send the request. Ask the organizer directly.",
+          { copy: true },
+        );
+    }
+  }
+  if (code === "calendar_organizer_unavailable") {
+    return reason === "organizer_missing"
+      ? terminal("This meeting has no organizer One can reach. Copy your request and send it directly.", { copy: true })
+      : terminal(UNREACHABLE_ORGANIZER, { connect: true, invite: true, copy: true });
+  }
+  if (code === "connection_required") return terminal(UNREACHABLE_ORGANIZER, { connect: true, invite: true, copy: true });
+  const message = failure?.message || "Meeting request could not be sent.";
+  // `sharing_unavailable` is a service-level condition: retry, or reach out directly.
+  return { tone: "retry", message, connect: false, invite: false, copy: code === "sharing_unavailable" };
+}
+
 function meetingStatus(meeting: Meeting): string {
   switch (meeting.file_state) {
     case "upcoming": return "Meeting has not finished.";
@@ -25,7 +78,7 @@ function meetingStatus(meeting: Meeting): string {
     case "processing": return "Google is processing meeting files.";
     case "access_required": return "Access required. Ask the organizer for the missing file.";
     case "permission_required": return "Allow meeting-file access for this Google account.";
-    case "provider_configuration": return "Meeting-file provider setup needs attention.";
+    case "provider_configuration": return "Meeting-file service isn't enabled yet. Retrying won't help.";
     case "provider_policy": return "Your Google organization restricts this file check.";
     case "account_mismatch": return "The selected Google account changed. Refresh it.";
     case "temporarily_unavailable": return "File check failed. Retry.";

@@ -23,13 +23,19 @@ import type { FollowupRequest } from "@/lib/services/calendar-followups-service"
 import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
-import { focusedStatus, limitationText, meetingTime } from "./calendar-insights-presentation";
+import { focusedStatus, limitationText, meetingTime, requestRecovery, type RequestRecovery } from "./calendar-insights-presentation";
 import { FEED_STATE_CHANGED_EVENT, feedStateChangeReason } from "@/lib/feed/feed-events";
-import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
+import { buildInviteToOneShare, buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
+import { isShareCancellationError, ShareUnavailableError, shareLink } from "@/lib/share/share-link";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { ROUTES } from "@/lib/navigation/routes";
+import Link from "next/link";
 import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
+// Minimum spacing between Feed-triggered refreshes; a burst yields one trailing refresh.
+const FEED_REFRESH_SPACING_MS = 5_000;
 const hours = (minutes: number) => String(Math.round(minutes / 6) / 10) + " hr";
 const noVaultToken = () => null;
 type SourcedArtifact = MeetingArtifact & { source?: MeetingSource };
@@ -87,7 +93,9 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const [requestStep, setRequestStep] = useState<"closed" | "choose" | "confirm">("closed");
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestNotice, setRequestNotice] = useState("");
-  const [offerCopyFallback, setOfferCopyFallback] = useState(false);
+  // Set only by a request that failed; a terminal one has no Send action left.
+  const [requestFailure, setRequestFailure] = useState<RequestRecovery | null>(null);
+  const [recoveryNote, setRecoveryNote] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -138,7 +146,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     }, 250);
     return () => window.clearTimeout(timer);
   }, [queryInput, searchPending]);
-  useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setOfferCopyFallback(false); }, [actionContext]);
+  useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setRequestFailure(null); setRecoveryNote(""); }, [actionContext]);
   useEffect(() => () => { action.current?.controller.abort(); action.current?.popup.close(); action.current = null; }, [actionContext]);
   const entryRef = useRef<HTMLButtonElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -186,15 +194,30 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     return () => window.clearTimeout(timer);
   }, [canRefresh, loading, error, view, revision, refresh]);
   useEffect(() => {
-    const onFeed = (event: Event) => {
-      if (feedStateChangeReason(event) === "read" || viewRef.current === "overview") return;
-      if (Date.now() - lastFeedRefresh.current < 5_000) return;
+    // Feed events can arrive in bursts, and the one that matters (files were
+    // shared) may be the last. Refreshes are spaced, but an event inside the
+    // window is deferred to one trailing refresh rather than dropped.
+    let trailing: number | null = null;
+    const run = () => {
       lastFeedRefresh.current = Date.now();
       refreshBudget.current = 5;
       refresh();
     };
+    const onFeed = (event: Event) => {
+      if (feedStateChangeReason(event) === "read" || viewRef.current === "overview") return;
+      const wait = FEED_REFRESH_SPACING_MS - (Date.now() - lastFeedRefresh.current);
+      if (wait <= 0) { run(); return; }
+      if (trailing !== null) return;
+      trailing = window.setTimeout(() => {
+        trailing = null;
+        if (viewRef.current !== "overview") run();
+      }, wait);
+    };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
-    return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
+    return () => {
+      window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
+      if (trailing !== null) window.clearTimeout(trailing);
+    };
   }, [refresh]);
   useEffect(() => CacheService.getInstance().subscribe(event => {
     if (event.type === "set" && event.key === calendarRefreshKey(userId)) refresh();
@@ -448,7 +471,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id,
       date: day, time_zone: zone,
     };
-    setRequestBusy(true); setRequestNotice("");
+    setRequestBusy(true); setRequestNotice(""); setRequestFailure(null); setRecoveryNote("");
     try {
       const idToken = await getToken.current();
       const result = await CalendarInsightsService.requestFiles(selection, requestChoice, idToken, vaultToken);
@@ -462,10 +485,31 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       } }));
     } catch (failure) {
       if (currentActionContext.current !== started) return;
-      setRequestNotice(failure instanceof Error ? failure.message : "Meeting request could not be sent.");
-      setOfferCopyFallback(failure instanceof CalendarInsightsRequestError &&
-        ["calendar_organizer_unavailable", "connection_required", "sharing_unavailable"].includes(failure.code || ""));
+      const recovery = requestRecovery(failure instanceof CalendarInsightsRequestError
+        ? { status: failure.status, code: failure.code, reason: failure.reason, message: failure.message }
+        : { message: failure instanceof Error ? failure.message : undefined });
+      setRequestFailure(recovery);
+      // A terminal refusal is explained by its own panel; a retryable one keeps the notice.
+      setRequestNotice(recovery.tone === "retry" ? recovery.message : "");
     } finally { if (currentActionContext.current === started) setRequestBusy(false); }
+  };
+  const copyRequest = async () => {
+    const started = currentActionContext.current;
+    const copied = await copyToClipboard(copyRequestText, () => currentActionContext.current === started);
+    if (currentActionContext.current !== started) return;
+    setRecoveryNote(copied ? "Request copied. Paste it into a message to the organizer." : "Couldn't copy automatically. Select the text above and copy it.");
+  };
+  const inviteOrganizer = async () => {
+    const invite = buildInviteToOneShare();
+    if (!invite) return;
+    const started = currentActionContext.current;
+    try {
+      const delivery = await shareLink(invite);
+      if (currentActionContext.current === started && delivery === "copied") setRecoveryNote("Invite link copied.");
+    } catch (failure) {
+      if (isShareCancellationError(failure) || currentActionContext.current !== started) return;
+      setRecoveryNote(failure instanceof ShareUnavailableError ? "This browser can't share links." : "Couldn't share the invite.");
+    }
   };
   const copyRequestText = selected ? `Could you share the ${requestChoice.join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
   const meetingRow = (meeting: Meeting) => <button className={styles.row} type="button" key={meeting.occurrence_id}
@@ -547,18 +591,34 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         </SectionCard> : null}
       {requestNotice ? <p role="status" className={styles.muted}>{requestNotice}</p> : null}
       {missingKinds.length && selected ? <SectionCard title="Request missing files">
-        {requestStep === "closed" ? <Button variant="outline" onClick={() => { setRequestChoice([]); setRequestStep("choose"); setOfferCopyFallback(false); }}>Request recording or notes</Button> : null}
+        {requestStep === "closed" ? <Button variant="outline" onClick={() => { setRequestChoice([]); setRequestStep("choose"); setRequestFailure(null); setRecoveryNote(""); }}>Request recording or notes</Button> : null}
         {requestStep === "choose" ? <div className="space-y-3"><p>Choose the files to ask the organizer for. A request does not grant access.</p>
           {missingKinds.map(kind => <label key={kind} className="flex items-center gap-2"><input type="checkbox" checked={requestChoice.includes(kind)} onChange={event => setRequestChoice(previous => event.target.checked ? [...previous, kind] : previous.filter(item => item !== kind))} />{kind === "recording" ? "Recording" : "Notes"}</label>)}
           <Button disabled={!requestChoice.length} onClick={() => setRequestStep("confirm")}>Review request</Button>
           <Button variant="ghost" onClick={() => setRequestStep("closed")}>Cancel</Button>
         </div> : null}
-        {requestStep === "confirm" ? <div className="space-y-3"><p><strong>{selected.title}</strong> · {day}</p><p>Organizer: {selected.organizer?.displayName || selected.organizer?.email || "Unavailable"}</p><p>Requested: {requestChoice.join(" and ")}</p><p>Recipient Google account: <strong>{account.google_email || "Selected Calendar account"}</strong></p>
+        {requestStep === "confirm" && requestFailure?.tone !== "terminal" ? <div className="space-y-3"><p><strong>{selected.title}</strong> · {day}</p><p>Organizer: {selected.organizer?.displayName || selected.organizer?.email || "Unavailable"}</p><p>Requested: {requestChoice.join(" and ")}</p><p>Recipient Google account: <strong>{account.google_email || "Selected Calendar account"}</strong></p>
           <p>The organizer must confirm the exact files and recipient before Drive sharing. Access appears here only after your selected account can open a file.</p>
-          <Button disabled={requestBusy} onClick={() => void submitRequest()}>{requestBusy ? "Sending…" : "Send request"}</Button>
+          <Button disabled={requestBusy} onClick={() => void submitRequest()}>{requestBusy ? "Sending…" : requestFailure ? "Try again" : "Send request"}</Button>
           <Button variant="ghost" disabled={requestBusy} onClick={() => setRequestStep("choose")}>Back</Button>
         </div> : null}
-        {offerCopyFallback ? <div className="space-y-2"><p>This request cannot be sent through One. Copy this meeting-specific request and send it directly.</p><textarea readOnly aria-label="Copy request for organizer" className="w-full rounded border p-2" rows={4} value={copyRequestText} /></div> : null}
+        {requestFailure?.tone === "terminal" ? <div className="space-y-3" data-testid="calendar-request-recovery">
+          <p role="alert">{requestFailure.message}</p>
+          {requestFailure.copy ? <textarea readOnly aria-label="Request to send to the organizer" className="w-full rounded border p-2" rows={4} value={copyRequestText} /> : null}
+          <div className="flex flex-wrap gap-2">
+            {requestFailure.connect ? <Button asChild variant="outline"><Link href={ROUTES.CONNECT}>Connect</Link></Button> : null}
+            {requestFailure.invite && buildInviteToOneShare() ? <Button variant="outline" onClick={() => void inviteOrganizer()}>Invite to One</Button> : null}
+            {requestFailure.copy ? <Button variant="outline" onClick={() => void copyRequest()}>Copy request</Button> : null}
+            <Button variant="ghost" onClick={() => { setRequestStep("closed"); setRequestFailure(null); setRecoveryNote(""); }}>Close</Button>
+          </div>
+          {recoveryNote ? <p role="status" className={styles.muted}>{recoveryNote}</p> : null}
+        </div> : null}
+        {requestFailure?.tone === "retry" && requestFailure.copy ? <div className="space-y-2">
+          <p>If this keeps failing, copy this request and send it directly.</p>
+          <textarea readOnly aria-label="Request to send to the organizer" className="w-full rounded border p-2" rows={4} value={copyRequestText} />
+          <Button variant="outline" onClick={() => void copyRequest()}>Copy request</Button>
+          {recoveryNote ? <p role="status" className={styles.muted}>{recoveryNote}</p> : null}
+        </div> : null}
       </SectionCard> : null}
     </>}
   </div>;
