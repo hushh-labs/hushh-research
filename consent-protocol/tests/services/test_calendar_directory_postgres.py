@@ -62,6 +62,11 @@ def test_calendar_exact_email_uses_connect_visibility_and_rejects_duplicate_clai
         ("connected@example.test", "connected"),
     }
     assert all(item["photoUrl"] == "data:image/png;base64,aGVsbG8=" for item in result["items"])
+    # Connections and strangers alike carry the profile name Connect shows.
+    assert {item["email"]: item["displayName"] for item in result["items"]} == {
+        "manish@example.test": "Manish Sainani",
+        "connected@example.test": "Connected Person",
+    }
     public_result = service.search_directory_candidates(owner_user_id=OWNER, query="manish")
     assert public_result["items"][0]["userId"] == "manish"
     assert "email" not in public_result["items"][0]

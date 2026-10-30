@@ -16,7 +16,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { calendarEventPeople, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { CalendarInvitationActions, type InvitationDecision, type InvitationTerms } from "./calendar-invitation-actions";
-import { CalendarInvitationDetail, InvitationAvatar, InvitationDate, invitationDescription, invitationPerson } from "./calendar-invitation-detail";
+import { CalendarInvitationDetail, InvitationAvatar, InvitationDate, invitationDescription, invitationPerson, invitationPersonName } from "./calendar-invitation-detail";
 import { calendarDate, shiftCalendarDate, eventTime } from "./calendar-schedule-presentation";
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -113,7 +113,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
         <div className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
           {!filtered.length ? <p className={styles.empty}>No {filter === "all" ? "" : `${filter} `}invitations {workspaceLayout ? "on this date" : "in this window"}.</p> : <ul className={styles.list}>{filtered.map(event => {
             const organizerPerson = invitationPerson(people, event.organizer?.email);
-            const organizer = event.organizer?.displayName || organizerPerson?.displayName || event.organizer?.email || "Organizer";
+            const organizer = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
             const response = statusLabel(event);
             const husshPhoto = organizerPerson?.photoUrl ?? null;
             return <li key={`${event.calendar_id}:${event.id}`}><button type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>

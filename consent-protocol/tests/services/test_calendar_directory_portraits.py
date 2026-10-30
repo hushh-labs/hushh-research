@@ -41,6 +41,7 @@ def test_event_lookup_uses_only_exact_provider_attendees_and_organizer(
                     {
                         "email": "manish@example.test",
                         "userId": "manish",
+                        "displayName": "Manish Sainani",
                         "photoUrl": "data:image/png;base64,aGVsbG8=",
                     },
                     {
@@ -86,7 +87,11 @@ def test_event_lookup_uses_only_exact_provider_attendees_and_organizer(
         }
     ]
     assert result == {
-        "manish@example.test": {"userId": "manish", "photoUrl": "data:image/png;base64,aGVsbG8="}
+        "manish@example.test": {
+            "userId": "manish",
+            "displayName": "Manish Sainani",
+            "photoUrl": "data:image/png;base64,aGVsbG8=",
+        }
     }
 
 
@@ -108,7 +113,7 @@ def test_ambiguous_or_partial_directory_lookup_keeps_initials(
     assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
     rows.pop()
     assert portraits._visible_portraits("owner", ["manish@example.test"]) == {
-        "manish@example.test": {"userId": "one", "photoUrl": "photo-one"}
+        "manish@example.test": {"userId": "one", "displayName": None, "photoUrl": "photo-one"}
     }
     current["one"] = "changed@example.test"
     assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
@@ -119,6 +124,40 @@ def test_ambiguous_or_partial_directory_lookup_keeps_initials(
 
     monkeypatch.setattr(portraits, "OneLocationAgentService", PartialDirectory)
     assert portraits._visible_portraits("owner", ["manish@example.test"]) == {}
+
+
+def test_profile_without_a_photo_still_shows_its_connect_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Directory:
+        def search_directory_candidates(self, **_kwargs: object) -> dict:
+            return {
+                "items": [
+                    {
+                        "email": "priya@example.test",
+                        "userId": "priya",
+                        "displayName": " Priya Shah ",
+                        "photoUrl": None,
+                    },
+                    {
+                        "email": "nameless@example.test",
+                        "userId": "nameless",
+                        "displayName": "",
+                        "photoUrl": None,
+                    },
+                ],
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", Directory)
+    monkeypatch.setattr(
+        portraits,
+        "verified_directory_emails",
+        lambda _ids: {"priya": "priya@example.test", "nameless": "nameless@example.test"},
+    )
+    assert portraits._visible_portraits(
+        "owner", ["priya@example.test", "nameless@example.test"]
+    ) == {"priya@example.test": {"userId": "priya", "displayName": "Priya Shah", "photoUrl": None}}
 
 
 def test_lookup_failure_does_not_fail_calendar_read(monkeypatch: pytest.MonkeyPatch) -> None:

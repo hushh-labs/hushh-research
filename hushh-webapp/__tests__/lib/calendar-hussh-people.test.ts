@@ -69,6 +69,17 @@ describe("Calendar HUSSH identity resolution", () => {
     expect(calendarHusshPerson(people, "manish@example.test")?.photoUrl).toBe(jpgPhoto);
   });
 
+  it("keeps the Connect name for a match without an admitted photo and drops matches with neither", () => {
+    const people = calendarEventPeople(resolve([]), {
+      "priya@example.test": { userId: "priya", displayName: " Priya Shah ", photoUrl: null },
+      "bad-photo@example.test": { userId: "bad-photo", displayName: "Bad Photo", photoUrl: "https://images.example.test/photo.png" },
+      "empty@example.test": { userId: "empty", displayName: null, photoUrl: null },
+    }, "owner");
+    expect(calendarHusshPerson(people, "priya@example.test")).toEqual({ userId: "priya", displayName: "Priya Shah", photoUrl: null });
+    expect(calendarHusshPerson(people, "bad-photo@example.test")).toEqual({ userId: "bad-photo", displayName: "Bad Photo", photoUrl: null });
+    expect(calendarHusshPerson(people, "empty@example.test")).toBeNull();
+  });
+
   it("uses the current verified event match over stale connection email and rejects unsafe media", () => {
     const known = resolve([connection("peer", "peer@example.test", husshPhoto)]);
     const people = calendarEventPeople(known, {

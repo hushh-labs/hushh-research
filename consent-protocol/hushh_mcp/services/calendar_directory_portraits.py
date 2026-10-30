@@ -1,4 +1,4 @@
-"""Visible HUSSH portraits for people in an owner's fetched Calendar events."""
+"""Visible HUSSH profiles (name and portrait) for people in an owner's Calendar events."""
 
 from __future__ import annotations
 
@@ -47,7 +47,22 @@ def _event_emails(events: object) -> list[str]:
     return sorted(emails)
 
 
-def _visible_portraits(owner_user_id: str, emails: list[str]) -> dict[str, dict[str, str]]:
+def _profile(row: dict[str, Any]) -> dict[str, str | None] | None:
+    """The same name and photo Connect shows; either may be absent, never both."""
+    name = row.get("displayName")
+    photo = row.get("photoUrl")
+    display_name = name.strip() if isinstance(name, str) else ""
+    photo_url = photo if isinstance(photo, str) else ""
+    if not display_name and not photo_url:
+        return None
+    return {
+        "userId": str(row["userId"]),
+        "displayName": display_name or None,
+        "photoUrl": photo_url or None,
+    }
+
+
+def _visible_portraits(owner_user_id: str, emails: list[str]) -> dict[str, dict[str, str | None]]:
     page = OneLocationAgentService().search_directory_candidates(
         owner_user_id=owner_user_id,
         verified_email_lookup=emails,
@@ -65,22 +80,21 @@ def _visible_portraits(owner_user_id: str, emails: list[str]) -> dict[str, dict[
     )
     allowed = set(emails)
     return {
-        email: {"userId": str(row["userId"]), "photoUrl": str(row["photoUrl"])}
+        email: profile
         for row in rows
         if isinstance(row, dict)
         if (email := str(row.get("email") or "").strip().lower()) in allowed
         and counts[email] == 1
         and row.get("userId")
         and current_emails.get(str(row["userId"])) == email
-        and isinstance(row.get("photoUrl"), str)
-        and row["photoUrl"]
+        and (profile := _profile(row))
     }
 
 
 async def calendar_directory_portraits(
     *, owner_user_id: str, events: object
-) -> dict[str, dict[str, str]]:
-    """Enrich an owner read without letting a photo lookup block Calendar."""
+) -> dict[str, dict[str, str | None]]:
+    """Enrich an owner read without letting a profile lookup block Calendar."""
     emails = _event_emails(events)
     if not owner_user_id or not emails:
         return {}

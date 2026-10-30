@@ -1,5 +1,6 @@
 import type { AccountEmailAlias } from "@/lib/services/account-service";
 import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+import type { CalendarInvitationsResponse } from "@/lib/services/google-calendar-service";
 import { admittedPortraitSource } from "@/lib/profile/provider-avatar";
 
 export type CalendarHusshPerson = {
@@ -68,10 +69,13 @@ export function calendarHusshPerson(people: CalendarHusshPeople, email: string |
   return people.get(exactEmail(email) || "") ?? null;
 }
 
-/** Keep owner-proven addresses and use fresh server matches for invitation peers. */
+/**
+ * Keep owner-proven addresses and use fresh server matches for invitation peers.
+ * A match carries the name and photo Connect shows; either may be missing.
+ */
 export function calendarEventPeople(
   known: CalendarHusshPeople,
-  visible: Record<string, { userId: string; photoUrl: string }> | undefined,
+  visible: CalendarInvitationsResponse["people"],
   ownerId: string,
 ): CalendarHusshPeople {
   // Connections may retain an old email after its Firebase identity changes.
@@ -81,13 +85,14 @@ export function calendarEventPeople(
   for (const [address, person] of Object.entries(visible)) {
     const email = exactEmail(address);
     const photoUrl = admittedPhoto(person?.photoUrl);
-    if (!email || !person?.userId || !photoUrl) continue;
+    const displayName = person?.displayName?.trim() || null;
+    if (!email || !person?.userId || (!photoUrl && !displayName)) continue;
     const prior = people.get(email);
     if (prior && prior.userId !== person.userId) continue;
     people.set(email, {
       userId: person.userId,
-      displayName: prior?.displayName ?? null,
-      photoUrl,
+      displayName: displayName ?? prior?.displayName ?? null,
+      photoUrl: photoUrl ?? prior?.photoUrl ?? null,
     });
   }
   return people;

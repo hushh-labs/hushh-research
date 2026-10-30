@@ -37,6 +37,29 @@ describe("invitation photo presentation boundaries", () => {
     expect(guest.textContent).toContain("Manish");
   });
 
+  it("shows the Connect profile name for matched people, connected or not, in chat and workspace", () => {
+    const crowded: CalendarInvitation = {
+      ...event,
+      attendees: [
+        { email: "manish@example.test", display_name: "mani s", response_status: "accepted" },
+        { email: "other@example.test", display_name: "Provider Label", response_status: "needsAction" },
+      ],
+    };
+    const matched = new Map([
+      ["organizer@example.test", { userId: "organizer", displayName: "Priya Shah", photoUrl: husshPhoto }],
+      ["manish@example.test", { userId: "manish", displayName: "Manish Sainani", photoUrl: null }],
+    ]);
+    for (const workspaceLayout of [false, true]) {
+      const view = render(<CalendarInvitationDetail event={crowded} zone="UTC" people={matched} workspaceLayout={workspaceLayout} />);
+      const text = view.container.textContent || "";
+      expect(text).toContain("Priya Shah");
+      expect(text).toContain("Manish Sainani");
+      expect(text).not.toContain("mani s");
+      expect(text).toContain("Provider Label");
+      view.unmount();
+    }
+  });
+
   it("keeps an initial when a HUSSH photo URL is not admitted", () => {
     const unsafe = new Map([["manish@example.test", { userId: "manish", displayName: "Manish", photoUrl: "https://images.example.test/other.png" }]]);
     const workspace = render(<CalendarInvitationDetail event={event} zone="UTC" people={unsafe} workspaceLayout />);
