@@ -136,17 +136,14 @@ async def probe_drive_activity_planner(
     async def synthetic_authority():
         return None  # Authored fictional text only; no owner state or tools.
 
+    from scripts.readiness_exam_manifest import load_manifest, planner_cases
+
     model = build_managed_text_model(
         scope="drive_document_requests", require_current=synthetic_authority, provider=provider
     ).model_copy(update={"allow_fallback": False})
     rows = []
-    for case, purpose in (
-        ("ordinary", "resume consist Cedar Rowan Vale"),
-        (
-            "explicit",
-            'Filename exactly "Research Charter.pdf", exclude drafts. Created only within the selected period.',
-        ),
-    ):
+    # The readiness exam manifest is the single source of these case inputs.
+    for case, purpose in planner_cases(load_manifest()):
         started = time.monotonic()
         _probe_event(case, "planner", "started")
         try:

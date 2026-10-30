@@ -1557,6 +1557,7 @@ tests/test_todo_wallet_inventory_postgres.py
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
 tests/scripts/test_probe_drive_activity_planner.py
+tests/scripts/test_readiness_exam_manifest.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
