@@ -15,6 +15,17 @@ tools and runner included.
 | `one_consent.evalset.json` | One `EvalCase` per `consent`-family fixture case. One user `Invocation` each; `intermediate_data.tool_uses` holds the expected first tool as a `FunctionCall` with empty `args` (for a `run_app_action:<id>` expectation, `run_app_action` with `{"action_id": "<id>"}`). The no-tool case (`no_tool` in the fixture) carries an empty trajectory and a reference `final_response`. |
 | `test_config.json` | `{"criteria": {"tool_trajectory_avg_score": 1.0}}`. `AgentEvaluator` reads it from the folder of the EvalSet file. A threshold of 1.0 means a single wrong tool fails the case. |
 
+Follow-up turns live in `scripts/eval_cases/one_first_tool_turns.v2.json`.
+`scripts/eval_one_turn_replay.py` replays each case's earlier turns through
+the encrypted session codec, ADK's contents builder and One's before-model
+history hygiene, so only the final prompt is graded; v1 loaders refuse that
+schema. A case may add argument rules (`required`, `nonempty_any`). A right
+tool that drops them grades as `<tool>:args_incomplete`, a named miss.
+`scripts/eval_one_azure_first_tool.py` scores both suites on the managed Azure
+root that UAT serves: the exact admitted deployment and settings, production
+Chat's thinking policy and the same grader. A live run needs the environment's
+managed Azure identity; offline tests stub the model.
+
 Where a fixture case accepts more than one first tool, the EvalSet pins the
 fixture's primary (first-listed) tool, which is always the read-first path
 (`list_active_grants` before `consent.revoke`, and so on).
