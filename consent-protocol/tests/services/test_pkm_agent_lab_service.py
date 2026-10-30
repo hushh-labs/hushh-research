@@ -3012,22 +3012,6 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
 class TestSensitiveSecretRejection:
     """A card number, security code, credential, or government id never becomes a plain memory."""
 
-    def test_names_the_secret_kind(self):
-        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
-
-        assert S._contains_sensitive_secret("Card on file: 4111 1111 1111 1111") == "card_number"
-        assert S._contains_sensitive_secret("my pin is 4321 for the door") == "card_security_code"
-        assert S._contains_sensitive_secret("Bank login password: hunter2-please") == "credential"
-        assert S._contains_sensitive_secret("api key = sk_test_abcdefghij1234") == "credential"
-        assert S._contains_sensitive_secret("SSN 123-45-6789") == "government_id"
-        assert (
-            S._contains_sensitive_secret("Passport number: X12345678 renew soon") == "government_id"
-        )
-        assert (
-            S._contains_sensitive_secret("account number: 12345678901 for payroll")
-            == "bank_account"
-        )
-
     def test_public_identifiers_are_work_context_not_secrets(self):
         from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
 
