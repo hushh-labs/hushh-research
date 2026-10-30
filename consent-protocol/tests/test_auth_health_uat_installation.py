@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 from auth_health_uat_installer_fixtures import (
     BUILD_ID,
     CHECKER_ID,
@@ -41,6 +42,70 @@ def test_install_creates_only_exact_job_after_owner_bindings_and_build(monkeypat
     assert receipt.stat().st_mode & 0o777 == 0o600
     assert not any(call[:2] == ("scheduler", "jobs") for call in calls)
     assert not any(call[0] == "iam:set" for call in calls)
+
+
+def test_install_uses_same_wif_rest_404_as_the_only_absent_job_result(monkeypatch, tmp_path):
+    module, state, calls, job, _execution, _events = runtime_fakes(
+        monkeypatch, native_resource_reader=True
+    )
+
+    result = module.install_job(
+        OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json"
+    )
+
+    assert result["job"]["uid"] == "job-uid-1"
+    assert state["job"] == job
+    assert sum(call[0] == "job:get" for call in calls) == 1
+    assert sum(call[:3] == ("run", "jobs", "create") for call in calls) == 1
+    assert calls.index(next(call for call in calls if call[0] == "job:get")) < calls.index(
+        next(call for call in calls if call[:3] == ("run", "jobs", "create"))
+    )
+
+
+@pytest.mark.parametrize("status", [302, 403, 500])
+def test_install_refuses_non404_job_read_status_without_creation(monkeypatch, tmp_path, status):
+    module, state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch, native_resource_reader=True, job_preflight_status=status
+    )
+
+    with pytest.raises(RuntimeError, match="Health resource observation refused"):
+        module.install_job(OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json")
+
+    assert state["job"] is None
+    assert sum(call[0] == "job:get" for call in calls) == 1
+    assert not any(call[:3] == ("run", "jobs", "create") for call in calls)
+
+
+@pytest.mark.parametrize("error_type", [requests.Timeout, requests.ConnectionError])
+def test_install_job_read_transport_failure_is_fail_closed_without_creation(
+    monkeypatch, tmp_path, error_type
+):
+    module, state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch,
+        native_resource_reader=True,
+        job_preflight_error=error_type("private transport marker"),
+    )
+
+    with pytest.raises(error_type):
+        module.install_job(OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json")
+
+    assert state["job"] is None
+    assert sum(call[0] == "job:get" for call in calls) == 1
+    assert not any(call[:3] == ("run", "jobs", "create") for call in calls)
+
+
+def test_install_refuses_changed_job_uid_between_native_and_cli_reads(monkeypatch, tmp_path):
+    foreign = job_resource()
+    module, state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch, current_job=foreign, native_resource_reader=True
+    )
+    state["job_preflight_uid"] = "foreign-job-uid"
+
+    with pytest.raises(RuntimeError, match="identity changed during preflight"):
+        module.install_job(OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json")
+
+    assert state["job"] == foreign
+    assert not any(call[:3] == ("run", "jobs", "create") for call in calls)
 
 
 def test_record_intent_persists_exact_mutation_before_cloud_access(monkeypatch, tmp_path):
@@ -138,7 +203,7 @@ def test_install_fails_closed_before_job_mutation_when_prerequisites_differ(
 def test_existing_wrong_owner_or_image_is_never_adopted_or_updated(monkeypatch, tmp_path):
     foreign = job_resource(operation="other")
     module, _state, calls, _job, _execution, _events = runtime_fakes(
-        monkeypatch, current_job=foreign
+        monkeypatch, current_job=foreign, native_resource_reader=True
     )
     with pytest.raises(RuntimeError, match="different operation owner"):
         module.install_job(OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json")
@@ -147,7 +212,9 @@ def test_existing_wrong_owner_or_image_is_never_adopted_or_updated(monkeypatch, 
 
 def test_existing_wrong_image_is_refused_without_implicit_upgrade(monkeypatch, tmp_path):
     stale = job_resource(image=f"gcr.io/{PROJECT}/auth-health-job@sha256:{'c' * 64}")
-    module, _state, calls, _job, _execution, _events = runtime_fakes(monkeypatch, current_job=stale)
+    module, _state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch, current_job=stale, native_resource_reader=True
+    )
     with pytest.raises(RuntimeError, match="different image"):
         module.install_job(OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, tmp_path / "receipt.json")
     assert not any(call[:3] == ("run", "jobs", "create") for call in calls)
@@ -232,6 +299,6 @@ def test_job_create_timeout_reads_back_once_without_leaking_cli_diagnostics(
         else:
             assert state["job"] == job
     assert sum(call[:3] == ("run", "jobs", "create") for call in calls) == 1
-    assert sum(call[:4] == ("run", "jobs", "describe", JOB) for call in calls) == 2
+    assert sum(call[:4] == ("run", "jobs", "describe", JOB) for call in calls) == 1
     assert not any(call[:2] == ("scheduler", "jobs") for call in calls)
     assert not any(call[0] == "iam:set" for call in calls)

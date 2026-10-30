@@ -312,11 +312,25 @@ def _fake_cloud_cli(
 
 def _fake_resource_reader(bucket, state):
     bucket_url = f"https://storage.googleapis.com/storage/v1/b/{BUCKET}"
+    job_url = f"https://run.googleapis.com/v2/{JOB_NAME}"
 
     def existing_resource(api, url, name):
         assert name in {BUCKET, JOB_NAME}
         if url == bucket_url:
             return bucket
+        if url == job_url:
+            state["job_preflight_reads"] += 1
+            if state["job_preflight_error"]:
+                raise state.pop("job_preflight_error")
+            status = state["job_preflight_status"]
+            if status is None:
+                status = 200 if state["job"] is not None else 404
+            if status == 404:
+                return None
+            if status != 200:
+                raise RuntimeError("Health resource observation refused")
+            job = state["job"] or api.resources["job"]
+            return {"name": JOB_NAME, "uid": job["metadata"].get("uid")}
         assert url == f"https://cloudscheduler.googleapis.com/v1/{JOB_NAME}"
         state["timer_readbacks"] += 1
         if state["timer_readbacks"] == 2 and state["timer_readback_error"]:
@@ -326,6 +340,36 @@ def _fake_resource_reader(bucket, state):
         return state["timer"]
 
     return existing_resource
+
+
+def _runtime_state(
+    current_job,
+    timer,
+    create_error,
+    timer_readback_error,
+    job_preflight_status,
+    job_preflight_error,
+):
+    return {
+        "job": current_job,
+        "timer": timer,
+        "create_error": create_error,
+        "timer_readbacks": 0,
+        "timer_readback_error": timer_readback_error,
+        "job_preflight_reads": 0,
+        "job_preflight_status": job_preflight_status,
+        "job_preflight_error": job_preflight_error,
+    }
+
+
+def _patch_health_fakes(monkeypatch, state, run, api, bucket, native_resource_reader):
+    health = load_health(monkeypatch)
+    monkeypatch.setattr(health, "_reviewed_source", lambda: SOURCE)
+    monkeypatch.setattr(health, "_transport", lambda *a, **k: (run, api))
+    if not native_resource_reader:
+        monkeypatch.setattr(health, "_existing_resource", _fake_resource_reader(bucket, state))
+    monkeypatch.setattr(health, "_source_blob", lambda _source, _name: b"exact")
+    monkeypatch.setattr(health, "_verify_image_source", lambda *a: None)
 
 
 def runtime_fakes(
@@ -346,15 +390,19 @@ def runtime_fakes(
     invoker_readback_error=False,
     foreign_invoker=False,
     timer_readback_error=None,
+    native_resource_reader=False,
+    job_preflight_status=None,
+    job_preflight_error=None,
 ):
     module = load_installer(monkeypatch)
-    state = {
-        "job": current_job,
-        "timer": timer,
-        "create_error": create_error,
-        "timer_readbacks": 0,
-        "timer_readback_error": timer_readback_error,
-    }
+    state = _runtime_state(
+        current_job,
+        timer,
+        create_error,
+        timer_readback_error,
+        job_preflight_status,
+        job_preflight_error,
+    )
     calls = []
     job, execution, events = _health_observation(healthy)
     build, bucket = _build_and_bucket(wrong_build=wrong_build, wrong_bucket=wrong_bucket)
@@ -393,11 +441,9 @@ def runtime_fakes(
         project=PROJECT,
         region="us-central1",
         job=JOB,
+        resources={**resources, "bucket": bucket},
+        job_read_status=job_preflight_status,
+        job_read_error=job_preflight_error,
     )
-    health = load_health(monkeypatch)
-    monkeypatch.setattr(health, "_reviewed_source", lambda: SOURCE)
-    monkeypatch.setattr(health, "_transport", lambda *a, **k: (run, api))
-    monkeypatch.setattr(health, "_existing_resource", _fake_resource_reader(bucket, state))
-    monkeypatch.setattr(health, "_source_blob", lambda _source, _name: b"exact")
-    monkeypatch.setattr(health, "_verify_image_source", lambda *a: None)
+    _patch_health_fakes(monkeypatch, state, run, api, bucket, native_resource_reader)
     return module, state, calls, job, execution, events

@@ -135,17 +135,62 @@ class Response:
     def json(self):
         return copy.deepcopy(self._payload)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
 
 class FakeIAMAPI:
-    def __init__(self, state, calls, invoker_error, *, project, region, job):
+    def __init__(
+        self,
+        state,
+        calls,
+        invoker_error,
+        *,
+        project,
+        region,
+        job,
+        resources=None,
+        job_read_status=None,
+        job_read_error=None,
+    ):
         self.state = state
         self.calls = calls
         self.invoker_error = invoker_error
         self.project = project
         self.region = region
         self.job = job
+        self.resources = resources or {}
+        self.job_read_status = job_read_status
+        self.job_read_error = job_read_error
 
-    def get(self, url, *, params, timeout, allow_redirects):
+    def get(self, url, *, params=None, timeout, allow_redirects):
+        if url == f"https://storage.googleapis.com/storage/v1/b/{self.project}-auth-health-ops":
+            assert params is None and timeout == 30 and allow_redirects is False
+            self.calls.append(("bucket:get", url))
+            return Response(200, self.resources["bucket"])
+        if url == (
+            f"https://run.googleapis.com/v2/projects/{self.project}/locations/"
+            f"{self.region}/jobs/{self.job}"
+        ):
+            assert params is None and timeout == 30 and allow_redirects is False
+            self.calls.append(("job:get", url))
+            if self.job_read_error:
+                raise self.job_read_error
+            status = self.job_read_status
+            if status is None:
+                status = 200 if self.state["job"] is not None else 404
+            existing = self.state["job"] or self.resources.get("job", {})
+            uid = self.state.get("job_preflight_uid", existing.get("metadata", {}).get("uid"))
+            return Response(
+                status,
+                {
+                    "name": f"projects/{self.project}/locations/{self.region}/jobs/{self.job}",
+                    "uid": uid,
+                },
+            )
         assert url == (
             f"https://run.googleapis.com/v2/projects/{self.project}/locations/"
             f"{self.region}/jobs/{self.job}:getIamPolicy"
