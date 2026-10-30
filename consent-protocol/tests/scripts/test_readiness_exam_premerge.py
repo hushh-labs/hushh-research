@@ -158,14 +158,15 @@ def test_overlaid_yaml_is_what_the_production_loader_reads(exam, tools):
         assert changed == [anchor["subagent"]]
 
 
-def _fetch(merge_parents, compare="behind"):
+def _fetch(merge_parents, compare="behind", source=REPO, **pull):
     def fetch(path):
         if path.endswith("/pulls/7"):
             return {
                 "state": "open",
-                "head": {"sha": HEAD},
+                "head": {"sha": HEAD, "repo": {"full_name": source}},
                 "base": {"ref": "main"},
                 "merge_commit_sha": MERGE,
+                **pull,
             }
         if path.endswith(f"/commits/{MERGE}"):
             return {"parents": [{"sha": sha} for sha in merge_parents]}
@@ -211,8 +212,8 @@ def _tmp_root(tmp_path: Path, documents: str | None = None) -> Path:
     return tmp_path
 
 
-def _contents_fetch(texts: dict[str, str]):
-    base = _fetch([MAIN, HEAD])
+def _contents_fetch(texts: dict[str, str], base=None):
+    base = base or _fetch([MAIN, HEAD])
 
     def fetch(path):
         if "/contents/" not in path:

@@ -76,7 +76,17 @@ result never satisfies `must_fail`. Only fresh dispatches count: a rerun is
 refused. To measure one case's variance, dispatch `expect=report` with that one
 case and `reps` (1 to 3, one bounded wave). The receipt's `verdict.samples`
 gives k of N with every outcome's reason. It is a measurement, never a verdict,
-so wait for a dispatch to finish before the next one for the same commit. Before promotion to `required`, each control must give the same outcome
+so wait for a dispatch to finish before the next one for the same commit.
+To measure a PR's wording before it merges, add `pr=<number>` with one case;
+`text_commit` may pin its head. The exam grades what that open same-repo PR would
+land, chosen exactly as the PR's own run chooses it. The run writes no
+`control_met` and never decides the PR. It fails when it measured nothing, naming
+why: `pr_not_open`, `base_not_main`, `merge_conflict`, `head_moved` (the head is
+not the pinned commit), `stale_merge` (GitHub has not recomputed the merge yet),
+`fork_pr`, or `anchor_unresolvable` (the PR's text breaks the case's anchor).
+`must_fail` and `must_pass` stay on text already on main.
+
+Before promotion to `required`, each control must give the same outcome
 in three fresh dispatches, and a measured pilot must show time-to-verdict,
 verdicts by class and agreement with the UAT exam. Promotion also needs:
 - the aggregate CI gate to read the exam's verdict when it ran (a path-filtered
