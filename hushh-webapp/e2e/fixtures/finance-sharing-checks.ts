@@ -54,8 +54,8 @@ test("Finance sharing swipes retain one fixed frame across resize and reduced mo
   await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeFocused();
   const active = edit.getByRole("tabpanel", { name: "Access", exact: true });
   await expect.poll(async () => Math.abs((await active.boundingBox())!.x - (await pager.boundingBox())!.x)).toBeLessThanOrEqual(1);
-  await edit.getByRole("button", { name: "Ongoing access", exact: false }).click();
-  await expect(edit.getByRole("button", { name: "Ongoing access", exact: false })).toHaveAttribute("aria-pressed", "true");
+  await edit.getByRole("button", { name: "Real time", exact: true }).click();
+  await expect(edit.getByRole("button", { name: "Real time", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
 });
 
