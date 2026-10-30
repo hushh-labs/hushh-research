@@ -146,6 +146,6 @@ def sharing_error(error: Exception) -> HTTPException:
     detail = {"code": code, "message": message}
     # A closed diagnostic explains this refusal without echoing private input.
     reason = getattr(error, "diagnostic_reason", None)
-    if reason in _CLOSED_REASONS.get(code, ()):
+    if isinstance(reason, str) and reason in _CLOSED_REASONS.get(code, ()):
         detail["reason"] = reason
     return HTTPException(status, detail, headers=NO_STORE)
