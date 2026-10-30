@@ -8,11 +8,12 @@ import {
 } from "@/lib/pkm/memory-document";
 import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
-import type {
-  LivingJournalPending,
-  LivingSourceHealth,
-  LivingSourceHistory,
-  LivingSourceInventory,
+import {
+  LIVING_DOMAIN_REPLACE,
+  type LivingJournalPending,
+  type LivingSourceHealth,
+  type LivingSourceHistory,
+  type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
@@ -363,7 +364,7 @@ export async function refreshMemoryDocument(
           return { unchanged: (privateData.memory_document as { signature?: string } | undefined)?.signature === sourceSignature, domainData: { ...current, _private: { ...privateData, memory_document: {
             ...((privateData.memory_document ?? {}) as Record<string, unknown>),
             schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
-          } } }, summary: { source_projection_complete: true } };
+          } } }, mergeDecision: LIVING_DOMAIN_REPLACE, summary: { source_projection_complete: true } };
         },
       });
       if (superseded || !valid()) return stale();
