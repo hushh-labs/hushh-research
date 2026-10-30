@@ -81,6 +81,12 @@ Each rule names the check that enforces it today, or its gap.
    misconfiguration, loosen a grader or skip a check.
    - Enforced: fixed per-call deadlines, `max_retries=0`, and the aggregate
      classifications in `scripts/ci/managed_provider_readiness.py`.
+   - Enforced: by the owner's decision of 2026-10-30, an exam step that fails on a
+     timeout, 429 or 5xx (`is_transient_transport`) repeats exactly once under the
+     same per-call deadline. The first failure prints as a `transport_retry` row,
+     a repeated capability records `transport_retries: 1`, and the proof admits
+     only that value. Semantic, trust, billing and configuration failures never
+     repeat (`tests/scripts/test_readiness_transport_repeat.py`).
    - Evidence: the UAT exam job logs each ADK Azure call's outcome, error kind,
      status, timings and incomplete reason without content
      (`azure_model_call_complete`), so a failed run shows whether a call timed out,
