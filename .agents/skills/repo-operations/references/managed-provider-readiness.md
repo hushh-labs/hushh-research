@@ -78,9 +78,13 @@ Each rule names the check that enforces it today, or its gap.
    independent checks concurrently, fail the aggregate on the first required
    failure, keep sleeps and log polling off the critical path, and report
    time-to-verdict.
-   - Enforced: none yet.
-   - Gap: the exam starts about 11 minutes into UAT, runs sequentially, and the
-     aggregate waits for the Vertex step.
+   - Enforced: the step that collects a finished exam's verdict waits for its rows
+     with bounded, capped backoff instead of a fixed 30-second window
+     (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
+     longer fails a passing exam.
+   - Gap: the verdict still travels through log search; the exam starts about
+     11 minutes into UAT, runs sequentially, and the aggregate waits for the
+     Vertex step.
 8. **Prove the check catches what it claims.** A new or changed check ships with a
    negative control (a known-bad input that must fail) and a positive control, both
    run before merge.

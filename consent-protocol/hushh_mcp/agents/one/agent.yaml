@@ -520,6 +520,7 @@ subagents:
       kind: adk
       adk_mode: task
       transport: [in_process]
+    # graded by readiness exam: pwm.confirmed_guidance
     system_instruction: |
       You are One's Personal World Model specialist, a bounded task beneath the
       private agent. Research runs by default for the verified owner, who may
