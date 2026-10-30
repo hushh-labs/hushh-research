@@ -10,14 +10,14 @@ import logging
 import pytest
 
 from api.routes import drive_sharing_owner
-from hushh_mcp.services import calendar_meeting_request_service as service
+from hushh_mcp.services import calendar_organizer_resolution as service
 from hushh_mcp.services.actor_identity_service import ActorIdentitySyncUnavailableError
 from hushh_mcp.services.calendar_invitations import attendee_status, own_attendee
 from hushh_mcp.services.drive_sharing_contract import CALENDAR_REFUSAL_REASONS, DriveSharingError
 
 ORGANIZER = "organizer@example.test"
 REQUESTER = "requester@example.test"
-LOGGER = "hushh_mcp.services.calendar_meeting_request_service"
+LOGGER = "hushh_mcp.services.calendar_organizer_resolution"
 
 
 def event(**overrides):
@@ -174,7 +174,7 @@ def harness(monkeypatch):
 
 
 async def resolve():
-    return await service._connected_organizer("requester-user", ORGANIZER)
+    return await service.connected_organizer("requester-user", ORGANIZER)
 
 
 async def refusal():

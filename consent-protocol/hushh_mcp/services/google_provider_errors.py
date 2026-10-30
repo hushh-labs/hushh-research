@@ -154,3 +154,13 @@ async def classify_google_forbidden_response(
     if reasons & {"ORGRESTRICTION", "DOMAINPOLICY", "ADMINPOLICYENFORCED"}:
         return "provider_policy"
     return "resource_denied"
+
+
+async def classify_drive_forbidden_response(response: httpx.Response) -> str:
+    """The Drive file read's 403, with the fixed operation and service for operators."""
+    return await classify_google_forbidden_response(
+        response,
+        strict_drive_retry=True,
+        operation="drive.read",
+        service_hint="drive.googleapis.com",
+    )
