@@ -3,8 +3,11 @@
 # SPDX-FileCopyrightText: 2026 Hussh
 """Run the existing protected-list check once under an expiring conditional lease."""
 
+import http.client
 import json
 import os
+import re
+import ssl
 import sys
 import tempfile
 import time
@@ -12,6 +15,7 @@ import uuid
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -19,6 +23,11 @@ from process_group import BoundedReadError, bounded_stdout  # noqa: E402
 
 PROJECTS = {"hushh-pda-uat", "hushh-pda"}
 LEASE_SECONDS = 900  # Greater than the job's hard 600-second task timeout.
+METADATA_HOST = "metadata.google.internal"
+STORAGE_HOST = "storage.googleapis.com"
+LEASE_OBJECT = "lease.json"
+LEASE_BODY_LIMIT = 4096
+HTTP_TIMEOUT_SECONDS = 10
 
 
 class HealthCommandStage(str, Enum):
@@ -46,10 +55,37 @@ class HealthCommandFailure(BoundedReadError):
         reason: BoundedFailureReason,
         *,
         exitcode: int | None = None,
+        http_status: int | None = None,
     ):
         super().__init__(reason.value, exitcode=exitcode)
         self.stage = stage
         self.reason = reason
+        self.http_status = (
+            http_status
+            if type(http_status) is int and 100 <= http_status <= 599
+            else None
+        )
+
+
+class LeasePreconditionFailed(HealthCommandFailure):
+    """Storage refused the exact generation precondition."""
+
+    def __init__(self, stage: HealthCommandStage, http_status: int = 412):
+        super().__init__(
+            stage, BoundedFailureReason.UNCLASSIFIED, http_status=http_status
+        )
+
+
+class LeaseWriteUncertain(HealthCommandFailure):
+    """A POST response was lost and requires exact readback of our holder."""
+
+    def __init__(
+        self,
+        stage: HealthCommandStage,
+        reason: BoundedFailureReason,
+        http_status: int | None = None,
+    ):
+        super().__init__(stage, reason, http_status=http_status)
 
 
 def command(
@@ -71,77 +107,319 @@ def command(
         ) from None
 
 
+def _bounded_http_body(response, limit: int, stage: HealthCommandStage) -> bytes:
+    content_length = response.getheader("Content-Length")
+    if content_length is not None:
+        if not content_length.isdecimal() or int(content_length) > limit:
+            raise HealthCommandFailure(stage, BoundedFailureReason.SIZE)
+    try:
+        body = response.read(limit + 1)
+    except TimeoutError:
+        raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
+    except (OSError, http.client.HTTPException):
+        raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+    if len(body) > limit:
+        raise HealthCommandFailure(stage, BoundedFailureReason.SIZE)
+    return body
+
+
+class CloudStorageLease:
+    """Direct, bounded Cloud Run metadata and Cloud Storage JSON lease access."""
+
+    def __init__(self, project: str):
+        if project not in PROJECTS:
+            raise ValueError("Ungoverned health project")
+        self.project = project
+        self.bucket = f"{project}-auth-health-ops"
+        self.object_path = f"/storage/v1/b/{quote(self.bucket, safe='')}/o/{quote(LEASE_OBJECT, safe='')}"
+        self._access_token: str | None = None
+
+    def _metadata(self, path: str, stage: HealthCommandStage, limit: int) -> bytes:
+        connection = http.client.HTTPConnection(
+            METADATA_HOST, timeout=HTTP_TIMEOUT_SECONDS
+        )
+        try:
+            connection.request(
+                "GET",
+                path,
+                headers={"Metadata-Flavor": "Google", "Accept": "application/json"},
+            )
+            response = connection.getresponse()
+            if response.status != 200:
+                raise HealthCommandFailure(
+                    stage,
+                    BoundedFailureReason.UNCLASSIFIED,
+                    http_status=response.status,
+                )
+            return _bounded_http_body(response, limit, stage)
+        except HealthCommandFailure:
+            raise
+        except TimeoutError:
+            raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
+        except (OSError, http.client.HTTPException):
+            raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+        finally:
+            connection.close()
+
+    def _token(self, stage: HealthCommandStage) -> str:
+        if self._access_token is not None:
+            return self._access_token
+        try:
+            email = self._metadata(
+                "/computeMetadata/v1/instance/service-accounts/default/email",
+                stage,
+                256,
+            ).decode("ascii")
+        except UnicodeDecodeError:
+            raise HealthCommandFailure(
+                stage, BoundedFailureReason.UNCLASSIFIED
+            ) from None
+        expected = f"auth-health-check@{self.project}.iam.gserviceaccount.com"
+        if email != expected:
+            raise HealthCommandFailure(stage, BoundedFailureReason.UNCLASSIFIED)
+        token_response = self._metadata(
+            "/computeMetadata/v1/instance/service-accounts/default/token", stage, 8192
+        )
+        try:
+            token_data = json.loads(token_response)
+        except (UnicodeDecodeError, ValueError):
+            raise HealthCommandFailure(
+                stage, BoundedFailureReason.UNCLASSIFIED
+            ) from None
+        token = token_data.get("access_token") if isinstance(token_data, dict) else None
+        if (
+            not isinstance(token, str)
+            or not re.fullmatch(r"[A-Za-z0-9._~+/-]{20,4094}={0,2}", token)
+            or token_data.get("token_type") != "Bearer"
+            or type(token_data.get("expires_in")) is not int
+            or token_data["expires_in"] <= 0
+        ):
+            raise HealthCommandFailure(stage, BoundedFailureReason.UNCLASSIFIED)
+        self._access_token = token
+        return token
+
+    def _storage_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        stage: HealthCommandStage,
+        accepted_statuses: tuple[int, ...],
+        body: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        response_limit: int = LEASE_BODY_LIMIT,
+    ):
+        token = self._token(stage)
+        request_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        if body is not None:
+            request_headers["Content-Type"] = "application/json"
+        request_headers.update(headers or {})
+        connection = http.client.HTTPSConnection(
+            STORAGE_HOST,
+            timeout=HTTP_TIMEOUT_SECONDS,
+            context=ssl.create_default_context(),
+        )
+        try:
+            connection.request(method, path, body=body, headers=request_headers)
+            response = connection.getresponse()
+            if response.status == 412:
+                raise LeasePreconditionFailed(stage, response.status)
+            if method == "POST" and (response.status == 408 or response.status >= 500):
+                raise LeaseWriteUncertain(
+                    stage,
+                    BoundedFailureReason.UNCLASSIFIED,
+                    http_status=response.status,
+                )
+            if response.status not in accepted_statuses:
+                raise HealthCommandFailure(
+                    stage,
+                    BoundedFailureReason.UNCLASSIFIED,
+                    http_status=response.status,
+                )
+            content = (
+                _bounded_http_body(response, response_limit, stage)
+                if response_limit
+                else b""
+            )
+            return response.status, response.headers, content
+        except HealthCommandFailure:
+            raise
+        except TimeoutError:
+            if method == "POST":
+                raise LeaseWriteUncertain(stage, BoundedFailureReason.TIMEOUT) from None
+            raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
+        except (OSError, http.client.HTTPException):
+            if method == "POST":
+                raise LeaseWriteUncertain(
+                    stage, BoundedFailureReason.UNCLASSIFIED
+                ) from None
+            raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+        finally:
+            connection.close()
+
+    def write(self, payload: bytes, expected_generation: str) -> None:
+        if not re.fullmatch(r"[0-9]{1,20}", expected_generation):
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_CLAIM, BoundedFailureReason.ARGUMENTS
+            )
+        path = "/upload/storage/v1/b/{}/o?{}".format(
+            quote(self.bucket, safe=""),
+            urlencode(
+                {
+                    "uploadType": "media",
+                    "name": LEASE_OBJECT,
+                    "ifGenerationMatch": expected_generation,
+                }
+            ),
+        )
+        self._storage_request(
+            "POST",
+            path,
+            stage=HealthCommandStage.LEASE_CLAIM,
+            accepted_statuses=(200,),
+            body=payload,
+            response_limit=0,
+        )
+
+    def generation(self) -> str:
+        _, _, body = self._storage_request(
+            "GET",
+            self.object_path + "?fields=generation",
+            stage=HealthCommandStage.LEASE_READ,
+            accepted_statuses=(200,),
+            response_limit=2048,
+        )
+        try:
+            value = json.loads(body).get("generation")
+        except (AttributeError, TypeError, ValueError):
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+            ) from None
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,20}", value):
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+            )
+        return value
+
+    def read(self, generation: str) -> bytes:
+        if not re.fullmatch(r"[0-9]{1,20}", generation):
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_READ, BoundedFailureReason.ARGUMENTS
+            )
+        response_status, response_headers, body = self._storage_request(
+            "GET",
+            self.object_path
+            + "?"
+            + urlencode({"alt": "media", "generation": generation}),
+            stage=HealthCommandStage.LEASE_READ,
+            accepted_statuses=(200, 206),
+            headers={"Range": f"bytes=0-{LEASE_BODY_LIMIT - 1}"},
+            response_limit=LEASE_BODY_LIMIT,
+        )
+        content_range = response_headers.get("Content-Range")
+        if response_status == 206 and content_range is None:
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_READ, BoundedFailureReason.READ
+            )
+        if content_range is not None:
+            match = re.fullmatch(r"bytes 0-([0-9]+)/([0-9]+)", content_range)
+            if (
+                match is None
+                or int(match.group(1)) >= LEASE_BODY_LIMIT
+                or len(body) != int(match.group(1)) + 1
+            ):
+                raise HealthCommandFailure(
+                    HealthCommandStage.LEASE_READ, BoundedFailureReason.READ
+                )
+            if int(match.group(2)) != len(body):
+                raise HealthCommandFailure(
+                    HealthCommandStage.LEASE_READ, BoundedFailureReason.SIZE
+                )
+        return body
+
+    def delete(self, generation: str) -> None:
+        if not re.fullmatch(r"[0-9]{1,20}", generation):
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_RELEASE, BoundedFailureReason.ARGUMENTS
+            )
+        path = self.object_path + "?" + urlencode({"ifGenerationMatch": generation})
+        self._storage_request(
+            "DELETE",
+            path,
+            stage=HealthCommandStage.LEASE_RELEASE,
+            accepted_statuses=(204,),
+            response_limit=0,
+        )
+
+
+def _read_exact_lease(storage) -> tuple[str, dict]:
+    generation = storage.generation()
+    try:
+        existing = json.loads(storage.read(generation))
+    except (UnicodeDecodeError, ValueError):
+        raise HealthCommandFailure(
+            HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+        ) from None
+    if (
+        not isinstance(existing, dict)
+        or not isinstance(existing.get("holder"), str)
+        or not re.fullmatch(r"[0-9a-f]{32}", existing["holder"])
+        or type(existing.get("expires")) is not int
+    ):
+        raise HealthCommandFailure(
+            HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+        )
+    return generation, existing
+
+
 @contextmanager
-def lease(project: str, *, run=command, clock=time.time):
+def lease(project: str, *, storage=None, clock=time.time):
     if project not in PROJECTS:
         raise ValueError("Ungoverned health project")
-    uri = f"gs://{project}-auth-health-ops/lease.json"
+    storage = storage or CloudStorageLease(project)
     holder = uuid.uuid4().hex
-    generation = "0"
     with tempfile.TemporaryDirectory(prefix="auth-health-") as directory:
         payload = Path(directory, "lease.json")
         payload.write_text(json.dumps({"holder": holder, "expires": int(clock()) + LEASE_SECONDS}))
         payload.chmod(0o600)
-
-        def claim(expected):
-            run(
-                ["gcloud", "storage", "cp", str(payload), uri,
-                 f"--if-generation-match={expected}", "--quiet"],
-                stage=HealthCommandStage.LEASE_CLAIM,
-            )
-
+        payload_bytes = payload.read_bytes()
+        generation = None
+        exact = None
         try:
-            claim(generation)
-        except BoundedReadError:
-            # A denied or lost write is not an unlocked state. Read exact state
-            # and use generation CAS for expiry takeover or lost-response recovery.
-            generation = run(
-                ["gcloud", "storage", "objects", "describe", uri,
-                 "--format=value(generation)"],
-                stage=HealthCommandStage.LEASE_READ,
-            ).decode().strip()
-            raw = run(
-                ["gcloud", "storage", "cat", f"{uri}#{generation}", "--range=0-4096"],
-                stage=HealthCommandStage.LEASE_READ,
-                limit=4096,
-            )
-            existing = json.loads(raw)
-            if (not generation.isdecimal() or not isinstance(existing, dict)
-                    or type(existing.get("expires")) is not int
-                    or not isinstance(existing.get("holder"), str)):
-                raise ValueError("Unverifiable health lease")
+            storage.write(payload_bytes, "0")
+        except LeasePreconditionFailed:
+            observed_generation, existing = _read_exact_lease(storage)
             if existing["holder"] != holder:
                 if existing["expires"] > clock():
                     yield False
                     return
-                claim(generation)
-        generation = run(
-            ["gcloud", "storage", "objects", "describe", uri,
-             "--format=value(generation)"],
-            stage=HealthCommandStage.LEASE_READ,
-        ).decode().strip()
-        if not generation.isdecimal():
-            raise ValueError("Unverifiable acquired lease")
-        exact = json.loads(
-            run(
-                ["gcloud", "storage", "cat", f"{uri}#{generation}", "--range=0-4096"],
-                stage=HealthCommandStage.LEASE_READ,
-                limit=4096,
+                try:
+                    storage.write(payload_bytes, observed_generation)
+                except LeaseWriteUncertain as uncertain:
+                    generation, exact = _read_exact_lease(storage)
+                    if exact["holder"] != holder:
+                        raise uncertain
+            else:
+                generation, exact = observed_generation, existing
+        except LeaseWriteUncertain as uncertain:
+            generation, exact = _read_exact_lease(storage)
+            if exact["holder"] != holder:
+                raise uncertain
+        if generation is None:
+            generation, exact = _read_exact_lease(storage)
+        if exact["holder"] != holder or exact["expires"] <= clock():
+            raise HealthCommandFailure(
+                HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
             )
-        )
-        if (not isinstance(exact, dict) or exact.get("holder") != holder
-                or type(exact.get("expires")) is not int or exact["expires"] <= clock()):
-            raise ValueError("Health lease holder changed before execution")
         try:
             yield True
         finally:
             # Never remove a successor's lease. Failure leaves a bounded lease
             # for the next scheduled run rather than claiming successful cleanup.
-            run(
-                ["gcloud", "storage", "rm", uri,
-                 f"--if-generation-match={generation}", "--quiet"],
-                stage=HealthCommandStage.LEASE_RELEASE,
-            )
+            storage.delete(generation)
 
 
 def main() -> int:
@@ -172,6 +450,8 @@ def main() -> int:
         )
         if exc.exitcode is not None:
             message += f"; exitcode={exc.exitcode}"
+        if exc.http_status is not None:
+            message += f"; http_status={exc.http_status}"
         print(message)
         return 2
     except (BoundedReadError, ValueError, OSError):
