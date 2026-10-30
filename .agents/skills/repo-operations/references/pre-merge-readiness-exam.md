@@ -20,8 +20,13 @@ identity is the selected managed Azure account's `readiness_exam_client_id`.
 
 Verdict rows carry the case, selection reason, result, class (`semantic`,
 `transport`, `identity`) and the probe's fixed reason code, plus time-to-verdict,
-in the run summary and the `readiness-exam-<run>-<attempt>` receipt. A transport
-result is inconclusive, never a pass. Forks get no live call. `readiness_exam.mode`
+in the run summary and the `readiness-exam-<run>-<attempt>` receipt. A semantic
+row also names the UAT verdict's authored `failure_stage`, `failure_reason` and
+`leg`. A timeout, 429 or 5xx gets the single repeat the UAT exam gives its stage
+(`repeat_stage_once`), recorded as `transport_retries`, and only the final attempt
+decides the class. A semantic, trust or configuration failure never repeats. A
+result still transport after the repeat is inconclusive, never a pass. Forks get
+no live call. `readiness_exam.mode`
 in `config/ci-governance.json` is `advisory`: a verdict or an exam fault annotates
 the run, and the check still concludes successfully. Every step is bounded
 (checkout 2 minutes, setup 4, exam 6, upload 1) inside a 14-minute job limit, and
@@ -75,7 +80,8 @@ A control fails its run unless the expectation holds; a transport or identity
 result never satisfies `must_fail`. Only fresh dispatches count: a rerun is
 refused. To measure one case's variance, dispatch `expect=report` with that one
 case and `reps` (1 to 3, one bounded wave). The receipt's `verdict.samples`
-gives k of N with every outcome's reason. It is a measurement, never a verdict,
+gives k of N with every outcome's reason and, when the grader names one, its leg.
+It is a measurement, never a verdict,
 so wait for a dispatch to finish before the next one for the same commit.
 To measure a PR's wording before it merges, add `pr=<number>` with one case;
 `text_commit` may pin its head. The exam grades what that open same-repo PR would
@@ -95,8 +101,9 @@ verdicts by class and agreement with the UAT exam. Promotion also needs:
   a required run until the next push;
 - a rerun guard, so a semantic failure cannot be rerun to green;
 - no case with residual variance on Main's own text. `drive_planner.ordinary`
-  passed about 6 of 8 UAT runs on Main's wording after #8648, so one advisory
-  verdict can flip either way. Fix that at its cause; never sample until green
+  failed about 1 run in 6 on the wording before #8688 (20 of 24 measured), and
+  #8688's wording measured 24 of 24 through `pr`. That must still hold in UAT. Fix
+  any residual at its cause; never sample until green
   or majority-vote;
 - an always-on check of PRs that change more than 300 files, because GitHub
   evaluates `paths` against only the first 300 files of a PR.

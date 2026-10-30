@@ -253,7 +253,9 @@ def samples(cases: list[dict]) -> dict[str, dict[str, Any]]:
         entry = tally.setdefault(row["case"], {"runs": 0, "passed": 0, "outcomes": {}})
         entry["runs"] += 1
         entry["passed"] += row["result"] == "passed"
-        key = "passed" if row["result"] == "passed" else f"{row['result']}:{row['reason']}"
+        # A failed sample's leg, when the grader names one, says which requirement it missed.
+        parts = [row["result"], row["reason"], *([row["leg"]] if row.get("leg") else [])]
+        key = "passed" if row["result"] == "passed" else ":".join(parts)
         entry["outcomes"][key] = entry["outcomes"].get(key, 0) + 1
     return tally
 
