@@ -13,12 +13,18 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
-from enum import Enum
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "deploy/observability"))
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+from auth_health_read_diagnostics import (  # noqa: E402
+    BoundedFailureReason,
+    HealthCommandFailure,
+    HealthCommandStage,
+    read_diagnostic,
+)
 from process_group import BoundedReadError, bounded_stdout  # noqa: E402
 
 PROJECTS = {"hushh-pda-uat", "hushh-pda"}
@@ -28,43 +34,6 @@ STORAGE_HOST = "storage.googleapis.com"
 LEASE_OBJECT = "lease.json"
 LEASE_BODY_LIMIT = 4096
 HTTP_TIMEOUT_SECONDS = 10
-
-
-class HealthCommandStage(str, Enum):
-    OPERATION = "operation"
-    LEASE_CLAIM = "lease_claim"
-    LEASE_READ = "lease_read"
-    LEASE_RELEASE = "lease_release"
-    PROTECTED_LIST_CHECK = "protected_list_check"
-
-
-class BoundedFailureReason(str, Enum):
-    ARGUMENTS = "arguments"
-    TIMEOUT = "timeout"
-    READ = "read"
-    SIZE = "size"
-    EXIT = "exit"
-    CLEANUP = "cleanup"
-    UNCLASSIFIED = "unclassified"
-
-
-class HealthCommandFailure(BoundedReadError):
-    def __init__(
-        self,
-        stage: HealthCommandStage,
-        reason: BoundedFailureReason,
-        *,
-        exitcode: int | None = None,
-        http_status: int | None = None,
-    ):
-        super().__init__(reason.value, exitcode=exitcode)
-        self.stage = stage
-        self.reason = reason
-        self.http_status = (
-            http_status
-            if type(http_status) is int and 100 <= http_status <= 599
-            else None
-        )
 
 
 class LeasePreconditionFailed(HealthCommandFailure):
@@ -88,6 +57,23 @@ class LeaseWriteUncertain(HealthCommandFailure):
         super().__init__(stage, reason, http_status=http_status)
 
 
+def _read_failure(
+    stage, reason, read_step, failure_kind, error=None, http_status=None
+):
+    return HealthCommandFailure(
+        stage,
+        reason,
+        http_status=http_status,
+        diagnostic=read_diagnostic(read_step, failure_kind, error),
+    )
+
+
+def _range_failure(reason):
+    return _read_failure(
+        HealthCommandStage.LEASE_READ, reason, "storage_range", "range_validation"
+    )
+
+
 def command(
     args: list[str], *, stage: HealthCommandStage, timeout: int = 45, limit: int = 65536
 ) -> bytes:
@@ -107,19 +93,21 @@ def command(
         ) from None
 
 
-def _bounded_http_body(response, limit: int, stage: HealthCommandStage) -> bytes:
+def _bounded_http_body(
+    response, limit: int, stage: HealthCommandStage, read_step=None
+) -> bytes:
     content_length = response.getheader("Content-Length")
     if content_length is not None:
         if not content_length.isdecimal() or int(content_length) > limit:
-            raise HealthCommandFailure(stage, BoundedFailureReason.SIZE)
+            raise _read_failure(stage, BoundedFailureReason.SIZE, read_step, "body_read")
     try:
         body = response.read(limit + 1)
-    except TimeoutError:
-        raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
-    except (OSError, http.client.HTTPException):
-        raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+    except TimeoutError as exc:
+        raise _read_failure(stage, BoundedFailureReason.TIMEOUT, read_step, "body_read", exc) from None
+    except (OSError, http.client.HTTPException) as exc:
+        raise _read_failure(stage, BoundedFailureReason.READ, read_step, "body_read", exc) from None
     if len(body) > limit:
-        raise HealthCommandFailure(stage, BoundedFailureReason.SIZE)
+        raise _read_failure(stage, BoundedFailureReason.SIZE, read_step, "body_read")
     return body
 
 
@@ -134,7 +122,9 @@ class CloudStorageLease:
         self.object_path = f"/storage/v1/b/{quote(self.bucket, safe='')}/o/{quote(LEASE_OBJECT, safe='')}"
         self._access_token: str | None = None
 
-    def _metadata(self, path: str, stage: HealthCommandStage, limit: int) -> bytes:
+    def _metadata(
+        self, path: str, stage: HealthCommandStage, limit: int, read_step: str
+    ) -> bytes:
         connection = http.client.HTTPConnection(
             METADATA_HOST, timeout=HTTP_TIMEOUT_SECONDS
         )
@@ -146,18 +136,20 @@ class CloudStorageLease:
             )
             response = connection.getresponse()
             if response.status != 200:
-                raise HealthCommandFailure(
+                raise _read_failure(
                     stage,
                     BoundedFailureReason.UNCLASSIFIED,
+                    read_step,
+                    "http_status",
                     http_status=response.status,
                 )
-            return _bounded_http_body(response, limit, stage)
+            return _bounded_http_body(response, limit, stage, read_step)
         except HealthCommandFailure:
             raise
-        except TimeoutError:
-            raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
-        except (OSError, http.client.HTTPException):
-            raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+        except TimeoutError as exc:
+            raise _read_failure(stage, BoundedFailureReason.TIMEOUT, read_step, "transport", exc) from None
+        except (OSError, http.client.HTTPException) as exc:
+            raise _read_failure(stage, BoundedFailureReason.READ, read_step, "transport", exc) from None
         finally:
             connection.close()
 
@@ -169,6 +161,7 @@ class CloudStorageLease:
                 "/computeMetadata/v1/instance/service-accounts/default/email",
                 stage,
                 256,
+                "metadata_identity",
             ).decode("ascii")
         except UnicodeDecodeError:
             raise HealthCommandFailure(
@@ -178,13 +171,16 @@ class CloudStorageLease:
         if email != expected:
             raise HealthCommandFailure(stage, BoundedFailureReason.UNCLASSIFIED)
         token_response = self._metadata(
-            "/computeMetadata/v1/instance/service-accounts/default/token", stage, 8192
+            "/computeMetadata/v1/instance/service-accounts/default/token",
+            stage,
+            8192,
+            "metadata_token",
         )
         try:
             token_data = json.loads(token_response)
         except (UnicodeDecodeError, ValueError):
-            raise HealthCommandFailure(
-                stage, BoundedFailureReason.UNCLASSIFIED
+            raise _read_failure(
+                stage, BoundedFailureReason.UNCLASSIFIED, "metadata_token", "json_parse"
             ) from None
         token = token_data.get("access_token") if isinstance(token_data, dict) else None
         if (
@@ -208,6 +204,7 @@ class CloudStorageLease:
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
         response_limit: int = LEASE_BODY_LIMIT,
+        read_step: str | None = None,
     ):
         token = self._token(stage)
         request_headers = {
@@ -234,29 +231,31 @@ class CloudStorageLease:
                     http_status=response.status,
                 )
             if response.status not in accepted_statuses:
-                raise HealthCommandFailure(
+                raise _read_failure(
                     stage,
                     BoundedFailureReason.UNCLASSIFIED,
+                    read_step,
+                    "http_status",
                     http_status=response.status,
                 )
             content = (
-                _bounded_http_body(response, response_limit, stage)
+                _bounded_http_body(response, response_limit, stage, read_step)
                 if response_limit
                 else b""
             )
             return response.status, response.headers, content
         except HealthCommandFailure:
             raise
-        except TimeoutError:
+        except TimeoutError as exc:
             if method == "POST":
                 raise LeaseWriteUncertain(stage, BoundedFailureReason.TIMEOUT) from None
-            raise HealthCommandFailure(stage, BoundedFailureReason.TIMEOUT) from None
-        except (OSError, http.client.HTTPException):
+            raise _read_failure(stage, BoundedFailureReason.TIMEOUT, read_step, "transport", exc) from None
+        except (OSError, http.client.HTTPException) as exc:
             if method == "POST":
                 raise LeaseWriteUncertain(
                     stage, BoundedFailureReason.UNCLASSIFIED
                 ) from None
-            raise HealthCommandFailure(stage, BoundedFailureReason.READ) from None
+            raise _read_failure(stage, BoundedFailureReason.READ, read_step, "transport", exc) from None
         finally:
             connection.close()
 
@@ -291,12 +290,16 @@ class CloudStorageLease:
             stage=HealthCommandStage.LEASE_READ,
             accepted_statuses=(200,),
             response_limit=2048,
+            read_step="storage_generation",
         )
         try:
             value = json.loads(body).get("generation")
         except (AttributeError, TypeError, ValueError):
-            raise HealthCommandFailure(
-                HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+            raise _read_failure(
+                HealthCommandStage.LEASE_READ,
+                BoundedFailureReason.UNCLASSIFIED,
+                "storage_generation",
+                "json_parse",
             ) from None
         if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,20}", value):
             raise HealthCommandFailure(
@@ -318,12 +321,11 @@ class CloudStorageLease:
             accepted_statuses=(200, 206),
             headers={"Range": f"bytes=0-{LEASE_BODY_LIMIT - 1}"},
             response_limit=LEASE_BODY_LIMIT,
+            read_step="storage_lease_body",
         )
         content_range = response_headers.get("Content-Range")
         if response_status == 206 and content_range is None:
-            raise HealthCommandFailure(
-                HealthCommandStage.LEASE_READ, BoundedFailureReason.READ
-            )
+            raise _range_failure(BoundedFailureReason.READ)
         if content_range is not None:
             match = re.fullmatch(r"bytes 0-([0-9]+)/([0-9]+)", content_range)
             if (
@@ -331,13 +333,9 @@ class CloudStorageLease:
                 or int(match.group(1)) >= LEASE_BODY_LIMIT
                 or len(body) != int(match.group(1)) + 1
             ):
-                raise HealthCommandFailure(
-                    HealthCommandStage.LEASE_READ, BoundedFailureReason.READ
-                )
+                raise _range_failure(BoundedFailureReason.READ)
             if int(match.group(2)) != len(body):
-                raise HealthCommandFailure(
-                    HealthCommandStage.LEASE_READ, BoundedFailureReason.SIZE
-                )
+                raise _range_failure(BoundedFailureReason.SIZE)
         return body
 
     def delete(self, generation: str) -> None:
@@ -360,8 +358,11 @@ def _read_exact_lease(storage) -> tuple[str, dict]:
     try:
         existing = json.loads(storage.read(generation))
     except (UnicodeDecodeError, ValueError):
-        raise HealthCommandFailure(
-            HealthCommandStage.LEASE_READ, BoundedFailureReason.UNCLASSIFIED
+        raise _read_failure(
+            HealthCommandStage.LEASE_READ,
+            BoundedFailureReason.UNCLASSIFIED,
+            "storage_lease_body",
+            "json_parse",
         ) from None
     if (
         not isinstance(existing, dict)
@@ -452,6 +453,11 @@ def main() -> int:
             message += f"; exitcode={exc.exitcode}"
         if exc.http_status is not None:
             message += f"; http_status={exc.http_status}"
+        if exc.diagnostic is not None:
+            step, kind, exception_type = exc.diagnostic
+            message += f"; read_step={step}; failure_kind={kind}"
+            if exception_type is not None:
+                message += f"; exception_type={exception_type}"
         print(message)
         return 2
     except (BoundedReadError, ValueError, OSError):
