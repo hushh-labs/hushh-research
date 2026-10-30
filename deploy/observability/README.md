@@ -315,9 +315,13 @@ dispatch control, scheduled workflow or notification channel is introduced.
 
 The protected check is moving to the `protected-configuration-health` Cloud Run
 Job and an authenticated hourly Cloud Scheduler target in each monitored project.
-The existing GitHub schedule remains the fallback until consecutive cloud-scheduled
-executions publish healthy count/status events. Retire that schedule only after
-recording the live image, identities, execution names and delivery timestamps.
+Keep the GitHub schedule as fallback until both UAT and Production have each
+recorded two distinct, genuine healthy Cloud Scheduler executions for the exact
+qualified image and identities, with each native timer read back at `17 * * * *`
+UTC. A manual execution or image build does not count. Preserve the execution,
+health-event, identity and timer receipts. Only then may a reviewed Main source
+change remove the GitHub `schedule` trigger; preserve `workflow_dispatch` and
+its protected-list checks and manual monitoring actions.
 
 Use the existing checker, pinned SDK image and non-root container. The task has
 one worker, no retries, a 600-second hard timeout and a 450-second checker deadline.

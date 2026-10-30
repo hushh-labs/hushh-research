@@ -214,3 +214,7 @@ For changes touching DB migrations, DB contracts, or the release manifest:
 1. Branch protection, merge queue, release authority, and production deploy governance need live GitHub or runtime verification.
 2. Firebase Auth readiness requires checking shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app verification flag separately.
 3. Local real-SMS throttling is not proof that UAT auth is misconfigured.
+
+## Native Auth-Health Fallback Retirement
+
+Keep the scheduled GitHub health workflow as fallback until UAT and Production each have two distinct, genuine healthy native scheduled executions for the exact qualified image and identities, and each native timer is restored to `17 * * * *` UTC. A manual execution or image build does not count. Preserve execution, health-event, identity and timer receipts. Only after both environments qualify may a reviewed Main source PR remove the GitHub `schedule` trigger; preserve `workflow_dispatch`, protected-list checks and manual monitoring actions. The operator contract is in [`deploy/observability/README.md`](../../../../deploy/observability/README.md).
