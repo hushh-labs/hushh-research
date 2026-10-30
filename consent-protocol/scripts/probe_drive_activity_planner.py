@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from functools import partial
 from typing import Literal
 
@@ -139,7 +140,15 @@ def grade_plan(plan, case):
 
 async def probe_drive_activity_planner(
     provider: Literal["azure_openai", "vertex"] = "azure_openai",
+    *,
+    case_ids: list[str] | None = None,
+    token_supplier: Callable[[], str] | None = None,
 ):
+    """Run the manifest's planner cases; the defaults are the UAT exam's behaviour.
+
+    Only the trusted pre-merge exam passes `case_ids` (its affected cases) and
+    `token_supplier` (its probe-only identity on the same deployment and grader).
+    """
     from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
     from hushh_mcp.services.drive_suggestion_service import (
         interpret_semantic_live_search,
@@ -151,12 +160,15 @@ async def probe_drive_activity_planner(
 
     from scripts.readiness_exam_manifest import load_manifest, planner_cases
 
+    update: dict[str, object] = {"allow_fallback": False}
+    if token_supplier is not None:
+        update["token_supplier"] = token_supplier
     model = build_managed_text_model(
         scope="drive_document_requests", require_current=synthetic_authority, provider=provider
-    ).model_copy(update={"allow_fallback": False})
+    ).model_copy(update=update)
     rows = []
     # The readiness exam manifest is the single source of these case inputs.
-    for case, purpose in planner_cases(load_manifest()):
+    for case, purpose in planner_cases(load_manifest(), case_ids):
         started = time.monotonic()
         _probe_event(case, "planner", "started")
         try:

@@ -892,6 +892,7 @@ tests/test_personal_agent_cloud_assignment.py
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
 tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
+tests/one_adk/test_azure_workload_identity.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.
 tests/routes/test_agent_chat_turn_restore.py
@@ -1564,6 +1565,7 @@ tests/scripts/test_readiness_exam_manifest.py
 tests/scripts/test_readiness_transport_repeat.py
 tests/test_uat_readiness_verdict_collector.py
 tests/scripts/test_root_roundtrip_reasons.py
+tests/scripts/test_readiness_exam_premerge.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 

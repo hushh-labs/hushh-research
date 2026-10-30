@@ -29,6 +29,7 @@ python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
+python3 scripts/ci/test_readiness_exam_workflow.py
 python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_release_cadence_qualification.py
 python3 scripts/ci/test_uat_exact_ci.py
