@@ -2072,6 +2072,10 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertNotIn("workflow_run:", clock_triggers)
             self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-clock]\n", clock_triggers)
             self.assertIn("cancel-in-progress: false", clock_triggers)
+            # Production source qualification checks ancestry and policy in old Git objects.
+            checkout = clock.split("      - name: Checkout authority tooling\n", 1)[1]
+            checkout = checkout.split("\n      - name:", 1)[0]
+            self.assertRegex(checkout, r"(?m)^          fetch-depth: 0$")
             wake = clock.split("\n  wake:\n", 1)[1].split("\n  next-check:\n", 1)[0]
             self.assertIn("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", wake)
             self.assertIn('event_type="$tick"', wake)
@@ -2097,6 +2101,12 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
             (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
             (source, clock_source.replace("sleep $((attempt * 10))", "sleep 3600", 1)),
+            (
+                source,
+                clock_source.replace(
+                    "          fetch-depth: 0\n", "          fetch-depth: 1\n", 1
+                ),
+            ),
         ):
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
