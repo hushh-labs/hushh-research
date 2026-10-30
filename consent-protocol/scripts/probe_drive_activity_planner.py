@@ -19,6 +19,11 @@ from typing import Literal
 class ActivityPlannerContractError(AssertionError):
     """A generated plan failed an authored, synthetic semantic requirement."""
 
+    def __init__(self, reason: str, *, case: str | None = None, leg: str | None = None) -> None:
+        super().__init__(reason)
+        self.case = case
+        self.leg = leg
+
 
 def _probe_event(case, stage, result, **metrics):
     print(
@@ -56,7 +61,7 @@ def _require(case, condition, reason, leg=None):
     if not condition:
         detail = {"leg": leg} if leg else {}
         _probe_event(case, "grade", "failed", reason=reason, **detail)
-        raise ActivityPlannerContractError(reason)
+        raise ActivityPlannerContractError(reason, case=case, leg=leg)
 
 
 def _core_entity_leg(clause):

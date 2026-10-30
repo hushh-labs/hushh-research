@@ -79,8 +79,9 @@ Each rule names the check that enforces it today, or its gap.
      names the requirement every candidate missed in `leg` (`entity_missing`,
      `tokens_mismatch`, `match_not_token`, `fallback_missing`) at the former
      strictness (`test_core_entity_legs_keep_the_former_strictness`).
-   - Gap: the planner lead and location semantics lack specific reasons, and a
-     trust failure's terminal verdict does not yet name its failing stage.
+   - Enforced: a trust failure's terminal verdict and the step's build log name its
+     stage, reason and leg as authored codes only (`tests/scripts/test_trust_failure_verdict.py`).
+   - Gap: location semantics lacks a specific reason.
 6. **Classify before reacting.** Transport means a timeout, 5xx or 429. Variance
    means the same SHA flips. Deterministic means it fails every time. Never retry a
    deterministic or semantic failure, retry until green, majority-pass a
