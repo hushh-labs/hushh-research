@@ -7,7 +7,6 @@ import FirebaseCore
 import UIKit
 import AVFoundation
 import AudioToolbox
-import CallKit
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -120,8 +119,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         ) { [weak self] _ in
             guard let self else { return }
             // Returning is the chance to resume: a missed interruption end must not
-            // leave the alarm silent, but a live call keeps the siren paused.
-            if !CXCallObserver().calls.contains(where: { !$0.hasEnded }) { self.emergencyInterrupted = false }
+            // leave an unacknowledged alarm silent, even if a call is still live.
+            self.emergencyInterrupted = false
             self.resumeEmergencyCue()
             self.retireHandoffIfSettled()
         })
@@ -142,7 +141,6 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                        user?.uid != self.emergencyFirebaseUid || ChatPreviewKeys.recipientKey(["user_id": owner]) == nil {
                         self.stopEmergencyCue()
                     }
-                    if user == nil { EmergencySmsCueHandoff.cancel() } // Sign-out ends every hand-off.
                 }
             }
         }
@@ -200,6 +198,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             try session.setActive(true)
             emergencyPlayer?.play()
+            retireHandoffIfSettled()
         } catch { /* Retain pending alerts through system audio interruptions. */ }
     }
 
@@ -243,13 +242,15 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// The hand-off series retires once this process's in-app alarm is ringing, or
-    /// once no alarm is pending at all. A series left by an ended process keeps
-    /// covering the background until the web restores the in-app alarm.
+    /// once no alarm this device can restore is pending. A series left by an ended
+    /// process keeps covering the background until the web restores the alarm.
     private func retireHandoffIfSettled() {
-        let ringing = emergencyPlayer?.isPlaying == true
-        if ringing || SmsAlarmLedger.owners().allSatisfy({ SmsAlarmLedger.pending(user: $0).isEmpty }) {
-            EmergencySmsCueHandoff.cancel()
-        }
+        guard EmergencySmsCueHandoff.scheduled else { return }
+        if emergencyPlayer?.isPlaying == true { EmergencySmsCueHandoff.cancel(); return }
+        // Only owners with a notification key can be restored; a signed-out account's
+        // kept receipts must not hold the series open.
+        let restorable = SmsAlarmLedger.owners().filter { ChatPreviewKeys.recipientKey(["user_id": $0]) != nil }
+        if restorable.allSatisfy({ SmsAlarmLedger.pending(user: $0).isEmpty }) { EmergencySmsCueHandoff.cancel() }
     }
 
     @objc func playEmergencySmsCue(_ call: CAPPluginCall) {
@@ -272,7 +273,11 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                     EmergencySmsSystemAlarm.cancel(user: user, grant: grant)
                     call.resolve(["played": false]); return
                 }
-                if scheduled { self.systemAlarmOwners[user] = uid; call.resolve(["played": true]); return }
+                if scheduled {
+                    self.systemAlarmOwners[user] = uid
+                    EmergencySmsCueHandoff.cancel() // The system alarm now owns the ringing.
+                    call.resolve(["played": true]); return
+                }
             }
             self.playForegroundEmergencySmsCue(call)
         }
@@ -628,7 +633,12 @@ enum EmergencySmsCueHandoff {
         }
     }
 
+    /// A cheap marker so activation skips the ledger scan when no series exists.
+    private static let scheduledKey = "hushh.sms-alarm.handoff.scheduled"
+    static var scheduled: Bool { UserDefaults.standard.bool(forKey: scheduledKey) }
+
     static func schedule(completion: @escaping () -> Void) {
+        UserDefaults.standard.set(true, forKey: scheduledKey)
         let center = UNUserNotificationCenter.current()
         let group = DispatchGroup()
         for request in requests() {
@@ -644,6 +654,7 @@ enum EmergencySmsCueHandoff {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        UserDefaults.standard.removeObject(forKey: scheduledKey)
     }
 
     static func isHandoff(_ identifier: String) -> Bool { identifier.hasPrefix(prefix) }
