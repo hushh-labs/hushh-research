@@ -38,7 +38,7 @@ pytestmark = pytest.mark.feature_auth_reliability
     ],
 )
 def test_real_uat_health_producer_event_is_the_activation_contract(
-    monkeypatch, tmp_path, runtime_setting, runtime_result, accepted
+    monkeypatch, capsys, tmp_path, runtime_setting, runtime_result, accepted
 ):
     root = Path(__file__).resolve().parents[2]
     module, _state, _calls, job_resource_value, execution, events = runtime_fakes(
@@ -76,10 +76,8 @@ def test_real_uat_health_producer_event_is_the_activation_contract(
         assert stage == job.HealthCommandStage.PROTECTED_LIST_CHECK
         assert timeout == 450
         monkeypatch.setattr(sys, "argv", ["verify", *args[2:]])
-        result = ops.main()
-        if result:
-            raise job.HealthCommandFailure(stage, job.BoundedFailureReason.EXIT, exitcode=result)
-        return b"protected-list check complete"
+        assert ops.main() == 0
+        return capsys.readouterr().out.encode()
 
     job.command = run_real_checker
     monkeypatch.setenv("AUTH_HEALTH_PROJECT", PROJECT)
