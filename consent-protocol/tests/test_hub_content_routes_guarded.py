@@ -11,8 +11,7 @@ Three checks over the real ``server.app`` route table (``/api/one``, ``/api/kai`
 3. each guarded ``CONTENT`` route, called as an own-cloud owner, answers 409
    ``AGENT_PRIVATE_RUNTIME_REQUIRED`` and its handler body never runs.
 
-The guard's own decisions (anonymous, Shared, unknown, private, pod process) are
-pinned at the bottom.
+The guard's own decisions (anonymous, Shared, unknown, private, pod process) are pinned last.
 """
 
 from __future__ import annotations
@@ -53,6 +52,7 @@ OWNER_TOKEN = {"user_id": OWNER, "token": "HCT:synthetic", "agent_id": "self"}
 REFUSED = "AGENT_PRIVATE_RUNTIME_REQUIRED"
 INLINE_ROUTES = {
     ("POST", "/api/one/a2a/message"),
+    ("POST", "/api/one/calendar/followups/drain"),
     ("POST", "/api/one/email/information-requests/scan-enabled"),
     ("POST", "/api/one/email/scheduled/drain"),
     ("POST", "/api/one/pod/specialist/{name}/read"),

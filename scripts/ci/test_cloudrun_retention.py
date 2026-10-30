@@ -2101,6 +2101,24 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
 
+    def test_capacity_clock_checkout_fetches_full_history_for_source_qualification(
+        self,
+    ):
+        workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        clock_source = (workflows / "capacity-maintenance-clock.yml").read_text()
+
+        def assert_full_history(text):
+            checkout = text.split("      - name: Checkout authority tooling\n", 1)[1]
+            checkout = checkout.split("\n      - name:", 1)[0]
+            self.assertRegex(checkout, r"(?m)^          fetch-depth: 0$")
+
+        assert_full_history(clock_source)
+        shallow_checkout = clock_source.replace(
+            "          fetch-depth: 0\n", "          fetch-depth: 1\n", 1
+        )
+        with self.assertRaises(AssertionError):
+            assert_full_history(shallow_checkout)
+
     def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
