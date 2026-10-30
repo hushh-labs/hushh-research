@@ -412,7 +412,7 @@ The current Drive worker [release script](../../../deploy/drive/deploy_worker_se
 invokes [`setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
 once per fixed UAT stage with its stage-specific job name, schedule, worker origin,
 and matching OIDC audience. A direct helper run defaults to the documents stage
-only. Each sharing invocation attempts up to 20 permission jobs and a combined 20 notifications, under the existing stage deadlines; documents and suggestions remain one job per invocation. All three jobs run every minute. Each posts to the fixed drain
+only. Each sharing invocation attempts up to 20 permission jobs, up to 20 request and payment notices right after Checkout (beside grants), and a combined 20 notifications after grants, under the existing stage deadlines; documents and suggestions remain one job per invocation. All three jobs run every minute. Each posts to the fixed drain
 route and verifies its OIDC target. If Cloud Run ingress requires IAM invocation,
 grant only that scheduler account `roles/run.invoker` through the approved infrastructure path before
 running the helper; do not weaken the route or make a direct Cloud Run deployment. A successful
@@ -427,6 +427,13 @@ one model retry; other model failures and a second timeout fail closed. Query
 isolation and per-query resource limits remain unchanged. Exhausting the shared
 budget cancels the unfinished check and keeps the candidate unready; the existing
 release workflow restores its prior serving services and scheduler targets.
+Beside these checks, startup builds the Drive request planner once, with no
+model call, owner or credential fetch. In UAT that loads the managed Azure
+transport and its workload identity, a one-time cold load that otherwise fell
+inside the first allowed request's search budget. Each plan still builds its
+own agent and model and fetches its own token. That step has its own
+150-second bound, is logged as `drive_worker_startup stage=planner` (a warning
+unless ready), and never decides readiness.
 
 With those checks, a cold worker instance takes about 2.5 minutes to become
 ready, and each instance runs one drain at a time. The release therefore keeps
