@@ -59,6 +59,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  acknowledgeGoogleOAuthSettlement,
   clearGoogleOAuthAttempt,
   createGoogleOAuthPopupAttempt,
   hasCalendarMeetingFileGrant,
@@ -274,7 +275,7 @@ export function CalendarAgentPage({
 
   /** The callback verified the connection before settling; keep it authoritative. */
   const applyVerifiedSuccess = (accessLevel: "read" | "manage", additional = false, targetAccountId?: string,
-    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string) => {
+    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string, onSettled?: () => void) => {
     const priorAccountIds = new Set(status?.accounts?.map(account => account.account_id) || []);
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
@@ -287,6 +288,7 @@ export function CalendarAgentPage({
           activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId &&
           statusRequestRef.current === settlementRequest,
         onVerified: setStatus,
+        onSettled,
       });
       return;
     }
@@ -329,6 +331,7 @@ export function CalendarAgentPage({
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
+    onSettled?.();
   };
 
   const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false,
@@ -513,9 +516,15 @@ export function CalendarAgentPage({
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const settled = settlement;
       if (finished === "settled" && settled) {
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation);
-        else if (settled.outcome === "failed")
-          morphyToast.error(settled.message || "Google Calendar could not be connected.");
+        // Tell a popup that cannot close itself (Google's opener policy) that
+        // this page has taken over, so it can say so instead of looking stuck.
+        const acknowledge = () => acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
+        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation, acknowledge);
+        else {
+          if (settled.outcome === "failed")
+            morphyToast.error(settled.message || "Google Calendar could not be connected.");
+          acknowledge();
+        }
       } else {
         await reconcileUnsettledCalendarPopup({
           operationOwnerId,
@@ -761,6 +770,7 @@ export function CalendarAgentPage({
         storageValue: readGoogleOAuthPopupSettlement,
       });
       if (identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
+      if (followupSettlement.current) acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
       if (followupSettlement.current?.outcome !== "succeeded") return false;
       const verified = await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken());
       return verified.mail_connected;

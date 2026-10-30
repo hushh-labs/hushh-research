@@ -14,6 +14,7 @@ import { DriveSharingError } from "@/lib/services/drive-sharing-wire";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isMeetingReviewing, meetingOutcome } from "@/lib/consent/calendar-meeting-outcome";
+import { markMeetingReviewOAuthReturn } from "@/lib/consent/meeting-review-return";
 
 // Sharing is quick when it works; poll quietly for a bounded time, then stop and
 // offer a manual check rather than polling a stuck job forever.
@@ -91,6 +92,10 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // Bumped when the organizer comes back from authorizing Drive, so this same
+  // review re-checks readiness in place instead of needing a reload.
+  const [previewRun, setPreviewRun] = useState(0);
+  const quietRecheck = useRef(false);
   const guardFor = useCallback((token: string, epoch: number): SharingSessionGuard => () => {
     if (!userId || !isVaultSessionEpochCurrent(epoch) || getVaultOwnerToken() !== token)
       throw new DriveSharingError("session_changed");
@@ -103,7 +108,11 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
     const epoch = snapshotVaultSessionEpoch();
     let cancelled = false;
     const guard = guardFor(token, epoch);
-    setBusy(true); setError("");
+    // A return from Drive authorization refreshes quietly: no spinner, no
+    // cleared error, no layout shift on a page the organizer is already using.
+    const quiet = quietRecheck.current;
+    quietRecheck.current = false;
+    if (!quiet) { setBusy(true); setError(""); }
     void (async () => {
       const next = await CalendarMeetingReviewService.preview(requestId, token);
       guard();
@@ -116,10 +125,34 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
           throw new DriveSharingError("review_changed");
         if (!cancelled) setReview(ready);
       }
-    })().catch(cause => { if (!cancelled && isVaultSessionEpochCurrent(epoch)) setError(errorText(cause)); })
-      .finally(() => { if (!cancelled && isVaultSessionEpochCurrent(epoch)) setBusy(false); });
+    })().catch(cause => { if (!quiet && !cancelled && isVaultSessionEpochCurrent(epoch)) setError(errorText(cause)); })
+      .finally(() => { if (!quiet && !cancelled && isVaultSessionEpochCurrent(epoch)) setBusy(false); });
     return () => { cancelled = true; };
-  }, [requestId, status.direction, status.revision, getVaultOwnerToken, guardFor]);
+  }, [requestId, status.direction, status.revision, previewRun, getVaultOwnerToken, guardFor]);
+
+  const driveBlocked = status.direction === "incoming" && isMeetingReviewing(status.status) && preview !== null && !preview.ownerDriveReady;
+  const recheckDrive = useCallback(() => { quietRecheck.current = true; setPreviewRun(value => value + 1); }, []);
+  useEffect(() => {
+    if (!driveBlocked) return;
+    let last = 0;
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - last < 1_500) return;
+      last = now;
+      recheckDrive();
+    };
+    // Authorization happens in a popup, tab or pane over this page; any of them
+    // ending brings the organizer back here.
+    window.addEventListener("focus", onReturn);
+    window.addEventListener("popstate", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      window.removeEventListener("focus", onReturn);
+      window.removeEventListener("popstate", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [driveBlocked, recheckDrive]);
 
   const outcome = status.direction === "incoming" ? meetingOutcome(status.status) : null;
   const sharing = outcome?.inProgress === true;
@@ -180,7 +213,14 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
       <p>Requested: {preview.meeting.requested_types.join(" and ")}</p>
       <p>Recipient Google account: <strong>{preview.recipientEmail}</strong></p>
       <p className="text-sm text-muted-foreground">Choose only files for this meeting occurrence. Being the organizer does not by itself give you permission to share a file.</p>
-      {!preview.ownerDriveReady && pending ? <p role="status">Connect the Google Drive account that can share these files. <ProfileConnectorsLink connectorId="google_drive" className="underline">Open Drive connection</ProfileConnectorsLink></p> : null}
+      {!preview.ownerDriveReady && pending ? <div role="status" className="space-y-2">
+        <p>Connect the Google Drive account that can share these files. You will come back to this request.</p>
+        <p className="flex flex-wrap items-center gap-3">
+          <ProfileConnectorsLink connectorId="google_drive" className="underline"
+            onClick={() => { if (userId) markMeetingReviewOAuthReturn(userId, requestId); }}>Open Drive connection</ProfileConnectorsLink>
+          <Button variant="outline" size="sm" onClick={recheckDrive}>Check Drive connection</Button>
+        </p>
+      </div> : null}
     </> : null}
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
