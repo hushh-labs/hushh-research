@@ -18,9 +18,15 @@ on:
   workflow_dispatch:
     inputs:
       text_commit:
-        description: Full commit on main whose anchored text is examined as data
-        required: true
+        description: Full commit on main whose anchored text is examined as data; with pr, an optional head pin
+        required: false
         type: string
+        default: ""
+      pr:
+        description: Open same-repo PR whose landing text one case samples under expect=report; a measurement, never a verdict
+        required: false
+        type: string
+        default: ""
       cases:
         description: Comma-separated live case ids; blank selects every live case
         required: false
@@ -50,7 +56,7 @@ permissions:
 cache-mode: read
 
 concurrency:
-  group: readiness-exam-${{ github.event.pull_request.number || inputs.text_commit }}
+  group: readiness-exam-${{ github.event.pull_request.number || (inputs.pr && format('pr-{0}', inputs.pr)) || inputs.text_commit }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
