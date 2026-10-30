@@ -1059,6 +1059,15 @@ Practical maintainer rule:
 4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
 5. If the last local edit touched `.agents/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
 
+For pull requests into protected `dev` or `uat`, the DCO job also reads the
+canonical GitHub `main` branch response and requires `protected: true` plus its
+full commit SHA. It fetches that exact commit before excluding only non-merge
+commits reachable from that protected Main baseline; every other non-merge
+commit in the event's base-to-head range still needs a signoff. Missing branch
+context, provider confirmation, or the exact commit fails closed. Main-target
+pull requests, dispatches, and explicit local ranges keep the ordinary strict
+check.
+
 ### Local core mirror
 
 For local PostgreSQL-backed checks, run `bash scripts/ci/run-with-isolated-postgres.sh bash scripts/ci/orchestrate.sh core` from the repository root. The wrapper owns a temporary PostgreSQL 17 server and checks that both database drivers reach it before tests start. If `pg_config` selects another version, set `HUSHH_CI_TEST_PG_BIN` to the PostgreSQL 17 binary directory. The wrapper leaves existing local servers running. Standalone pytest harnesses have their own database contracts; this wrapper does not attest them.
