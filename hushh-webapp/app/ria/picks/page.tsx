@@ -53,6 +53,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
+import { useRiaPicksOffered } from "@/lib/ria/use-ria-picks-offered";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   isIAMSchemaNotReadyError,
@@ -1630,6 +1631,8 @@ export default function RiaPicksPage() {
     loading: personaLoading,
     refreshing: personaRefreshing,
   } = usePersonaState();
+  // The picks API serves verified advisors only (403 otherwise): ask only once verified.
+  const picksOffered = useRiaPicksOffered();
 
   const [source, setSource] = useState<PicksSource>("kai");
   const [category, setCategory] = useState<PicksCategory>("top-picks");
@@ -1712,7 +1715,7 @@ export default function RiaPicksPage() {
   }>({
     cacheKey: userId ? `ria_picks_${userId}` : "ria_picks_guest",
     enabled: Boolean(
-      userId && (riaCapability !== "setup" || personaRefreshing),
+      userId && picksOffered && (riaCapability !== "setup" || personaRefreshing),
     ),
     load: async () => {
       if (!user || !userId) throw new Error("Sign in");
@@ -2506,6 +2509,8 @@ export default function RiaPicksPage() {
       title: "RIA Picks",
       purpose:
         "Advisor stock universe with suggested reference picks and vault-backed advisor package.",
+      // Behind the verification gate the editor is not on screen: say why, and where to fix it.
+      deadEnd: picksOffered ? null : { reason: "RIA Picks opens once your advisor verification is confirmed.", remedyActionId: "route.ria_onboarding" },
       sections: [
         {
           id: "ria_picks_source",
@@ -2642,6 +2647,7 @@ export default function RiaPicksPage() {
       kaiRows.length,
       myTopPicks.length,
       packageSaving,
+      picksOffered,
       savingToMyList,
       source,
       sourceTitle,
