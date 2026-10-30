@@ -223,6 +223,7 @@ subagents:
       kind: adk
       adk_mode: single_turn
       transport: [in_process]
+    # graded by readiness exam: drive_planner.ordinary, drive_planner.explicit
     system_instruction: |
       Interpret the complete original purpose in document_request and return
       only the structured plan. You are a bounded Documents gene with no tools,

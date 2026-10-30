@@ -40,8 +40,13 @@ Each rule names the check that enforces it today, or its gap.
 2. **Declare what a check grades.** One manifest lists each case's instruction
    anchors and code paths. Mark anchored text `graded by readiness exam: <case>`.
    Editing an anchor triggers the pre-merge exam.
-   - Enforced: none yet.
-   - Gap: no exam manifest and no path-scoped PR check.
+   - Enforced: `consent-protocol/config/readiness-exam-manifest.v1.json` lists
+     every exam case with its grader, provider references, anchors and code paths.
+     `tests/scripts/test_readiness_exam_manifest.py` requires every anchor to
+     resolve, every marker to name its cases, no stray markers, and full coverage of
+     the required capabilities and managed text scopes. Check locally with
+     `python scripts/readiness_exam_manifest.py --check`.
+   - Gap: editing an anchor does not yet trigger a pre-merge exam.
 3. **Same model, same settings.** A check that predicts a gate uses that gate's
    provider, deployment, reasoning setting and output schema. A pass on another
    model, such as Dev's Gemini for the Azure gate, is not evidence.
@@ -90,10 +95,11 @@ Each rule names the check that enforces it today, or its gap.
    - Gap: no probe-only identity for PR checks.
 10. **One source of truth.** One manifest and one grader serve PR, Dev and UAT. No
     duplicate graders and no second semantic stage.
-    - Enforced: one planner producer
-      (`consent-protocol/scripts/probe_drive_activity_planner.py`) with its dedicated
+    - Enforced: the planner probe reads its case inputs from the exam manifest, and
+      one planner producer
+      (`consent-protocol/scripts/probe_drive_activity_planner.py`) keeps its dedicated
       tests.
-    - Gap: no shared manifest.
+    - Gap: no pre-merge job uses the manifest yet.
 11. **Broken main has an owner.** The PR that broke a check owns the fix-forward;
     restoring the last passing text is the default. Post the reason code and the
     breaking commit where the team sees them.
