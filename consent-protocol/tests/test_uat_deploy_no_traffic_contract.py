@@ -1010,7 +1010,15 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     # PyYAML's YAML 1.1 loader treats the workflow `on` key as True.
     dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
-    assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
+    plan = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "verification-plan"
+    )
+    assert plan["env"]["RUN_LIVE_MODEL_CHECKS"] == (
+        "${{ inputs.run_live_model_checks && 'true' || 'false' }}"
+    )
+    assert '--run-live-model-checks "${RUN_LIVE_MODEL_CHECKS}"' in plan["run"]
     semantic_steps = [
         step
         for step in workflow["jobs"]["deploy"]["steps"]

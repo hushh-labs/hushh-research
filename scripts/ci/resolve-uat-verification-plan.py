@@ -2,7 +2,7 @@
 """Select release verification lanes from a proven changed-SHA range.
 
 This is the only selector for expensive PKM and reviewer-browser release lanes.
-UAT compares the target with the deployed service SHAs; PR, queue, and post-merge
+UAT compares the target with each service's accepted serving SHA; PR, queue, and post-merge
 checks pass one verified base SHA for both services.
 """
 
