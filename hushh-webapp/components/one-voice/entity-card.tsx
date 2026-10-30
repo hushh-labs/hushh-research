@@ -111,7 +111,7 @@ export function EntityCard({
           <Users className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} aria-hidden />
         </span>
       ) : (
-        <AvatarBubble userId={card.user_id}
+        <AvatarBubble userId={compact ? undefined : card.user_id}
           initials={initialsFor(name)}
           size={size}
           imageUrl={card.photo_url ?? null}

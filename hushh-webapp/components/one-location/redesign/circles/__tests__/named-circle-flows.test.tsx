@@ -367,7 +367,7 @@ describe("named Circle flows", () => {
     const onLoadMembersPage = vi.fn().mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
     const view = render(<CircleDetailFlow circleId="family" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Rao/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Rao/i }));
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
     onLoadOverview.mockResolvedValue({ ...current, viewerCapabilities: { ...current.viewerCapabilities, canInviteMembers: false } });
     let rejectRoster!: (error: Error) => void;
@@ -699,7 +699,7 @@ describe("named Circle flows", () => {
     const submit = async () => {
       fireEvent.click(await screen.findByRole("button", { name: "Add people", exact: true }));
       const sheet = await screen.findByRole("dialog", { name: "Add people" });
-      fireEvent.click(await within(sheet).findByRole("button", { name: /Asha/ }));
+      fireEvent.click(await within(sheet).findByRole("button", { name: /^(?!View ).*Asha/ }));
       fireEvent.click(within(sheet).getByRole("button", { name: "Add 1 person", exact: true }));
     };
     await submit();
@@ -1592,13 +1592,13 @@ describe("named Circle flows", () => {
       expect(onCancelMemberInvite).toHaveBeenCalledWith("pending-1"),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     expect(
       screen.getByRole("button", {
-        name: /Asha Meena/i,
+        name: /^(?!View ).*Asha Meena/i,
       }),
     ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -1697,7 +1697,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Friend User/i,
+        name: /^(?!View ).*Friend User/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -1885,10 +1885,10 @@ describe("named Circle flows", () => {
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
 
     const asha = screen.getByRole("button", {
-      name: /Asha Meena/i,
+      name: /^(?!View ).*Asha Meena/i,
     });
     const neel = screen.getByRole("button", {
-      name: /Neel Shah/i,
+      name: /^(?!View ).*Neel Shah/i,
     });
     expect(asha).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(asha);
@@ -1927,8 +1927,8 @@ describe("named Circle flows", () => {
     ).toBeInTheDocument();
     expect(within(sheet).queryByText("Choose connections.")).toBeNull();
 
-    const asha = within(sheet).getByRole("button", { name: /Asha Meena/i });
-    const neel = within(sheet).getByRole("button", { name: /Neel Shah/i });
+    const asha = within(sheet).getByRole("button", { name: /^(?!View ).*Asha Meena/i });
+    const neel = within(sheet).getByRole("button", { name: /^(?!View ).*Neel Shah/i });
     fireEvent.click(asha);
     expect(neel).toBeDisabled();
     expect(within(sheet).getByRole("button", { name: "Add 1 person" })).toBeEnabled();
@@ -1997,7 +1997,7 @@ describe("named Circle flows", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     const asha = await screen.findByRole("button", {
-      name: /Asha Meena/i,
+      name: /^(?!View ).*Asha Meena/i,
     });
     fireEvent.click(asha);
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -2007,7 +2007,7 @@ describe("named Circle flows", () => {
     );
     expect(screen.queryByText("Asha Meena")).toBeNull();
     expect(await screen.findByText("Neel Shah")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Neel Shah/i })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -2751,7 +2751,7 @@ describe("named Circle flows", () => {
 
     // Single selection.
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -2765,8 +2765,8 @@ describe("named Circle flows", () => {
 
     // Multiple selection — reopening starts from a cleared selection.
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -2902,7 +2902,7 @@ describe("named Circle flows", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -2961,7 +2961,7 @@ describe("named Circle flows", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Friend User/i,
+        name: /^(?!View ).*Friend User/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
@@ -3390,7 +3390,7 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    const asha = await screen.findByRole("button", { name: /Asha Meena/i });
+    const asha = await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i });
     fireEvent.click(asha);
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
 
@@ -3446,7 +3446,7 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!View ).*Asha Meena/i }));
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
 
     fireEvent.click(
