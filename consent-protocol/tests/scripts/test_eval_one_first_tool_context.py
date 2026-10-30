@@ -1,5 +1,7 @@
 """Prove evaluation admission before probing, without owner authority or model calls."""
 
+import json
+
 import pytest
 
 from scripts import eval_one_first_tool as harness
@@ -43,3 +45,67 @@ def test_device_receipt_tools_reach_only_typed_chat_rosters():
     empty = harness.surface_declarations(declarations, harness.production_instruction())
     assert not RECEIPT_TOOL_NAMES & {item.name for item in empty}
     assert len(empty) == len(declarations) - len(RECEIPT_TOOL_NAMES)
+
+
+def _turns():
+    from scripts.eval_one_turn_replay import load_turn_cases
+
+    return {case["id"]: case for case in load_turn_cases()}
+
+
+def test_multi_turn_cases_load_and_first_turn_loaders_refuse_them():
+    from scripts.eval_one_first_tool import load_cases
+    from scripts.eval_one_turn_replay import CASES_PATH
+
+    assert set(_turns()) == {
+        "email.followup_second_mail_question",
+        "receipts.followup_after_spending_answer",
+        "email.draft_choice_both",
+        "receipts.unanswered_device_call_then_question",
+    }
+    with pytest.raises(ValueError):
+        load_cases(CASES_PATH)  # A v1 loader must never grade these as single turns.
+
+
+def _wire(case_id, *, hygiene=True):
+    from hushh_mcp.runtime_providers.azure_adk import _history
+    from scripts.eval_one_turn_replay import replayed_contents
+
+    case = _turns()[case_id]
+    return _history(replayed_contents(case["history"], case["prompt"], hygiene=hygiene))
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "email.followup_second_mail_question",
+        "receipts.followup_after_spending_answer",
+        "email.draft_choice_both",
+        "receipts.unanswered_device_call_then_question",
+    ],
+)
+def test_replayed_follow_ups_are_valid_azure_requests_without_placeholders(case_id):
+    # UAT 2026-10-29 (#8642): replayed placeholders were copied or broke later turns.
+    from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
+
+    wire = _wire(case_id)
+    case = _turns()[case_id]
+    text = json.dumps(wire)
+    assert "content_redacted" not in text and PRIVATE_RECEIPT_ANSWER not in text
+    assert [item["content"] for item in wire if item.get("role") == "user"] == [
+        *(turn["user"] for turn in case["history"]),
+        case["prompt"],
+    ]
+
+
+def test_without_history_hygiene_the_stored_turns_break_the_follow_up():
+    from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
+
+    assert "content_redacted" in json.dumps(
+        _wire("email.followup_second_mail_question", hygiene=False)
+    )
+    assert PRIVATE_RECEIPT_ANSWER in json.dumps(
+        _wire("receipts.followup_after_spending_answer", hygiene=False)
+    )
+    with pytest.raises(ValueError, match="complete tool results"):
+        _wire("receipts.unanswered_device_call_then_question", hygiene=False)
