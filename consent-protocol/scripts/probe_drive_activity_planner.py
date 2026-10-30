@@ -51,10 +51,31 @@ def _planner_prompt(purpose):
     )
 
 
-def _require(case, condition, reason):
+def _require(case, condition, reason, leg=None):
     if not condition:
-        _probe_event(case, "grade", "failed", reason=reason)
+        detail = {"leg": leg} if leg else {}
+        _probe_event(case, "grade", "failed", reason=reason, **detail)
         raise ActivityPlannerContractError(reason)
+
+
+def _core_entity_leg(clause):
+    """Name a clause's nearest miss; None only when one entity meets every requirement.
+
+    The reason stays one stable code; the leg says which requirement every
+    candidate entity missed, so variance can be traced to its cause.
+    """
+    entities = [p for p in clause.predicates if p.kind == "entity"]
+    if not entities:
+        return "entity_missing"
+    core = [p for p in entities if set(p.value.casefold().split()) == {"cedar", "vale"}]
+    if not core:
+        return "tokens_mismatch"
+    tokens = [p for p in core if p.match == "token"]
+    if not tokens:
+        return "match_not_token"
+    if not any(p.sparse_fallback_any_token for p in tokens):
+        return "fallback_missing"
+    return None
 
 
 def grade_plan(plan, case):
@@ -80,16 +101,8 @@ def grade_plan(plan, case):
                 any(p.kind in {"semantic", "content"} and not p.negated for p in clause.predicates),
                 "clause_concept_missing",
             )
-            require(
-                any(
-                    p.kind == "entity"
-                    and p.match == "token"
-                    and set(p.value.casefold().split()) == {"cedar", "vale"}
-                    and p.sparse_fallback_any_token
-                    for p in clause.predicates
-                ),
-                "clause_core_entity_or_sparse_fallback_missing",
-            )
+            leg = _core_entity_leg(clause)
+            require(leg is None, "clause_core_entity_or_sparse_fallback_missing", leg)
         require(
             not any("consist" in p.value.casefold().split() for p in predicates),
             "conversational_glue_became_keyword",
