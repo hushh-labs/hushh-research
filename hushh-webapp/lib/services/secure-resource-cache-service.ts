@@ -2,6 +2,7 @@
 
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { decryptData, encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
+import { RecoveryCheckpointUnreadableError } from "@/lib/services/recovery-checkpoint-error";
 
 interface SecureResourceCacheRecord {
   key: string;
@@ -169,7 +170,8 @@ export class SecureResourceCacheService {
   }
 
   /** Recovery callers must distinguish absence from failed decryption/storage.
-   * Never delete an expired recovery envelope or pretend it is a fresh job. */
+   * Never delete an expired recovery envelope or pretend it is a fresh job.
+   * Past retention by this device's clock, or undecryptable: RecoveryCheckpointUnreadableError. */
   static async readRequired<T>(params: {
     userId: string;
     resourceKey: string;
@@ -181,9 +183,13 @@ export class SecureResourceCacheService {
       buildStorageKey(params.userId, params.resourceKey));
     if (!record) return null;
     const ageMs = Date.now() - Date.parse(record.cachedAt);
-    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > record.ttlMs)
-      throw new Error("The encrypted recovery checkpoint needs review.");
-    return JSON.parse(await decryptData(record.payload, params.vaultKey)) as T;
+    // A clock behind the write time catches up, so that stays retryable.
+    if (ageMs < 0) throw new Error("The encrypted recovery checkpoint needs review.");
+    if (!Number.isFinite(ageMs) || ageMs > record.ttlMs) throw new RecoveryCheckpointUnreadableError("expired");
+    const plaintext = await decryptData(record.payload, params.vaultKey).catch(() => {
+      throw new RecoveryCheckpointUnreadableError("unreadable");
+    });
+    try { return JSON.parse(plaintext) as T; } catch { throw new RecoveryCheckpointUnreadableError("unreadable"); }
   }
 
   static async write<T>(params: {

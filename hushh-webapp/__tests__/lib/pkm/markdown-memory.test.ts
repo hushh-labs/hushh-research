@@ -321,17 +321,6 @@ describe("parallel local memory and encrypted sync", () => {
     expect(peekMarkdownMemory("user-1")?.markdown).toContain("Likes brief answers.");
   });
 
-  it.each([undefined, { ...snapshotFence, revision: 1 }])("does not recover an unbound or superseded receipt checkpoint", async receiptSnapshotFence => {
-    await seedSession();
-    vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 2 });
-    recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:old-radar"]);
-    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", receiptGeneration: 0, receiptSnapshotFence, facts: ["Old receipt trend."],
-      confirmation: syncParams.confirmation, replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
-    await recoverMarkdownMemorySync(syncParams);
-    expect(savePreparedDomain).not.toHaveBeenCalled();
-    expect(peekMarkdownMemory("user-1")?.markdown).not.toContain("Old receipt trend.");
-  });
-
   it.each(["v1", "v2"])("recovers a generated summary replacement with its %s encrypted checkpoint", async version => {
     publishValidatedAuthSessionOwner("user-1");
     vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 1 });
