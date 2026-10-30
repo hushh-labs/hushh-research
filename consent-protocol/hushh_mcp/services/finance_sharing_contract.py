@@ -36,7 +36,7 @@ class FinanceSharePolicy(StrictObject):
 
 
 class FinanceAdvisorPolicy(StrictObject):
-    """The selected source for an eligible advisor: a finite snapshot or live access."""
+    """The selected source for an eligible advisor: a fixed snapshot or live access, with or without an end date."""
 
     version: Literal[2]
     purpose: Literal["verified_ria_review"]
@@ -51,8 +51,6 @@ class FinanceAdvisorPolicy(StrictObject):
 
     @model_validator(mode="after")
     def validate_advisor_view(self):
-        if self.mode == "snapshot" and self.durationSeconds is None:
-            raise ValueError("snapshot requires expiry")
         if set(self.sections) != {"allocation", "performance", "holdings"}:
             raise ValueError("advisor review requires the full portfolio")
         if not self.showAmounts:
