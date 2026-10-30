@@ -501,10 +501,10 @@ FAKE_SECRETS = {
             "private_key_id": "pkid-SECRET-77",
         }
     ),
-    "NEXT_PUBLIC_FIREBASE_API_KEY": "apikey-SECRET-4d1",
+    "NEXT_PUBLIC_FIREBASE_API_KEY": "fake-test-firebase-api-key",
 }
 FAKE_ID_TOKEN = "idtoken-SECRET-aa11"
-FAKE_VAULT_TOKEN = "vaultowner-SECRET-bb22"  # noqa: S105
+FAKE_VAULT_TOKEN = "fake-test-vault-owner-token"  # noqa: S105
 
 
 def _install_fakes(
