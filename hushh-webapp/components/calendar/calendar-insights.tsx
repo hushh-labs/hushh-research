@@ -355,6 +355,20 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
             complete: !failedSource && sources.length <= 12 && details.every(value => value.complete),
             discovery: details.find(value => !value.complete)?.discovery || (failedSource || sources.length > 12 ? "files_incomplete" : first.discovery),
           });
+          // The status line and the quick follow-up read the request outcome, so a
+          // meeting opened from the library refreshes it as well as its files.
+          const statusToken = getVaultOwnerToken();
+          if (valid() && statusToken) {
+            try {
+              const [fresh] = await CalendarInsightsService.requestStatuses([{
+                account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
+                occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone,
+              }], idToken, statusToken, controller.signal);
+              if (valid() && fresh) setOutcomes(previous => ({ ...previous, [fresh.occurrence_id]: fresh }));
+            } catch {
+              // The files above were verified on their own; keep the last known request status.
+            }
+          }
         }
       } catch (failure) {
         if (valid()) {

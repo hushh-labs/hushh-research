@@ -6,7 +6,7 @@ vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsService: { read: mocks.insights, fileAction: vi.fn(), requestFiles: vi.fn(),
     requestStatuses: mocks.requestStatuses, approvedDetail: mocks.approvedDetail, approvedFileAction: vi.fn() },
   CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number, readonly code?: string) { super(message); } },
-  safeMeetingProviderUrl: () => null,
+  safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && value.startsWith("https://docs.google.com/") ? value : null,
 }));
 vi.mock("@/components/calendar/calendar-followups", () => ({ CalendarFollowups: () => null }));
 
@@ -120,5 +120,47 @@ describe("requester Calendar follows an approved request until access is verifie
     await advance(6_000);
     expect(screen.getByRole("button", { name: /Growth Sync/ })).toBe(link);
     expect(screen.queryByText(/Checking your meetings/)).toBeNull();
+  });
+});
+
+describe("requester stays on the meeting while access is verified", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    CacheService.getInstance().clear();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-10-14T18:00:00Z"));
+    mocks.getIdToken.mockResolvedValue("firebase-owner-token");
+    mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) =>
+      path === "meetings"
+        ? { complete: true, calendar_complete: true, next_cursor: null, date: body.date, time_zone: body.time_zone, account_id: "default",
+            limitations: [], checked_events: 1, meetings: [row], meeting_file_access: "ready" }
+        : { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 });
+  });
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  const file = { file_id: "approvednote123", kind: "notes", state: "available", title: "Approved note",
+    url: "https://docs.google.com/document/d/approvednote123/edit", can_download: false };
+
+  it("moves the visible request status to the verified outcome and stops checking", async () => {
+    let verified = false;
+    mocks.requestStatuses.mockImplementation(async () => [verified ? outcome("completed", true) : outcome("approved")]);
+    mocks.approvedDetail.mockImplementation(async () => ({ event: { title: "Growth Sync" }, discovery: "checked", complete: true,
+      artifacts: verified ? [file] : [] }));
+    await openLibrary();
+    fireEvent.click(screen.getByRole("button", { name: /Growth Sync/ }));
+    await advance(50);
+    expect(screen.getAllByText(SHARING).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
+
+    verified = true;
+    await advance(6_000);
+    expect(screen.getByRole("button", { name: /^Open/ })).toBeInTheDocument();
+    // The status line must not keep claiming that access is still being checked.
+    expect(screen.queryAllByText(SHARING)).toHaveLength(0);
+    expect(screen.queryAllByText(CHECKING)).toHaveLength(0);
+
+    const reads = mocks.approvedDetail.mock.calls.length;
+    await advance(30_000);
+    expect(mocks.approvedDetail.mock.calls.length).toBe(reads);
   });
 });
