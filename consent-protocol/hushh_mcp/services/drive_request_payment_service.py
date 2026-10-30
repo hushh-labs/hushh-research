@@ -1320,6 +1320,6 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             )
 
         wake_stage = await self._transaction(settle)
-        if wake_stage:
-            # Best effort: the database state and scheduled drain remain authority.
-            await wake_drive_work(wake_stage)
+        # Best effort beside the scheduled drain; sharing sends the requester's notice now.
+        for stage in dict.fromkeys((wake_stage, "sharing") if wake_stage else ()):
+            await wake_drive_work(stage)

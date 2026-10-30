@@ -1107,7 +1107,7 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(str | None, await self._transaction(operation))
 
     async def defer_trusted_search(self, *, user_id: str, request_id: str, code: str) -> None:
-        """Make missing background authority visible and avoid a hot retry loop."""
+        """Make missing authority visible; a search queued behind another retries next drain."""
         if (
             code
             not in {
@@ -1207,7 +1207,7 @@ class DriveSharingStore(DriveDocumentStore):
                     "code": visible_code,
                     "attempts": attempts,
                     "has_job": has_job,
-                    "ready": background_ready,
+                    "ready": background_ready or (code == "share_in_progress" and not has_job),
                     "needs_dates": code == "date_range_required",
                 },
             )
