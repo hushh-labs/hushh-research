@@ -35,5 +35,8 @@ sessions when the host supports it. Never claim disposal from completion alone.
 
 Start with [the development-system map](.agents/README.md), then the existing
 `./bin/hushh codex route-task <workflow-id>` command for the owning workflow.
+Route CI work through the existing `ci-watch-and-heal` or `release-readiness`
+workflow and the `repo-operations` skill; keep required checks and release
+authority intact.
 
 Before changing a readiness check, probe, grader or instruction text that a live check grades, follow the [readiness guardrails](.agents/skills/repo-operations/references/managed-provider-readiness.md#readiness-and-live-check-guardrails).

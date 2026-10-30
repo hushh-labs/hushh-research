@@ -2,6 +2,7 @@ import { webcrypto } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { committedFinanceConfig, committedFinanceProjection, financeContext, financeDigest, projectFinance, projectAdvisorFinance, readFinanceProjection, type FinancePolicy, type FinanceSelection } from "@/lib/finance-sharing/contract";
+import { financePolicySchema } from "@/lib/finance-sharing/contract";
 import { resolveFinancePortfolio } from "@/lib/finance-sharing/saved-source";
 
 import { applyConnectionLink, applySnapshot, toPortfolioData } from "@/lib/kai/plaid-vault/projection";
@@ -128,5 +129,14 @@ describe("curated Finance sharing projection", () => {
     const grant = { requestId: "request", id: "grant", ownerUserId: "owner", recipientUserId: "recipient", policy, revision: 1 };
     const aad = financeContext(grant);
     for (const changed of [{ ...grant, recipientUserId: "other" }, { ...grant, revision: 2 }, { ...grant, policy: { ...policy, showAmounts: true } }, { ...grant, policy: { ...policy, model_processing: { version: 1 as const, allowed: true } } }, { ...grant, policy: { ...policy, durationSeconds: null } }]) expect(financeContext(changed)).not.toBe(aad);
+  });
+});
+
+describe("advisor policy access modes", () => {
+  const advisor = { version: 2, purpose: "verified_ria_review", mode: "ongoing", sections: ["allocation", "performance", "holdings"], selectionHash: "a".repeat(64), showAmounts: true, model_processing: { version: 1, allowed: false }, durationSeconds: null };
+  it("allows real-time advisor access until stopped but never an open-ended snapshot", () => {
+    expect(financePolicySchema.safeParse(advisor).success).toBe(true);
+    expect(financePolicySchema.safeParse({ ...advisor, mode: "snapshot" }).success).toBe(false);
+    expect(financePolicySchema.safeParse({ ...advisor, mode: "snapshot", durationSeconds: 604800 }).success).toBe(true);
   });
 });

@@ -115,7 +115,7 @@ class ProductionCutoverTest(unittest.TestCase):
                     "size_in_bytes": len(archive), "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
                     "workflow_run": {"id": 42, "head_sha": source["head_sha"], "head_branch": "main", "repository_id": 1, "head_repository_id": 1}}
         inventory = {"total_count": 2, "artifacts": [artifact(999, "2026-10-22T01:00:00Z"), artifact(100, "2026-10-22T02:00:03Z")]}
-        job = {"name": "Deploy UAT Scope", "run_id": 42, "run_attempt": 2, "head_sha": source["head_sha"], "head_branch": "main", "status": "completed",
+        job = {"name": "Deploy UAT Scope", "run_id": 42, "run_attempt": 2, "head_sha": source["head_sha"], "head_branch": "main", "status": "completed", "conclusion": "success",
                "steps": [{"name": "Upload UAT deploy artifacts", "status": "completed", "conclusion": "success", "started_at": "2026-10-22T02:00:00Z", "completed_at": "2026-10-22T02:00:05Z"}]}
         def api(path):
             if "artifacts?" in path: return inventory

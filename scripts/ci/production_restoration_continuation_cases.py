@@ -203,47 +203,6 @@ class RestorationContinuationCases:
                         with self.assertRaises(restoration.receipts.retention.UnsafeState):
                             continuation.verify_origin(origin, runtime)
 
-    def test_restoration_active_verifier_checks_actual_policy_without_mutating_api_identity(self):
-        with _continuation_case(self) as (_, arguments):
-            current = {**copy.deepcopy(self.run), "id": 400, "status": "in_progress", "conclusion": None}
-            job = {"name": "Deploy Production Scope", "status": "in_progress", "run_id": 400,
-                   "run_attempt": current["run_attempt"], "head_sha": current["head_sha"], "head_branch": "main"}
-            inventory = {"total_count": 1, "jobs": [job]}
-            runtime = SimpleNamespace(api=lambda *_: inventory)
-            env = {"GITHUB_RUN_ID": "400", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_SHA": current["head_sha"],
-                   "GITHUB_JOB": "complete-restoration-activation"}
-            with (mock.patch.dict(os.environ, env), mock.patch.object(continuation, "ports", return_value=arguments),
-                  mock.patch.object(continuation, "fresh_run", side_effect=lambda *_: current)):
-                before = copy.deepcopy(current)
-                with mock.patch.object(continuation, "manual", wraps=continuation.manual) as policy:
-                    self.assertIs(continuation.active_run(runtime), current)
-                policy.assert_called_once_with(current)
-                self.assertEqual(policy.call_args.args[0]["status"], "in_progress")
-                self.assertEqual(current, before)
-                for defect in ("status", "job", "job_attempt", "repo", "head_repo", "source", "attempt", "actor", "triggering_actor", "ancestry"):
-                    with self.subTest(defect=defect):
-                        current, inventory = copy.deepcopy(before), {"total_count": 1, "jobs": [copy.deepcopy(job)]}
-                        if defect == "status":
-                            current["status"] = "completed"
-                        elif defect == "job":
-                            inventory["jobs"][0]["name"] = "Other job"
-                        elif defect == "job_attempt":
-                            inventory["jobs"][0]["run_attempt"] = 3
-                        elif defect in {"repo", "head_repo"}:
-                            current["repository" if defect == "repo" else "head_repository"]["full_name"] = "foreign/repo"
-                        elif defect == "source":
-                            current["head_sha"] = "f" * 40
-                        elif defect == "attempt":
-                            current["run_attempt"] = 3
-                        elif defect in {"actor", "triggering_actor"}:
-                            current[defect]["login"] = "unapproved-fixture-actor"
-                        snapshot = copy.deepcopy(current)
-                        with mock.patch.object(continuation.subprocess, "run", return_value=subprocess.CompletedProcess(
-                            [], 1 if defect == "ancestry" else 0, b"", b""
-                        )), self.assertRaises(restoration.receipts.retention.UnsafeState):
-                            continuation.active_run(runtime)
-                        self.assertEqual(current, snapshot)
-
     def test_restoration_preflight_delegates_retirement_classification_and_refuses_mutation(self):
         state, revisions, candidate = {"metadata": {"uid": "fixture"}}, [{"metadata": {"name": "fixture"}}], "fixture"
         for consumers in (([], []), (["legacy-revision"], []), ([], ["legacy-tag"])):
@@ -338,6 +297,85 @@ class RestorationContinuationCases:
                         job["steps"].append({"name": continuation.FORBIDDEN[0], "status": "completed", "conclusion": "success"})
                     with self.assertRaises((ValueError, restoration.receipts.retention.UnsafeState)):
                         continuation.serving_context(run, release, job, _archive(documents), **arguments)
+
+
+def _active_job_inventory(current, historical):
+    names = continuation.production_job_names
+    active_name = "Deploy Production Scope" if historical else names.PRODUCTION_JOB_NAMES[names.JOB_ID]
+    skipped_names = (
+        (names.LEGACY_PRIMARY_NAME, names.LEGACY_PRODUCTION_JOB_EXPRESSIONS["complete-phone-activation"])
+        if historical else (names.PRODUCTION_JOB_NAMES["deploy"], names.PRODUCTION_JOB_NAMES["complete-phone-activation"])
+    )
+    identity = {"run_id": current["id"], "run_attempt": current["run_attempt"],
+                "head_sha": current["head_sha"], "head_branch": "main"}
+    skipped = [{**identity, "name": name, "status": "completed", "conclusion": "skipped", "steps": []}
+               for name in skipped_names]
+    active = {**identity, "name": active_name, "status": "in_progress",
+              "steps": [{"name": "Admit manual restoration verification only",
+                         "status": "completed", "conclusion": "success"}]}
+    return {"total_count": 3, "jobs": [*skipped, active]}
+
+
+class RestorationActiveVerifierCases:
+    def test_accepts_current_and_historical_active_aliases(self):
+        with _continuation_case(self) as (_, arguments):
+            current = {**copy.deepcopy(self.run), "id": 400, "status": "in_progress", "conclusion": None}
+            env = {"GITHUB_RUN_ID": "400", "GITHUB_RUN_ATTEMPT": "2",
+                   "GITHUB_SHA": current["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID}
+            for historical in (False, True):
+                inventory = _active_job_inventory(current, historical)
+                runtime = SimpleNamespace(api=lambda *_: inventory)
+                with (mock.patch.dict(os.environ, env), mock.patch.object(continuation, "ports", return_value=arguments),
+                      mock.patch.object(continuation, "fresh_run", side_effect=lambda *_: current),
+                      mock.patch.object(continuation, "manual", wraps=continuation.manual) as policy):
+                    before = copy.deepcopy(current)
+                    self.assertIs(continuation.active_run(runtime), current)
+                    policy.assert_called_once_with(current)
+                    self.assertEqual(current, before)
+
+    def test_rejects_malformed_or_ambiguous_active_job_identity(self):
+        defects = ("status", "job", "job_attempt", "repo", "head_repo", "source", "attempt",
+                   "actor", "triggering_actor", "ancestry", "malformed_skip", "duplicate_active", "job_id")
+        with _continuation_case(self) as (_, arguments):
+            base = {**copy.deepcopy(self.run), "id": 400, "status": "in_progress", "conclusion": None}
+            env = {"GITHUB_RUN_ID": "400", "GITHUB_RUN_ATTEMPT": "2",
+                   "GITHUB_SHA": base["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID}
+            for historical in (False, True):
+                original_inventory = _active_job_inventory(base, historical)
+                for defect in defects:
+                    with self.subTest(historical=historical, defect=defect):
+                        current, inventory = copy.deepcopy(base), copy.deepcopy(original_inventory)
+                        jobs = inventory["jobs"]
+                        if defect == "status":
+                            current["status"] = "completed"
+                        elif defect == "job":
+                            jobs[-1]["name"] = "Other job"
+                        elif defect == "job_attempt":
+                            jobs[-1]["run_attempt"] = 3
+                        elif defect in {"repo", "head_repo"}:
+                            current["repository" if defect == "repo" else "head_repository"]["full_name"] = "foreign/repo"
+                        elif defect == "source":
+                            current["head_sha"] = "f" * 40
+                        elif defect == "attempt":
+                            current["run_attempt"] = 3
+                        elif defect in {"actor", "triggering_actor"}:
+                            current[defect]["login"] = "unapproved-fixture-actor"
+                        elif defect == "malformed_skip":
+                            jobs[0]["steps"] = [{"name": "unexpected"}]
+                        elif defect == "duplicate_active":
+                            jobs.append(copy.deepcopy(jobs[-1]))
+                            inventory["total_count"] += 1
+                        local_env = dict(env)
+                        if defect == "job_id":
+                            local_env["GITHUB_JOB"] = "deploy"
+                        runtime = SimpleNamespace(api=lambda *_: inventory)
+                        with (mock.patch.dict(os.environ, local_env),
+                              mock.patch.object(continuation, "ports", return_value=arguments),
+                              mock.patch.object(continuation, "fresh_run", side_effect=lambda *_: current),
+                              mock.patch.object(continuation.subprocess, "run", return_value=subprocess.CompletedProcess(
+                                  [], 1 if defect == "ancestry" else 0, b"", b""
+                              )), self.assertRaises(restoration.receipts.retention.UnsafeState)):
+                            continuation.active_run(runtime)
 
 
 class HostedRestorationWorkerReaderCases:

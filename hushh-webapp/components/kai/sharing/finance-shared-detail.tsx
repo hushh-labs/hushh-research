@@ -72,7 +72,7 @@ export function FinanceSharedDetail({ grantId, onClose }: { grantId: string | nu
     finally { if (context.isCurrent() && !controller.signal.aborted) setReviewBusy(false); }
   };
   return <KaiControlSurface open={Boolean(grantId)} onOpenChange={value => { if (!value) onClose(); }} title={visible ? `${visible.grant.direction === "received" ? visible.grant.senderName : visible.grant.recipientName} · Finance` : "Shared Finance"}
-    description={visible ? `${visible.grant.policy.mode === "snapshot" ? "Snapshot" : "Ongoing access"} · Last shared ${new Date(visible.grant.updatedAt).toLocaleString()}` : "Recipient-encrypted information"}
+    description={visible ? `${visible.grant.policy.mode === "snapshot" ? "Snapshot" : "Real time"} · Last shared ${new Date(visible.grant.updatedAt).toLocaleString()}` : "Recipient-encrypted information"}
     desktopMaxWidthClassName="sm:!max-w-[min(1040px,calc(100vw-4.5rem))]"
     surfaceClassName={`${finance.detail} ${styles.surface}`}>
     {visible ? <div className={styles.layout}><FinanceSharingPreview projection={visible.projection} /><div className={styles.section}>

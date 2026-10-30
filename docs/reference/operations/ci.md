@@ -249,6 +249,12 @@ an active source workflow or a duplicate test. Reconcile old entries with main a
 recent runs before disabling anything. Required security coverage must remain.
 No remote disable, cancellation or schedule change is authorized by this local edit.
 
+The orphan CI Trust Qualification workflow/helper is retired. Its accepted run
+40598204935 attempt 1 recorded historical Linux/macOS qualification for source
+`6267f321c821b0ff2e1995dcd50d4eff8b045dc9`; the hashed receipts are archived
+privately. This records that historical scope only and grants no current CI or
+release authority. GitHub history and artifacts remain intact.
+
 ## Release-chain review — 2026-10-23
 
 One measured correction release, not a performance SLA:
@@ -268,11 +274,46 @@ do not establish a redundant build or justify removing an authority gate.
 The PR's 23 Ubuntu notices announced the `ubuntu-latest` migration to Ubuntu 26;
 they were not download failures. Its successful hosted image was Ubuntu 24.04.5,
 runner 2.338.0. Core PR/queue/security/smoke and dev/UAT/production workflows pin
-`ubuntu-24.04` to retain that measured OS. Cache actions use v5's Node.js 24 runtime
-with unchanged keys, paths and PR restore-only/main-save boundaries. This addresses
+`ubuntu-24.04` to retain that measured OS. A complete runtime inventory covered all
+26 workflow YAML files (21 distinct literal `uses:` values), expanded the local
+reusable workflows and composite action, and checked the composite action's nested
+steps. It found no remaining Node.js 20 action runtime among the resolved actions.
+The workflow actions and the nested provenance predicate now use Node.js 24:
+Google auth/setup-gcloud/get-secretmanager-secrets v3; artifact v6, checkout v6,
+setup-node v6, setup-java v5, setup-python v6, cache/restore/save v5; paths-filter
+v4, setup-android v4, setup-xcode v1, Anchore SBOM v0, Play upload v1, and the
+locally referenced setup-uv v7. The build-provenance wrapper moves v2 to v3, whose
+pinned `attest@v3.0.0` and predicate@2.0.0 use Node.js 24. Workflow-used action
+inputs and outputs were checked against tagged metadata. WIF identities,
+permissions, application Node/Java versions, cache keys, and PR restore-only/main-save
+boundaries remain intact. Node 24 requires runner 2.327.1 or newer. This addresses
 the observed seven Node.js 20 deprecation warnings; hosted verification is still
-required. A material latency reduction is not established. [Runner announcement](https://github.com/actions/runner-images/issues/14748),
-[cache runtime requirements](https://github.com/actions/cache#whats-new).
+required. A material latency reduction is not established.
+[Runner announcement](https://github.com/actions/runner-images/issues/14748),
+[cache runtime requirements](https://github.com/actions/cache#whats-new),
+[Google auth v3 metadata](https://github.com/google-github-actions/auth/blob/v3/action.yml),
+[setup-gcloud v3 metadata](https://github.com/google-github-actions/setup-gcloud/blob/v3/action.yml),
+[setup-gcloud v2 metadata](https://github.com/google-github-actions/setup-gcloud/blob/v2/action.yml),
+[artifact v6 metadata](https://github.com/actions/upload-artifact/blob/v6/action.yml),
+[checkout v4 metadata](https://github.com/actions/checkout/blob/v4/action.yml),
+[checkout v6 metadata](https://github.com/actions/checkout/blob/v6/action.yml),
+[Android setup v3 metadata](https://github.com/android-actions/setup-android/blob/v3/action.yml),
+[Android setup v4 metadata](https://github.com/android-actions/setup-android/blob/v4/action.yml),
+[provenance v2 metadata](https://github.com/actions/attest-build-provenance/blob/v2/action.yml),
+[provenance v3 metadata](https://github.com/actions/attest-build-provenance/blob/v3/action.yml).
+`setup-gcloud@v3` defaults its tool cache off; the self-hosted iOS voice workflow
+sets `cache: true` to preserve v2's self-hosted cache behavior. This does not
+qualify the device runner.
+`checkout@v6` keeps the used v4 inputs and credential persistence default. The
+Android setup migration explicitly retains the former `cmdline-tools-version`
+`12266719` default because v4 changes its default to `15859902`; the workflow also
+keeps its explicit `platform-tools` package selection. The build-provenance workflow
+continues to provide the same SBOM subject path and does not consume wrapper outputs.
+Artifact v6 is the Node 24 runtime release; it retains ZIP uploads and the existing
+artifact ID, URL and SHA-256 digest outputs. All current workflows keep hidden-file
+exclusion and ZIP compression defaults; none reads action outputs directly. The
+retention readers bind artifacts by their run/name/ID and verify the downloaded
+ZIP size and digest before parsing only allowlisted members.
 
 The latest five protected security workers each bound a distinct source
 run/attempt. Their presence is credential isolation, not five new vulnerabilities.
@@ -1035,6 +1076,14 @@ can additionally compare the test union and all four shards; hosted runtime
 savings require measurement.
 
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
+
+An exact auth-health-only pull request can select the focused health suite in the
+required Governance job only when its complete changed-path set is nonempty and
+contains only `deploy/observability/auth_health_job.py` and the five registered
+health tests. Any mixed, unknown, application, schema, SQL, migration, dependency,
+workflow, or manifest path keeps the ordinary broad lanes. Secret scan, DCO,
+freshness, Governance and CI Status Gate remain required; workflow dispatches and
+promotion checks retain their full current contract.
 
 ### Script Lifecycle Policy
 

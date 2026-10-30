@@ -26,6 +26,14 @@ def load_health_setup():
     return module
 
 
+def _assert_health_source_closure(verified):
+    assert len(verified) == 1
+    packaged = verified[0][-1]
+    diagnostic_module = "deploy/observability/auth_health_read_diagnostics.py"
+    assert diagnostic_module in packaged
+    assert f"COPY {diagnostic_module} {diagnostic_module}" in packaged["Dockerfile"].decode()
+
+
 def test_health_source_is_pinned_despite_concurrent_worktree_edit(tmp_path, monkeypatch):
     module = load_health_setup()
     subprocess.run(  # noqa: S603 - fixed Git command in pytest's disposable directory
@@ -169,13 +177,13 @@ def test_health_build_and_timer_use_supported_cloud_cli_contracts(existing, monk
 
     verified = []
     monkeypatch.setattr(
-        module, "_source_blob", lambda source, name: b"immutable-source:" + name.encode()
+        module, "_source_blob", lambda _source, name: (Path(module.ROOT) / name).read_bytes()
     )
     monkeypatch.setattr(module, "_verify_image_source", lambda *args: verified.append(args))
     digest, _ = module._image(
         cloud, None, project, operation, "source", "fixture-bucket", lambda **_: None
     )
-    assert len(verified) == 1 and "Dockerfile" in verified[0][-1]
+    _assert_health_source_closure(verified)
     assert digest.endswith("b" * 64)
     name = f"projects/{project}/locations/us-central1/jobs/{module.JOB}"
 

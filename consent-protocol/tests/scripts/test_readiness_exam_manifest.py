@@ -35,14 +35,14 @@ def _manifest() -> dict:
 
 def _anchored_repo(tmp_path: Path, documents_text: str | None = None) -> tuple[dict, Path]:
     """A minimal repository holding only the anchored files, plus the anchored cases."""
-    for relative in (DOCUMENTS, TAVILY):
+    manifest = _manifest()
+    manifest["cases"] = [case for case in manifest["cases"] if case["anchors"]]
+    for relative in {anchor["file"] for case in manifest["cases"] for anchor in case["anchors"]}:
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(REPO_ROOT / relative, target)
     if documents_text is not None:
         (tmp_path / DOCUMENTS).write_text(documents_text, encoding="utf-8")
-    manifest = _manifest()
-    manifest["cases"] = [case for case in manifest["cases"] if case["anchors"]]
     return manifest, tmp_path
 
 
@@ -192,3 +192,23 @@ def test_planner_case_subset_is_deterministic():
     manifest = load_manifest()
     assert planner_cases(manifest, ["drive_planner.explicit"]) == [planner_cases(manifest)[1]]
     assert planner_cases(manifest, []) == []
+
+
+def test_confirmed_guidance_anchors_every_instruction_it_sends():
+    # gateway.plan sends _PLAN_INSTRUCTION; gateway.structured sends One's world-model
+    # subagent instruction plus _STRUCTURED_INSTRUCTION; the query step sends QUERY_INSTRUCTION.
+    from hushh_mcp.one_adk.world_model_azure import _STRUCTURED_INSTRUCTION
+    from hushh_mcp.one_adk.world_model_instructions import _PLAN_INSTRUCTION
+
+    case = next(c for c in _manifest()["cases"] if c["id"] == "pwm.confirmed_guidance")
+    texts = {
+        anchor.get("symbol") or anchor["subagent"]: anchor_text(
+            anchor, (REPO_ROOT / anchor["file"]).read_text(encoding="utf-8")
+        )
+        for anchor in case["anchors"]
+    }
+    assert texts["_PLAN_INSTRUCTION"] == _PLAN_INSTRUCTION
+    assert texts["_STRUCTURED_INSTRUCTION"] == _STRUCTURED_INSTRUCTION
+    assert texts["one_personal_world_model"].strip()
+    one = "consent-protocol/hushh_mcp/agents/one/agent.yaml"
+    assert "pwm.confirmed_guidance" in cases_for_paths(_manifest(), [one])

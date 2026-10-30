@@ -170,12 +170,30 @@
           "type": "python_constant",
           "file": "consent-protocol/hushh_mcp/one_adk/tavily_search.py",
           "symbol": "QUERY_INSTRUCTION"
+        },
+        {
+          "type": "python_constant",
+          "file": "consent-protocol/hushh_mcp/one_adk/world_model_instructions.py",
+          "symbol": "_PLAN_INSTRUCTION"
+        },
+        {
+          "type": "python_constant",
+          "file": "consent-protocol/hushh_mcp/one_adk/world_model_azure.py",
+          "symbol": "_STRUCTURED_INSTRUCTION"
+        },
+        {
+          "type": "agent_instruction",
+          "file": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
+          "subagent": "one_personal_world_model",
+          "field": "system_instruction"
         }
       ],
       "code_paths": [
         "consent-protocol/scripts/verify_azure_pwm_runtime.py",
         "consent-protocol/hushh_mcp/one_adk/tavily_search.py",
-        "consent-protocol/hushh_mcp/one_adk/world_model_azure.py"
+        "consent-protocol/hushh_mcp/one_adk/world_model_azure.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model_instructions.py",
+        "consent-protocol/hushh_mcp/one_adk/world_model.py"
       ],
       "pre_merge": "live"
     },

@@ -98,7 +98,10 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it("previews a finite full portfolio for an advisor before confirmation", async () => {
+it.each([
+  ["Snapshot", { mode: "snapshot", durationSeconds: 604800 }],
+  ["Real time", { mode: "ongoing", durationSeconds: null }],
+])("sends the full portfolio to an advisor in one screen as %s", async (label, expected) => {
   const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
@@ -110,12 +113,11 @@ it("previews a finite full portfolio for an advisor before confirmation", async 
   render(<FinanceShareFlow advisorOnly open onOpenChange={vi.fn()} model={model} source={source} />);
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Advisor/ }));
   expect(screen.queryByRole("checkbox", { name: /^Other person/ })).toBeNull();
-  openPreview();
-  expect(await screen.findByText(/finance-share-v2/)).toBeTruthy();
-  expect(mocks.publish).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Share with 1 person" }));
-  await waitFor(() => expect(mocks.prepare).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", mode: "snapshot", durationSeconds: 86400, showAmounts: true, model_processing: { allowed: false } });
+  expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", ...expected, showAmounts: true, model_processing: { allowed: false } });
 });
 
 it("does not report an ended confirmation as active sharing", async () => {
@@ -204,12 +206,12 @@ it("keeps selections through all three sharing steps and preview Back without pu
   const next = screen.getByRole("button", { name: "Continue" });
   expect(next).toBeDisabled();
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
-  expect(screen.queryByRole("heading", { name: "How should access work?" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Access" })).toBeNull();
   fireEvent.click(next);
   await waitFor(() => expect(screen.getByRole("heading", { name: "What do you want to share?" })).toHaveFocus());
-  expect(screen.queryByRole("heading", { name: "How should access work?" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Access" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "How should access work?" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Access" })).toHaveFocus());
   expect(mocks.saved).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("checkbox", { name: /^Show dollar amounts/ }));
   openPreview();
