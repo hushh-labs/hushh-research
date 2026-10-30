@@ -34,7 +34,7 @@
             {
               "call": {
                 "name": "receipt_spending",
-                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "category", "limit": 10, "attention": false}
+                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "category", "limit": 10}
               },
               "result": {"status": "ok", "total": 212.0, "currency": "USD"}
             },
@@ -77,7 +77,7 @@
             {
               "call": {
                 "name": "highest_receipt_spend",
-                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "merchant", "limit": 5, "attention": false}
+                "args": {"from_date": "2026-10-01", "to_date": "2026-10-29", "timezone": "Asia/Kolkata", "group_by": "merchant", "limit": 5}
               }
             }
           ]

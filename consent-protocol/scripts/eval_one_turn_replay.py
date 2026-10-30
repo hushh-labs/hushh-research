@@ -23,6 +23,7 @@ from google.genai import types
 SCHEMA_VERSION = "one.first_tool_evals.v2"
 CASES_PATH = Path(__file__).with_name("eval_cases") / "one_first_tool_turns.v2.json"
 CASE_KEYS = {"id", "family", "prompt", "expected", "runtime_context", "history", "args", "note"}
+ARG_RULES = {"required", "nonempty_any"}
 APP, USER, SESSION, AGENT = "one_turn_replay", "synthetic-turn-replay", "turn-replay", "one"
 
 
@@ -51,9 +52,33 @@ def load_turn_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
             )
         if not all(isinstance(turn.get("user"), str) for turn in case["history"]):
             raise ValueError(f"{case['id']}: every earlier turn needs the owner's words")
+        contract = case.get("args", {})
+        if not isinstance(contract, dict) or any(
+            rule not in ARG_RULES
+            or not isinstance(names, list)
+            or not names
+            or not all(isinstance(name, str) for name in names)
+            for rule, names in contract.items()
+        ):
+            raise ValueError(f"{case['id']}: args rules are required and nonempty_any name lists")
     if len({case["id"] for case in cases}) != len(cases):
         raise ValueError("multi-turn case ids must be unique")
     return cases
+
+
+def args_label(tool: str | None, args: dict[str, Any] | None, contract: dict | None) -> str | None:
+    """Fold a case's argument rules into the graded label, as run_app_action:<id> does.
+
+    A follow-up that picks the right tool but drops the owner's request (UAT
+    2026-10-29: a replayed ask_email_agent({})) grades as a miss with a named reason.
+    """
+    if tool is None or not contract:
+        return tool
+    filled = {name for name, value in (args or {}).items() if value not in (None, "", [], {})}
+    any_of = contract.get("nonempty_any", [])
+    if set(contract.get("required", [])) - filled or (any_of and not filled & set(any_of)):
+        return f"{tool}:args_incomplete"
+    return tool
 
 
 def _events(history: list[dict]) -> list[Event]:
