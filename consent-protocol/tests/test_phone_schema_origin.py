@@ -373,8 +373,12 @@ def test_schema_history_reuses_restoration_absence_without_hiding_producers(
         state = "in_progress" if change == "older_active" else "queued"
         case.attempts[(300, 1)]["status"] = case.jobs[(300, 1)]["jobs"][0]["status"] = state
     elif change in {"raw_skipped", "raw_older"}:
-        from production_phone_job_name_cases import RAW_PRIMARY_NAME
+        from production_phone_job_name_cases import RAW_PRIMARY_NAME, legacy_workflow
 
+        legacy = legacy_workflow().encode()
+        case.sources[PRIMARY] = legacy
+        case.sources["e" * 40] = legacy
+        case.use_legacy_job_names()
         latest.update(name=RAW_PRIMARY_NAME, status="completed", conclusion="skipped", steps=[])
         if change == "raw_older":
             next(

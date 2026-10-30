@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from itertools import permutations
 import re
 from typing import Any
 
@@ -17,6 +18,12 @@ LEGACY_PRODUCTION_JOB_EXPRESSIONS = {
     "deploy": "(inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope'",
     "complete-phone-activation": "inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == '' && 'Deploy Production Scope' || 'Activation continuation not selected'",
     JOB_ID: "inputs.restoration_activation_run_id != '' && 'Deploy Production Scope' || 'Restoration continuation not selected'",
+}
+# Exact names from the pinned two-job phone-lease predecessor 629ec27; keep
+# its source compatibility without accepting arbitrary expression variants.
+PREVIOUS_PRODUCTION_JOB_EXPRESSIONS = {
+    "deploy": "inputs.phone_phase == 'activate' && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope'",
+    "complete-phone-activation": "inputs.phone_phase == 'activate' && 'Deploy Production Scope' || 'Activation continuation not selected'",
 }
 LEGACY_PRIMARY_NAME = LEGACY_PRODUCTION_JOB_EXPRESSIONS["deploy"]
 LEGACY_PRODUCTION_JOB_NAMES = frozenset(
@@ -62,10 +69,16 @@ def recognizes(job: dict[str, Any]) -> bool:
     )
 
 
-def _job_block(text: str, name: str) -> str:
+def _job_blocks(text: str, name: str) -> list[str]:
     blocks = re.findall(
         rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text
     )
+    _require(len(blocks) <= 1, "restoration workflow job is ambiguous")
+    return blocks
+
+
+def _job_block(text: str, name: str) -> str:
+    blocks = _job_blocks(text, name)
     _require(len(blocks) == 1, "restoration workflow job is ambiguous")
     return blocks[0]
 
@@ -78,38 +91,79 @@ def skipped_primary_name(workflow: str) -> str | None:
     return names[0][3:-2].strip() or None
 
 
-def production_job_name_aliases(workflow: str) -> frozenset[str]:
-    """Return only the current labels or the exact legacy dynamic labels."""
-    aliases: set[str] = set()
+def _production_job_name_contract(workflow: str) -> dict[str, frozenset[str]]:
+    """Derive exact API labels from the immutable workflow source for the run."""
+    expected: dict[str, frozenset[str]] = {}
     for job_id, current in PRODUCTION_JOB_NAMES.items():
-        names = re.findall(
-            r"^    name: (.+)$", _job_block(workflow, job_id), re.M
-        )
+        blocks = _job_blocks(workflow, job_id)
+        if not blocks:
+            _require(
+                job_id != "deploy", "production primary job is missing from source"
+            )
+            continue
+        names = re.findall(r"^    name: (.+)$", blocks[0], re.M)
         _require(len(names) == 1, "production deployment job name is ambiguous")
         value = names[0]
         if value == current:
-            aliases.add(current)
+            expected[job_id] = frozenset({current})
             continue
-        expression = LEGACY_PRODUCTION_JOB_EXPRESSIONS[job_id]
-        if value == "${{ " + expression + " }}":
-            # Historically all three selected jobs evaluated to the same name;
-            # skipped jobs could expose their raw expression through the API.
-            aliases.add("Deploy Production Scope")
-            aliases.add(expression)
+        expressions = (
+            LEGACY_PRODUCTION_JOB_EXPRESSIONS[job_id],
+            PREVIOUS_PRODUCTION_JOB_EXPRESSIONS.get(job_id),
+        )
+        expression = next(
+            (
+                candidate
+                for candidate in expressions
+                if candidate and value == "${{ " + candidate + " }}"
+            ),
+            None,
+        )
+        if expression is not None:
+            # Selected jobs shared one display label; skipped jobs could expose
+            # their exact source expression through the API.
+            expected[job_id] = frozenset({"Deploy Production Scope", expression})
             continue
         raise ValueError("production deployment job name is not a reviewed alias")
+    _require("deploy" in expected, "production primary job is missing from source")
     primary = skipped_primary_name(workflow)
     _require(
-        primary is None or primary == LEGACY_PRIMARY_NAME,
+        primary is None or primary in expected.get("deploy", frozenset()),
         "historical primary skip name is not a reviewed alias",
     )
+    return expected
+
+
+def production_job_name_aliases(workflow: str) -> frozenset[str]:
+    """Return only names declared by current or exact legacy workflow source."""
+    expected = _production_job_name_contract(workflow)
+    aliases = {name for names in expected.values() for name in names}
     return frozenset(aliases)
+
+
+def _matches_source_inventory(
+    expected: dict[str, frozenset[str]], matches: list[dict[str, Any]]
+) -> bool:
+    """Require one returned API job for every job ID defined by this source."""
+    if len(matches) != len(expected):
+        return False
+    bindings = 0
+    for ordered in permutations(matches):
+        if all(
+            job.get("name") in expected[job_id]
+            for job_id, job in zip(expected, ordered, strict=True)
+        ):
+            bindings += 1
+            if bindings > 1:
+                return False
+    return bindings == 1
 
 
 def attempt_producer_job(jobs, run, attempt, workflow):
     """Select one producer job, allowing only proven empty skips as siblings."""
     try:
-        aliases = production_job_name_aliases(workflow)
+        expected = _production_job_name_contract(workflow)
+        aliases = {name for names in expected.values() for name in names}
         skipped_name = skipped_primary_name(workflow)
     except ValueError as error:
         raise ValueError("production job source is ambiguous") from error
@@ -119,10 +173,17 @@ def attempt_producer_job(jobs, run, attempt, workflow):
     )
     matches = [job for job in jobs if job.get("name") in aliases]
     if not matches and attempt.get("status") in {
-        "queued", "waiting", "requested", "pending"
+        "queued",
+        "waiting",
+        "requested",
+        "pending",
     }:
         return None
     _require(bool(matches), "attempt production job is missing")
+    _require(
+        _matches_source_inventory(expected, matches),
+        "attempt production job inventory is incomplete",
+    )
     _require(
         len({job.get("name") for job in matches}) == len(matches),
         "attempt production job name is duplicated",
@@ -140,7 +201,10 @@ def attempt_producer_job(jobs, run, attempt, workflow):
         )
         steps = candidate.get("steps")
         _require(isinstance(steps, list), "attempt production job steps are invalid")
-        if candidate.get("status") == "completed" and candidate.get("conclusion") == "skipped":
+        if (
+            candidate.get("status") == "completed"
+            and candidate.get("conclusion") == "skipped"
+        ):
             _require(steps == [], "skipped production job contains executed steps")
     producers = [
         candidate

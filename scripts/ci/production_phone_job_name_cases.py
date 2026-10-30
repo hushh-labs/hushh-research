@@ -152,12 +152,18 @@ def read_production_alias_receipt(case):
         tempfile.TemporaryDirectory() as temporary,
     ):
         found = MAINTENANCE.find_release(
-            "org/repo", "300", Path(temporary),
-            require_live=False, environment="production",
+            "org/repo",
+            "300",
+            Path(temporary),
+            require_live=False,
+            environment="production",
         )
         selected, job = receipts.current_attempt_artifact(
-            "org/repo", case["run"], MAINTENANCE.LANES["production"],
-            api=api, timestamp=MAINTENANCE._github_timestamp,
+            "org/repo",
+            case["run"],
+            MAINTENANCE.LANES["production"],
+            api=api,
+            timestamp=MAINTENANCE._github_timestamp,
         )
     return found, selected, job
 
@@ -200,7 +206,11 @@ class ProductionReleaseAliasReceiptCases:
                 skipped_steps=[{"name": "Upload production deploy artifacts"}],
             ),
         ]
-        for key, value in (("run_attempt", 1), ("head_sha", "b" * 40), ("head_branch", "dev")):
+        for key, value in (
+            ("run_attempt", 1),
+            ("head_sha", "b" * 40),
+            ("head_branch", "dev"),
+        ):
             cases.append(
                 production_release_alias_fixture(
                     (aliases[lease.nonproducer.JOB_ID],), sibling_defect=(key, value)
@@ -218,6 +228,7 @@ class ProductionPhoneSkippedNameCases:
         if raw:
             case.intent_protocol()
             case.sources[case.runs[0]["head_sha"]] = legacy_workflow().encode()
+            case.use_legacy_job_names()
             case.runs[0].update(status="in_progress", conclusion=None)
             case.attempts[(300, 2)].update(status="in_progress", conclusion=None)
         case.jobs[(300, 2)]["jobs"][0].update(
@@ -287,7 +298,7 @@ class ProductionPhoneSkippedNameCases:
                                 steps=[{"name": lease.BEGIN}],
                             )
                         inventory["jobs"].append(duplicate)
-                        inventory["total_count"] = 2
+                        inventory["total_count"] = len(inventory["jobs"])
                     elif defect in {"run_id", "run_attempt", "head_sha", "head_branch"}:
                         job[defect] = {
                             "run_id": 400,
@@ -307,6 +318,92 @@ class ProductionPhoneSkippedNameCases:
                     with self.assertRaises(lease.retention.UnsafeState):
                         self.lease_check(case)
 
+    def test_source_defined_job_ids_require_a_complete_bound_api_inventory(self):
+        self.setUp()
+        case = LeaseFixture(self)
+        result = case.jobs[(300, 2)]
+        source = case.sources[case.runs[0]["head_sha"]].decode()
+        result["jobs"].pop()
+        result["total_count"] = len(result["jobs"])
+        with self.assertRaisesRegex(ValueError, "inventory is incomplete"):
+            lease.nonproducer.attempt_producer_job(
+                result["jobs"], case.runs[0], case.attempts[(300, 2)], source
+            )
+
+    def test_pinned_predecessor_source_accepts_only_its_two_production_jobs(self):
+        source_sha = "629ec27cd28d2eeca4ff7fb017cb4389d8338fa8"
+        source = subprocess.run(
+            ["git", "show", f"{source_sha}:{lease.WORKFLOW}"],
+            cwd=lease.phone.ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        old_deploy_expression = (
+            "inputs.phone_phase == 'activate' && "
+            "'Ordinary production deploy (not selected)' || 'Deploy Production Scope'"
+        )
+        old_phone_expression = (
+            "inputs.phone_phase == 'activate' && 'Deploy Production Scope' "
+            "|| 'Activation continuation not selected'"
+        )
+        old_deploy = "${{ " + old_deploy_expression + " }}"
+        old_phone = "${{ " + old_phone_expression + " }}"
+        names = {
+            job_id: re.search(
+                r"^    name: (.+)$",
+                lease.nonproducer._job_block(source, job_id),
+                re.M,
+            )[1]
+            for job_id in ("deploy", "complete-phone-activation")
+        }
+        self.assertEqual(
+            names, {"deploy": old_deploy, "complete-phone-activation": old_phone}
+        )
+        self.assertEqual(
+            set(lease.nonproducer._production_job_name_contract(source)),
+            {"deploy", "complete-phone-activation"},
+        )
+
+        run = {"id": 300, "head_sha": source_sha}
+        attempt = {"run_attempt": 2, "status": "completed"}
+        bound = {
+            "run_id": run["id"],
+            "run_attempt": attempt["run_attempt"],
+            "head_sha": source_sha,
+            "head_branch": "main",
+        }
+        skipped_primary = {
+            **bound,
+            "name": old_deploy_expression,
+            "status": "completed",
+            "conclusion": "skipped",
+            "steps": [],
+        }
+        phone_producer = {
+            **bound,
+            "name": "Deploy Production Scope",
+            "status": "completed",
+            "conclusion": "success",
+            "steps": [{"name": lease.nonproducer.ADMISSION_STEP}],
+        }
+        selected = lease.nonproducer.attempt_producer_job(
+            [skipped_primary, phone_producer], run, attempt, source
+        )
+        self.assertIs(selected, phone_producer)
+        with self.assertRaisesRegex(ValueError, "inventory is incomplete"):
+            lease.nonproducer.attempt_producer_job(
+                [phone_producer], run, attempt, source
+            )
+
+        altered = source.replace(
+            "Ordinary production deploy (not selected)", "modified", 1
+        )
+        with self.assertRaisesRegex(ValueError, "source is ambiguous"):
+            lease.nonproducer.attempt_producer_job(
+                [skipped_primary, phone_producer], run, attempt, altered
+            )
+
     def test_selected_producer_precedes_skipped_raw_primary_without_hiding_lease(self):
         self.setUp()
         for historical in (False, True):
@@ -317,6 +414,7 @@ class ProductionPhoneSkippedNameCases:
                 if historical:
                     source = legacy_workflow().encode()
                     case.sources[case.runs[0]["head_sha"]] = source
+                    case.use_legacy_job_names()
                 environment = case.active_guard()
                 inventory = case.jobs[(300, 2)]
                 active = inventory["jobs"][0]
@@ -333,8 +431,9 @@ class ProductionPhoneSkippedNameCases:
                     conclusion="skipped",
                     steps=[],
                 )
-                inventory["jobs"] = [ordinary, active]
-                inventory["total_count"] = 2
+                restoration_skip = inventory["jobs"][2]
+                inventory["jobs"] = [ordinary, active, restoration_skip]
+                inventory["total_count"] = len(inventory["jobs"])
                 if historical:
                     self.assertEqual(
                         lease.nonproducer.skipped_primary_name(source.decode()),
