@@ -1439,6 +1439,7 @@ tests/test_referral_settings_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
+tests/test_pkm_memory_proposal_outcome.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
