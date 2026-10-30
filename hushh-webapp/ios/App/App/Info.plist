@@ -75,7 +75,6 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
-		<string>audio</string>
 		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
