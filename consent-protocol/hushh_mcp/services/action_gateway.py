@@ -177,6 +177,19 @@ def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
     return _action_index().get(clean_id)
 
 
+def is_runtime_disabled_action(action_id: str | None) -> bool:
+    """A generated action that a runtime switch hides here (careers, CRM).
+
+    Screens offer such an action from static global segments whatever the switch
+    says, so chat admission drops it instead of refusing the whole turn.
+    """
+    clean_id = str(action_id or "").strip()
+    if not clean_id or get_action_gateway_action(clean_id) is not None:
+        return False
+    generated = load_action_gateway().get("actions") or []
+    return any(entry.get("action_id") == clean_id for entry in generated)
+
+
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:
     """True when running ``entry`` only moves the person to another screen.
 
