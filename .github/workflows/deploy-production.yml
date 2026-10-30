@@ -169,7 +169,7 @@ jobs:
 
   deploy:
     needs: deployment-security
-    name: ${{ (inputs.phone_phase == 'activate' || inputs.restoration_activation_run_id != '') && 'Ordinary production deploy (not selected)' || 'Deploy Production Scope' }}
+    name: Deploy Production Scope
     runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
@@ -510,7 +510,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: gcp-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -519,7 +519,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
@@ -2219,7 +2219,7 @@ jobs:
       - name: Publish retained worker activation intent
         id: staged-worker-activation-intent
         if: steps.prepare-staged-worker-activation.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-drive-worker-activation-intent-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.staged-worker.outputs.receipt }}.activation.json
@@ -3002,15 +3002,18 @@ jobs:
           {
             echo "## Production Release"
             echo ""
-            echo "- Commit SHA: \`${{ github.event.inputs.sha }}\`"
+            echo "- Status: \`${{ steps.release-status.outputs.status || 'unknown' }}\`"
+            echo "- Application SHA: \`${{ inputs.sha }}\`"
+            echo "- Workflow SHA: \`${{ github.workflow_sha }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
+            echo "- Serving revisions: backend \`${{ steps.final-state.outputs.backend_serving || 'unknown' }}\`; frontend \`${{ steps.final-state.outputs.frontend_serving || 'unknown' }}\`"
+            echo ""
+            echo "<details>"
+            echo "<summary>Detailed production evidence</summary>"
+            echo ""
+            echo "- Commit SHA: \`${{ github.event.inputs.sha }}\`"
+            echo "- Release failure classification: \`${{ steps.classify.outputs.release_failed || 'unknown' }}\`"
             echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
-            echo "- Release status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
-            if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then
-              echo "- Status: \`FAILED\`"
-            else
-              echo "- Status: \`healthy\`"
-            fi
             echo ""
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
               echo "- Backend URL: \`${{ steps.backend-url.outputs.url }}\`"
@@ -3049,6 +3052,7 @@ jobs:
             echo "- Env parity: \`${{ steps.verify-parity.outcome }}\`"
             echo "- CRM qualification: \`${{ steps.verify-connected-systems.outputs.qualification || 'not_run' }}\` (product available: \`${{ steps.crm-availability.outputs.required || 'unqualified' }}\`)"
             echo "- Native passkey domain associations: \`${{ steps.verify-passkey-associations.outcome }}\`"
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Tag this release as last known good
@@ -3211,7 +3215,7 @@ jobs:
           test -n "$DEPLOY_SERVICE_ACCOUNT"
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -3220,7 +3224,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert GCP project scope
         shell: bash
@@ -3441,7 +3445,7 @@ jobs:
 
       - name: Publish prepared worker intent
         id: prepared-worker-intent
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-drive-worker-intent-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
@@ -3464,7 +3468,7 @@ jobs:
         run: bash deploy/drive/deploy_worker_service_prod.sh
 
       - name: Publish staged worker qualification
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-drive-worker-stage-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
@@ -3477,7 +3481,7 @@ jobs:
 
   complete-phone-activation:
     needs: deployment-security
-    name: ${{ inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == '' && 'Deploy Production Scope' || 'Activation continuation not selected' }}
+    name: Deploy Production Scope · Phone activation
     if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
     environment: production
@@ -3561,7 +3565,7 @@ jobs:
           test -n "$DEPLOY_SERVICE_ACCOUNT"
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -3570,7 +3574,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert GCP project scope
         run: |
@@ -4042,7 +4046,7 @@ jobs:
 
       - name: Upload production deploy artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prod-release-${{ github.run_id }}
           retention-days: 30
@@ -4117,7 +4121,7 @@ jobs:
 
   complete-restoration-activation:
     needs: deployment-security
-    name: ${{ inputs.restoration_activation_run_id != '' && 'Deploy Production Scope' || 'Restoration continuation not selected' }}
+    name: Deploy Production Scope · Restoration activation
     if: github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
     runs-on: ubuntu-24.04
     environment: production
@@ -4183,7 +4187,7 @@ jobs:
         run: test -n "$WIF_PROVIDER" && test -n "$DEPLOY_SERVICE_ACCOUNT"
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -4192,7 +4196,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert GCP project scope
         run: |

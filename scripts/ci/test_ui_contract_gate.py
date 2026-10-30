@@ -36,7 +36,12 @@ def validate(workflow):
         needs = re.search(r"^    needs:\n((?:      - [^\n]+\n)+)", gate, re.M)
         if not needs or "      - ui-contracts\n" not in needs.group(1):
             raise ValueError(f"UI not required by {name}")
-        if 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
+        if name == "ci-status":
+            bound_result = 'UI_CONTRACTS="${{ needs[\'ui-contracts\'].result }}"'
+            failed_closed = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+            if bound_result not in gate or failed_closed not in gate:
+                raise ValueError(f"UI skips must fail {name}")
+        elif 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
             raise ValueError(f"UI skips must fail {name}")
     status = job_block(workflow, "ci-status")
     for lane in ("WEB_CORE", "WEB_FULL_SUITE"):
@@ -75,7 +80,17 @@ class UiGateTests(unittest.TestCase):
     def test_each_aggregate_rejects_removed_dependency_and_skip_check(self):
         for name in ("preflight-gate", "ci-status"):
             gate = job_block(self.workflow, name)
-            for weakened in (gate.replace("      - ui-contracts\n", ""), gate.replace("needs['ui-contracts'].result", "needs.other.result")):
+            weakened_checks = (
+                gate.replace("      - ui-contracts\n", ""),
+                gate.replace("needs['ui-contracts'].result", "needs.other.result"),
+            )
+            if name == "ci-status":
+                guard = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+                weakened_checks += (
+                    gate.replace(guard, 'if [ "$UI_CONTRACTS" == "success" ]; then'),
+                    gate.replace(guard, ""),
+                )
+            for weakened in weakened_checks:
                 with self.assertRaises(ValueError):
                     validate(self.workflow.replace(gate, weakened))
 
