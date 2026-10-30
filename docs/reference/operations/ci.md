@@ -220,6 +220,7 @@ Never rename required job/check contexts for cosmetic consistency.
 | Family | Workflow files | Purpose / trigger |
 | --- | --- | --- |
 | Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
+| Readiness exam | `readiness-exam.yml` | Main-owned pre-merge counterpart of the UAT provider exam: `pull_request_target` on anchored instruction files plus maintainer controls; Main's graders read PR text as data under a probe-only identity; advisory until promoted |
 | Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
 | Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
 | Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml`, `resume-ios-testflight.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
@@ -1024,7 +1025,11 @@ Rerunning PR validation does not create another workflow. Historical receipt rea
 remain for retained evidence; they do not establish new deployment clearance.
 Synchronize an old feature branch with its destination before retrying legacy CI.
 Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
-`pull_request_target` event to avoid visible workflow entries.
+`pull_request_target` event to avoid visible workflow entries. The one sanctioned
+privileged `pull_request_target` workflow is `readiness-exam.yml`: it checks out
+only Main, reads PR files as data through the contents API and never installs or
+runs them. `scripts/ci/test_readiness_exam_workflow.py` pins that boundary and
+refuses deploy environments in every PR-triggered workflow.
 
 
 ## Advisory Checks (Non-Blocking By Default)

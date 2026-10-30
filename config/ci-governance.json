@@ -166,5 +166,10 @@
       "imsharukhan"
     ],
     "owner_environment": "production"
+  },
+  "readiness_exam": {
+    "mode": "advisory",
+    "workflow": ".github/workflows/readiness-exam.yml",
+    "environment": "readiness-exam"
   }
 }

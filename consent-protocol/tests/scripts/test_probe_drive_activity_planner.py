@@ -191,6 +191,37 @@ def test_explicit_filename_date_and_exclusion_remain_required(defect):
         assert "createdTime >=" in queries[0]["arguments"]["query"]
 
 
+@pytest.mark.parametrize("targeted", [False, True])
+async def test_only_the_trusted_exam_narrows_cases_or_swaps_the_identity(monkeypatch, targeted):
+    import scripts.probe_drive_activity_planner as probe
+    import scripts.readiness_exam_manifest as manifest
+    from hushh_mcp.runtime_providers import managed_text
+
+    copied, selected = {}, {}
+
+    class Model:
+        def model_copy(self, *, update):
+            copied.update(update)
+            return self
+
+    def cases(document, case_ids=None):
+        selected["case_ids"] = case_ids
+        return []
+
+    monkeypatch.setattr(managed_text, "build_managed_text_model", lambda **_: Model())
+    monkeypatch.setattr(manifest, "planner_cases", cases)
+    supplier = lambda: "probe-only"  # noqa: E731
+    options = {"case_ids": ["drive_planner.ordinary"], "token_supplier": supplier}
+    await probe.probe_drive_activity_planner("azure_openai", **(options if targeted else {}))
+    # The UAT exam keeps every manifest planner case and the runtime identity.
+    assert selected["case_ids"] == (options["case_ids"] if targeted else None)
+    assert copied == (
+        {"allow_fallback": False, "token_supplier": supplier}
+        if targeted
+        else {"allow_fallback": False}
+    )
+
+
 @pytest.fixture
 def azure_wrapper(monkeypatch):
     root = Path(__file__).resolve().parents[3]
