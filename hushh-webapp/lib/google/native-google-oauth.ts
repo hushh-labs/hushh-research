@@ -5,6 +5,7 @@ import { Browser } from "@capacitor/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { User } from "firebase/auth";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
 import { ApiService } from "@/lib/services/api-service";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -14,6 +15,7 @@ const CALLBACK_PATH = ROUTES.PROFILE_GOOGLE_OAUTH_RETURN;
 type Return = { code: string | null; state: string; denied: boolean };
 type Attempt = {
   ownerUid: string; state: string; expiresAt: number;
+  flow: "calendar" | "followup_mail"; accountId?: string; redirectUri?: string;
   resolve: () => void; reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>; processing: boolean;
 };
@@ -106,10 +108,21 @@ async function drainReturn() {
       if (attempt === current) settle("Your session changed. Start the Calendar connection again.");
       return;
     }
-    await GoogleCalendarService.completeConnect({ idToken, userId: principal.ownerId, code: returned.code, state: returned.state });
+    if (current.flow === "followup_mail") {
+      if (!current.accountId || !current.redirectUri) throw new Error("Selected Mail account is unavailable.");
+      const completed = await CalendarFollowupsService.post<{ completed_account_id: string }>("mail/connect/complete", {
+        user_id: principal.ownerId, account_id: current.accountId,
+        code: returned.code, state: returned.state, redirect_uri: current.redirectUri,
+      }, idToken);
+      if (completed.completed_account_id !== current.accountId) throw new Error("Selected Mail account changed.");
+    } else {
+      await GoogleCalendarService.completeConnect({ idToken, userId: principal.ownerId, code: returned.code, state: returned.state });
+    }
     if (attempt === current) settle(auth.user?.uid === current.ownerUid ? undefined : "Your session changed. Reopen Calendar.");
   } catch {
-    if (attempt === current) settle("Google Calendar connection could not be completed. Please try again.");
+    if (attempt === current) settle(current.flow === "followup_mail"
+      ? "Selected Mail connection could not be completed. Please try again."
+      : "Google Calendar connection could not be completed. Please try again.");
   }
 }
 
@@ -177,7 +190,34 @@ export async function connectNativeGoogleCalendar(params: {
   if (attempt || closingBrowser || byocInFlight) throw new Error("Finish the current Google connection first.");
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => settle("Calendar authorization expired. Please try again.", current), Math.min(expiresAt - Date.now(), 10 * 60 * 1000));
-    const current: Attempt = { ownerUid: params.ownerUid, state, expiresAt, resolve, reject, timer, processing: false };
+    const current: Attempt = { ownerUid: params.ownerUid, state, expiresAt, flow: "calendar", resolve, reject, timer, processing: false };
+    attempt = current;
+    void Browser.open({ url: params.authorizeUrl }).catch(() => settle("The system browser could not open. Please try again.", current));
+  });
+}
+
+export async function connectNativeGoogleFollowupMail(params: {
+  ownerUid: string; accountId: string; authorizeUrl: string;
+  redirectUri: string; expiresAt: string;
+}): Promise<void> {
+  try { await installNativeGoogleOAuthReturn(navigate); }
+  catch { throw new Error("The native browser connection is unavailable. Please try again."); }
+  const authorization = new URL(params.authorizeUrl);
+  const state = authorization.searchParams.get("state");
+  const expiresAt = Date.parse(params.expiresAt);
+  if (!callbackUrl(params.redirectUri) || authorization.origin !== "https://accounts.google.com" ||
+      authorization.pathname !== "/o/oauth2/v2/auth" ||
+      authorization.searchParams.get("redirect_uri") !== params.redirectUri ||
+      !state || !params.accountId || params.accountId === "default" ||
+      !Number.isFinite(expiresAt) || expiresAt <= Date.now() || auth.loading ||
+      auth.user?.uid !== params.ownerUid) {
+    throw new Error("Selected Mail connection could not be started for this session.");
+  }
+  if (attempt || closingBrowser || byocInFlight) throw new Error("Finish the current Google connection first.");
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => settle("Mail authorization expired. Please try again.", current), Math.min(expiresAt - Date.now(), 10 * 60 * 1000));
+    const current: Attempt = { ownerUid: params.ownerUid, state, expiresAt, flow: "followup_mail",
+      accountId: params.accountId, redirectUri: params.redirectUri, resolve, reject, timer, processing: false };
     attempt = current;
     void Browser.open({ url: params.authorizeUrl }).catch(() => settle("The system browser could not open. Please try again.", current));
   });
