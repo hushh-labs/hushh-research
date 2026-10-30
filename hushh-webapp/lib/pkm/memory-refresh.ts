@@ -347,10 +347,11 @@ export async function refreshMemoryDocument(
           cancelSuperseded("Memory sources changed");
         }
       };
+      // A fresh receipt per write, like the source sync: a signature-derived
+      // receipt is refused when an earlier document returns at a newer base.
       const stored = await PkmWriteCoordinator.saveMergedDomain({
         userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
         confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
-        idempotencyScope: `memory_document:${sourceSignature}`,
         beforeEffect: async () => { assertCurrentSources(); },
         build: (context) => {
           assertCurrentSources();

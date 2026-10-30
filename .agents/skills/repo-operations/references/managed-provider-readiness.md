@@ -65,8 +65,11 @@ Each rule names the check that enforces it today, or its gap.
      collector keeps the terminal verdict
      (`test_capability_timeouts_reach_one_terminal_without_runtimeerror_masking`,
      `test_primary_http_success_never_erases_later_qualification_failure`).
-   - Gap: `one_text_root`, the planner lead and location semantics lack specific
-     reasons.
+   - Enforced: `one_text_root` names its failed round-trip leg (`root.no_deltas`,
+     `root.stream_mismatch`, `root.non_json`, `root.shape_mismatch`, or the
+     mismatched field) at the former strictness, and the CI proof admits exactly
+     the reasons probes emit (`tests/scripts/test_root_roundtrip_reasons.py`).
+   - Gap: the planner lead and location semantics lack specific reasons.
 6. **Classify before reacting.** Transport means a timeout, 5xx or 429. Variance
    means the same SHA flips. Deterministic means it fails every time. Never retry a
    deterministic or semantic failure, retry until green, majority-pass a
@@ -78,9 +81,13 @@ Each rule names the check that enforces it today, or its gap.
    independent checks concurrently, fail the aggregate on the first required
    failure, keep sleeps and log polling off the critical path, and report
    time-to-verdict.
-   - Enforced: none yet.
-   - Gap: the exam starts about 11 minutes into UAT, runs sequentially, and the
-     aggregate waits for the Vertex step.
+   - Enforced: the step that collects a finished exam's verdict waits for its rows
+     with bounded, capped backoff instead of a fixed 30-second window
+     (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
+     longer fails a passing exam.
+   - Gap: the verdict still travels through log search; the exam starts about
+     11 minutes into UAT, runs sequentially, and the aggregate waits for the
+     Vertex step.
 8. **Prove the check catches what it claims.** A new or changed check ships with a
    negative control (a known-bad input that must fail) and a positive control, both
    run before merge.
