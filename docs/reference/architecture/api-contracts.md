@@ -225,6 +225,18 @@ The pod runs the existing authored structure and reconciliation agents against
 its owner's selected model, with bounded admission and disconnect cancellation.
 AI selection changes invalidate preparation and process-memory continuation
 reuse. Failed provider preparation refuses rather than selecting managed inference.
+Each attempt past the feature gate, admission refusals included, writes the same
+content-free `pkm.memory_proposal.outcome` line as the hub, with `route=pod`.
+The hub writes its line only for attempts that pass authentication, placement and
+request validation; refusals before the handler appear only in the request
+summary. Status `0` (`cancelled`) records a handler cancelled before it finished,
+such as the pod's queued-request disconnect check, and an omitted or null
+`capture_source` logs as `unspecified`. On the pod, `queue_timeout` means the
+150-second command budget ran out before admission, so no provider was called.
+`provider_unavailable` means a provider error, or that budget running out after
+admission. `model_unselected` counts only the owner-selection and unsupported-model
+refusals: a pod with no runtime model logs `unavailable`, and one with no model
+access logs `failed`.
 
 The owner app routes private notes directly to this door; unplaced or unresolved
 hosting refuses before transmission. The browser separately fetches authorized
@@ -3131,7 +3143,7 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
 | POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
-| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), or `business_directory_v1` (one business record with selectable listing fields). Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), `business_directory_v1` (one business record with selectable listing fields), `soul_markdown_v1` (memory.md capture) or `profile_review_v1` (profile research review). Optional `capture_source`: a closed, logging-only code naming the calling surface; the backend writes it to the content-free `pkm.memory_proposal.outcome` line, never passes it to an agent, and logs any other value as `unrecognized` without refusing the request. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |
