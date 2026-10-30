@@ -193,8 +193,14 @@ They keep the requested range/timezone and policy, with unknown freshness, count
 and coverage explicitly null. The device reports `gmail_not_connected` only when
 the connector status already says Gmail is disconnected; any other missing
 snapshot, including an unknown status, is `receipts_not_synced`. The chat shows
-the in-chat Connect card for the first and an Open receipts control for the
-second, at most once per turn; `receipt_snapshot_unavailable` shows no card.
+the in-chat Connect card for the first. For the second, when Gmail is connected
+for sync, the device first runs one bounded sync for the turn (45 s; the card
+reads "Syncing receipts…") through the shared Mail Receipts resource and answers
+from what it saved; only when nothing was saved does the result stay
+`receipts_not_synced`, with the Open receipts control. Each card state shows at
+most once per turn; `receipt_snapshot_unavailable` shows no card. The app also
+syncs in the background once per owner, account and vault session, after unlock
+or a new Gmail connection, when no snapshot is saved or it is a day old.
 An owner pod that advertises `receiptToolVersion: 1` may run the older validator,
 so its continuation carries `receipt_snapshot_unavailable` and its sentence in place
 of either setup code (expand phase); the card still follows the device's own code,
@@ -203,8 +209,17 @@ and hub turns keep the exact code.
 Only the authorized continuation's model request receives detailed results.
 Native tool messages, encrypted session history and restored answers contain
 value-free receipts. Receipt-result invocations cannot execute further tools.
-Private answers expire or disappear on a new turn, conversation/owner change,
-vault transition or Reset. One explains deterministic function output; it never
+A continuation carries only its receipt results: the hub and owner-pod ingress
+keep just the admitted tool-result messages, and the device sends no others, so
+the bridge resumes the paused turn instead of running the question again. Each
+admitted continuation logs `one.receipt_resume results=<n> dropped=<n>`, where
+`dropped` counts messages an older app resent. A call
+whose arguments fail the closed schema is removed from the model's response
+before the bridge can defer it, so it never reaches the device; when the
+response holds nothing else, the turn fails closed. Earlier receipt calls and private
+answers are never replayed into a later model request. Private answers expire or
+disappear on a new turn, conversation/owner change, vault transition or Reset; a
+receipt turn that failed keeps its error rather than reading as shown. One explains deterministic function output; it never
 computes totals from memory rows. Bank or card cash flow comes only from the
 consented memory packet's precomputed summaries; Finance has no spending tool.
 
@@ -525,6 +540,16 @@ adds no transcript status or review card. It never creates a shareable scope;
 retrieval of historical ciphertext. KYC replies do not invoke a structured
 identity writer or force a pre-draft cloud read. Soul recovery, revision fences,
 seven-day encrypted checkpoints and bounded retry remain unchanged.
+
+Soul recovery replays a device's encrypted checkpoints in staging order, one
+envelope at a time. A checkpoint past its seven-day retention by this device's
+clock, or one that does not decrypt under the vault key, stays on the device but
+no longer stops the others. Corrections match exact bullets, so a correction
+that depended on a held checkpoint fails closed when staged. A read that may
+still succeed later (a storage error, or a clock behind the write time) still
+stops the whole pass. A receipt-summary checkpoint that is unbound, from a reset
+or superseded snapshot, or no longer passes the lightweight receipt rules can
+never apply, so it is retired, as the live queue does.
 
 
 Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer

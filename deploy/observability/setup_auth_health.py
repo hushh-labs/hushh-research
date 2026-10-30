@@ -4,36 +4,65 @@
 """Prepare the protected health timer; apply only reviewed Main-owned source."""
 
 import argparse
-from contextlib import contextmanager
 import fcntl
+import gzip
+import io
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECTS = {"hushh-pda-uat", "hushh-pda"}
 REGION = "us-central1"
 JOB = "protected-configuration-health"
 FILES = ["config/protected-lists.json", "scripts/ops/verify_secret_list_invariants.py",
-         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py"]
+         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py",
+         "deploy/observability/auth_health_read_diagnostics.py"]
 
 
-def _transport(project: str):
+def _transport(project: str, *, build_only: bool = False):
     import google.auth
-    from google.auth.transport.requests import Request, AuthorizedSession
     import requests
+    from google.auth.transport.requests import AuthorizedSession, Request
 
-    credentials, _ = google.auth.default()
+    credentials, _ = google.auth.default(
+        scopes=[
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+        ]
+    )
     credentials.refresh(Request())
+    expected = ("github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"
+                if build_only and project == "hushh-pda-uat" else "kushal@hushh.ai")
     with requests.post("https://oauth2.googleapis.com/tokeninfo",
                        data={"access_token": credentials.token}, timeout=20) as observed:
-        if observed.status_code != 200 or observed.json().get("email") != "kushal@hushh.ai":
-            raise RuntimeError("Expected admin ADC identity unavailable")
+        email_present = False
+        email_matches = False
+        if observed.status_code == 200:
+            try:
+                identity = observed.json()
+            except ValueError:
+                identity = None
+            if isinstance(identity, dict):
+                email = identity.get("email")
+                email_present = isinstance(email, str) and bool(email)
+                email_matches = email_present and email == expected
+        if not email_matches:
+            raise RuntimeError(
+                "Expected health operator identity unavailable "
+                f"(tokeninfo_http_status={observed.status_code}, "
+                f"tokeninfo_email_present={str(email_present).lower()}, "
+                f"tokeninfo_email_matches={str(email_matches).lower()})"
+            )
     cli = shutil.which("gcloud") or str(Path.home() / "google-cloud-sdk/bin/gcloud")
     env = {**os.environ, "CLOUDSDK_AUTH_ACCESS_TOKEN": credentials.token}
 
@@ -159,13 +188,62 @@ def _identities(run, project: str, operation: str, bucket: str, runtime: bool, j
     run(["storage", "buckets", "add-iam-policy-binding", f"gs://{bucket}",
          f"--member=serviceAccount:{checker}", "--role=roles/storage.objectUser"])
     if runtime:
-        run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
-             f"--member=serviceAccount:{checker}", "--role=roles/run.viewer"])
+        if project == "hushh-pda-uat":
+            policy = run(["run", "services", "get-iam-policy", "consent-protocol", f"--region={REGION}"])
+            if not _has_runtime_permission(policy, checker):
+                raise RuntimeError("UAT health observation needs the governed runtime-access operation")
+        else:
+            run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
+                 f"--member=serviceAccount:{checker}", "--role=roles/run.viewer", "--condition=None"])
 
     return checker, scheduler
 
 
-def _image(run, project: str, operation: str, source: str, bucket: str, save):
+def _verify_image_source(api, build: dict, project: str, bucket: str, tag: str, expected: dict):
+    """Tags identify a retry; immutable provider inputs establish its provenance."""
+    steps = build.get("steps", [])
+    if (build.get("projectId") != project or build.get("images") != [tag]
+            or len(steps) != 1 or steps[0].get("name") != "gcr.io/cloud-builders/docker"
+            or steps[0].get("args") != ["build", "--tag", tag, "."]
+            or set(steps[0]) - {"name", "args", "timing", "pullTiming", "status"}
+            or build.get("secrets") or build.get("availableSecrets") or build.get("substitutions")
+            or build.get("artifacts", {"images": [tag]}) != {"images": [tag]}
+            or build.get("options", {}).get("pool")):
+        raise RuntimeError("Health build execution differs from its reviewed recipe")
+    resolved = build.get("sourceProvenance", {}).get("resolvedStorageSource", {})
+    if (resolved.get("bucket") != bucket or not resolved.get("object", "").startswith("sources/")
+            or not str(resolved.get("generation", "")).isdecimal()):
+        raise RuntimeError("Health build source is not immutable in its owned bucket")
+    url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quote(resolved['object'], safe='')}"
+    with api.get(url, params={"alt": "media", "generation": resolved["generation"]},
+                 timeout=30, stream=True, allow_redirects=False) as response:
+        if response.status_code != 200:
+            raise RuntimeError("Health build source unavailable")
+        archive_bytes = response.raw.read(262145)
+    if len(archive_bytes) > 262144:
+        raise RuntimeError("Health build source exceeds its bound")
+    with gzip.GzipFile(fileobj=io.BytesIO(archive_bytes)) as compressed:
+        unpacked = compressed.read(2097153)
+    if len(unpacked) > 2097152:
+        raise RuntimeError("Health expanded source exceeds its bound")
+    observed = {}
+    directories = {str(parent) for path in expected for parent in Path(path).parents if str(parent) != "."}
+    with tarfile.open(fileobj=io.BytesIO(unpacked), mode="r:") as archive:
+        for index, member in enumerate(archive):
+            if index >= 32:
+                raise RuntimeError("Health source inventory exceeds its bound")
+            if member.isdir() and member.name in directories and member.size == 0:
+                continue
+            if (not member.isfile() or member.name not in expected or member.name in observed
+                    or member.size != len(expected[member.name])):
+                raise RuntimeError("Health source inventory differs from reviewed Main")
+            with archive.extractfile(member) as entry:
+                observed[member.name] = entry.read(member.size + 1)
+    if observed != expected:
+        raise RuntimeError("Health source contents differ from reviewed Main")
+
+
+def _image(run, api, project: str, operation: str, source: str, bucket: str, save):
     tag = f"gcr.io/{project}/auth-health-job:{source}"
     revision_tag = f"auth-health-source-{source}"
     matches = run(["builds", "list", f"--filter=tags:auth-health-{operation} AND tags:{revision_tag}", "--limit=2"])
@@ -178,14 +256,15 @@ def _image(run, project: str, operation: str, source: str, bucket: str, save):
         for name in FILES:
             target = stage / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, target)
-        shutil.copyfile(ROOT / "deploy/observability/auth-health.Dockerfile", stage / "Dockerfile")
+            target.write_bytes(_source_blob(source, name))
+        (stage / "Dockerfile").write_bytes(_source_blob(source, "deploy/observability/auth-health.Dockerfile"))
         config = stage / "cloudbuild.json"
         config.write_text(json.dumps({
             "steps": [{"name": "gcr.io/cloud-builders/docker", "args": ["build", "--tag", tag, "."]}],
             "images": [tag], "tags": [f"auth-health-{operation}", revision_tag], "timeout": "600s",
             "options": {"logging": "GCS_ONLY"},
         }))
+        expected = {str(path.relative_to(stage)): path.read_bytes() for path in stage.rglob("*") if path.is_file()}
         build = matches[0] if matches else run(["builds", "submit", str(stage), f"--config={config}", "--async",
                      f"--gcs-source-staging-dir=gs://{bucket}/sources",
                      f"--gcs-log-dir=gs://{bucket}/build-logs"])
@@ -198,14 +277,123 @@ def _image(run, project: str, operation: str, source: str, bucket: str, save):
         build = run(["builds", "describe", build["id"]])
     if build.get("status") != "SUCCESS":
         raise RuntimeError("Health image build did not succeed")
+    _verify_image_source(api, build, project, bucket, tag, expected)
+    outputs = build.get("results", {}).get("images", [])
+    if (len(outputs) != 1 or outputs[0].get("name") != tag
+            or len(outputs[0].get("digest", "")) != 71
+            or not outputs[0]["digest"].startswith("sha256:")
+            or any(c not in "0123456789abcdef" for c in outputs[0]["digest"][7:])):
+        raise RuntimeError("Health image output is unverified")
     image = f"gcr.io/{project}/auth-health-job@{build['results']['images'][0]['digest']}"
     return image, build["id"]
 
 
-def _timer(run, project: str, operation: str, image: str, checker: str, scheduler: str, runtime: bool, schedule: str):
-    existing = run(["run", "jobs", "describe", JOB, f"--region={REGION}"], optional=True)
-    if existing and existing.get("metadata", {}).get("labels", {}).get("operation") != operation:
+def _source_blob(source: str, name: str) -> bytes:
+    # Stage immutable reviewed blobs, never files that another session can edit
+    # after the clean-tree check while this operation waits on the provider.
+    if len(source) != 40 or any(c not in "0123456789abcdef" for c in source):
+        raise ValueError("Health build requires an immutable source commit")
+    reference = f"{source}:{name}"
+    size = int(subprocess.check_output(["git", "cat-file", "-s", reference], cwd=ROOT, timeout=15))
+    if size > 131072:
+        raise RuntimeError("Health source file exceeds its bound")
+    return subprocess.check_output(["git", "show", reference], cwd=ROOT, timeout=15)
+
+
+def _existing_resource(api, url: str, name: str):
+    # Native status is authoritative: SDK describe commands use inconsistent
+    # missing-resource errors, which must never turn a denied read into absence.
+    with api.get(url, timeout=30, allow_redirects=False) as response:
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise RuntimeError("Health resource observation refused")
+        try:
+            observed = response.json()
+        except ValueError as error:
+            raise RuntimeError("Health resource observation malformed") from error
+    if not isinstance(observed, dict) or observed.get("name") != name:
+        raise RuntimeError("Health resource observation does not match its target")
+    return observed
+
+
+def _has_runtime_permission(policy: dict, checker: str) -> bool:
+    return any(
+        binding.get("role") == "roles/run.viewer" and not binding.get("condition")
+        and f"serviceAccount:{checker}" in binding.get("members", [])
+        for binding in policy.get("bindings", [])
+    )
+
+
+def grant_runtime_observation(project: str, operation: str, unique_id: str, receipt: Path):
+    """Grant one service's read observation through UAT's existing governed identity."""
+    if (project != "hushh-pda-uat" or not re.fullmatch(r"[0-9a-f]{32}", operation)
+            or not re.fullmatch(r"[0-9]{15,24}", unique_id)):
+        raise ValueError("An existing UAT operation and exact checker identity are required")
+    source = _reviewed_source()
+    run, api = _transport(project, build_only=True)
+    try:
+        bucket = f"{project}-auth-health-ops"
+        observed = _existing_resource(api, f"https://storage.googleapis.com/storage/v1/b/{bucket}", bucket)
+        number = str(run(["projects", "describe", project])["projectNumber"])
+        if (observed is None or str(observed.get("projectNumber")) != number
+                or observed.get("labels", {}).get("operation") != operation):
+            raise RuntimeError("Health observation bucket has unverified ownership")
+        checker = f"auth-health-check@{project}.iam.gserviceaccount.com"
+        account = run(["iam", "service-accounts", "describe", checker])
+        if (account.get("uniqueId") != unique_id or account.get("email") != checker
+                or account.get("projectId") != project or account.get("disabled") is True
+                or account.get("description") != f"Hussh auth-health operation {operation}"):
+            raise RuntimeError("Health observation identity changed; no permission granted")
+        command = ["run", "services", "get-iam-policy", "consent-protocol", f"--region={REGION}"]
+        if not _has_runtime_permission(run(command), checker):
+            # gcloud preserves existing bindings and the policy etag during its read/modify/write.
+            run(["run", "services", "add-iam-policy-binding", "consent-protocol", f"--region={REGION}",
+                 f"--member=serviceAccount:{checker}", "--role=roles/run.viewer", "--condition=None"])
+        if not _has_runtime_permission(run(command), checker):
+            raise RuntimeError("Health observation permission readback failed")
+        result = {"project": project, "operation": operation, "source": source,
+                  "checker_unique_id": unique_id, "service": "consent-protocol", "role": "roles/run.viewer",
+                  "mode": "runtime-access", "verified": True, "run_id": os.environ.get("GITHUB_RUN_ID"),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT")}
+        receipt.write_text(json.dumps(result, indent=2) + "\n")
+        return result
+    finally:
+        api.close()
+
+
+def build_image(project: str, operation: str, receipt: Path):
+    """Build through UAT's governed WIF authority without changing deployed jobs."""
+    if project != "hushh-pda-uat" or len(operation) != 32 or any(c not in "0123456789abcdef" for c in operation):
+        raise ValueError("Only an existing UAT health operation may request this build")
+    source = _reviewed_source()
+    run, api = _transport(project, build_only=True)
+    try:
+        bucket = f"{project}-auth-health-ops"
+        existing = _existing_resource(api, f"https://storage.googleapis.com/storage/v1/b/{bucket}", bucket)
+        number = str(run(["projects", "describe", project])["projectNumber"])
+        if (existing is None or str(existing.get("projectNumber")) != number
+                or existing.get("labels", {}).get("operation") != operation):
+            raise RuntimeError("Health build bucket has unverified ownership")
+        image, build_id = _image(run, api, project, operation, source, bucket, lambda **_: None)
+        result = {"project": project, "operation": operation, "source": source,
+                  "image": image, "build_id": build_id, "run_id": os.environ.get("GITHUB_RUN_ID"),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "mode": "image-only"}
+        receipt.write_text(json.dumps(result, indent=2) + "\n")
+        return result
+    finally:
+        api.close()
+
+
+def _timer(run, api, project: str, operation: str, image: str, checker: str, scheduler: str, runtime: bool, schedule: str):
+    name = f"projects/{project}/locations/{REGION}/jobs/{JOB}"
+    existing = _existing_resource(api, f"https://run.googleapis.com/v2/{name}", name)
+    if existing and (not isinstance(existing.get("labels"), dict)
+                     or existing["labels"].get("operation") != operation):
         raise RuntimeError("Existing health job has unverified ownership")
+    existing_schedule = _existing_resource(api, f"https://cloudscheduler.googleapis.com/v1/{name}", name)
+    if existing_schedule and existing_schedule.get("description") != f"Hussh auth-health operation {operation}":
+        raise RuntimeError("Existing health schedule has unverified ownership")
     run(["run", "jobs", "deploy", JOB, f"--region={REGION}", f"--image={image}",
          f"--service-account={checker}", "--tasks=1", "--parallelism=1", "--max-retries=0",
          "--task-timeout=600s", "--cpu=1", "--memory=512Mi",
@@ -214,13 +402,10 @@ def _timer(run, project: str, operation: str, image: str, checker: str, schedule
     run(["run", "jobs", "add-iam-policy-binding", JOB, f"--region={REGION}",
          f"--member=serviceAccount:{scheduler}", "--role=roles/run.invoker"])
     target = f"https://run.googleapis.com/v2/projects/{project}/locations/{REGION}/jobs/{JOB}:run"
-    existing = run(["scheduler", "jobs", "describe", JOB, f"--location={REGION}"], optional=True)
-    if existing and existing.get("description") != f"Hussh auth-health operation {operation}":
-        raise RuntimeError("Existing health schedule has unverified ownership")
-    run(["scheduler", "jobs", "update" if existing else "create", "http", JOB,
+    run(["scheduler", "jobs", "update" if existing_schedule else "create", "http", JOB,
          f"--location={REGION}", f"--schedule={schedule}", "--time-zone=Etc/UTC",
          f"--uri={target}", "--http-method=POST", "--message-body={}",
-         ("--update-headers=" if existing else "--headers=") + "Content-Type=application/json",
+         ("--update-headers=" if existing_schedule else "--headers=") + "Content-Type=application/json",
          f"--oauth-service-account-email={scheduler}",
          "--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform", "--attempt-deadline=30s",
          "--max-retry-attempts=0", f"--description=Hussh auth-health operation {operation}"])
@@ -258,8 +443,8 @@ def _apply_locked(project: str, *, runtime: bool, schedule: str, journal_path: P
         bucket = _bucket(api, run, project, operation)
         save(bucket=bucket)
         checker, scheduler = _identities(run, project, operation, bucket, runtime, journal, save)
-        image, build_id = _image(run, project, operation, source, bucket, save)
-        _timer(run, project, operation, image, checker, scheduler, runtime, schedule)
+        image, build_id = _image(run, api, project, operation, source, bucket, save)
+        _timer(run, api, project, operation, image, checker, scheduler, runtime, schedule)
         save(phase="configured", image=image, build_id=build_id, job=JOB, schedule=schedule,
              runtime_observation=runtime, task_timeout_seconds=600, checker_timeout_seconds=450,
              lease_seconds=900)
@@ -274,9 +459,28 @@ def main() -> int:
     parser.add_argument("--check-phone-runtime", action="store_true")
     parser.add_argument("--schedule", choices=["17 * * * *", "*/2 * * * *"], default="17 * * * *")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--build-image", action="store_true", help="Governed UAT WIF build only; no job, timer or IAM mutation")
+    parser.add_argument("--grant-runtime-observation", action="store_true",
+                        help="Governed UAT WIF service-level observation permission only")
+    parser.add_argument("--checker-unique-id", help="Recorded checker identity for runtime-access recovery")
+    parser.add_argument("--operation", help="Existing health ownership operation")
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--upgrade-from", help="Explicitly reviewed prior source SHA in this same operation journal")
     args = parser.parse_args()
+    if args.grant_runtime_observation:
+        if args.apply or args.build_image or not args.operation or not args.receipt or not args.checker_unique_id:
+            parser.error("Runtime access requires operation, checker identity and receipt, without apply/build")
+        print(json.dumps(grant_runtime_observation(args.project, args.operation, args.checker_unique_id, args.receipt)))
+        return 0
+    if args.checker_unique_id:
+        parser.error("--checker-unique-id is only valid for runtime access")
+    if args.build_image:
+        if args.apply or not args.operation or not args.receipt:
+            parser.error("--build-image requires --operation and --receipt, without --apply")
+        print(json.dumps(build_image(args.project, args.operation, args.receipt)))
+        return 0
+    if args.operation:
+        parser.error("--operation is only valid with --build-image")
     if not args.apply:
         print(json.dumps({"project": args.project, "job": JOB, "schedule": args.schedule,
                           "mode": "plan", "runtime_observation": args.check_phone_runtime}))

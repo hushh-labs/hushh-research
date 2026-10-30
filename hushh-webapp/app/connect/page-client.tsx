@@ -1,6 +1,5 @@
 "use client";
 
-import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +26,8 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
+import { MutualConnectionsList } from "@/components/connect/mutual-connections-list";
+import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
@@ -95,10 +96,14 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
+  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
   CONNECT_CONNECTION_VIEW_PARAM,
+  CONNECT_MUTUALS_PARAM,
+  connectDirectoryReturnHref,
+  connectMutualsHref,
   CONNECT_CIRCLE_ACTION_PARAM,
   CONNECT_CIRCLE_ID_PARAM,
   CONNECT_SEARCH_QUERY_PARAM,
@@ -175,6 +180,10 @@ import {
 } from "./connect-surface-layout";
 
 type ConnectTab = "people" | "advisors" | "nearby";
+type DirectoryNavigationSnapshot = {
+  query: string; tab: ConnectTab; people: DirectoryPerson[];
+  page: number; hasMore: boolean; scrollTop: number;
+};
 
 /**
  * "RIAs" rather than "Advisors", which is the plainer word.
@@ -195,8 +204,9 @@ type ConnectTab = "people" | "advisors" | "nearby";
 const CONNECT_SEARCH_QUERY_STORAGE_KEY = "hushh:connect:people-search-query";
 
 // The People search box is local state, not URL state (unlike surface/
-// circle flow, which live in the query string) -- typed text does not
-// belong in browser history. But that means leaving to a person's detail
+// circle flow, which live in the query string) -- typing never adds browser
+// history entries. A profile/list return link captures the current query.
+// Leaving to a person's detail
 // screen and using the shared back control, which remounts this page, used
 // to drop it: the box came back empty even though the person had just been
 // searching. sessionStorage survives the remount without turning a keystroke
@@ -559,6 +569,8 @@ export default function ConnectPageClient() {
   const router = useRouter();
 
   const searchParams = useSearchParams();
+  const [directoryMemory] = useState(() => readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory"));
+  const restoreDirectoryReadRef = useRef(Boolean(directoryMemory));
   const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
   const openedCommandReview = useRef<string | null>(null);
   const connectOwnerRef = useRef(userId);
@@ -573,6 +585,7 @@ export default function ConnectPageClient() {
   const surface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
   );
+  const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
   // A settled swipe between Connections and Circles commits the same route
   // the tab pill pushes, so swiping and tapping stay one navigation.
   const commitSurface = useCallback(
@@ -608,11 +621,11 @@ export default function ConnectPageClient() {
   // scrolled halfway down handed that offset to the circles list, and to every
   // Circle flow opened after it. The Location hub hit this and fixed it the
   // same way.
-  useScrollReset(`${surface}:${connectionView}:${circleFlowAction ?? ""}:${circleFlowId}`, {
+  useScrollReset(`${surface}:${connectionView}:${circleFlowAction ?? ""}:${circleFlowId}:${mutualPersonRef ?? ""}`, {
     behavior: "auto",
   });
 
-  const [tab, setTab] = useState<ConnectTab>("people");
+  const [tab, setTab] = useState<ConnectTab>(directoryMemory?.tab ?? "people");
   const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: "" });
   const connectionsQuery = connectionsSearchDraft.ownerId === userId ? connectionsSearchDraft.query : "";
   const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: userId, query: value }), [userId]);
@@ -648,19 +661,21 @@ export default function ConnectPageClient() {
     .trim()
     .slice(0, 160);
   const [query, setQuery] = useState<string>(
-    () => searchQueryParam || readStoredConnectSearchQuery(),
+    () => directoryMemory && directoryMemory.query.trim().slice(0, 160) === searchQueryParam
+      ? directoryMemory.query : searchQueryParam || directoryMemory?.query || readStoredConnectSearchQuery(),
   );
   const appliedSearchQueryParamRef = useRef(searchQueryParam || null);
   useEffect(() => {
     if (
       searchQueryParam &&
+      !mutualPersonRef &&
       appliedSearchQueryParamRef.current !== searchQueryParam
     ) {
       appliedSearchQueryParamRef.current = searchQueryParam;
       setConnectionView("discover");
-      setQuery(searchQueryParam);
+      setQuery((current) => current.trim().slice(0, 160) === searchQueryParam ? current : searchQueryParam);
     }
-  }, [searchQueryParam]);
+  }, [searchQueryParam, mutualPersonRef]);
   useEffect(() => {
     writeStoredConnectSearchQuery(query);
   }, [query]);
@@ -671,7 +686,7 @@ export default function ConnectPageClient() {
   // people already known are never swapped for an error. Browse only: a typed
   // search is a different result set.
   const [people, setPeople] = useState<DirectoryPerson[]>(() =>
-    query.trim()
+    directoryMemory?.query === query ? directoryMemory.people : query.trim()
       ? []
       : (readSavedDirectoryFirstPage(userId, "all")?.items ?? []),
   );
@@ -728,8 +743,16 @@ export default function ConnectPageClient() {
     Record<string, string>
   >({});
   const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(directoryMemory?.hasMore ?? false);
+  const [currentPage, setCurrentPage] = useState(directoryMemory?.page ?? 1);
+  useEffect(() => {
+    if (mutualPersonRef) return;
+    const saved = readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory");
+    if (saved && saved.query === query && saved.tab === tab) return restoreConnectListScroll(saved.scrollTop);
+    return undefined;
+    // Restore only on entry/return, never on a keystroke or a filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mutualPersonRef, userId]);
   const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestPendingRef = useRef(false);
   const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
@@ -1303,7 +1326,9 @@ export default function ConnectPageClient() {
     useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
     setRenderedResultSetKey(resultSetKey);
-    setCurrentPage(1);
+    if (mutualPersonRef && renderedDirectoryScopeKey === directoryScopeKey) {
+      restoreDirectoryReadRef.current = true;
+    } else setCurrentPage(1);
     // Background graph refresh keeps useful cards visible until replacements
     // arrive. A different owner, audience, or search must clear stale results.
     if (renderedDirectoryScopeKey !== directoryScopeKey) {
@@ -1326,7 +1351,7 @@ export default function ConnectPageClient() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!user || !userId || surface === "circles" || tab === "nearby") return;
+      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
       try {
         directoryRequestPendingRef.current = true;
         if (currentPage <= 1) setHasMore(false);
@@ -1336,19 +1361,23 @@ export default function ConnectPageClient() {
         setDirectoryRefused(false);
         lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
-        const page = await ConnectionsService.searchDirectory({
-          idToken,
-          query: trimmedQuery,
-          page: currentPage,
-          limit: pageSize,
-          audience: directoryAudience,
-        });
+        const firstPage = restoreDirectoryReadRef.current ? 1 : currentPage;
+        const restoredPeople: DirectoryPerson[] = [];
+        let page;
+        for (let index = firstPage; index <= currentPage; index++) {
+          page = await ConnectionsService.searchDirectory({ idToken, query: trimmedQuery,
+            page: index, limit: pageSize, audience: directoryAudience });
+          restoredPeople.push(...page.items);
+          if (!page.hasMore || cancelled) break;
+        }
+        if (!page) return;
         if (!cancelled) {
+          restoreDirectoryReadRef.current = false;
           // Keep server order and a single row per user when an offset page
           // overlaps after a directory update. Page one replaces the generation.
           setPeople((previous) =>
-            currentPage === 1
-              ? page.items
+            firstPage === 1
+              ? [...new Map(restoredPeople.map((person) => [person.userId, person])).values()]
               : [
                   ...new Map(
                     [...previous, ...page.items].map((person) => [
@@ -1426,6 +1455,7 @@ export default function ConnectPageClient() {
     directoryRetryNonce,
     surface,
     tab,
+    mutualPersonRef,
   ]);
 
   // A rate limit is not something the person can fix by pressing a button, so
@@ -2168,6 +2198,14 @@ export default function ConnectPageClient() {
   // nothing more -- and Connect could not be named as a destination, which is
   // why an empty people list elsewhere had nowhere to send anyone.
   const connectVoiceSurfaceMetadata = useMemo(() => {
+    if (mutualPersonRef) return {
+      screenId: "connect", title: "Mutual connections",
+      purpose: "View the people you and another person are both connected to. Open a person's profile, then return to this list. Back returns to Find people.",
+      primaryEntity: null, selectedEntity: null, spokenSubject: "Mutual connections",
+      sections: [], actions: [], controls: [], availableActions: [],
+      activeSection: "Mutual connections", visibleModules: ["Mutual connections"],
+      screenMetadata: { connect_surface: "all", mutual_connections_open: true },
+    };
     const circleTaskTitle = connectCircleTaskTitle(circleFlowAction);
     if (isFocusedCircleTask && circleTaskTitle) {
       return {
@@ -2358,6 +2396,7 @@ export default function ConnectPageClient() {
       },
     };
   }, [
+    mutualPersonRef,
     circleFlowAction,
     circlesState.count,
     connectionsTotalCount,
@@ -3056,6 +3095,12 @@ export default function ConnectPageClient() {
     </div>
   );
 
+  if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
+
+  const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
+    query, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
+  } satisfies DirectoryNavigationSnapshot);
+
   return (
     <AppPageShell
       as="main"
@@ -3436,7 +3481,7 @@ export default function ConnectPageClient() {
                                       // row rather than on the tab so the mark still means
                                       // something in a search that spans both.
                                       leading={
-                                        <ConnectionPersonAvatar userId={person.userId}
+                                        <ConnectionPersonAvatar
                                           size="compact"
                                           className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
@@ -3449,8 +3494,14 @@ export default function ConnectPageClient() {
                                       onOpen={
                                         !isSelectionMode &&
                                         person.publicPersonRef
-                                          ? () =>
-                                              openPersonProfilePreview({ personRef: person.publicPersonRef! })
+                                          ? () => {
+                                              rememberDirectory();
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  person.publicPersonRef!,
+                                                  { from: connectDirectoryReturnHref(searchParams, query) },
+                                                ),
+                                              ); }
                                           : undefined
                                       }
                                       supplement={
@@ -3458,9 +3509,18 @@ export default function ConnectPageClient() {
                                           person={person}
                                           onOpenMutual={
                                             !isSelectionMode &&
-                                            person.mutualConnectionPreview?.publicPersonRef
-                                              ? () =>
-                                                  openPersonProfilePreview({ personRef: person.mutualConnectionPreview!.publicPersonRef! })
+                                            ((person.mutualConnectionCount ?? 0) > 1 ? person.publicPersonRef : person.mutualConnectionPreview?.publicPersonRef)
+                                              ? () => {
+                                                  rememberDirectory();
+                                                  router.push((person.mutualConnectionCount ?? 0) > 1
+                                                    ? connectMutualsHref(person.publicPersonRef!, searchParams, query)
+                                                    :
+                                                    buildPersonProfileRoute(
+                                                      person.mutualConnectionPreview!.publicPersonRef!,
+                                                      { from: connectDirectoryReturnHref(searchParams, query) },
+                                                    ),
+                                                    { scroll: false },
+                                                  ); }
                                               : undefined
                                           }
                                         />
@@ -3767,10 +3827,10 @@ export default function ConnectPageClient() {
                                   {group.items.map((connection) => {
                                     const connectionName = connectPersonName(connection);
                                     return (
-                                    <ConnectPersonRow leadingInteractive
+                                    <ConnectPersonRow
                                       key={connection.connectionId}
                                       leading={
-                                        <ConnectionPersonAvatar userId={connection.userId}
+                                        <ConnectionPersonAvatar
                                           size="compact"
                                           className="!size-9 max-[350px]:!size-8"
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
@@ -3793,7 +3853,12 @@ export default function ConnectPageClient() {
                                       onOpen={
                                         connection.publicPersonRef
                                           ? () =>
-                                              openPersonProfilePreview({ personRef: connection.publicPersonRef! })
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  connection.publicPersonRef!,
+                                                  { from: ROUTES.CONNECT },
+                                                ),
+                                              )
                                           : undefined
                                       }
                                       trailing={
@@ -3933,11 +3998,11 @@ export default function ConnectPageClient() {
                   {batchConnectDraft.people.map((person) => {
                     const title = connectPersonName(person);
                     return (
-                      <SettingsRow leadingInteractive
+                      <SettingsRow
                         key={`batch-${person.userId}`}
                         layout="person"
                         leading={
-                          <ConnectionPersonAvatar userId={person.userId}
+                          <ConnectionPersonAvatar
                             size="list"
                             photoUrl={person.photoUrl}
                             label={title}

@@ -338,6 +338,45 @@ log publication, its lease bucket and optional service metadata observation.
 The clock identity gets only job invocation. Existing runtime-check rollout stays
 independent for UAT and production.
 
+The pinned amd64 SDK image supplies its interpreter under
+`/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3`; the health
+entrypoint uses that path directly. Resource discovery uses native HTTP status:
+only 404 permits creation, while denied or malformed observations refuse.
+
+UAT's deployment-authority deny policy intentionally blocks administrators from
+submitting Cloud Builds manually. Preserve that policy. For an existing recorded
+health operation, dispatch **Verify Protected Configuration** from Main with
+`health_build_operation` set to its opaque operation ID and
+`health_action=build-image`. This image-only action uses the existing governed
+UAT WIF identity. It never changes application services, IAM, jobs or schedules.
+Its concurrency is separate from checks; neither clock nor manual checks cancel
+it. The default with an empty operation input still runs the protected checks.
+
+Protected-list and production backup-posture checks use protected environments
+with `deployment: false`. They retain environment authorization and WIF but do
+not create application release records. Monitoring results cannot masquerade as
+a new UAT/prod release or invalidate a correctly accepted no-op through a
+fictitious deployment.
+
+UAT also denies local `run.services.setIamPolicy`. Before runtime-enabled local
+setup, use the same Main-only workflow with `health_action=runtime-access` and
+`health_checker_unique_id` copied from that operation's durable journal. This
+separate action checks the bucket operation and exact live checker identity,
+then grants only `roles/run.viewer` on UAT's `consent-protocol` service and reads
+it back. It preserves existing IAM bindings and never changes the deny policy,
+project-wide viewer access, application revision or traffic. A lost response is
+reconciled by reading the same binding; a replaced identity refuses. Local setup
+verifies this existing permission instead of retrying a denied IAM write.
+
+
+Read back the exact workflow source, actor, attempt, image-only artifact and
+successful native Cloud Build before resuming the original local ownership
+journal. Image reuse verifies the immutable source-object generation, bounded
+archive contents and exact reviewed recipe against Main, including the
+Dockerfile. Matching build tags alone never establish provenance. A missing
+source archive requires explicit repair; do not infer successful qualification
+from an image tag or rerun an unresolved build blindly.
+
 ```bash
 python3 deploy/observability/setup_auth_health.py --project hushh-pda-uat
 # After Main acceptance, operator journal path must be outside committed source:

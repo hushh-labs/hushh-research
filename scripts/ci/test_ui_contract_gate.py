@@ -19,10 +19,11 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    if ("fetch-depth: 2" not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
+    depth = "fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
+    if (depth not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")
-    if "fetch-depth: 2" not in job_block(workflow, "web-core-check"):
+    if depth not in job_block(workflow, "web-core-check"):
         raise ValueError("Web Core must retain the target base for the same UI check")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
@@ -35,7 +36,12 @@ def validate(workflow):
         needs = re.search(r"^    needs:\n((?:      - [^\n]+\n)+)", gate, re.M)
         if not needs or "      - ui-contracts\n" not in needs.group(1):
             raise ValueError(f"UI not required by {name}")
-        if 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
+        if name == "ci-status":
+            bound_result = 'UI_CONTRACTS="${{ needs[\'ui-contracts\'].result }}"'
+            failed_closed = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+            if bound_result not in gate or failed_closed not in gate:
+                raise ValueError(f"UI skips must fail {name}")
+        elif 'needs[\'ui-contracts\'].result }}" != "success"' not in gate:
             raise ValueError(f"UI skips must fail {name}")
     status = job_block(workflow, "ci-status")
     for lane in ("WEB_CORE", "WEB_FULL_SUITE"):
@@ -62,7 +68,7 @@ class UiGateTests(unittest.TestCase):
         self.assertNotIn("  search-web-contracts:", self.workflow)
 
     def test_skip_and_failure_suppression_are_rejected(self):
-        for old, new in (("fetch-depth: 2", "fetch-depth: 1"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
+        for old, new in (("&& '0' || '2'", "&& '1' || '1'"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace(old, new))
         for rule in ("if: false", "needs: [paths]", "continue-on-error: true"):
@@ -74,7 +80,17 @@ class UiGateTests(unittest.TestCase):
     def test_each_aggregate_rejects_removed_dependency_and_skip_check(self):
         for name in ("preflight-gate", "ci-status"):
             gate = job_block(self.workflow, name)
-            for weakened in (gate.replace("      - ui-contracts\n", ""), gate.replace("needs['ui-contracts'].result", "needs.other.result")):
+            weakened_checks = (
+                gate.replace("      - ui-contracts\n", ""),
+                gate.replace("needs['ui-contracts'].result", "needs.other.result"),
+            )
+            if name == "ci-status":
+                guard = 'if [ "$UI_CONTRACTS" != "success" ]; then'
+                weakened_checks += (
+                    gate.replace(guard, 'if [ "$UI_CONTRACTS" == "success" ]; then'),
+                    gate.replace(guard, ""),
+                )
+            for weakened in weakened_checks:
                 with self.assertRaises(ValueError):
                     validate(self.workflow.replace(gate, weakened))
 
@@ -152,6 +168,16 @@ class UiGateTests(unittest.TestCase):
             self.assertNotEqual(run(payload).returncode, 0)
             env["GITHUB_EVENT_NAME"] = "workflow_dispatch"
             self.assertEqual(run({}).stdout.strip(), "")
+            env.update(GITHUB_REF="refs/heads/uat", GITHUB_SHA=head)
+            uat = {"inputs": {"scope": "all", "uat_base_sha": old}}
+            self.assertEqual(run(uat).stdout.strip(), old)
+            uat["inputs"]["uat_base_sha"] = base
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = "invalid"
+            self.assertNotEqual(run(uat).returncode, 0)
+            uat["inputs"]["uat_base_sha"] = old
+            env["GITHUB_SHA"] = merge
+            self.assertNotEqual(run(uat).returncode, 0)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()

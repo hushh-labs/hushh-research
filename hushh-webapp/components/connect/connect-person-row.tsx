@@ -139,7 +139,7 @@ export function ConnectDirectoryPersonRow({
  * The server-backed mutual-connection count under a directory row's text, with
  * the named preview only as an avatar and an accessible name. Renders nothing
  * when there are no mutual connections. The profile-opening control is a
- * button only when the preview carries a profile to open.
+ * button when the caller can open the list or the single mutual profile.
  */
 export function DirectoryMutualLine({
   person,
@@ -170,11 +170,11 @@ export function DirectoryMutualLine({
     </>
   );
   const lineClassName = "flex min-w-0 items-center gap-1.5 text-left";
-  return onOpenMutual && preview ? (
+  return onOpenMutual ? (
     <button
       type="button"
       onClick={onOpenMutual}
-      aria-label={`Open mutual connection ${previewName}'s profile`}
+      aria-label={count > 1 ? `View all ${count} mutual connections with ${connectPersonName(person)}` : `Open mutual connection ${previewName}'s profile`}
       data-testid="mutual-connection"
       className={cn(
         lineClassName,

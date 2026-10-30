@@ -391,7 +391,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.chat.root",
-          "purpose": "Welcome anonymous visitors and provide the authenticated private-agent chat workspace.",
+          "purpose": "Welcome anonymous visitors and provide the authenticated Agent One chat workspace.",
           "screen": "chat",
           "entry_cue": "Ask One anything whenever you are ready.",
           "proactivity": "ambient",
@@ -2621,7 +2621,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+          "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people.",
           "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -5034,7 +5034,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
+          "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Agent One memory remains private; editing and encrypted persistence retain their existing authority.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -5762,7 +5762,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.connectors",
-          "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
+          "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for Agent One.",
           "screen": "profile_connectors",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -5887,7 +5887,7 @@
           "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
           "next_route": null,
           "return_policy": "stay",
-          "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+          "out_of_scope_behavior": "Agent One may explain the screen; claim decisions require the person's protected review controls."
         }
       },
       "native": {
@@ -6832,7 +6832,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.gemini",
-          "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
+          "purpose": "Help the person manage the selected AI connection without exposing a credential to Agent One.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8389,7 +8389,7 @@
           "playbook_id": "route.one.setup.cloud",
           "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
           "screen": "one_setup_cloud",
-          "entry_cue": "Choose where your private agent lives, then choose its AI access.",
+          "entry_cue": "Choose where Agent One lives, then choose its AI access.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_cloud",
           "happy_path_action_ids": [
@@ -8456,7 +8456,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.cloud.azure.return",
-          "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+          "purpose": "Finish the Microsoft sign-in that sets up or updates the person's Agent One in their own Azure subscription, without exposing credentials.",
           "screen": "one_setup_cloud",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8577,7 +8577,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.connections",
-          "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
+          "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to Agent One.",
           "screen": "one_setup_connections",
           "entry_cue": "Use the verified cloud connection, or validate a supported owner key.",
           "proactivity": "on_entry",
@@ -8966,7 +8966,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -9144,7 +9144,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.todos",
-          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -11066,5 +11066,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a509c582484ed9dc9a79f7c3483e29e2046a883a4bcdf56ee148575bcd006de7"
+  "content_sha256": "e1d193c3759bb78519bc41f34d5d4c20bb98312c1c1e10542b62dbc411927b03"
 }

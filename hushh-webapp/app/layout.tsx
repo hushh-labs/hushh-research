@@ -25,7 +25,7 @@ const nativeRuntimeAttestation = (() => {
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Hussh One | Your Private Agent",
+  title: "Hussh One | Agent One",
   description:
     "Private AI agents with consent at the core. Your information, your control.",
   keywords: [
@@ -52,7 +52,7 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "Hussh One | Your Private Agent",
+    title: "Hussh One | Agent One",
     description: "Private AI agents with consent at the core.",
     siteName: "Hussh",
     url: SITE_URL,
@@ -68,7 +68,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Hussh One | Your Private Agent",
+    title: "Hussh One | Agent One",
     description: "Private AI agents with consent at the core.",
     images: ["/quiet-emoji-icon.png"],
   },

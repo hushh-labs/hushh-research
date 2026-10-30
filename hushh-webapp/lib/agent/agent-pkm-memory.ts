@@ -410,7 +410,7 @@ function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {
   if ((card.sharing_impact?.active_recipient_count || 0) > 0) {
     return "Approved for sharing with the recipients shown above.";
   }
-  return "Private to your private agent. Consent is required before external sharing.";
+  return "Private to Agent One. Consent is required before external sharing.";
 }
 
 function formatPkmLocation(domain: string, scope: string | null): string {

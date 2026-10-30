@@ -52,6 +52,27 @@ def test_current_receipt_uses_application_identity_not_main_workflow_sha(monkeyp
     assert module.choose(other, result, True, ancestor=lambda *_: False)["decision"] == "BLOCKED"
 
 
+def test_old_protected_list_monitoring_record_does_not_block_application_noop(monkeypatch):
+    module, repository, acceptance, responses, documents = fixture(monkeypatch)
+    documents["deployments?environment=uat&per_page=100&page=1"].insert(0, {"id": 51})
+    documents["deployments/51/statuses?per_page=1"] = [
+        {
+            "state": "success",
+            "log_url": f"https://github.com/{module.REPOSITORY}/actions/runs/30",
+        }
+    ]
+    responses["runs/30"] = {
+        **responses["runs/20"],
+        "id": 30,
+        "path": ".github/workflows/verify-protected-lists.yml",
+    }
+
+    result = module.current_application(repository, acceptance, SHA, "all")
+
+    assert result["noop"] and set(result["services"]) == {"frontend", "backend"}
+    assert module.choose(SHA, result, True, ancestor=lambda *_: False)["decision"] == "NO_OP"
+
+
 @pytest.mark.parametrize(
     "inventory",
     [

@@ -51,7 +51,10 @@ it("runs the real HTTP normalizer, coverage and connector validators without cha
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   const [url, options] = mocks.fetch.mock.lastCall!;
   expect(url).toBe("/api/pkm/memory/proposals");
-  expect(JSON.parse(options.body)).toMatchObject({ message: input.message, memory_profile: "business_directory_v1" });
+  // The existing source label crosses the wire only as its closed, logging-only code.
+  expect(JSON.parse(options.body)).toMatchObject({
+    message: input.message, memory_profile: "business_directory_v1", capture_source: "business_profile_review",
+  });
   expect(mocks.write).not.toHaveBeenCalled();
 });
 

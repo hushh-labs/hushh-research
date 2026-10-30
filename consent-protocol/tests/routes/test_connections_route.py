@@ -17,6 +17,47 @@ def _client():
     return TestClient(app)
 
 
+def test_mutual_list_binds_viewer_and_bounds_pagination_without_public_caching():
+    person_ref = "42b3ecac-959f-47ab-9352-12a694be1ae9"
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionsService") as service:
+        service.return_value.list_mutual_connections_page.return_value = {
+            "person": {"publicPersonRef": person_ref},
+            "items": [],
+            "page": 2,
+            "hasMore": False,
+        }
+        response = client.get(
+            "/api/one/connections/mutuals", params={"person_ref": person_ref, "page": 2}
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.return_value.list_mutual_connections_page.assert_called_once_with(
+            "user-a",
+            person_ref=person_ref,
+            page=2,
+            limit=20,
+        )
+        for params in (
+            {"person_ref": "invalid"},
+            {"person_ref": person_ref, "page": 0},
+            {"person_ref": person_ref, "limit": 51},
+        ):
+            assert client.get("/api/one/connections/mutuals", params=params).status_code == 422
+
+
+def test_mutual_list_fails_retryably_when_identity_authority_is_unavailable():
+    with patch("api.routes.one.connections.ConnectionsService") as service:
+        service.return_value.list_mutual_connections_page.side_effect = (
+            DirectoryIdentityUnavailableError()
+        )
+        response = _client().get(
+            "/api/one/connections/mutuals",
+            params={"person_ref": "42b3ecac-959f-47ab-9352-12a694be1ae9"},
+        )
+    assert response.status_code == 503
+
+
 def test_create_request_returns_request_payload():
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:

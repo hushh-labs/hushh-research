@@ -51,7 +51,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => mailDisplayLabel(action.label)),
     ).toEqual([
-      "Set up your private agent",
+      "Set up Agent One",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(

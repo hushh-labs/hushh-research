@@ -1,20 +1,8 @@
-"""CI Status Gate must fail closed on every run it cannot vouch for.
+"""CI Status Gate fails closed on any run it cannot prove green.
 
-`CI Status Gate` is the one required check, and GitHub counts a skipped or
-neutral required check as passing. So the gate is the only place a lane that
-should have run, but did not, is caught. This executes the gate's real bash,
-taken from .github/workflows/ci.yml, against synthetic `needs` results:
-
-- every lane a path filter (or dispatch scope) selects must report `success`;
-- the authority checks that have no path filter must succeed on every event;
-- a pull request also needs PR Base Policy and, into main or
-  integration/pr-train, Base Freshness Gate;
-- a dispatched run fails for a partial or unknown scope;
-- its distinct check name cannot replace a PR's merge verdict.
-
-Every failing case is one mutation of a green run, and the negative control
-requires the green runs (with legitimately skipped lanes) to pass, so each
-failure is the mutation's and not the harness's.
+GitHub treats skipped required checks as passing, so exercise the real gate
+against selected, blocked, skipped, failed, dispatch, and retry cases. Negative
+controls require legitimately green runs to pass.
 """
 
 from __future__ import annotations
@@ -95,7 +83,10 @@ def _selected(**outputs: bool) -> Run:
     return Run(
         event="pull_request",
         base_ref="main",
-        outputs={name: "true" if on else "false" for name, on in selected.items()},
+        outputs={
+            **{name: "true" if on else "false" for name, on in selected.items()},
+            "auth_health_only": "false",
+        },
         results=results,
     )
 
@@ -149,14 +140,19 @@ def _run_step(step: dict, run: Run, tmp_path: Path) -> subprocess.CompletedProce
     script = tmp_path / "step.sh"
     script.write_text(_resolve(step["run"], run), encoding="utf-8")
     env = {key: _resolve(str(value), run) for key, value in (step.get("env") or {}).items()}
+    summary = tmp_path / f"step-summary-{len(list(tmp_path.glob('step-summary-*.md')))}.md"
+    env["GITHUB_STEP_SUMMARY"] = str(summary)
     # GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail {0}`.
-    return subprocess.run(  # noqa: S603 - executes the repository's own gate script
+    completed = subprocess.run(  # noqa: S603 - executes the repository's own gate script
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],  # noqa: S607
         env={**os.environ, **env},
         capture_output=True,
         text=True,
         check=False,
     )
+    if summary.exists():
+        completed.stdout += "\n" + summary.read_text(encoding="utf-8")
+    return completed
 
 
 def _verdict(run: Run, tmp_path: Path) -> tuple[bool, str]:
@@ -298,6 +294,33 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     assert passed, (
         f"{name}: CI Status Gate failed a green run, so the failures above prove nothing:\n{output}"
     )
+
+
+def test_summary_reports_selected_unselected_blocked_and_first_failure(
+    tmp_path: Path,
+) -> None:
+    run = _selected(frontend=True).with_result("web-targeted-check", "skipped")
+    passed, output = _verdict(run, tmp_path)
+    assert not passed
+    assert "| Frontend | selected |" in output
+    assert "| Backend | unselected |" in output
+    assert "| Auth-health focus | unselected |" in output
+    assert "First failure: **Web Targeted (skipped)**." in output
+
+    blocked = replace(_selected(), outputs={**_selected().outputs, "editor": ""})
+    passed, output = _verdict(blocked, tmp_path)
+    assert not passed
+    assert "| Editor | blocked (unknown selection) |" in output
+
+    for scope, expected in (
+        ("frontend", "diagnostic-only dispatch scope 'frontend'"),
+        ("unknown", "unknown dispatch scope 'unknown'"),
+    ):
+        dispatch = replace(_dispatch(_selected(frontend=True)), scope=scope)
+        passed, output = _verdict(dispatch, tmp_path)
+        assert not passed
+        assert f"First failure: **{expected}**." in output
+        assert "none; all required checks passed" not in output
 
 
 def test_retry_preserves_job_outcomes_without_a_standalone_worker(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from hushh_mcp.one_adk.profile_research import ProfileSource
 
+# graded by readiness exam: pwm.confirmed_guidance
 QUERY_INSTRUCTION = (
     "Write one public-search query from the admitted research request. "
     "Use only exact supplied fields, selected public URLs, received anchors and "

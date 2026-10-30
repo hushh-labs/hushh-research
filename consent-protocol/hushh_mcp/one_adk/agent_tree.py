@@ -1945,6 +1945,7 @@ async def open_gmail_email_draft(
     body: str = "",
     recipient_names: str = "",
     cc_names: str = "",
+    recipient_choices: str = "",
 ) -> dict[str, Any]:
     """Open an editable Gmail draft for an explicit personal-email request.
 
@@ -1952,7 +1953,9 @@ async def open_gmail_email_draft(
     pass the name exactly as said in recipient_names (cc_names for cc), unless
     EMAIL ADDRESSING says this app needs addresses: the app matches the owner's
     active connections, never guesses an address, and reports an ambiguous or
-    unknown name instead of opening the draft. A selected Drive file goes in
+    unknown name instead of opening the draft. When that question offers
+    choices, put the refs of the ones the owner picks in recipient_choices,
+    comma-separated, for To. A selected Drive file goes in
     drive_file_id exactly; the app reviews it before Send. The result says whether
     Gmail can send. This client-only draft never contacts Gmail or sends; its
     recipients, subject and body never enter persisted state, and only the owner's
@@ -1982,6 +1985,7 @@ async def open_gmail_email_draft(
 
     fields = {"to": to, "cc": cc, "bcc": bcc, "subject": subject, "body": body}
     fields |= {"recipient_names": recipient_names, "cc_names": cc_names}
+    fields |= {"recipient_choices": recipient_choices}
     refusal = draft_field_refusal(fields, drive_file_id)
     if refusal is not None:
         return refusal

@@ -438,6 +438,40 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("group: " + group, source)
         self.assertIn("steps.retention.outputs.checkpoint_ready == 'true'", source)
 
+    def test_manual_inspection_runs_at_each_boundary_without_forcing_the_clock(self):
+        source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        guards = [line.strip() for line in source.splitlines() if "--force-inspection" in line]
+        self.assertEqual(len(guards), 6)  # Select, under-lock recheck, execution; both environments.
+        for guard in guards:
+            for event in ["workflow_dispatch", "schedule", "repository_dispatch"]:
+                with self.subTest(guard=guard, event=event):
+                    result = subprocess.run(
+                        ["/bin/bash", "-eu", "-c", 'flags=(); ' + guard + '; printf "%s" "${flags[*]-}"'],
+                        env={"GITHUB_EVENT_NAME": event}, capture_output=True, text=True, timeout=5,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "--force-inspection" if event == "workflow_dispatch" else "")
+
+
+class InspectionPublicationTests(unittest.TestCase):
+    def test_failed_inspection_is_not_mistaken_for_a_failed_mutation(self):
+        import retention_publication as publication
+        class UnsafeState(RuntimeError):
+            pass
+        workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        for environment, label in (("uat", "UAT"), ("production", "Production")):
+            expression = "github.event_name == 'workflow_dispatch' && !inputs.apply"
+            self.assertIn(expression + f" && '{label} revision inspection' || '{label} bounded revision cleanup'", workflow)
+            job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
+                {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
+                {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
+            owner = types.SimpleNamespace(retention=types.SimpleNamespace(UnsafeState=UnsafeState),
+                api=lambda *args: {"jobs": [job], "total_count": 1}, guard_only_preflight_proof=lambda *args: None)
+            self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+            job["name"] = f"{label} bounded revision cleanup"
+            with self.assertRaisesRegex(UnsafeState, "without publishing"):
+                publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,7 +29,7 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/app-ui/native-workspace-seat", ["NativeWorkspaceSeat"]],
   ["@/components/app-ui/app-edge-back-gesture", ["AppEdgeBackGesture"]],
   ["@/components/app-ui/app-profile-edge-gesture", ["AppProfileEdgeGesture"]],
-  ["@/components/app-ui/top-shell-route-swipe", ["TopShellRouteSwipe"]],
+  ["@/components/ria/layout/ria-aware-route-swipe", ["RiaAwareTopShellRouteSwipe"]],
   ["@/lib/agent/agent-runtime-context", ["AgentRuntimeStateProvider"]],
   ["@/components/agent/siri-one-voice-handoff", ["SiriOneVoiceHandoff"]],
   ["@/components/agent/siri-one-request-handoff", ["SiriOneRequestHandoff"]],

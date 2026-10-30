@@ -119,7 +119,7 @@ These are browser-harness CSS pixels. Shared hit targets, safe-area and responsi
 
 ## Typography before and after
 
-Both aliases resolve to bundled Plus Jakarta Sans. Effective representative before values come from the actual `b34d1e93` page rendered at393/1440; after targets and source owners are fully listed in [the role comparison](./location-typography-roles.md). The full [per-text ledger](./location-coverage.md) distinguishes source declarations from measured computed values and records missing observations.
+Both aliases resolve to bundled Plus Jakarta Sans. Effective representative before values come from the actual `b34d1e93` page rendered at393/1440; after targets and source owners are fully listed in [the role comparison](./location-typography-roles.md). The full [historical per-text inventory](./location-coverage.md) distinguishes source declarations from measured computed values and records missing observations.
 
 | Representative role | Before | After |
 | --- | --- | --- |

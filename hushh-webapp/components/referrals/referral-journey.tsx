@@ -38,7 +38,7 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
                 <span className={styles.markerNumber}>02</span>
               </span>
               <div className={styles.stepCopy}>
-                <h3>They finish setup and use the private agent</h3>
+                <h3>They finish setup and use Agent One</h3>
               </div>
             </li>
             <li className={styles.qualify}>
@@ -71,7 +71,7 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
               { id: "referral", title: "Referral activity", description: `Join: ${policy.points.referral_in_progress_points ?? 0} coins; qualified: ${policy.points.referral_qualified_activity_total_points ?? 0} total activity coins`, amount: policy.points.referral_qualified_activity_total_points ?? 0, unit: "coins", icon: Users },
               { id: "pkm", title: "Memory updates", description: "Save memory once per day", amount: policy.points.pkm_daily_points ?? 0, unit: "coins", icon: Brain },
               { id: "connections", title: "Connection Builder", description: "Each new connection", amount: policy.points.connection_created_points ?? 0, unit: "coins", icon: Users },
-              { id: "agents", title: "Agent usage", description: "Each completed private-agent reply", amount: policy.points.agent_usage_points ?? 0, unit: "coins", icon: MessageCircle },
+              { id: "agents", title: "Agent usage", description: "Each completed Agent One reply", amount: policy.points.agent_usage_points ?? 0, unit: "coins", icon: MessageCircle },
             ].filter(({ amount, id }) => amount > 0 && (id !== "flash" || policy.flash_bonus_enabled !== false)).map(({ id, title, description, amount, unit, icon: Icon }) => (
               <article key={id} className={styles.rewardRow} data-earning={id}>
                 <span className={styles.earningIcon} aria-hidden="true"><Icon weight="regular" /></span>

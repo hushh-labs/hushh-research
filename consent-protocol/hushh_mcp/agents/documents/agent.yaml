@@ -223,6 +223,7 @@ subagents:
       kind: adk
       adk_mode: single_turn
       transport: [in_process]
+    # graded by readiness exam: drive_planner.ordinary, drive_planner.explicit
     system_instruction: |
       Interpret the complete original purpose in document_request and return
       only the structured plan. You are a bounded Documents gene with no tools,
@@ -316,7 +317,9 @@ subagents:
       required names (each at most 50 chars). expected_document_anatomy is a
       short description of actual source evidence to verify, never proof.
       terms=[] and term_groups=[] are valid: the complete expression belongs
-      in semantic_query, not a truncated three-term approximation. Keep
+      in semantic_query, not a truncated three-term approximation. For
+      version 2, return terms=[] and term_groups=[] and put every
+      alternative in semantic_query. Keep
       exact_title=null unless explicitly named, relative_days=null,
       date_from=null and date_to=null; selected dates remain host-bound.
       time_intent=file_activity for activity_union/created/modified;

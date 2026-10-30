@@ -198,8 +198,10 @@ tests/test_one_external_read_projection.py
 # Mail routing has one owner per request kind; named recipients resolve only from active connections.
 tests/test_one_mail_instruction.py
 tests/test_one_email_draft_recipients.py
+tests/test_one_email_draft_readiness.py
 # Receipt functions use the native client continuation, owner binding and ephemeral history projection.
 tests/test_receipt_client_tools.py
+tests/test_receipt_continuation_replay.py
 tests/test_receipt_result_contract.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
@@ -237,6 +239,7 @@ tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
+tests/services/test_gmail_receipt_unverified_page.py
 tests/services/test_gmail_receipt_amounts.py
 tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py
@@ -310,6 +313,10 @@ tests/services/test_pkm_source_quote.py
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
+# Only verified advisors reach RIA Picks and investor data: the shared gate
+# refuses everyone else (403) before any service runs.
+tests/test_ria_verification_hardening.py
+tests/test_ria_picks_routes.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py
@@ -469,6 +476,10 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_auth_health_lease_rest.py
+tests/test_auth_health_read_diagnostics.py
+tests/test_auth_health_deployment.py
+tests/test_auth_health_wif_scopes.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -493,6 +504,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_direct_uat_acceptance.py
 tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
@@ -880,6 +892,7 @@ tests/test_personal_agent_cloud_assignment.py
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
 tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
+tests/one_adk/test_azure_workload_identity.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.
 tests/routes/test_agent_chat_turn_restore.py
@@ -1002,6 +1015,7 @@ tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
+tests/test_managed_azure_accounts.py
 tests/test_managed_runtime_selection.py
 tests/test_memory_judge.py
 tests/test_model_access_policy.py
@@ -1425,6 +1439,7 @@ tests/test_referral_settings_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
+tests/test_pkm_memory_proposal_outcome.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
@@ -1546,6 +1561,12 @@ tests/test_todo_wallet_inventory_postgres.py
 
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
+tests/scripts/test_probe_drive_activity_planner.py
+tests/scripts/test_readiness_exam_manifest.py
+tests/scripts/test_readiness_transport_repeat.py
+tests/test_uat_readiness_verdict_collector.py
+tests/scripts/test_root_roundtrip_reasons.py
+tests/scripts/test_readiness_exam_premerge.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 
@@ -1566,6 +1587,7 @@ tests/test_phone_schema_origin.py
 tests/test_phone_schema_history_compatibility.py
 tests/test_phone_schema_legacy_job.py
 tests/test_phone_schema_job_history.py
+tests/test_auth_health_inventory.py
 
 # Phone recovery authority, packaged rollback reader and provider receipts.
 # Full phone UI/SQL proof runs in the mandatory Integration browser gate.

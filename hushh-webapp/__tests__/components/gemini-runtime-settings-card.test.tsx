@@ -360,7 +360,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("status")).toHaveTextContent(
-      "private agent is being built",
+      "Agent One is being built",
     );
     expect(toastSuccessMock.mock.calls[0][1]?.description).toBeUndefined();
   });

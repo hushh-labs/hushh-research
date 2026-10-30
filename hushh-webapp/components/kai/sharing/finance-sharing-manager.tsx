@@ -1,7 +1,6 @@
 "use client";
 
 import { PersonProfileButton } from "@/components/connections/person-profile-button";
-
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
@@ -94,8 +93,8 @@ export function FinanceSharingManager({ open, onOpenChange, hasPortfolio = true 
       {busy && !items.length ? <p role="status" className="py-8 text-sm">Checking access…</p> : null}
       {!busy && !items.length && !error ? <p className="py-8 text-sm text-muted-foreground">{ready ? "No Finance shares yet." : "Unlock your vault to manage sharing."}</p> : null}
       {items.map(item => <article key={item.id} className={styles.grantRow}>
-        <div className={styles.grantHeader}><div className={styles.grantPerson}><PersonProfileButton personRef={direction === "outgoing" ? item.recipientPersonRef : undefined} userId={direction === "outgoing" ? item.recipientUserId : item.ownerUserId} label={(direction === "outgoing" ? item.recipientName : item.senderName) || "this person"} className={styles.grantAvatar}>{(direction === "outgoing" ? item.recipientName : item.senderName)?.trim().slice(0, 1).toUpperCase() || "?"}</PersonProfileButton><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Ongoing access"}</p></div></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
-        <div className={styles.grantInfo}><div><p className="text-sm capitalize">{item.policy.sections.join(" · ")}</p><p className={`${styles.caption} mt-2`}>Amounts {item.policy.showAmounts ? "included" : "hidden"} · Private-agent review {item.policy.model_processing.allowed ? "allowed" : "off"}</p></div>
+        <div className={styles.grantHeader}><div className={styles.grantPerson}><PersonProfileButton personRef={direction === "outgoing" ? item.recipientPersonRef : undefined} userId={direction === "outgoing" ? item.recipientUserId : item.ownerUserId} label={(direction === "outgoing" ? item.recipientName : item.senderName) || "this person"} className={styles.grantAvatar}>{(direction === "outgoing" ? item.recipientName : item.senderName)?.trim().slice(0, 1).toUpperCase() || "?"}</PersonProfileButton><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Real time"}</p></div></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
+        <div className={styles.grantInfo}><div><p className="text-sm capitalize">{item.policy.sections.join(" · ")}</p><p className={`${styles.caption} mt-2`}>Amounts {item.policy.showAmounts ? "included" : "hidden"} · Agent One review {item.policy.model_processing.allowed ? "allowed" : "off"}</p></div>
           <dl className={styles.grantDates}><div><dt>Access ends</dt><dd>{item.expiresAt ? accessDate(item.expiresAt) : direction === "outgoing" ? "When you stop sharing" : "When the owner stops sharing"}</dd></div><div><dt>Last shared</dt><dd>{accessDate(item.updatedAt)}</dd></div></dl>
         </div>
         {direction === "outgoing" && item.status === "active" && item.policy.mode === "ongoing" && owner ? <div className="mt-2"><p className={styles.caption}>{financePublicationState(owner, item.id) === "source_changed" ? "Updates paused: the portfolio account/source roster changed. Review and share a new view." : financePublicationState(owner, item.id) === "unavailable" ? "The latest update could not be published. No new information has been shared." : "Updates from approved saved information while One is open and unlocked."}</p>{financePublicationState(owner, item.id) === "unavailable" ? <ShellActionSurface variant="pill" onClick={() => window.dispatchEvent(new Event("finance-sharing-changed"))}>Retry saved update</ShellActionSurface> : null}</div> : null}
@@ -105,7 +104,7 @@ export function FinanceSharingManager({ open, onOpenChange, hasPortfolio = true 
     </KaiControlSurface>
     <FinanceSharedDetail grantId={selected} onClose={() => setSelected(null)} />
     <KaiControlSurface open={Boolean(stopping)} onOpenChange={value => { if (!value) setStopping(null); }} title={`Stop sharing with ${stopping?.recipientName || "this person"}?`}
-      description="Their access and private-agent review will end." surfaceClassName={finance.detail}
+      description="Their access and Agent One review will end." surfaceClassName={finance.detail}
       footer={<div className={styles.toolbar}><ShellActionSurface variant="pill" disabled={busy} onClick={() => setStopping(null)}>Keep sharing</ShellActionSurface><ShellActionSurface variant="pill" disabled={busy} onClick={() => void stop()}>{busy ? "Stopping…" : "Stop sharing"}</ShellActionSurface></div>}>
       <p className="text-sm leading-[21px]">Other recipients keep their own access. Information already copied or saved cannot be recalled.</p>
       {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}

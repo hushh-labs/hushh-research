@@ -3,7 +3,9 @@ import { IDBFactory } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { unavailableReceiptAnalysis } from "@/lib/mail/receipt-availability";
-import { receiptCallRequest, receiptCallRunner } from "@/lib/services/agent-chat-receipt-calls";
+import { receiptStoreVersion, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
+import { captureReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
+import { receiptCallRequest, receiptCallRunner, settleReceiptCalls } from "@/lib/services/agent-chat-receipt-calls";
 import { sendChatTurn } from "@/lib/services/pod-chat-turn-transport";
 
 const connector = vi.hoisted(() => ({ status: null as null | { configured: boolean; connected: boolean; revoked: boolean } }));
@@ -46,6 +48,68 @@ describe("receipt calls on a device with no saved receipts", () => {
     expect(setup).not.toHaveBeenCalled();
   });
 
+  it("syncs a connected device once for the turn and answers from what it saved; a failed sync stays not synced", async () => {
+    connector.status = { configured: true, connected: true, revoked: false };
+    const sync = vi.fn(async (_session: unknown, onStart: () => void) => {
+      onStart();
+      const snapshot = await captureReceiptSnapshot([], "account", { partial: false, truncated: false, source_count: 0, window_from: null, window_to: null, source: "gmail_live" });
+      await writeReceiptSnapshot(session, snapshot, await receiptStoreVersion("owner", "account"));
+      return "synced" as const;
+    });
+    const setup = vi.fn();
+    const run = receiptCallRunner(session, setup, sync);
+    const results = await Promise.all([run("list_recent_receipts", list), run("receipt_spending", { ...list, group_by: "merchant" })]);
+    expect(results).toEqual([expect.objectContaining({ status: "ok" }), expect.objectContaining({ status: "ok" })]);
+    expect(sync).toHaveBeenCalledOnce();
+    expect(setup.mock.calls).toEqual([["syncing"], ["synced"]]);
+    // Negative control: a sync that failed or ran out of time never claims success.
+    Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true });
+    const failedSetup = vi.fn();
+    await expect(receiptCallRunner(session, failedSetup, async (_s, onStart) => (onStart(), "failed"))("list_recent_receipts", list))
+      .resolves.toMatchObject({ code: "receipts_not_synced" });
+    expect(failedSetup.mock.calls).toEqual([["syncing"], ["sync_required"]]);
+  });
+
+  it("answers from the pages a sync saved before it ran out of time, saying the sync is incomplete", async () => {
+    connector.status = { configured: true, connected: true, revoked: false };
+    const setup = vi.fn();
+    const result = await receiptCallRunner(session, setup, async (_s, onStart) => {
+      onStart();
+      const partial = await captureReceiptSnapshot([], "account", { partial: true, truncated: false, source_count: 0, window_from: null, window_to: null, source: "gmail_live" });
+      await writeReceiptSnapshot(session, partial, await receiptStoreVersion("owner", "account"));
+      return "failed";
+    })("list_recent_receipts", list);
+    // Negative control: these saved pages were thrown away as "not synced" with an Open receipts card.
+    expect(result).toMatchObject({ status: "ok", limitations: expect.arrayContaining(["Receipt sync is incomplete, so some receipts may be missing."]) });
+    expect(setup.mock.calls).toEqual([["syncing"], ["sync_incomplete"]]);
+  });
+
+  it("never leaves the syncing card on a turn whose receipts can't be read after its sync", async () => {
+    connector.status = { configured: true, connected: true, revoked: false };
+    const live = { ...session };
+    const setup = vi.fn();
+    const result = await receiptCallRunner(live, setup, async (_s, onStart) => {
+      onStart();
+      live.vaultOwnerToken = ""; // The store now refuses the read instead of finding nothing.
+      return "synced";
+    })("list_recent_receipts", list);
+    expect(result).toMatchObject({ code: "receipt_snapshot_unavailable" });
+    expect(setup.mock.calls).toEqual([["syncing"], ["sync_incomplete"]]);
+  });
+
+  it("reports activity while a long device sync runs, so the turn never reads as a quiet connection", async () => {
+    vi.useFakeTimers();
+    try {
+      const activity: number[] = [];
+      const settled = settleReceiptCalls([new Promise(resolve => setTimeout(() => resolve("done"), 40_000))], undefined, () => activity.push(Date.now()));
+      await vi.advanceTimersByTimeAsync(40_000);
+      await expect(settled).resolves.toEqual(["done"]);
+      const gaps = [...activity, Date.now()].map((at, index, all) => index ? at - all[index - 1]! : 0);
+      expect(activity.length).toBeGreaterThan(1);
+      expect(Math.max(...gaps)).toBeLessThan(35_000);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("sends a version 1 owner pod the generic result and still offers setup; the hub gets the exact code", async () => {
     connector.status = disconnected;
     const setup = vi.fn();
@@ -66,9 +130,11 @@ describe("receipt calls on a device with no saved receipts", () => {
 
   it("admits a receipt call only for this owner turn's zone and capacity", () => {
     const streamed = JSON.stringify({ ...list, attention: "needs_attention" });
-    expect(receiptCallRequest("list_recent_receipts", streamed, {}, "UTC", true)).toEqual({ ...list, attention: "needs_attention" });
-    expect(receiptCallRequest("list_recent_receipts", undefined, list, "Asia/Kolkata", true)).toBeNull();
-    expect(receiptCallRequest("list_recent_receipts", undefined, list, "UTC", false)).toBeNull();
-    expect(receiptCallRequest("list_recent_receipts", "!", list, "UTC", true)).toBeNull();
+    expect(receiptCallRequest("list_recent_receipts", streamed, {}, "UTC", true)).toEqual({ kind: "admitted", request: { ...list, attention: "needs_attention" } });
+    expect(receiptCallRequest("list_recent_receipts", undefined, list, "Asia/Kolkata", true)).toEqual({ kind: "refused" });
+    expect(receiptCallRequest("list_recent_receipts", undefined, list, "UTC", false)).toEqual({ kind: "refused" });
+    // Schema-invalid arguments are the hub's to answer; an inadmissible turn is still refused first.
+    expect(receiptCallRequest("list_recent_receipts", "!", list, "UTC", true)).toEqual({ kind: "invalid" });
+    expect(receiptCallRequest("receipt_spending", undefined, {}, "UTC", false)).toEqual({ kind: "refused" });
   });
 });

@@ -1,5 +1,6 @@
 """Azure planner and search instructions over the shared authored PWM specialist."""
 
+# graded by readiness exam: pwm.confirmed_guidance
 _PLAN_INSTRUCTION = """Plan one bounded public-web research step for the verified owner.
 Return action=search and a QueryPlan, or action=finish and plan=null.
 Use only available seeds, explicitly approved owner_confirmed_research_leads, and

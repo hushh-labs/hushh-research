@@ -25,6 +25,7 @@ from typing import Literal
 import release_artifact_receipts
 import production_phone_receipt
 import production_phone_lease
+import production_phone_nonproducer
 import production_retention_context
 
 retention = importlib.import_module("cloudrun-retention")
@@ -49,6 +50,9 @@ LANES = {
         "workflow": "deploy-production.yml",
         "prefix": "prod",
         "deploy_job": "Deploy Production Scope",
+        "deploy_job_aliases": tuple(
+            sorted(production_phone_nonproducer.PRODUCTION_JOB_NAME_ALIASES)
+        ),
         "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
         "services": {"consent-protocol": 2, "hushh-webapp": 10, "consent-protocol-drive-worker": 1},
@@ -1585,7 +1589,7 @@ def checkpoint(args, run_id, observed, pending, status):
         receipt_file,
         {
             "schema_version": 1,
-            "checkpoint_version": 2,
+            "checkpoint_version": 3 if status == "preparing" else 2,
             "environment": args.environment,
             "project": LANES[args.environment]["project"],
             "release_run_id": run_id,

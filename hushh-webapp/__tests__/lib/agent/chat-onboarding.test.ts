@@ -66,7 +66,7 @@ describe("chat onboarding sequence", () => {
     expect(started.state.step).toBe("name");
     const welcome = started.state.turns[0]!;
     expect(welcome.role).toBe("assistant");
-    expect(welcome.text).toMatch(/^Welcome, Kushal\. I'm One, your private agent on Hussh\./);
+    expect(welcome.text).toMatch(/^Welcome, Kushal\. I'm Agent One on Hussh\./);
     expect(welcome.text).not.toMatch(/—/); // no em dashes
     expect(welcome.chips?.map((c) => c.label)).toEqual(["Call me Kushal", "Something else", "Skip this question"]);
 
