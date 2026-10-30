@@ -988,6 +988,7 @@ tests/test_consent_signing_dev_rollout_contract.py
 tests/test_consent_token_asymmetric.py
 tests/test_database_connection_ceiling.py
 tests/test_dco_signoff_is_unmissable.py
+tests/test_dco_history_sync.py
 tests/test_debug_route_is_local_only.py
 tests/test_deprovision_routes_by_the_row.py
 tests/test_dev_migration_lane.py
