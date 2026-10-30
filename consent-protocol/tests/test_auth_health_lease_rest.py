@@ -4,6 +4,7 @@
 
 import importlib.util
 import json
+import ssl
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +25,15 @@ def load_auth_health_job():
 def install_lease_http(monkeypatch, module, metadata_responses, storage_responses):
     queues = {"metadata": list(metadata_responses), "storage": list(storage_responses)}
     records = {"requests": [], "connections": [], "responses": []}
+    monkeypatch.setattr(
+        module.ssl,
+        "create_default_context",
+        lambda: SimpleNamespace(
+            verify_mode=ssl.CERT_REQUIRED,
+            check_hostname=True,
+            cert_store_stats=lambda: {"x509_ca": 1},
+        ),
+    )
 
     class FakeResponse:
         def __init__(self, status, headers, body):
@@ -78,6 +88,39 @@ def install_lease_http(monkeypatch, module, metadata_responses, storage_response
     monkeypatch.setattr(module.http.client, "HTTPConnection", connection_type("metadata"))
     monkeypatch.setattr(module.http.client, "HTTPSConnection", connection_type("storage"))
     return records, queues
+
+
+def test_verified_tls_context_requires_the_platform_default_trust_roots(monkeypatch):
+    module = load_auth_health_job()
+    context = SimpleNamespace(
+        verify_mode=ssl.CERT_REQUIRED,
+        check_hostname=True,
+        cert_store_stats=lambda: {"x509_ca": 1},
+    )
+    monkeypatch.setattr(module.ssl, "create_default_context", lambda: context)
+    assert module._verified_tls_context() is context
+
+
+@pytest.mark.parametrize(
+    ("verify_mode", "check_hostname", "ca_count"),
+    [
+        (ssl.CERT_REQUIRED, True, 0),
+        (ssl.CERT_NONE, True, 1),
+        (ssl.CERT_REQUIRED, False, 1),
+    ],
+)
+def test_verified_tls_context_refuses_missing_roots_or_disabled_verification(
+    monkeypatch, verify_mode, check_hostname, ca_count
+):
+    module = load_auth_health_job()
+    context = SimpleNamespace(
+        verify_mode=verify_mode,
+        check_hostname=check_hostname,
+        cert_store_stats=lambda: {"x509_ca": ca_count},
+    )
+    monkeypatch.setattr(module.ssl, "create_default_context", lambda: context)
+    with pytest.raises(ValueError, match="Default TLS trust configuration"):
+        module._verified_tls_context()
 
 
 def test_cloud_storage_lease_uses_exact_metadata_identity_and_pinned_generation(
