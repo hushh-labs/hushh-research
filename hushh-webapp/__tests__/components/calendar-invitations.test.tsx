@@ -14,6 +14,7 @@ import type { CalendarInvitation } from "@/lib/services/google-calendar-service"
 
 const pending: CalendarInvitation = { id: "client-instance", calendar_id: "work@example.test", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:45:00Z" }, response_status: "needsAction", can_respond: true, conflicts: [], organizer: { displayName: "Priya Mehta", email: "priya@example.test" }, description: "<p>Review the roadmap</p>", attendees: [{ email: "owner@example.test", self: true, response_status: "needsAction" }, { email: "priya@example.test", display_name: "Priya", response_status: "accepted" }], conference_url: "https://meet.google.com/abc-defg-hij", conference_name: "Google Meet" };
 let invitations: CalendarInvitation[];
+let visiblePeople: Record<string, { userId: string; photoUrl: string }>;
 let outcome = { calendar: "accepted", email: "not_sent", calendar_error: null, email_error: null };
 const onConnect = vi.fn(), onMailConnect = vi.fn(), onResult = vi.fn();
 function view(extra: object = {}) { return <CalendarInvitations userId="owner" accountEmail="owner@example.test" zone="UTC" getIdToken={async () => "synthetic-firebase"} onConnect={onConnect} onMailConnect={onMailConnect} onResult={onResult} {...extra} />; }
@@ -26,10 +27,11 @@ beforeEach(() => {
   CacheService.getInstance().clear();
   vi.clearAllMocks(); mock.token = "synthetic-owner";
   invitations = [structuredClone(pending), { ...structuredClone(pending), id: "declined", title: "Declined Review", response_status: "declined" }];
+  visiblePeople = {};
   outcome = { calendar: "accepted", email: "not_sent", calendar_error: null, email_error: null };
   mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body));
-    if (path.endsWith("/invitations")) return response({ events: invitations, pending_count: invitations.filter(e => e.response_status === "needsAction").length, unreadable_calendars: [], start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", time_zone: "UTC", complete: true });
+    if (path.endsWith("/invitations")) return response({ events: invitations, people: visiblePeople, pending_count: invitations.filter(e => e.response_status === "needsAction").length, unreadable_calendars: [], start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", time_zone: "UTC", complete: true });
     if (path.includes("/attendance/") && path.endsWith("/review")) return response({ review_id: "review-id", review_token: "memory-only-review", title: pending.title, start: pending.start, end: pending.end, response_status: body.response_status, conflicts: body.response_status === "accepted" ? [{ title: "Existing meeting", start: pending.start, end: pending.end }] : [], recipient: body.offer_times || body.send_message ? "priya@example.test" : null, subject: body.offer_times ? "Another time for Client Sync" : body.send_message ? "Unable to attend: Client Sync" : null, message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#encrypted-capability` : body.send_message ? body.message : null, openings: body.offer_times ? [{ start_at: "2030-10-15T10:00:00Z", end_at: "2030-10-15T10:45:00Z" }] : [], expires_at: "2030-10-14T09:00:00Z" });
     if (path.includes("/attendance/") && path.endsWith("/confirm")) {
       invitations[0] = { ...invitations[0]!, response_status: outcome.calendar as "accepted" | "declined" };
@@ -80,12 +82,12 @@ describe("shared page/chat Invitations with real typed transport", () => {
 
   it("uses the same HUSSH photo for organizer, verified self and guests without a Google photo read", async () => {
     const photo = "data:image/png;base64,aGVsbG8=";
-    const googlePhoto = "https://lh3.googleusercontent.com/a/owner=s96-c";
+    visiblePeople = { "priya@example.test": { userId: "priya", photoUrl: photo } };
     const calendarPeople = new Map([
       ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
       ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
     ]);
-    render(view({ workspaceLayout: true, calendarPeople, accountPhotoUrl: googlePhoto }));
+    render(view({ workspaceLayout: true, calendarPeople }));
     const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
     expect(card.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
     fireEvent.click(card);
@@ -94,6 +96,36 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(guests.find(guest => guest.textContent?.includes("You"))?.querySelector("[data-photo-url]"))?.toHaveAttribute("data-photo-url", photo);
     expect(mock.apiFetch.mock.calls.every(([path]) => !String(path).includes("guest-photo-token"))).toBe(true);
     expect(screen.queryByRole("button", { name: "Show Google contact photos" })).toBeNull();
+  });
+
+  it("shows a Connect-visible nonconnection's verified photo in both chat and workspace invitations", async () => {
+    const photo = "data:image/png;base64,aGVsbG8=";
+    visiblePeople = { "manish@example.test": { userId: "manish", photoUrl: photo } };
+    invitations[0]!.attendees?.push({ email: "manish@example.test", display_name: "Manish", response_status: "declined" });
+    const chat = render(view());
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    expect(screen.getByText("Manish").closest("li")?.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+    chat.unmount();
+
+    render(view({ workspaceLayout: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    const guest = within(screen.getByRole("list", { name: "Guests" })).getByRole("listitem", { name: /manish/i });
+    expect(guest.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+  });
+
+  it("does not render a stale Connection photo when the fresh invitation lookup omits that email", async () => {
+    const photo = "data:image/png;base64,aGVsbG8=";
+    const calendarPeople = new Map([
+      ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
+      ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
+    ]);
+    render(view({ workspaceLayout: true, calendarPeople }));
+    const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+    expect(card.querySelector("[data-photo-source=hussh]")).toBeNull();
+    fireEvent.click(card);
+    const guests = within(screen.getByRole("list", { name: "Guests" })).getAllByRole("listitem");
+    expect(guests.find(guest => guest.textContent?.includes("Priya"))?.querySelector("[data-photo-source=hussh]")).toBeNull();
+    expect(guests.find(guest => guest.textContent?.includes("You"))?.querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
   });
 
   it("does not invent an organizer response when the organizer is absent from attendees", async () => {

@@ -98,7 +98,10 @@ export async function persistMemoryScopeSlices(params: MemoryProjectionSession &
     return JSON.stringify(facts);
   };
   // No content-derived receipt: slices can change back to earlier content,
-  // and the server refuses a receipt reused at a newer base revision.
+  // and the server refuses a receipt reused at a newer base revision. The build
+  // carries the whole fresh domain, so it replaces it: a deep merge kept a field
+  // the owner deleted inside a rebuilt slice, and paid answers then reused it.
+  // (Inline, so paid retrieval never imports the Live Mirror source model.)
   const result = await PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
     confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
@@ -113,7 +116,7 @@ export async function persistMemoryScopeSlices(params: MemoryProjectionSession &
       for (const slice of params.slices) slices[slice.scope] = slice;
       return { unchanged, domainData: { ...current, _private: { ...privateData, memory_document: {
         ...projection, schemaVersion: "source_linked_memory.v1", name: "memory.md", scopeSlices: slices,
-      } } }, summary: { source_projection_complete: true } };
+      } } }, mergeDecision: { merge_mode: "replace_domain" }, summary: { source_projection_complete: true } };
     },
   });
   if (!result.success) throw new Error("Encrypted memory scope slices could not be stored");

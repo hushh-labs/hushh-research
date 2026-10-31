@@ -11,6 +11,7 @@ import { maskSecretSpans, omitCredentialsFromMemory } from "@/lib/pkm/secret-spa
 import { emptySoulDocument, insertSoulFacts, isSoulFact, normalizeSoulDocument, soulFactText, type SoulFact, type SoulSection } from "@/lib/pkm/soul-document";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { RecoveryCheckpointUnreadableError } from "@/lib/services/recovery-checkpoint-error";
 import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 import { assertLightweightReceiptFacts, assertReceiptMemoryBudget } from "@/lib/mail/receipt-lightweight-memory";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -743,7 +744,12 @@ export function recoverMarkdownMemorySync(params: {
         if (syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === recoveryKey)) continue;
         const pending = await SecureResourceCacheService.readRequired<MemoryCheckpoint>({
           ...params, resourceKey: recoveryKey,
-        }).catch(() => { readFailed = true; return null; });
+        }).catch((error: unknown) => {
+          // Held: expired by this device's clock, or undecryptable. Replaying the rest stays safe because
+          // corrections match exact bullets and fail closed when staged. Other errors may clear, so stop.
+          if (!(error instanceof RecoveryCheckpointUnreadableError)) readFailed = true;
+          return null;
+        });
         await assertCurrent();
         if (!pending || pending.version !== 1 || pending.userId !== params.userId || !Array.isArray(pending.facts) ||
           pending.facts.some(fact => !isSoulFact(fact)) || !pending.confirmation ||
@@ -752,13 +758,15 @@ export function recoverMarkdownMemorySync(params: {
           (pending.replaceSource !== undefined && !isReplaceSource(pending.replaceSource)) ||
           (pending.receiptSnapshotFence !== undefined && !isReceiptSnapshotFence(pending.receiptSnapshotFence))) continue;
         if (pending.replaceSource) {
-          if (!pending.receiptSnapshotFence || pending.receiptGeneration === undefined || pending.receiptGeneration !== (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation) continue;
-          try { assertLightweightReceiptFacts(pending.facts); } catch { continue; }
-          try { await assertReceiptWriteFence({ ...pending, userId: params.userId }); } catch { continue; }
+          // A receipt summary from a reset or superseded snapshot can never apply: retire it, as the live queue does.
+          let dead = !pending.receiptSnapshotFence || pending.receiptGeneration === undefined || pending.receiptGeneration !== (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation;
+          try { if (!dead) assertLightweightReceiptFacts(pending.facts); } catch { dead = true; }
+          if (!dead) dead = await assertReceiptWriteFence({ ...pending, userId: params.userId }).then(() => false, (error: unknown) => { if (error instanceof ReceiptWriteInvalidatedError) return true; throw error; });
+          if (dead) { await SecureResourceCacheService.invalidateResource(params.userId, recoveryKey); continue; }
         }
         recovered.push({ recoveryKey, pending });
       }
-      // A missing earlier envelope could be a prerequisite for a later correction.
+      // An earlier envelope that may still become readable could be a prerequisite for a later correction.
       if (readFailed) { recoveryLoads.delete(key); return; }
       recovered.sort((a, b) => (a.pending.stagingOrder ?? 0) - (b.pending.stagingOrder ?? 0));
       for (const { recoveryKey, pending } of recovered) {

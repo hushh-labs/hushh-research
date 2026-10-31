@@ -340,7 +340,7 @@ describe("persisted source-linked Profile memory.md", () => {
     state.livingRevision += 1;
     const corrected = await refreshSources(true);
     expect(corrected.status).toBe("current");
-    expect(corrected.document?.markdown).toContain("profile.name · verified");
+    expect(corrected.document?.markdown).toContain(`profile.name · profile:${USER} · revision 3`);
     expect(corrected.document?.markdown).toContain("Ankit");
     expect(corrected.document?.markdown).not.toContain("Synthetic Ava");
     const lastComplete = structuredClone((state.living._private as Record<string, unknown>).memory_document);

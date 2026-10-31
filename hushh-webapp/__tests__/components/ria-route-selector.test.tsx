@@ -69,6 +69,19 @@ describe("RiaRouteSelector", () => {
     expect(screen.queryByRole("tab", { name: "Picks" })).toBeNull();
   });
 
+  it("still shows where an advisor who is not verified is when they land on Picks", () => {
+    // A link, Search or One can open /ria/picks; the page's gate explains the
+    // lock, and the strip must not point at another tab or leave none selected.
+    navigation.pathname = "/ria/picks";
+    persona.riaOnboardingStatus = { verification_status: "pending" };
+
+    render(<RiaRouteSelector />);
+
+    expect(
+      screen.getByRole("tab", { name: "Picks" }).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("renders the RIA primary selector with route-driven active state", () => {
     navigation.pathname = "/ria/picks";
 

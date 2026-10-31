@@ -34,6 +34,7 @@ vi.mock("@/lib/profile/drive-oauth-popup", async (original) => ({
   notifyDrivePopup: mocks.notify,
 }));
 import Callback from "@/app/one/profile/connectors/oauth/return/page";
+import { markMeetingReviewOAuthReturn, meetingReviewReturnHref, readMeetingReviewOAuthReturn } from "@/lib/consent/meeting-review-return";
 
 const DRIVE_POPUP_ATTEMPT_KEY = "one_drive_popup_attempt_v1";
 const SIGNED_STATE = `synthetic-attempt-id.${"a".repeat(64)}`;
@@ -183,6 +184,38 @@ describe("Drive popup completion", () => {
     render(<Callback />);
     await screen.findByText("Full-page OAuth return");
     expect(mocks.complete).not.toHaveBeenCalled();
+  });
+  it("gives an organizer who started from a meeting-file request a working way back to that request", async () => {
+    markMeetingReviewOAuthReturn("owner-a", "request-0123456789");
+    render(<Callback />);
+    await screen.findByText("Authorization saved. Return to the meeting request.");
+    const link = screen.getByRole("link", { name: "Back to the request" });
+    expect(link.getAttribute("href")).toBe(meetingReviewReturnHref("request-0123456789"));
+    // The context is used once; a later Drive connection is not redirected.
+    expect(readMeetingReviewOAuthReturn("owner-a")).toBeNull();
+    expect(mocks.notify).toHaveBeenCalledOnce();
+    expect(window.close).toHaveBeenCalled();
+  });
+  it("still sends the organizer back to the request when authorization was not completed", async () => {
+    markMeetingReviewOAuthReturn("owner-a", "request-0123456789");
+    mocks.complete.mockRejectedValue(new Error("provider detail"));
+    render(<Callback />);
+    await screen.findByText("Authorization was not completed. Return to the meeting request and try again.");
+    expect(screen.getByRole("link", { name: "Back to the request" }).getAttribute("href"))
+      .toBe(meetingReviewReturnHref("request-0123456789"));
+    expect(document.body.textContent).not.toContain("provider detail");
+  });
+  it("does not use another account's meeting-request context", async () => {
+    markMeetingReviewOAuthReturn("owner-b", "request-0123456789");
+    render(<Callback />);
+    await screen.findByText("Authorization saved. Return to chat.");
+    expect(screen.queryByRole("link", { name: "Back to the request" })).toBeNull();
+    expect(readMeetingReviewOAuthReturn("owner-b")).toEqual({ requestId: "request-0123456789" });
+  });
+  it("keeps the chat wording and no request link when nothing started from a meeting request", async () => {
+    render(<Callback />);
+    await screen.findByText("Authorization saved. Return to chat.");
+    expect(screen.queryByRole("link", { name: "Back to the request" })).toBeNull();
   });
   it("routes a different full-page attempt past a stale Drive popup marker", async () => {
     mocks.fullPageRendered = true;

@@ -1921,6 +1921,7 @@ class GmailReceiptsService:
                 auto_sync_enabled = TRUE,
                 send_enabled = EXCLUDED.send_enabled,
                 send_grant_generation = kai_gmail_connections.send_grant_generation + 1,
+                followup_read_generation = gen_random_uuid(),
                 revoked = FALSE,
                 history_id = COALESCE(EXCLUDED.history_id, kai_gmail_connections.history_id),
                 watch_status = EXCLUDED.watch_status,
@@ -2293,6 +2294,8 @@ class GmailReceiptsService:
                 """,
                 {"user_id": user_id, "watch_enabled": self._watch_enabled()},
                 row,
+                cleanup_sql="""DELETE FROM calendar_email_followup_monitors
+                WHERE user_id = :user_id AND account_id = 'default'""",
             )
 
             active_runs = await self._execute_raw_async(
@@ -2357,6 +2360,17 @@ class GmailReceiptsService:
             """,
             {"user_id": user_id},
         )
+        # Follow-up monitoring is a separate operational store. A primary
+        # Mail disconnect withdraws its authority and erases its pending work;
+        # additional Calendar accounts keep their independent Mail grants.
+        if not row:
+            # A prior partial disconnect or deleted connector row may leave
+            # orphaned operational state. The grant is already absent here.
+            await self._execute_raw_async(
+                """DELETE FROM calendar_email_followup_monitors
+                WHERE user_id = :user_id AND account_id = 'default'""",
+                {"user_id": user_id},
+            )
         confirmed = False
         if row:
             refresh_token = self._decrypt_token(

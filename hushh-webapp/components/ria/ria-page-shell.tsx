@@ -359,10 +359,12 @@ export { isRiaVerified };
 
 export function RiaVerificationGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { riaOnboardingStatus, loading } = usePersonaState();
+  const { riaOnboardingStatus, loading, refreshing } = usePersonaState();
   const status = riaVerificationStatusOf(riaOnboardingStatus);
 
-  if (loading) return null;
+  // A cached persona ends `loading` before the advisor status arrives; while it
+  // is still being fetched the status is unknown, not unverified.
+  if (loading || (refreshing && !riaOnboardingStatus)) return null;
 
   if (!isRiaVerified(status)) {
     return (

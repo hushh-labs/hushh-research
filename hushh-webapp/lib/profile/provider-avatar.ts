@@ -33,6 +33,6 @@ export function providerAvatarAtSize(source: string | null, pixels = 768): strin
 }
 
 export function admittedPortraitSource(source: string): boolean {
-  return source.length <= 410_000 && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(source) ||
+  return source.length <= 410_000 && /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(source) ||
     source.length <= 4096 && googleAvatarSource(source) !== null;
 }

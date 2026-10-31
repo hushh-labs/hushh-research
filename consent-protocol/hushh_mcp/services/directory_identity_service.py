@@ -95,6 +95,45 @@ def active_directory_user_ids(user_ids: Sequence[str], *, use_cache: bool = True
         raise DirectoryIdentityUnavailableError() from None
 
 
+def verified_directory_emails(user_ids: Sequence[str]) -> dict[str, str]:
+    """Read current verified Firebase emails for exact event-to-person binding.
+
+    The public directory can cache an account's enabled status, but a cached
+    email can outlive an email change. Calendar must recheck the current record
+    before attaching that person's portrait to an event attendee address.
+    """
+    candidates = list(dict.fromkeys(uid for uid in user_ids if uid.strip() and len(uid) <= 128))
+    if not candidates:
+        return {}
+    if len(candidates) > 100:
+        raise ValueError("Verified directory lookup is limited to 100 people")
+    try:
+        app = get_firebase_auth_app()
+        if app is None:
+            raise DirectoryIdentityUnavailableError()
+        identities = firebase_uids_for_owner_reads(candidates)
+        if not identities:
+            return {}
+        result = auth.get_users(
+            [auth.UidIdentifier(uid) for uid in dict.fromkeys(identities.values())], app=app
+        )
+        verified = {
+            record.uid: str(record.email).strip().lower()
+            for record in result.users
+            if not record.disabled and record.email_verified and record.email
+        }
+        return {
+            owner: verified[identity_uid]
+            for owner, identity_uid in identities.items()
+            if identity_uid in verified
+        }
+    except DirectoryIdentityUnavailableError:
+        raise
+    except Exception as exc:
+        logger.warning("directory.verified_email_unavailable error=%s", type(exc).__name__)
+        raise DirectoryIdentityUnavailableError() from None
+
+
 def directory_auth_profiles(user_ids: Sequence[str]) -> dict[str, dict[str, str]]:
     """Read public names/photos missing from legacy cache rows, by their UID.
 

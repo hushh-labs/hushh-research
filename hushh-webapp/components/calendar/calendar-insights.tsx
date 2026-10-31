@@ -18,11 +18,15 @@ import type { GoogleCalendarAccount } from "@/lib/services/google-calendar-servi
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarCompactAction } from "./calendar-compact-action";
+import { CalendarFollowups } from "./calendar-followups";
+import type { FollowupRequest } from "@/lib/services/calendar-followups-service";
 import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
-import { focusedStatus, limitationText, meetingTime } from "./calendar-insights-presentation";
-import { FEED_STATE_CHANGED_EVENT, feedStateChangeReason } from "@/lib/feed/feed-events";
+import { focusedStatus, limitationText, meetingTime, requestRecovery, requestStatusText, selectionOf, type RequestRecovery } from "./calendar-insights-presentation";
+import { RequestRecoveryPanel } from "./calendar-request-recovery";
+import { useAccessWatch } from "@/lib/calendar/use-access-watch";
+import { useFeedRefresh } from "@/lib/calendar/use-feed-refresh";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
 import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
@@ -55,13 +59,17 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   </div>;
 }
 
-export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles }: {
+export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
   connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
   getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
+  onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
+  onReviewFollowupMeeting?: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
+  followupRequestId?: string | null;
+  onFollowupIntentHandled?: () => void;
 }) {
-  const [view, setView] = useState<"overview" | "library" | "meeting">(initialLibrary ? "library" : "overview");
+  const [view, setView] = useState<"overview" | "followups" | "library" | "meeting">(initialLibrary ? "library" : "overview");
   const [day, setDay] = useState(initialLibrary?.day || today);
   const previousToday = useRef(today);
   useEffect(() => {
@@ -81,7 +89,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const [requestStep, setRequestStep] = useState<"closed" | "choose" | "confirm">("closed");
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestNotice, setRequestNotice] = useState("");
-  const [offerCopyFallback, setOfferCopyFallback] = useState(false);
+  // Set only by a request that failed; a terminal one has no Send action left.
+  const [requestFailure, setRequestFailure] = useState<RequestRecovery | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -89,7 +98,6 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const refreshBudget = useRef(5);
   const autoAdvance = useRef(0);
   const lastForeground = useRef(0);
-  const lastFeedRefresh = useRef(0);
   const lifetime = useRef<AbortController | null>(null);
   const action = useRef<{ controller: AbortController; popup: Window } | null>(null);
   const loadedPageCount = useRef(0);
@@ -132,7 +140,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     }, 250);
     return () => window.clearTimeout(timer);
   }, [queryInput, searchPending]);
-  useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setOfferCopyFallback(false); }, [actionContext]);
+  useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setRequestFailure(null); }, [actionContext]);
   useEffect(() => () => { action.current?.controller.abort(); action.current?.popup.close(); action.current = null; }, [actionContext]);
   const entryRef = useRef<HTMLButtonElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -179,17 +187,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     const timer = window.setTimeout(() => { refreshBudget.current -= 1; refresh(); }, 60_000);
     return () => window.clearTimeout(timer);
   }, [canRefresh, loading, error, view, revision, refresh]);
-  useEffect(() => {
-    const onFeed = (event: Event) => {
-      if (feedStateChangeReason(event) === "read" || viewRef.current === "overview") return;
-      if (Date.now() - lastFeedRefresh.current < 5_000) return;
-      lastFeedRefresh.current = Date.now();
-      refreshBudget.current = 5;
-      refresh();
-    };
-    window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
-    return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeed);
-  }, [refresh]);
+  useFeedRefresh(refresh, viewRef, refreshBudget);
   useEffect(() => CacheService.getInstance().subscribe(event => {
     if (event.type === "set" && event.key === calendarRefreshKey(userId)) refresh();
   }), [userId, refresh]);
@@ -202,14 +200,14 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       requestAnimationFrame(() => rowRefs.current.get(lastSelectedId.current || "")?.focus());
     } else {
       setView("overview");
-      requestAnimationFrame(() => entryRef.current?.focus());
+      if (view === "library") requestAnimationFrame(() => entryRef.current?.focus());
     }
     return true;
   }, [view]);
-  useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" ? 1 : 0, back);
+  useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" || view === "followups" ? 1 : 0, back);
 
   useEffect(() => {
-    if (!canRefresh) return;
+    if (!canRefresh || view === "followups") return;
     const controller = new AbortController();
     lifetime.current = controller;
     const requestOwner = snapshotValidatedAuthSessionOwner();
@@ -261,11 +259,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
           }
           const vaultToken = getVaultOwnerToken();
           if (vaultToken && value.meetings.length) {
-            const selections = value.meetings.map(meeting => ({
-              account_id: account.account_id, calendar_id: meeting.calendar_id,
-              event_id: meeting.id, occurrence_id: meeting.occurrence_id,
-              expected_grant: meeting.grant_id, date: day, time_zone: zone,
-            }));
+            const selections = value.meetings.map(meeting => selectionOf(meeting, account.account_id, day, zone));
             try {
               const replacements: MeetingRequestOutcome[] = [];
               for (let index = 0; index < selections.length; index += 20) {
@@ -320,6 +314,13 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
             complete: !failedSource && sources.length <= 12 && details.every(value => value.complete),
             discovery: details.find(value => !value.complete)?.discovery || (failedSource || sources.length > 12 ? "files_incomplete" : first.discovery),
           });
+          // The status line and the quick follow-up read the request outcome, so a
+          // meeting opened from the library refreshes it as well as its files.
+          const statusToken = getVaultOwnerToken();
+          // A failed read keeps the last known status; the files above were verified on their own.
+          const [fresh] = valid() && statusToken ? await CalendarInsightsService.requestStatuses(
+            [selectionOf(selected, account.account_id, day, zone)], idToken, statusToken, controller.signal).catch(() => []) : [];
+          if (valid() && fresh) setOutcomes(previous => ({ ...previous, [fresh.occurrence_id]: fresh }));
         }
       } catch (failure) {
         if (valid()) {
@@ -406,32 +407,15 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const unavailableMeetings = displayedMeetings.filter(meeting => meeting.artifact_kinds.length === 0);
   const selectedDisplayed = selected ? withVerifiedRequest(selected) : null;
   const requestOutcome = selected ? outcomes[selected.occurrence_id] : null;
+  const accessExhausted = useAccessWatch({ meetings: displayedMeetings, outcomes, revision, refresh,
+    active: canRefresh && !loading && view !== "overview" });
   const verifiedKinds = new Set([
     ...(selectedDisplayed?.artifact_kinds || []),
     ...(detail?.artifacts.filter(item => item.state === "available").map(item => item.kind === "recording" ? "recording" : "notes") || []),
   ]);
   const missingKinds = (["recording", "notes"] as const).filter(kind => !verifiedKinds.has(kind));
-  const requestStatus = (meeting: Meeting): string | null => {
-    const outcome = outcomes[meeting.occurrence_id];
-    if (outcome?.status === "unverified")
-      return "This meeting's request status could not be verified. Refresh to try again.";
-    const requests = outcome?.requests || [];
-    if (!requests.length) return null;
-    if (requests.some(item => item.identityStatus === "unverified"))
-      return "The selected Google account changed. Reconnect it to verify access.";
-    if (requests.some(item => item.status === "pending" || item.status === "preparing" || item.status === "review_ready"))
-      return "Request sent · waiting for organizer review.";
-    if (requests.some(item => item.status === "approved") && !meeting.artifact_kinds.length)
-      return "Organizer approved · file access is still being verified.";
-    if (requests.some(item => item.status === "declined")) return "Organizer declined this request.";
-    if (requests.some(item => item.status === "failed" || item.status === "no_match")) return "Sharing did not complete. Ask the organizer to review again.";
-    if (requests.some(item => item.status === "partial"))
-      return meeting.artifact_kinds.length ? "Some files are available; others could not be shared or verified." :
-        "Only part of this request was shared; no file access is verified for this account.";
-    if (requests.some(item => item.status === "completed") && !meeting.artifact_kinds.length)
-      return "Drive finished sharing, but file access is not currently verified for this account.";
-    return null;
-  };
+  const requestStatus = (meeting: Meeting) =>
+    requestStatusText(outcomes[meeting.occurrence_id], meeting.artifact_kinds.length > 0, accessExhausted);
   const submitRequest = async () => {
     if (!selected || requestBusy || !requestChoice.length) return;
     const vaultToken = getVaultOwnerToken();
@@ -442,7 +426,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id,
       date: day, time_zone: zone,
     };
-    setRequestBusy(true); setRequestNotice("");
+    setRequestBusy(true); setRequestNotice(""); setRequestFailure(null);
     try {
       const idToken = await getToken.current();
       const result = await CalendarInsightsService.requestFiles(selection, requestChoice, idToken, vaultToken);
@@ -456,11 +440,15 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       } }));
     } catch (failure) {
       if (currentActionContext.current !== started) return;
-      setRequestNotice(failure instanceof Error ? failure.message : "Meeting request could not be sent.");
-      setOfferCopyFallback(failure instanceof CalendarInsightsRequestError &&
-        ["calendar_organizer_unavailable", "connection_required", "sharing_unavailable"].includes(failure.code || ""));
+      const recovery = requestRecovery(failure instanceof CalendarInsightsRequestError
+        ? { status: failure.status, code: failure.code, reason: failure.reason, message: failure.message }
+        : { message: failure instanceof Error ? failure.message : undefined });
+      setRequestFailure(recovery);
+      // A terminal refusal is explained by its own panel; a retryable one keeps the notice.
+      setRequestNotice(recovery.tone === "retry" ? recovery.message : "");
     } finally { if (currentActionContext.current === started) setRequestBusy(false); }
   };
+  const contextGuard = () => { const started = currentActionContext.current; return () => currentActionContext.current === started; };
   const copyRequestText = selected ? `Could you share the ${requestChoice.join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
   const meetingRow = (meeting: Meeting) => <button className={styles.row} type="button" key={meeting.occurrence_id}
     ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }}
@@ -483,7 +471,13 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
-      <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
+      <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : view === "followups" ? "Follow-ups" : "Meeting library"}</div> : null}
+    {view === "overview" || view === "followups" ? <CalendarFollowups
+      userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
+      zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
+      getVaultOwnerToken={getVaultOwnerToken} onConnectMail={onFollowupMailConnect}
+      refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
+      deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
     {view === "overview" ? <>
       <p className={styles.muted}>Understand your time. Make room for what matters.</p>
       {loading && !overview ? <p role="status" className={styles.muted}>Checking Insights…</p> : null}
@@ -500,7 +494,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
         {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
       </SectionCard>
-    </> : view === "library" ? <>
+    </> : view === "followups" ? null : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Every timed meeting on this day, with file access checked separately.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
       <label className="relative"><Search aria-hidden className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input className="pl-10" type="search" aria-label="Search meetings on this day" placeholder="Search meetings on this day" maxLength={120} value={queryInput} onChange={event => changeQuery(event.target.value)} /></label>
@@ -535,18 +529,19 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         </SectionCard> : null}
       {requestNotice ? <p role="status" className={styles.muted}>{requestNotice}</p> : null}
       {missingKinds.length && selected ? <SectionCard title="Request missing files">
-        {requestStep === "closed" ? <Button variant="outline" onClick={() => { setRequestChoice([]); setRequestStep("choose"); setOfferCopyFallback(false); }}>Request recording or notes</Button> : null}
+        {requestStep === "closed" ? <Button variant="outline" onClick={() => { setRequestChoice([]); setRequestStep("choose"); setRequestFailure(null); }}>Request recording or notes</Button> : null}
         {requestStep === "choose" ? <div className="space-y-3"><p>Choose the files to ask the organizer for. A request does not grant access.</p>
           {missingKinds.map(kind => <label key={kind} className="flex items-center gap-2"><input type="checkbox" checked={requestChoice.includes(kind)} onChange={event => setRequestChoice(previous => event.target.checked ? [...previous, kind] : previous.filter(item => item !== kind))} />{kind === "recording" ? "Recording" : "Notes"}</label>)}
           <Button disabled={!requestChoice.length} onClick={() => setRequestStep("confirm")}>Review request</Button>
           <Button variant="ghost" onClick={() => setRequestStep("closed")}>Cancel</Button>
         </div> : null}
-        {requestStep === "confirm" ? <div className="space-y-3"><p><strong>{selected.title}</strong> · {day}</p><p>Organizer: {selected.organizer?.displayName || selected.organizer?.email || "Unavailable"}</p><p>Requested: {requestChoice.join(" and ")}</p><p>Recipient Google account: <strong>{account.google_email || "Selected Calendar account"}</strong></p>
+        {requestStep === "confirm" && requestFailure?.tone !== "terminal" ? <div className="space-y-3"><p><strong>{selected.title}</strong> · {day}</p><p>Organizer: {selected.organizer?.displayName || selected.organizer?.email || "Unavailable"}</p><p>Requested: {requestChoice.join(" and ")}</p><p>Recipient Google account: <strong>{account.google_email || "Selected Calendar account"}</strong></p>
           <p>The organizer must confirm the exact files and recipient before Drive sharing. Access appears here only after your selected account can open a file.</p>
-          <Button disabled={requestBusy} onClick={() => void submitRequest()}>{requestBusy ? "Sending…" : "Send request"}</Button>
+          <Button disabled={requestBusy} onClick={() => void submitRequest()}>{requestBusy ? "Sending…" : requestFailure ? "Try again" : "Send request"}</Button>
           <Button variant="ghost" disabled={requestBusy} onClick={() => setRequestStep("choose")}>Back</Button>
         </div> : null}
-        {offerCopyFallback ? <div className="space-y-2"><p>This request cannot be sent through One. Copy this meeting-specific request and send it directly.</p><textarea readOnly aria-label="Copy request for organizer" className="w-full rounded border p-2" rows={4} value={copyRequestText} /></div> : null}
+        {requestFailure ? <RequestRecoveryPanel recovery={requestFailure} copyText={copyRequestText} contextGuard={contextGuard}
+          onClose={() => { setRequestStep("closed"); setRequestFailure(null); }} /> : null}
       </SectionCard> : null}
     </>}
   </div>;

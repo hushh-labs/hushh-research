@@ -28,6 +28,8 @@ export async function pollCalendarMeetingGrant(input: {
   getUser: () => CurrentUser | null;
   isCurrent: () => boolean;
   onVerified: (status: GoogleCalendarStatus) => void;
+  /** Called once the original page has reached a final state for this attempt (verified or not). */
+  onSettled?: () => void;
 }): Promise<void> {
   for (let attemptNumber = 0; attemptNumber < 5; attemptNumber += 1) {
     const user = input.getUser();
@@ -40,12 +42,16 @@ export async function pollCalendarMeetingGrant(input: {
       if (hasCalendarMeetingFileGrant(next, input.targetAccountId, input.expectedSubjectSha256, input.priorGrantGeneration)) {
         input.onVerified(next);
         morphyToast.success("Recording and notes access enabled.");
+        input.onSettled?.();
         return;
       }
     } catch { /* A later bounded status read may observe the saved grant. */ }
     await new Promise(resolve => window.setTimeout(resolve, 1500));
   }
-  if (input.isCurrent()) morphyToast.error("Recording and notes access could not be verified. Refresh before trying again.");
+  if (input.isCurrent()) {
+    morphyToast.error("Recording and notes access could not be verified. Refresh before trying again.");
+    input.onSettled?.();
+  }
 }
 
 export async function reconcileUnsettledCalendarPopup(

@@ -38,8 +38,12 @@ def _former_check_passes(deltas: str, answer: str) -> bool:
         ),
         ('["nonce", "red", "UTC"]', '["nonce", "red", "UTC"]', "root.shape_mismatch"),
         (EXACT.replace("nonce", "other"), EXACT.replace("nonce", "other"), "root.code_mismatch"),
-        (EXACT.replace("red", "Red"), EXACT.replace("red", "Red"), "root.color_mismatch"),
+        (EXACT.replace("red", "blue"), EXACT.replace("red", "blue"), "root.color_mismatch"),
         (EXACT.replace("UTC", "Etc/UTC"), EXACT.replace("UTC", "Etc/UTC"), "root.zone_mismatch"),
+        (EXACT.replace("nonce", "NONCE"), EXACT.replace("nonce", "NONCE"), "root.code_case"),
+        (EXACT.replace("red", "Red"), EXACT.replace("red", "Red"), "root.color_case"),
+        (EXACT.replace("red", " red "), EXACT.replace("red", " red "), "root.color_case"),
+        (EXACT.replace("UTC", "utc"), EXACT.replace("UTC", "utc"), "root.zone_case"),
     ],
 )
 def test_each_failed_leg_has_its_own_admitted_reason(deltas, answer, reason):

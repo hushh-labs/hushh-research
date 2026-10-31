@@ -541,6 +541,16 @@ retrieval of historical ciphertext. KYC replies do not invoke a structured
 identity writer or force a pre-draft cloud read. Soul recovery, revision fences,
 seven-day encrypted checkpoints and bounded retry remain unchanged.
 
+Soul recovery replays a device's encrypted checkpoints in staging order, one
+envelope at a time. A checkpoint past its seven-day retention by this device's
+clock, or one that does not decrypt under the vault key, stays on the device but
+no longer stops the others. Corrections match exact bullets, so a correction
+that depended on a held checkpoint fails closed when staged. A read that may
+still succeed later (a storage error, or a clock behind the write time) still
+stops the whole pass. A receipt-summary checkpoint that is unbound, from a reset
+or superseded snapshot, or no longer passes the lightweight receipt rules can
+never apply, so it is retired, as the live queue does.
+
 
 Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer
 with 16 sections, the real proposal service and the real client merge path with only
