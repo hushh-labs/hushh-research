@@ -1,9 +1,10 @@
 name: Deploy to Dev
+run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}
 
-# Dev Fast Lane: dev deploys are decoupled from main. main stays the
-# UAT -> production signoff lane; dev deploys the protected development branch
-# (dev) by default, or any CI-green ref a governed
-# maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
+# Dev Fast Lane: dev deploys are decoupled from main. Normal application
+# deploys must select a SHA in protected dev history; ref is only a lookup
+# hint. The separate pod-publication target keeps its reviewed source rules.
+# Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:
@@ -35,7 +36,7 @@ on:
           - backend
           - frontend
       ref:
-        description: "Branch/ref to deploy (default: dev, the development intake lane)"
+        description: "Ref used to locate the application SHA; normal deploys require protected dev membership"
         required: false
         default: "dev"
         type: string
@@ -45,7 +46,7 @@ on:
         default: false
         type: boolean
       sha:
-        description: "Exact CI-green SHA to deploy (blank defaults to head of ref; must be reachable from ref)"
+        description: "Exact CI-green SHA to deploy (blank resolves from ref; the SHA must be reachable from protected dev)"
         required: false
         type: string
 
@@ -171,15 +172,16 @@ jobs:
           echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
-      # Dev correctness gate: the SHA must be reachable from the requested
-      # ref AND carry a green authoritative full-CI check. The check name
-      # differs by commit kind (PR head / merge-queue train head / main
+      # Dev correctness gate: the SHA must be reachable from protected dev,
+      # regardless of which ref was used to locate it, and carry a green
+      # authoritative full-CI check. The check name differs by commit kind
+      # (PR head / merge-queue train head / main
       # merge commit), so this is an any-of list. No signoff gate here by
       # design — dev does not route through main.
-      - name: Validate deployment SHA against requested ref
+      - name: Validate deployment SHA in protected Dev history
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
+          REQUIRED_BRANCH: dev
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
@@ -221,7 +223,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: gcp-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -230,7 +232,7 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
@@ -923,7 +925,7 @@ jobs:
       - name: Authenticate private preview backend probe
         if: env.DEV_TARGET == 'scope-commerce-sandbox'
         id: preview-backend-probe-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -937,7 +939,7 @@ jobs:
       - name: Authenticate private preview frontend probe
         if: env.DEV_TARGET == 'scope-commerce-sandbox'
         id: preview-frontend-probe-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
@@ -1812,7 +1814,10 @@ jobs:
             fi
             echo "## Dev Release"
             echo ""
-            echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Application SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Application lookup ref: \`${{ steps.resolve-sha.outputs.ref }}\`"
+            echo "- Source authority: protected \`dev\` history"
+            echo "- Workflow SHA: \`${{ github.workflow_sha }}\`"
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason || 'isolated_preview' }}\`"
             echo "- PKM preservation: \`${{ steps.verify-pkm-preservation.outcome || 'not_selected' }}\`"
@@ -1983,14 +1988,14 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$PROVIDER" && -n "$ACCOUNT" ]]
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
           project_id: hushh-pda-dev
           create_credentials_file: true
           export_environment_variables: true
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Capture coordinated application baseline
         if: inputs.pod_action == 'prepare'
         run: >-
@@ -2019,7 +2024,7 @@ jobs:
           --source "$POD_SOURCE" --output "$POD_FOLDER/activation.json"
       - name: Retain bounded publication evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pod-publication-dev-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.POD_FOLDER }}

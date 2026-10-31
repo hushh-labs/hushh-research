@@ -1,27 +1,8 @@
-"""Every scripts/ci file a PR Validation lane runs must schedule that lane.
-
-`scripts/ci/**` used to sit in both the `frontend:` and `backend:` path
-filters, so a one-line change to a web pack ran the protocol, MCP and
-integration lanes too. The filters now split that directory by the lane that
-executes each script. A split is only safe while it stays true, so this guard
-derives, from the workflow and the scripts themselves, which scripts/ci files
-each path-filtered job runs, and fails when a job would not be scheduled by a
-change to one of them:
-
-- the scripts a job's steps name, with `orchestrate.sh <stage>` resolved to
-  the scripts that stage runs;
-- everything those scripts reference in turn;
-- every scripts/ci file the lane's own code names (the protocol suite in
-  consent-protocol/ exercises several deploy scripts directly).
-
-The matcher follows dorny/paths-filter's `some-with-excludes` quantifier: a
-file is in a filter when it matches one of its patterns and none of its `!`
-patterns. `pathspec`'s gitignore rules and picomatch agree for every
-slash-anchored pattern, which the iOS path-filter guard already requires.
-"""
+"""CI path-filter contracts: lane closure and exact auth-health focus."""
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from functools import cache
@@ -35,6 +16,30 @@ WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 ORCHESTRATOR = "scripts/ci/orchestrate.sh"
 SCRIPTS_CI = "scripts/ci/"
 THIS_FILE = Path(__file__).resolve().relative_to(ROOT).as_posix()
+AUTH_HEALTH_SOURCE = "deploy/observability/auth_health_job.py"
+AUTH_HEALTH_TESTS = (
+    "consent-protocol/tests/test_auth_health_deployment.py",
+    "consent-protocol/tests/test_auth_health_inventory.py",
+    "consent-protocol/tests/test_auth_health_lease_rest.py",
+    "consent-protocol/tests/test_auth_health_uat_activation.py",
+    "consent-protocol/tests/test_auth_health_uat_installation.py",
+    "consent-protocol/tests/test_auth_health_wif_scopes.py",
+    "consent-protocol/tests/test_phone_list_health.py",
+)
+AUTH_HEALTH_PATHS = frozenset(
+    (
+        AUTH_HEALTH_SOURCE,
+        "deploy/observability/setup_auth_health.py",
+        "deploy/observability/auth_health_uat_common.py",
+        "deploy/observability/auth_health_uat_job_install.py",
+        "deploy/observability/auth_health_uat_timer_activation.py",
+        "deploy/observability/auth_health_uat_installer.py",
+        "consent-protocol/tests/auth_health_uat_cloud_fakes.py",
+        "consent-protocol/tests/auth_health_uat_installer_fixtures.py",
+        *AUTH_HEALTH_TESTS,
+    )
+)
+WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
 # Code each side's lanes execute, beyond the scripts/ci closure. The native
 # shells are excluded from the web side: the web lanes read them as data, and
@@ -118,6 +123,51 @@ def _filter_patterns() -> dict[str, list[str]]:
 def _filters(patterns: dict[str, list[str]] | None = None) -> dict[str, _Filter]:
     source = _filter_patterns() if patterns is None else patterns
     return {name: _Filter(list(lines)) for name, lines in source.items()}
+
+
+def _resolve_path_outputs(
+    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool
+) -> dict[str, str]:
+    """Run the workflow's real resolver with bounded synthetic filter outputs."""
+    step = next(
+        item for item in _workflow()["jobs"]["paths"]["steps"] if item.get("id") == "resolve"
+    )
+    override_outputs = {
+        "frontend": "true",
+        "backend": "true",
+        "ios": "true",
+        "android": "true",
+        "editor": "true",
+    }
+    values = {
+        "steps.override.outcome": "success" if override else "skipped",
+        **{f"steps.override.outputs.{name}": value for name, value in override_outputs.items()},
+        **{f"steps.filter.outputs.{name}": value for name, value in filter_outputs.items()},
+    }
+
+    def replace_expression(match: re.Match[str]) -> str:
+        expression = match.group(1)
+        assert expression in values, f"unmodelled path resolver input: {expression}"
+        return values[expression]
+
+    script = WORKFLOW_EXPRESSION_RE.sub(replace_expression, step["run"])
+    output = tmp_path / "path-outputs"
+    env = {
+        "GITHUB_OUTPUT": str(output),
+        "EVENT_NAME": event,
+        "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
+        "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
+    }
+    completed = subprocess.run(  # noqa: S603 - executes the workflow's real resolver
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],  # noqa: S607
+        cwd=ROOT,
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
 @cache
@@ -238,6 +288,106 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
         )
 
 
+def _auth_health_decision(paths, tmp_path, event="pull_request", override=False):
+    filters = _filters()
+    outputs = {
+        name: str(any(filters[name].match_file(path) for path in paths)).lower()
+        for name in _filter_patterns()
+    }
+    return outputs, _resolve_path_outputs(event, outputs, tmp_path, override=override)
+
+
+def test_auth_health_paths_are_exact_and_schedule_registered_tests(
+    tmp_path: Path,
+) -> None:
+    patterns = _filter_patterns()
+    assert set(patterns["auth_health"]) == AUTH_HEALTH_PATHS
+    assert {
+        pattern[1:] for pattern in patterns["non_auth_health"] if pattern.startswith("!")
+    } == AUTH_HEALTH_PATHS
+
+    for changed_paths in ((path,) for path in sorted(AUTH_HEALTH_PATHS)):
+        outputs, resolved = _auth_health_decision(changed_paths, tmp_path)
+        assert outputs["auth_health"] == "true", changed_paths
+        assert outputs["non_auth_health"] == "false", changed_paths
+        assert resolved["auth_health_only"] == "true", changed_paths
+        if changed_paths[0] in AUTH_HEALTH_TESTS:
+            assert outputs["backend"] == "true", changed_paths
+
+
+def test_auth_health_selection_falls_back_for_mixed_unknown_and_non_pr_paths(
+    tmp_path: Path,
+) -> None:
+    mixed = (
+        AUTH_HEALTH_SOURCE,
+        "hushh-webapp/app/page.tsx",
+        "hushh-webapp/package-lock.json",
+        "consent-protocol/db/schema.sql",
+        "consent-protocol/migrations/0001_example.sql",
+        "consent-protocol/pyproject.toml",
+        "consent-protocol/uv.lock",
+        ".github/workflows/ci.yml",
+        "docs/unknown-health-neighbor.md",
+    )
+    for changed_paths in ((), mixed):
+        outputs, resolved = _auth_health_decision(changed_paths, tmp_path)
+        assert resolved["auth_health_only"] == "false", changed_paths
+        if changed_paths:
+            assert outputs["non_auth_health"] == "true", changed_paths
+            assert outputs["backend"] == "true", changed_paths
+
+    unknown_code = ("scripts/ci/unknown-health-neighbor.py",)
+    outputs, resolved = _auth_health_decision(unknown_code, tmp_path)
+    assert outputs["auth_health"] == "false"
+    assert outputs["non_auth_health"] == "true"
+    assert outputs["backend"] == "true"
+    assert resolved["auth_health_only"] == "false"
+
+    for event in ("push", "workflow_dispatch", "merge_group"):
+        _, resolved = _auth_health_decision((AUTH_HEALTH_SOURCE,), tmp_path, event)
+        assert resolved["auth_health_only"] == "false", event
+
+
+def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> None:
+    exact_outputs, _ = _auth_health_decision((AUTH_HEALTH_SOURCE,), tmp_path)
+    dispatch = _resolve_path_outputs("workflow_dispatch", exact_outputs, tmp_path, override=True)
+    assert dispatch["auth_health_only"] == "false"
+    assert all(
+        dispatch[lane] == "true" for lane in ("frontend", "backend", "ios", "android", "editor")
+    )
+    jobs = _workflow()["jobs"]
+    governance = jobs["repo-governance"]
+    assert governance["needs"] == ["paths"]
+    assert governance["if"] == "always()"
+    steps = governance["steps"]
+    setup = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("uses") == "./consent-protocol/.github/actions/setup-python-uv"
+    )
+    focused = next(step for step in steps if step.get("name") == "Run exact auth-health contracts")
+    assert setup < steps.index(focused)
+    assert (
+        focused["if"]
+        == "github.event_name == 'pull_request' && needs.paths.outputs.auth_health_only == 'true'"
+    )
+    assert set(focused["run"].split()[4:]) == {
+        path.removeprefix("consent-protocol/") for path in AUTH_HEALTH_TESTS
+    }
+
+    backend_output = jobs["preflight-gate"]["outputs"]["backend"]
+    assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output
+    assert jobs["preflight-gate"]["needs"] == [
+        "ui-contracts",
+        "secret-scan",
+        "dco-check",
+        "pr-base-policy",
+        "repo-governance",
+        "paths",
+        "main-freshness-gate",
+    ]
+
+
 def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     backend = _filters()["backend"]
     reference = "consent-protocol/docs/reference/private-browser-runtime.md"
@@ -311,6 +461,7 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
 def test_every_script_a_lane_runs_schedules_that_lane() -> None:
     problems = _uncovered_lane_scripts(_filters())
     assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
+    assert all(_filters()[lane].match_file(ORCHESTRATOR) for lane in ("frontend", "backend"))
 
 
 def test_every_script_the_lanes_own_code_names_schedules_that_lane() -> None:
@@ -331,12 +482,6 @@ def test_no_scripts_ci_file_falls_through_every_filter() -> None:
         if not (filters["frontend"].match_file(path) or filters["backend"].match_file(path))
     ]
     assert not unscheduled, f"scripts/ci files that schedule no lane: {unscheduled}"
-
-
-def test_the_orchestrator_schedules_both_sides() -> None:
-    filters = _filters()
-    assert filters["frontend"].match_file(ORCHESTRATOR)
-    assert filters["backend"].match_file(ORCHESTRATOR)
 
 
 def test_the_checker_catches_a_filter_that_drops_a_lane_script() -> None:

@@ -39,7 +39,7 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
-    def test_application_authority_matches_deploy_for_main_and_curated_uat(self):
+    def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
                 target = "a" * 40
@@ -53,18 +53,17 @@ class ApplicationAuthorityTests(unittest.TestCase):
                     return subprocess.CompletedProcess(arguments, 0, output, "")
 
                 with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator"}), patch.object(wait, "command", side_effect=run):
-                    if history == "unplaced":
+                    if history == "uat":
+                        wait.verify_request(target)
+                        authority = calls[-1][1]
+                        self.assertEqual(authority["REQUIRED_BRANCH"], "uat")
+                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
+                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
+                            "CI Status Gate,Queue Validation,Branch Validation Gate")
+                    else:
                         with self.assertRaisesRegex(wait.AdmissionError, "source history"):
                             wait.verify_request(target)
                         self.assertFalse(any(item[1] for item in calls))
-                    else:
-                        wait.verify_request(target)
-                        authority = calls[-1][1]
-                        self.assertEqual(authority["REQUIRED_BRANCH"], history)
-                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
-                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
-                            "Main Post-Merge Smoke Gate" if history == "main"
-                            else "CI Status Gate,Queue Validation,Branch Validation Gate")
 
 
 class CapacityAdmissionTests(unittest.TestCase):
@@ -451,6 +450,26 @@ class WorkflowWiringTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout, "--force-inspection" if event == "workflow_dispatch" else "")
+
+
+class InspectionPublicationTests(unittest.TestCase):
+    def test_failed_inspection_is_not_mistaken_for_a_failed_mutation(self):
+        import retention_publication as publication
+        class UnsafeState(RuntimeError):
+            pass
+        workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
+        for environment, label in (("uat", "UAT"), ("production", "Production")):
+            expression = "github.event_name == 'workflow_dispatch' && !inputs.apply"
+            self.assertIn(expression + f" && '{label} revision inspection' || '{label} bounded revision cleanup'", workflow)
+            job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
+                {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
+                {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
+            owner = types.SimpleNamespace(retention=types.SimpleNamespace(UnsafeState=UnsafeState),
+                api=lambda *args: {"jobs": [job], "total_count": 1}, guard_only_preflight_proof=lambda *args: None)
+            self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+            job["name"] = f"{label} bounded revision cleanup"
+            with self.assertRaisesRegex(UnsafeState, "without publishing"):
+                publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
 
 
 if __name__ == "__main__":

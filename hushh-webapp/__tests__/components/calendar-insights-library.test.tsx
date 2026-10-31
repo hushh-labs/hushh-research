@@ -2,14 +2,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ insights: vi.fn(), fileAction: vi.fn(), getIdToken: vi.fn(),
-  requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
+  requestFiles: vi.fn(), requestReadiness: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
 vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsService: { read: mocks.insights, fileAction: mocks.fileAction,
-    requestFiles: mocks.requestFiles, requestStatuses: mocks.requestStatuses,
+    requestFiles: mocks.requestFiles, requestReadiness: mocks.requestReadiness, requestStatuses: mocks.requestStatuses,
     approvedDetail: mocks.approvedDetail, approvedFileAction: mocks.approvedFileAction },
   CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number, readonly code?: string) { super(message); } },
   safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && /^https:\/\/(docs|drive)\.google\.com\//.test(value) ? value : null,
 }));
+// Meeting-library regressions keep the separate Follow-ups detail surface out
+// of this fixture; its account and consent behavior has dedicated tests.
+vi.mock("@/components/calendar/calendar-followups", () => ({ CalendarFollowups: () => null }));
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -61,6 +64,7 @@ describe("Calendar Insights meeting library", () => {
         [{ requestId: "11111111-1111-4111-8111-111111111111", status: "completed", requestedTypes: ["notes"] }] : [],
       artifacts: accessVerified && selection.occurrence_id === rows[0]?.occurrence_id ? [{ kind: "notes", state: "available" }] : [],
     })));
+    mocks.requestReadiness.mockResolvedValue("ready");
     mocks.requestFiles.mockResolvedValue({ requestId: "11111111-1111-4111-8111-111111111111",
       recipientEmail: account.google_email, status: "pending" });
     render(<CalendarInsights userId="owner" account={account} today="2026-10-14" zone="UTC"
@@ -72,6 +76,11 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Notes" }));
     fireEvent.click(screen.getByRole("button", { name: "Review request" }));
     expect(screen.getByText(account.google_email)).toBeInTheDocument();
+    // The connection was checked for the selected account's own meeting before Send was offered.
+    expect(mocks.requestReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({ account_id: accountId, event_id: "a", occurrence_id: rows[0]?.occurrence_id,
+        expected_grant: meetingGrant, date: "2026-10-14", time_zone: "UTC" }),
+      "firebase-owner-token", "vault-owner-token", expect.anything());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledWith(
       expect.objectContaining({ account_id: accountId, event_id: "a", occurrence_id: rows[0]?.occurrence_id,

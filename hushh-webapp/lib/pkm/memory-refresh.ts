@@ -8,11 +8,12 @@ import {
 } from "@/lib/pkm/memory-document";
 import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
-import type {
-  LivingJournalPending,
-  LivingSourceHealth,
-  LivingSourceHistory,
-  LivingSourceInventory,
+import {
+  LIVING_DOMAIN_REPLACE,
+  type LivingJournalPending,
+  type LivingSourceHealth,
+  type LivingSourceHistory,
+  type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
@@ -347,10 +348,11 @@ export async function refreshMemoryDocument(
           cancelSuperseded("Memory sources changed");
         }
       };
+      // A fresh receipt per write, like the source sync: a signature-derived
+      // receipt is refused when an earlier document returns at a newer base.
       const stored = await PkmWriteCoordinator.saveMergedDomain({
         userId: params.userId, domain: "one_living_sources", vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
         confirmation: { authorizationMode: "owner_source_projection", surface: "web", source: "one_living_memory_source_projection" },
-        idempotencyScope: `memory_document:${sourceSignature}`,
         beforeEffect: async () => { assertCurrentSources(); },
         build: (context) => {
           assertCurrentSources();
@@ -362,7 +364,7 @@ export async function refreshMemoryDocument(
           return { unchanged: (privateData.memory_document as { signature?: string } | undefined)?.signature === sourceSignature, domainData: { ...current, _private: { ...privateData, memory_document: {
             ...((privateData.memory_document ?? {}) as Record<string, unknown>),
             schemaVersion: "source_linked_memory.v1", name: "memory.md", signature: sourceSignature, document, builtAt,
-          } } }, summary: { source_projection_complete: true } };
+          } } }, mergeDecision: LIVING_DOMAIN_REPLACE, summary: { source_projection_complete: true } };
         },
       });
       if (superseded || !valid()) return stale();

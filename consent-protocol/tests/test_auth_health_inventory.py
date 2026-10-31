@@ -246,3 +246,150 @@ def test_observer_history_and_active_executions_cannot_hide_a_writer(history, mo
             )["connections"]
             == 0
         )
+
+
+REPLACEMENT_IMAGES = (
+    ("ril_zeg_poh", "0654bc47a5e6d80efd61aef2962abe7fcfe3ee574c3700a071b8f2facbd87a35"),
+    ("dak_viz_val", "590c55fa1d4322fca37fecd62a41bf6cf3bcd3ba8690d4e7ca17f1acc1237e03"),
+)
+
+
+def _replacement_job(owner, position):
+    nonce, digest = REPLACEMENT_IMAGES[position]
+    job = _observer_job(owner)
+    job["metadata"]["generation"] = owner["REPLACEMENTS"][position]["generation"]
+    job["spec"]["template"]["metadata"]["labels"]["client.knative.dev/nonce"] = nonce
+    task = job["spec"]["template"]["spec"]["template"]["spec"]
+    task["containers"][0]["image"] = "gcr.io/hushh-pda/auth-health-job@sha256:" + digest
+    return job
+
+
+def test_reviewed_replacements_are_the_only_other_zero_connection_incarnations():
+    owner = run_path(str(ROOT / "deploy/observability/auth_health_inventory.py"))
+    jobs = [_observer_job(owner), _replacement_job(owner, 0), _replacement_job(owner, 1)]
+    # Each pinned replacement differs from generation 1 only by image and nonce.
+    for job, row in zip(jobs[1:], owner["REPLACEMENTS"], strict=True):
+        assert owner["fingerprint"](job["spec"]) == row["spec"]
+        qualified = owner["qualify_job"](job)
+        assert qualified["source"] == row["source"] and qualified["connections"] == 0
+    for job in jobs:
+        for generation in {1, 2, 3, 4} - {job["metadata"]["generation"]}:
+            mixed = copy.deepcopy(job)
+            mixed["metadata"]["generation"] = generation
+            with pytest.raises(ValueError):
+                owner["qualify_job"](mixed)
+
+
+REPLACEMENT_STAMPS = (
+    (
+        "2026-10-29T22:48:18.04Z",
+        "2026-10-29T22:48:18.51Z",
+        "2026-10-29T22:50:00Z",
+        "2026-10-29T22:52:00Z",
+    ),
+    (
+        "2026-10-29T23:55:16.36Z",
+        "2026-10-29T23:55:16.82Z",
+        "2026-10-29T23:57:38Z",
+        "2026-10-30T00:00:08Z",
+    ),
+)
+
+
+def _replacement_events(owner, execution):
+    pairs, runs = [], []
+    for position, (requested, replaced, created, finished) in enumerate(REPLACEMENT_STAMPS):
+        pair = [
+            _event(
+                "activity", "google.cloud.run.v1.Jobs.ReplaceJob", requested, f"replace-{position}"
+            ),
+            _event("system_event", "/Jobs.ReplaceJob", replaced, f"replaced-{position}"),
+        ]
+        later = copy.deepcopy(execution)
+        later["metadata"].update(
+            name=f"{owner['NAME']}-r{position}xyz",
+            uid=f"synthetic-replacement-{position}",
+            creationTimestamp=created,
+        )
+        later["spec"] = copy.deepcopy(_replacement_job(owner, position)["spec"]["template"]["spec"])
+        run = _event("system_event", "/Jobs.RunJob", finished, f"replacement-run-{position}")
+        run["protoPayload"].update(
+            response=later,
+            status={"code": 10},
+            resourceName="namespaces/hushh-pda/executions/" + later["metadata"]["name"],
+        )
+        for event in (*pair, run):
+            event["resource"]["labels"]["job_name"] = owner["NAME"]
+        pairs.append(pair)
+        runs.append((later, run))
+    owner["review_history"].__globals__["REPLACEMENTS"] = tuple(
+        {**row, "events": tuple(owner["fingerprint"](event) for event in pair)}
+        for row, pair in zip(owner["REPLACEMENTS"], pairs, strict=True)
+    )
+    return pairs, runs
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        None,
+        "generation-two",
+        "missing-second",
+        "out-of-order",
+        "late-generation-two-task",
+        "early-generation-three-task",
+        "half",
+        "repeated",
+    ],
+)
+def test_history_admits_only_the_exact_reviewed_replacements(history, monkeypatch, changed):
+    module, _producer, _events_unused, proof = history
+    owner = run_path(str(ROOT / "deploy/observability/auth_health_inventory.py"))
+    events, execution = _observer_events(owner, _observer_job(owner))
+    pairs, runs = _replacement_events(owner, execution)
+    origin = events
+    events, job = (
+        [*origin, *pairs[0], runs[0][1], *pairs[1], runs[1][1]],
+        _replacement_job(owner, 1),
+    )
+    if changed == "generation-two":
+        events, job = [*origin, *pairs[0], runs[0][1]], _replacement_job(owner, 0)
+    elif changed == "missing-second":
+        events = [event for event in events if event not in pairs[1]]
+    elif changed == "out-of-order":
+        events = [*origin, *pairs[1], runs[0][1], *pairs[0], runs[1][1]]
+    elif changed == "late-generation-two-task":
+        runs[1][0]["spec"] = copy.deepcopy(runs[0][0]["spec"])
+    elif changed == "early-generation-three-task":
+        runs[0][0]["spec"] = copy.deepcopy(runs[1][0]["spec"])
+    elif changed == "half":
+        events.remove(pairs[1][1])
+    elif changed == "repeated":
+        with pytest.raises(ValueError):
+            owner["review_history"]([*events, *pairs[0]], job)
+        return
+    monkeypatch.setattr(module, "run_path", lambda _path: owner)
+
+    def review():
+        return module.review(
+            events,
+            {},
+            {},
+            "2026-10-30T01:00:00Z",
+            submissions=lambda: proof,
+            project_number=owner["NUMBER"],
+            observers={owner["NAME"]: job},
+        )
+
+    if changed not in (None, "generation-two"):
+        with pytest.raises(ValueError):
+            review()
+        return
+    observed = review()["observers"]
+    applied = 1 if changed else 2
+    assert observed["source"] == owner["REPLACEMENTS"][applied - 1]["source"]
+    assert len(observed["replacements"]) == applied
+    assert [row["uid"] for row in observed["executions"]] == [
+        "synthetic-execution",
+        *(f"synthetic-replacement-{position}" for position in range(applied)),
+    ]

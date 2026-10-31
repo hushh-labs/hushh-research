@@ -13,6 +13,7 @@ import logging
 from functools import lru_cache
 from typing import Any
 
+from hushh_mcp.runtime_settings import one_career_enabled
 from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.generated_contracts import generated_contract_path
 
@@ -32,7 +33,10 @@ logger = logging.getLogger(__name__)
 # which is mounted app-wide rather than owned by a screen. The TS side grew and
 # this side did not, exactly the drift the note above warns about, and the
 # cross-language test caught it.
-AVAILABLE_ACTION_IDS_CAP = 60
+#
+# 60 -> 62 on 2026-10-06: GLOBAL_SESSION_ACTION_IDS gained `careers.list_roles`
+# and `careers.apply` (hussh careers from chat, mounted app-wide).
+AVAILABLE_ACTION_IDS_CAP = 62
 
 # These are server-side session verbs that One may resolve from Chat on any
 # screen. `profile.sign_out` and `consent.request` are also published in the
@@ -126,9 +130,17 @@ def load_action_gateway() -> dict[str, Any]:
 
 def list_action_gateway_actions() -> list[dict[str, Any]]:
     actions = list(load_action_gateway().get("actions") or [])
+    if not one_career_enabled():
+        # ONE_CAREER_ENABLED is the kill switch for careers in chat: off, and
+        # Agent One cannot see or run careers.list_roles / careers.apply.
+        actions = [entry for entry in actions if not _is_careers_action(entry)]
     if crm_product_available():
         return actions
     return [entry for entry in actions if not _is_crm_action(entry)]
+
+
+def _is_careers_action(entry: dict[str, Any]) -> bool:
+    return str(entry.get("action_id") or "").startswith("careers.")
 
 
 def _is_crm_action(entry: dict[str, Any]) -> bool:
@@ -163,6 +175,19 @@ def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
             "guards": [],
         }
     return _action_index().get(clean_id)
+
+
+def is_runtime_disabled_action(action_id: str | None) -> bool:
+    """A generated action that a runtime switch hides here (careers, CRM).
+
+    Screens offer such an action from static global segments whatever the switch
+    says, so chat admission drops it instead of refusing the whole turn.
+    """
+    clean_id = str(action_id or "").strip()
+    if not clean_id or get_action_gateway_action(clean_id) is not None:
+        return False
+    generated = load_action_gateway().get("actions") or []
+    return any(entry.get("action_id") == clean_id for entry in generated)
 
 
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:

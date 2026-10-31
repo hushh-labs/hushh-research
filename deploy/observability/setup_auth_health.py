@@ -25,7 +25,8 @@ PROJECTS = {"hushh-pda-uat", "hushh-pda"}
 REGION = "us-central1"
 JOB = "protected-configuration-health"
 FILES = ["config/protected-lists.json", "scripts/ops/verify_secret_list_invariants.py",
-         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py"]
+         "scripts/ci/process_group.py", "deploy/observability/auth_health_job.py",
+         "deploy/observability/auth_health_read_diagnostics.py"]
 
 
 def _transport(project: str, *, build_only: bool = False):
@@ -33,14 +34,35 @@ def _transport(project: str, *, build_only: bool = False):
     import requests
     from google.auth.transport.requests import AuthorizedSession, Request
 
-    credentials, _ = google.auth.default()
+    credentials, _ = google.auth.default(
+        scopes=[
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+        ]
+    )
     credentials.refresh(Request())
     expected = ("github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com"
                 if build_only and project == "hushh-pda-uat" else "kushal@hushh.ai")
     with requests.post("https://oauth2.googleapis.com/tokeninfo",
                        data={"access_token": credentials.token}, timeout=20) as observed:
-        if observed.status_code != 200 or observed.json().get("email") != expected:
-            raise RuntimeError("Expected health operator identity unavailable")
+        email_present = False
+        email_matches = False
+        if observed.status_code == 200:
+            try:
+                identity = observed.json()
+            except ValueError:
+                identity = None
+            if isinstance(identity, dict):
+                email = identity.get("email")
+                email_present = isinstance(email, str) and bool(email)
+                email_matches = email_present and email == expected
+        if not email_matches:
+            raise RuntimeError(
+                "Expected health operator identity unavailable "
+                f"(tokeninfo_http_status={observed.status_code}, "
+                f"tokeninfo_email_present={str(email_present).lower()}, "
+                f"tokeninfo_email_matches={str(email_matches).lower()})"
+            )
     cli = shutil.which("gcloud") or str(Path.home() / "google-cloud-sdk/bin/gcloud")
     env = {**os.environ, "CLOUDSDK_AUTH_ACCESS_TOKEN": credentials.token}
 
@@ -64,6 +86,10 @@ def _reviewed_source() -> str:
     if subprocess.run(["git", "merge-base", "--is-ancestor", source, "origin/main"], cwd=ROOT).returncode:
         raise RuntimeError("Health timer source must first land on Main")
     owned = [*FILES, "deploy/observability/auth-health.Dockerfile", "deploy/observability/setup_auth_health.py"]
+    owned.extend(
+        f"deploy/observability/auth_health_uat_{name}.py"
+        for name in ("common", "job_install", "timer_activation", "installer")
+    )
     if git("status", "--porcelain", "--", *owned) or git("diff", source, "origin/main", "--", *owned):
         raise RuntimeError("Health timer source differs from reviewed Main")
     return source

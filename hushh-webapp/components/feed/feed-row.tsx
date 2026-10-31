@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import {
   memo,
   useEffect,
@@ -132,6 +133,7 @@ export const FeedRow = memo(function FeedRow({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mutating, setMutating] = useState(false);
   const surfaceRef = useRef<HTMLButtonElement | null>(null);
+  const paintedSurfaceRef = useRef<HTMLDivElement | null>(null);
   const keepRevealRef = useRef<HTMLDivElement | null>(null);
   const removeRevealRef = useRef<HTMLDivElement | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -153,7 +155,7 @@ export const FeedRow = memo(function FeedRow({
   }, []);
 
   const paintSwipe = (offset: number) => {
-    const surface = surfaceRef.current;
+    const surface = paintedSurfaceRef.current;
     if (surface) surface.style.transform = `translate3d(${offset}px,0,0)`;
     if (removeRevealRef.current) {
       removeRevealRef.current.style.opacity = String(
@@ -170,7 +172,7 @@ export const FeedRow = memo(function FeedRow({
   const resetGesture = () => {
     clearHold();
     gestureRef.current = null;
-    if (surfaceRef.current) surfaceRef.current.style.transition = "";
+    if (paintedSurfaceRef.current) paintedSurfaceRef.current.style.transition = "";
     paintSwipe(0);
   };
 
@@ -229,7 +231,7 @@ export const FeedRow = memo(function FeedRow({
       } catch {
         // Implicit touch capture still carries the gesture on WebKit.
       }
-      event.currentTarget.style.transition = "none";
+      if (paintedSurfaceRef.current) paintedSurfaceRef.current.style.transition = "none";
     }
     if (gesture.axis !== "horizontal") return;
     gesture.dx = Math.max(-SWIPE_LIMIT_PX, Math.min(SWIPE_LIMIT_PX, deltaX));
@@ -299,7 +301,7 @@ export const FeedRow = memo(function FeedRow({
           </div>
         </>
       ) : null}
-      <button
+      <PersonSelectionSurface surfaceRef={paintedSurfaceRef}
         ref={surfaceRef}
         type="button"
         disabled={busy || (!hasRoute && !canRemove)}
@@ -331,11 +333,11 @@ export const FeedRow = memo(function FeedRow({
           setConfirmOpen(true);
         }}
         style={{ transform: "translate3d(0px,0,0)" }}
-        className={`relative z-[1] grid min-h-[52px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] enabled:cursor-pointer enabled:hover:bg-[color:var(--app-accent-tint)] disabled:cursor-default motion-reduce:transition-none max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
+        className={`relative z-[1] grid min-h-[52px] w-full grid-cols-[30px_minmax(0,1fr)_auto_14px] items-center gap-x-2 border-0 bg-[color:var(--app-card-surface-default-solid)] px-3 py-1.5 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] data-[disabled=false]:cursor-pointer [&:not([data-disabled])]:hover:bg-[color:var(--app-accent-tint)] data-[disabled=true]:cursor-default motion-reduce:transition-none max-[360px]:gap-x-[7px] max-[360px]:px-[9px] ${canRemove ? "touch-pan-y" : ""}`}
       >
         <span className="grid w-[30px] place-items-center">
           {presentation.person ? (
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar personRef={presentation.person.personRef} minimumHitArea
               label={presentation.person.displayName}
               photoUrl={presentation.person.photoUrl}
               size="compact"
@@ -356,7 +358,7 @@ export const FeedRow = memo(function FeedRow({
         <span aria-hidden="true" className="grid size-[14px] place-items-center text-[color:var(--app-tertiary-label)]">
           {hasRoute ? <svg viewBox="0 0 24 24" className="size-[14px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg> : null}
         </span>
-      </button>
+      </PersonSelectionSurface>
       {canRemove ? <span id={hintId} className="sr-only">Swipe {removeDirection} to remove, swipe {removeDirection === "left" ? "right" : "left"} to keep, or press and hold to confirm removal.</span> : null}
       {canRemove ? (
         <AlertDialog open={confirmOpen} onOpenChange={(open) => {

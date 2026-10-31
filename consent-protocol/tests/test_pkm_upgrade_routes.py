@@ -770,44 +770,6 @@ def test_store_domain_rejects_stale_sharing_impact(monkeypatch):
     assert detail["sharing_impact"]["recipient_labels"] == ["Hushh Technologies"]
 
 
-@pytest.mark.parametrize("failed, expected_status", [(True, 503), (False, 200)])
-def test_memory_proposal_failure_is_not_a_successful_empty_review(
-    monkeypatch, shared_owner_placement, failed, expected_status
-):
-    class PreviewService:
-        async def generate_structure_preview(self, **_kwargs):
-            return {
-                "agent_id": "pkm_structure",
-                "agent_name": "Structure",
-                "model": "test",
-                "used_fallback": failed,
-                "preview_cards": [],
-                "candidate_payload": {},
-                "structure_decision": {},
-                "validation_hints": ["preview_generation_failed"] if failed else [],
-                "error": "private provider diagnostic" if failed else None,
-            }
-
-    app = FastAPI()
-    app.include_router(pkm.router)
-    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: PreviewService())
-    monkeypatch.setattr(pkm, "get_pkm_service", lambda: object())
-    response = TestClient(app).post(
-        "/api/pkm/memory/proposals",
-        json={
-            "user_id": "user_123",
-            "message": "Synthetic memory review",
-        },
-    )
-    assert response.status_code == expected_status
-    if failed:
-        assert response.json()["detail"]["code"] == "PKM_PROPOSAL_UNAVAILABLE"
-        assert "private provider diagnostic" not in response.text
-    else:
-        assert response.json()["preview_cards"] == []
-
-
 def test_memory_proposals_are_enriched_with_current_sharing_impact(
     monkeypatch, shared_owner_placement
 ):

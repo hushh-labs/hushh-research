@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { CalendarCompactAction } from "./calendar-compact-action";
@@ -14,11 +15,9 @@ import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner }
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
-import { ConnectionsService } from "@/lib/services/connections-service";
-import { connectedInvitationPeople, connectedInvitationPhotoUrl } from "@/lib/calendar/invitation-people";
-import { calendarHusshPerson, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
+import { calendarEventPeople, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { CalendarInvitationActions, type InvitationDecision, type InvitationTerms } from "./calendar-invitation-actions";
-import { CalendarInvitationDetail, InvitationAvatar, InvitationDate, invitationDescription, invitationPerson, type InvitationPeople } from "./calendar-invitation-detail";
+import { CalendarInvitationDetail, InvitationAvatar, InvitationDate, invitationDescription, invitationPerson, invitationPersonName } from "./calendar-invitation-detail";
 import { calendarDate, shiftCalendarDate, eventTime } from "./calendar-schedule-presentation";
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -31,7 +30,6 @@ type Props = {
   accountId?: string;
   initialFilter?: string; initialEventId?: string; initialCalendarId?: string; initialDecision?: InvitationDecision; initialTerms?: InvitationTerms;
   workspaceLayout?: boolean; startAt?: string; endAt?: string; connectionRevision?: number; busy?: boolean;
-  connectedProfiles?: boolean; accountPhotoUrl?: string | null;
   calendarPeople?: CalendarHusshPeople;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => void; onOfferTimes?: (selection: CalendarInvitationHandoff) => void;
@@ -46,7 +44,7 @@ export function CalendarInvitations(props: Props) {
   return <Invitations key={`${props.userId}:${props.accountId || "default"}:${props.accountEmail}:${props.initialCalendarId}:${props.initialEventId}:${props.initialDecision}:${props.startAt}:${props.endAt}:${JSON.stringify(props.initialTerms)}`} {...props} token={vaultOwnerToken} />;
 }
 
-function Invitations({ workspaceLayout = false, connectedProfiles = false, accountPhotoUrl, calendarPeople, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
+function Invitations({ workspaceLayout = false, calendarPeople, userId, accountId = "default", accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onSend, onResult, onBusyChange, token }: Props & { token: string | null }) {
   const [date, setDate] = useState(() => calendarDate(Date.now(), zone));
   // UTC padding covers the selected local day even across DST and extreme offsets.
   const queryStart = workspaceLayout ? `${shiftCalendarDate(date, -1)}T00:00:00Z` : startAt;
@@ -59,30 +57,14 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(() => !invitationSnapshot(resourceKey));
   const [actionBusy, setActionBusy] = useState(false);
-  const [connectedPeople, setConnectedPeople] = useState<InvitationPeople>(() => new Map());
-  const people = workspaceLayout ? calendarPeople ?? EMPTY_CALENDAR_PEOPLE : connectedPeople;
+  const people = useMemo(() => calendarEventPeople(calendarPeople ?? EMPTY_CALENDAR_PEOPLE, data?.people, userId), [calendarPeople, data?.people, userId]);
+  const profileUserIds = useMemo(() => new Set(actionBusy ? [] : [...calendarPeople?.values() ?? []].map(person => person.userId).filter(id => id !== userId)), [actionBusy, calendarPeople, userId]);
   const actionBusyRef = useRef(false);
   const updateBusy = (value: boolean) => { actionBusyRef.current = value; setActionBusy(value); onBusyChange?.(value); };
   const [selectedId, setSelectedId] = useState(initialEventId && initialCalendarId ? `${initialCalendarId}:${initialEventId}` : null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const request = useRef(0), controller = useRef<AbortController | null>(null), tokenGetter = useRef(getIdToken);
   tokenGetter.current = getIdToken;
-  useEffect(() => {
-    if (!connectedProfiles || workspaceLayout) return;
-    let active = true;
-    const currentOwner = snapshotValidatedAuthSessionOwner();
-    void (async () => {
-      try {
-        const idToken = await tokenGetter.current();
-        if (!active || (currentOwner && !isValidatedAuthSessionOwnerCurrent(currentOwner))) return;
-        const connections = await ConnectionsService.listConnections({ idToken });
-        if (active && (!currentOwner || isValidatedAuthSessionOwnerCurrent(currentOwner))) setConnectedPeople(connectedInvitationPeople(connections));
-      } catch {
-        // Calendar invitations remain usable when connected-person photos are unavailable.
-      }
-    })();
-    return () => { active = false; };
-  }, [connectedProfiles, workspaceLayout, userId]);
   const load = useCallback(async (force = false) => {
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
@@ -133,12 +115,12 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
         <div className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
           {!filtered.length ? <p className={styles.empty}>No {filter === "all" ? "" : `${filter} `}invitations {workspaceLayout ? "on this date" : "in this window"}.</p> : <ul className={styles.list}>{filtered.map(event => {
             const organizerPerson = invitationPerson(people, event.organizer?.email);
-            const organizer = event.organizer?.displayName || organizerPerson?.displayName || event.organizer?.email || "Organizer";
+            const organizer = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
             const response = statusLabel(event);
-            const husshPhoto = workspaceLayout ? calendarHusshPerson(calendarPeople ?? EMPTY_CALENDAR_PEOPLE, event.organizer?.email)?.photoUrl : null;
-            return <li key={`${event.calendar_id}:${event.id}`}><button type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
-              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar name={organizer} email={event.organizer?.email} photoUrl={workspaceLayout ? husshPhoto : connectedInvitationPhotoUrl(people, event.organizer?.email, accountEmail, accountPhotoUrl)} photoSource={workspaceLayout ? "hussh" : undefined} /><span className={styles.copy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
-            </button></li>;
+            const husshPhoto = organizerPerson?.photoUrl ?? null;
+            return <li key={`${event.calendar_id}:${event.id}`}><PersonSelectionSurface type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
+              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar userId={organizerPerson && profileUserIds.has(organizerPerson.userId) ? organizerPerson.userId : undefined} name={organizer} email={event.organizer?.email} photoUrl={husshPhoto} /><span className={styles.copy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
+            </PersonSelectionSurface></li>;
           })}</ul>}
         </div>
         <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) close(); }}>
@@ -146,7 +128,7 @@ function Invitations({ workspaceLayout = false, connectedProfiles = false, accou
           <DialogTitle className="sr-only">Invitation details</DialogTitle>
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
-          <CalendarInvitationDetail event={selected} zone={zone} people={people} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
+          <CalendarInvitationDetail event={selected} zone={zone} people={people} profileUserIds={profileUserIds} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
           <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP

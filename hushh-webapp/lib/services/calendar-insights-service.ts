@@ -44,6 +44,9 @@ export type VerifiedMeetingSelection = {
   account_id: string; calendar_id: string; event_id: string;
   occurrence_id: string; expected_grant: string; date: string; time_zone: string;
 };
+/** Where the requester stands with the organizer, decided by the server before Send is offered. */
+export type RequestReadiness = "ready" | "pending" | "not_connected" | "unavailable";
+const READINESS_STATES: readonly string[] = ["ready", "pending", "not_connected", "unavailable"];
 export type MeetingContext = { title: string; sources: { title: string; url: string; text: string; truncated: boolean }[] };
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -51,8 +54,12 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export class CalendarInsightsRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: string, readonly reason?: string) { super(message); }
 }
+
+// The API sends a closed diagnostic `reason`; accept only that shape so a
+// surprising value can never reach the UI as free text.
+const REFUSAL_REASON = /^[a-z][a-z_]{0,39}$/;
 
 function validLibrary(value: unknown): value is MeetingLibrary {
   if (!record(value) || !Array.isArray(value.meetings) || !Array.isArray(value.limitations) ||
@@ -107,7 +114,8 @@ export class CalendarInsightsService {
     if (!response.ok) {
       const detail = record(value) && record(value.detail) ? value.detail : null;
       throw new CalendarInsightsRequestError(detail && typeof detail.message === "string" ? detail.message : "Meeting request could not be checked. Try again.", response.status,
-        detail && typeof detail.code === "string" ? detail.code : undefined);
+        detail && typeof detail.code === "string" ? detail.code : undefined,
+        detail && typeof detail.reason === "string" && REFUSAL_REASON.test(detail.reason) ? detail.reason : undefined);
     }
     if (!record(value)) throw new Error("Meeting request response was incomplete.");
     return value as T;
@@ -118,6 +126,13 @@ export class CalendarInsightsService {
     if (value.requestType !== "calendar_meeting" || typeof value.requestId !== "string" || typeof value.recipientEmail !== "string")
       throw new Error("Meeting request response was incomplete.");
     return { requestId: value.requestId, recipientEmail: value.recipientEmail, status: String(value.status || "pending") };
+  }
+
+  /** Read-only and advisory: creating the request checks the relationship again. */
+  static async requestReadiness(selection: VerifiedMeetingSelection, idToken: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<RequestReadiness> {
+    const value = await this.protectedPost<Record<string, unknown>>("meetings/request-readiness", selection, idToken, vaultOwnerToken, signal);
+    if (typeof value.state !== "string" || !READINESS_STATES.includes(value.state)) throw new Error("Meeting request readiness was incomplete.");
+    return value.state as RequestReadiness;
   }
 
   static async requestStatuses(selections: VerifiedMeetingSelection[], idToken: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<MeetingRequestOutcome[]> {

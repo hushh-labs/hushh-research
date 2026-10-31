@@ -6,12 +6,17 @@ import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 
-from db.connection import get_pool
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.calendar_account_board_service import account_schedule
 from hushh_mcp.services.calendar_insights_service import CalendarInsightsService, _grant_id
-from hushh_mcp.services.calendar_invitations import own_attendee
 from hushh_mcp.services.calendar_meeting_references import library_attachment_refs
+from hushh_mcp.services.calendar_organizer_resolution import (
+    connected_organizer as _connected_organizer,
+)
+from hushh_mcp.services.calendar_organizer_resolution import (
+    organizer_readiness as _organizer_readiness,
+)
+from hushh_mcp.services.calendar_organizer_resolution import refuse as _refuse
+from hushh_mcp.services.calendar_organizer_resolution import require_attending
 from hushh_mcp.services.drive_sharing_contract import (
     CalendarShareOrigin,
     DriveSharingError,
@@ -75,53 +80,68 @@ async def verified_calendar_recipient(
         raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
 
 
-async def _connected_organizer(user_id: str, email: str) -> str:
-    """Resolve only the requester's active One peers, without directory disclosure."""
-    pool = await get_pool()
-    async with pool.acquire() as connection:
-        rows = await connection.fetch(
-            """SELECT DISTINCT CASE WHEN c.user_a_id=$1 THEN c.user_b_id ELSE c.user_a_id END AS peer
-                 FROM connections c
-                 WHERE c.status='active' AND (c.user_a_id=$1 OR c.user_b_id=$1)
-                   AND (EXISTS (SELECT 1 FROM actor_identity_cache i
-                       WHERE i.user_id=CASE WHEN c.user_a_id=$1 THEN c.user_b_id ELSE c.user_a_id END
-                         AND i.email_verified AND lower(i.email)=$2)
-                     OR EXISTS (SELECT 1 FROM actor_verified_email_aliases a
-                       WHERE a.user_id=CASE WHEN c.user_a_id=$1 THEN c.user_b_id ELSE c.user_a_id END
-                         AND a.email_normalized=$2 AND a.verification_status='verified'
-                         AND a.revoked_at IS NULL))
-                 LIMIT 3""",
-            user_id,
-            email,
-            timeout=5,
-        )
-    if not rows or len(rows) != 1:
-        raise DriveSharingError("calendar_organizer_unavailable")
-    peer = str(rows[0]["peer"])
-    try:
-        fresh = await ActorIdentityService().sync_from_firebase(
-            peer, force=True, require_success=True
-        )
-        async with pool.acquire() as connection:
-            alias_verified = await connection.fetchval(
-                """SELECT EXISTS (SELECT 1 FROM actor_verified_email_aliases
-                   WHERE user_id=$1 AND email_normalized=$2
-                     AND verification_status='verified' AND revoked_at IS NULL)""",
-                peer,
-                email,
-                timeout=5,
-            )
-    except Exception:
-        raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
-    if (
-        not (
-            (fresh or {}).get("email_verified") is True
-            and str((fresh or {}).get("email") or "").casefold() == email
-        )
-        and not alias_verified
-    ):
-        raise DriveSharingError("calendar_organizer_unavailable")
-    return peer
+async def bound_selection(
+    *,
+    user_id: str,
+    account_id: str,
+    calendar_id: str,
+    event_id: str,
+    expected_grant: str,
+    occurrence_id: str,
+    date: str,
+    time_zone: str,
+):
+    """The selected account's verified recipient, the exact occurrence and its organizer.
+
+    Shared by readiness and creation so both read the same server-derived
+    facts: neither trusts an address or an organizer from the browser.
+    """
+    recipient = await verified_calendar_recipient(
+        user_id, account_id, expected_grant=expected_grant
+    )
+    insights = CalendarInsightsService(schedule=account_schedule(account_id), account_id=account_id)
+    grant, event = await insights.raw_event(
+        user_id=user_id,
+        calendar_id=calendar_id,
+        event_id=event_id,
+        expected_account_email=recipient.email,
+        expected_grant=expected_grant,
+        occurrence_id=occurrence_id,
+        date=date,
+        time_zone=time_zone,
+    )
+    if _grant_id(grant.binding) != recipient.grant_id:
+        raise DriveSharingError("recipient_changed")
+    require_attending(event, recipient.email)
+    organizer_email = str((event.get("organizer") or {}).get("email") or "").strip().lower()
+    if not organizer_email or "@" not in organizer_email:
+        raise _refuse("calendar_organizer_unavailable", "organizer_missing")
+    return recipient, insights, event, organizer_email
+
+
+async def request_readiness(
+    *,
+    user_id: str,
+    account_id: str,
+    calendar_id: str,
+    event_id: str,
+    expected_grant: str,
+    occurrence_id: str,
+    date: str,
+    time_zone: str,
+) -> dict:
+    """Can this selected account ask this organizer? Advisory; `create` decides again."""
+    _, _, _, organizer_email = await bound_selection(
+        user_id=user_id,
+        account_id=account_id,
+        calendar_id=calendar_id,
+        event_id=event_id,
+        expected_grant=expected_grant,
+        occurrence_id=occurrence_id,
+        date=date,
+        time_zone=time_zone,
+    )
+    return {"state": await _organizer_readiness(user_id, organizer_email)}
 
 
 class CalendarMeetingRequestService:
@@ -141,30 +161,16 @@ class CalendarMeetingRequestService:
         time_zone: str,
         requested_types: tuple[str, ...],
     ) -> dict:
-        recipient = await verified_calendar_recipient(
-            user_id, account_id, expected_grant=expected_grant
-        )
-        insights = CalendarInsightsService(
-            schedule=account_schedule(account_id), account_id=account_id
-        )
-        grant, event = await insights.raw_event(
+        recipient, insights, event, organizer_email = await bound_selection(
             user_id=user_id,
+            account_id=account_id,
             calendar_id=calendar_id,
             event_id=event_id,
-            expected_account_email=recipient.email,
             expected_grant=expected_grant,
             occurrence_id=occurrence_id,
             date=date,
             time_zone=time_zone,
         )
-        if _grant_id(grant.binding) != recipient.grant_id:
-            raise DriveSharingError("recipient_changed")
-        attendee = own_attendee(event, recipient.email, raw=True)
-        if not attendee or attendee.get("responseStatus") == "declined":
-            raise DriveSharingError("calendar_organizer_unavailable")
-        organizer_email = str((event.get("organizer") or {}).get("email") or "").strip().lower()
-        if not organizer_email or "@" not in organizer_email:
-            raise DriveSharingError("calendar_organizer_unavailable")
         organizer = await _connected_organizer(user_id, organizer_email)
         summary = insights.calendar._event_summary(event)
         origin = CalendarShareOrigin(

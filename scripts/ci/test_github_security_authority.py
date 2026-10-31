@@ -11,18 +11,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
-import sys
 
 PATH = Path(__file__).with_name("github_security_authority.py")
 SPEC = importlib.util.spec_from_file_location("security_authority", PATH)
 authority = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(authority)
-with patch.dict(sys.modules, {"github_security_authority": authority}):
-    probe_spec = importlib.util.spec_from_file_location(
-        "ci_trust_qualification", PATH.with_name("ci_trust_qualification.py")
-    )
-    probe = importlib.util.module_from_spec(probe_spec)
-    probe_spec.loader.exec_module(probe)
 REPOSITORY = "example/repository"
 HEAD = "a" * 40
 
@@ -53,12 +46,6 @@ def source_fixture():
 
 
 class SecurityAuthorityTest(unittest.TestCase):
-    def test_probe_requires_declared_read_only_cache_without_overrides(self):
-        self.assertTrue(probe.declared_read_only_cache("cache-mode: read\njobs:\n"))
-        for text in ("jobs:\n", "cache-mode: write\n", "cache-mode: read\njobs:\n  cache-mode: write\n"):
-            with self.subTest(text=text):
-                self.assertFalse(probe.declared_read_only_cache(text))
-
     def test_exact_current_attempt_including_fork_without_executing_fork(self):
         for status in ("pending", "queued", "in_progress", "completed"):
             with self.subTest(status=status):

@@ -98,7 +98,11 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it("previews a finite full portfolio for an advisor before confirmation", async () => {
+it.each([
+  ["Snapshot", "", { mode: "snapshot", durationSeconds: 604800 }],
+  ["Snapshot", "until_stopped", { mode: "snapshot", durationSeconds: null }],
+  ["Real time", "", { mode: "ongoing", durationSeconds: null }],
+])("sends the full portfolio to an advisor in one screen as %s (ends: %s)", async (label, ends, expected) => {
   const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
@@ -110,12 +114,12 @@ it("previews a finite full portfolio for an advisor before confirmation", async 
   render(<FinanceShareFlow advisorOnly open onOpenChange={vi.fn()} model={model} source={source} />);
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Advisor/ }));
   expect(screen.queryByRole("checkbox", { name: /^Other person/ })).toBeNull();
-  openPreview();
-  expect(await screen.findByText(/finance-share-v2/)).toBeTruthy();
-  expect(mocks.publish).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Share with 1 person" }));
-  await waitFor(() => expect(mocks.prepare).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", mode: "snapshot", durationSeconds: 86400, showAmounts: true, model_processing: { allowed: false } });
+  expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  if (ends) fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: ends } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", ...expected, showAmounts: true, model_processing: { allowed: false } });
 });
 
 it("does not report an ended confirmation as active sharing", async () => {
@@ -185,6 +189,33 @@ it.each(["expired", "stopped"])("clears decrypted contents and derived review wh
   expect(screen.getByRole("alert")).toHaveTextContent(status === "expired" ? "expired" : "stopped");
 });
 
+it("renders the Agent One review as formatted text instead of raw markdown", async () => {
+  mocks.review.mockResolvedValue(["Here is the snapshot:", "", "- **Mostly equities**: 80% stocks", "- **Known limit**: history is incomplete"].join("\n"));
+  render(<FinanceSharedDetail grantId="grant" onClose={vi.fn()} />);
+  await screen.findByText(/decrypted-sentinel/);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review with Agent One" })); });
+  expect(screen.getByText("Mostly equities").tagName).toBe("STRONG");
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(document.body.textContent).not.toContain("**");
+});
+
+it("selects and clears every stock with one button", async () => {
+  const two = mapPortfolioToDashboardViewModel({ total_value: 20000, holdings: [
+    { symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 },
+    { symbol: "MSFT", name: "Microsoft", quantity: 10, price: 1000, market_value: 10000 },
+  ] });
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={two} source={source} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Selected stocks/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+  expect(screen.getByRole("checkbox", { name: /^AAPL/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /^MSFT/ })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+  expect(screen.getByRole("checkbox", { name: /^AAPL/ })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /^MSFT/ })).not.toBeChecked();
+});
+
 it("does not append a late outgoing page after the owner switches to received shares", async () => {
   let finish!: (value: unknown) => void;
   mocks.history.mockImplementation(async (_context, direction, cursor) => cursor ? new Promise(resolve => { finish = resolve; }) : ({ items: [{ ...grant, id: direction, recipientName: direction, senderName: direction }], nextCursor: direction === "outgoing" ? "next" : null }));
@@ -204,12 +235,12 @@ it("keeps selections through all three sharing steps and preview Back without pu
   const next = screen.getByRole("button", { name: "Continue" });
   expect(next).toBeDisabled();
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
-  expect(screen.queryByRole("heading", { name: "How should access work?" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Access" })).toBeNull();
   fireEvent.click(next);
   await waitFor(() => expect(screen.getByRole("heading", { name: "What do you want to share?" })).toHaveFocus());
-  expect(screen.queryByRole("heading", { name: "How should access work?" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Access" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "How should access work?" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Access" })).toHaveFocus());
   expect(mocks.saved).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("checkbox", { name: /^Show dollar amounts/ }));
   openPreview();
@@ -222,4 +253,19 @@ it("keeps selections through all three sharing steps and preview Back without pu
   expect(screen.getByRole("checkbox", { name: /^Synthetic connection/ })).toBeChecked();
   expect(close).not.toHaveBeenCalled();
   expect(mocks.publish).not.toHaveBeenCalled();
+});
+
+it("uses the other person's identity in either sharing direction @feature_connected_profiles", async () => {
+  mocks.history.mockImplementation(async (_context, direction) => ({ items: [{ ...grant, direction, ownerUserId: "sender", recipientPersonRef: "recipient-public" }], nextCursor: null }));
+  const preview = vi.fn(); window.addEventListener("hussh:person-profile-preview", preview);
+  try {
+    render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View Recipient's profile" }));
+    expect(preview.mock.calls[0][0].detail).toMatchObject({ personRef: "recipient-public", userId: "recipient" });
+    fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View Owner's profile" }));
+    expect(preview.mock.calls[1][0].detail.userId).toBe("sender");
+    expect(preview.mock.calls[1][0].detail.personRef).toBeUndefined();
+    expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.decrypt).not.toHaveBeenCalled();
+  } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
 });

@@ -9,7 +9,7 @@ import {
 } from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections" | "profile_discovery" | "pwm";
+  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections" | "profile_discovery" | "pwm" | "calendar_email_followup";
 
 /**
  * The private-agent lifecycle vocabulary, emitted by
@@ -74,6 +74,7 @@ export type FeedEventType =
   | "calendar_event_created"
   | "calendar_event_rescheduled"
   | "calendar_event_canceled"
+  | "followup_reminder"
   | "mail_connected"
   | "mail_reconnect_required"
   | "mail_disconnected"

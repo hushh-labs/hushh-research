@@ -1063,7 +1063,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
       if (pathname !== ROUTES.CONNECT || searchParams?.get("tab") === "circles" || !searchParams?.get(CONNECT_MUTUALS_PARAM)?.trim()) return undefined;
       const backHref = connectDirectoryReturnHref(searchParams);
       return {
-        backHref, backLabel: "Back to Find people", width: "profile", align: "center", hideBack: false,
+        backHref, backLabel: "Back to Find people", width: "mutuals", align: "center", hideBack: false,
         items: [{ label: "Connect", href: backHref }, { label: "Mutual connections" }],
       };
     },

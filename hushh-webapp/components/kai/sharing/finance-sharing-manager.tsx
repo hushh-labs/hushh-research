@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
@@ -92,7 +93,7 @@ export function FinanceSharingManager({ open, onOpenChange, hasPortfolio = true 
       {busy && !items.length ? <p role="status" className="py-8 text-sm">Checking access…</p> : null}
       {!busy && !items.length && !error ? <p className="py-8 text-sm text-muted-foreground">{ready ? "No Finance shares yet." : "Unlock your vault to manage sharing."}</p> : null}
       {items.map(item => <article key={item.id} className={styles.grantRow}>
-        <div className={styles.grantHeader}><div className={styles.grantPerson}><span aria-hidden="true" className={styles.grantAvatar}>{(direction === "outgoing" ? item.recipientName : item.senderName)?.trim().slice(0, 1).toUpperCase() || "?"}</span><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Ongoing access"}</p></div></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
+        <div className={styles.grantHeader}><div className={styles.grantPerson}><PersonProfileButton personRef={direction === "outgoing" ? item.recipientPersonRef : undefined} userId={direction === "outgoing" ? item.recipientUserId : item.ownerUserId} label={(direction === "outgoing" ? item.recipientName : item.senderName) || "this person"} className={styles.grantAvatar}>{(direction === "outgoing" ? item.recipientName : item.senderName)?.trim().slice(0, 1).toUpperCase() || "?"}</PersonProfileButton><div><h3 className="text-sm font-semibold">{direction === "outgoing" ? item.recipientName : item.senderName}</h3><p className={styles.caption}>{item.policy.mode === "snapshot" ? "Snapshot" : "Real time"}</p></div></div><span className={styles.chip}>{item.status === "stopped" ? "Stopped" : item.status === "expired" ? "Expired" : "Active"}</span></div>
         <div className={styles.grantInfo}><div><p className="text-sm capitalize">{item.policy.sections.join(" · ")}</p><p className={`${styles.caption} mt-2`}>Amounts {item.policy.showAmounts ? "included" : "hidden"} · Agent One review {item.policy.model_processing.allowed ? "allowed" : "off"}</p></div>
           <dl className={styles.grantDates}><div><dt>Access ends</dt><dd>{item.expiresAt ? accessDate(item.expiresAt) : direction === "outgoing" ? "When you stop sharing" : "When the owner stops sharing"}</dd></div><div><dt>Last shared</dt><dd>{accessDate(item.updatedAt)}</dd></div></dl>
         </div>

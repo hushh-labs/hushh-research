@@ -39,6 +39,7 @@ import {
   type SurfaceTone,
 } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
+import { isRiaVerified, riaVerificationStatusOf } from "@/lib/ria/ria-verification";
 
 const RIA_AGENT_HEADER_CLASSNAME =
   "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
@@ -354,18 +355,16 @@ export function RiaStatusPanel({
   );
 }
 
-const _VERIFIED_STATUSES = new Set(["active", "verified", "finra_verified"]);
-
-export function isRiaVerified(status?: string | null): boolean {
-  return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
-}
+export { isRiaVerified };
 
 export function RiaVerificationGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { riaOnboardingStatus, loading } = usePersonaState();
-  const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
+  const { riaOnboardingStatus, loading, refreshing } = usePersonaState();
+  const status = riaVerificationStatusOf(riaOnboardingStatus);
 
-  if (loading) return null;
+  // A cached persona ends `loading` before the advisor status arrives; while it
+  // is still being fetched the status is unknown, not unverified.
+  if (loading || (refreshing && !riaOnboardingStatus)) return null;
 
   if (!isRiaVerified(status)) {
     return (

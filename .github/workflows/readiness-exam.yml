@@ -1,0 +1,125 @@
+name: Readiness Exam
+
+# Pre-merge counterpart of the UAT managed-provider readiness exam. Main's
+# graders read a PR's anchored instruction text as data; PR code is never
+# checked out, installed or run, and it never receives the probe identity.
+# Contract: .agents/skills/repo-operations/references/pre-merge-readiness-exam.md
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Must cover every live anchor file in the manifest (scripts/ci/test_readiness_exam_workflow.py).
+    paths:
+      - consent-protocol/hushh_mcp/agents/documents/agent.yaml
+      - consent-protocol/hushh_mcp/agents/one/agent.yaml
+      - consent-protocol/hushh_mcp/one_adk/tavily_search.py
+      - consent-protocol/hushh_mcp/one_adk/world_model_azure.py
+      - consent-protocol/hushh_mcp/one_adk/world_model_instructions.py
+  workflow_dispatch:
+    inputs:
+      text_commit:
+        description: Full commit on main whose anchored text is examined as data; with pr, an optional head pin
+        required: false
+        type: string
+        default: ""
+      pr:
+        description: Open same-repo PR whose landing text one case samples under expect=report; a measurement, never a verdict
+        required: false
+        type: string
+        default: ""
+      cases:
+        description: Comma-separated live case ids; blank selects every live case
+        required: false
+        type: string
+        default: ""
+      expect:
+        description: Control expectation
+        required: true
+        type: choice
+        options: [report, must_fail, must_pass]
+        default: report
+      expected_reason:
+        description: Reason code a must_fail control requires
+        required: false
+        type: string
+        default: ""
+      reps:
+        description: Samples of the one requested case under expect=report (1-3); a measurement, never a verdict
+        required: false
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+cache-mode: read
+
+concurrency:
+  group: readiness-exam-${{ github.event.pull_request.number || (inputs.pr && format('pr-{0}', inputs.pr)) || inputs.text_commit }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
+jobs:
+  exam:
+    name: Readiness Exam
+    runs-on: ubuntu-24.04
+    # Outer bound only; the step timeouts below (2 + 4 + 6 + 1) end a slow run first.
+    timeout-minutes: 14
+    # Fork PRs run in an environment the probe app does not trust, so no step of a
+    # fork-triggered run can mint the exam identity's token.
+    environment:
+      name: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && 'readiness-exam' || 'readiness-exam-untrusted' }}
+      deployment: false
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: Record time to verdict from job start
+        run: echo "EXAM_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v6
+        timeout-minutes: 2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      # ci_preflight waits for this check like any other. An advisory PR run concludes
+      # successfully within the job limit; controls always conclude.
+      - name: Read exam mode
+        id: mode
+        run: python3 -c 'import json; print("advisory=" + str(json.load(open("config/ci-governance.json"))["readiness_exam"]["mode"] == "advisory").lower())' >> "$GITHUB_OUTPUT"
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        id: setup
+        timeout-minutes: 4
+        continue-on-error: ${{ github.event_name == 'pull_request_target' && steps.mode.outputs.advisory == 'true' }}
+        with:
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+
+      # Grading on a half-installed environment would report runner crashes, not a verdict.
+      - name: Report an incomplete setup
+        if: steps.setup.outcome != 'success'
+        run: |
+          echo "::warning::Readiness exam not_run: setup_incomplete"
+
+      - name: Grade anchored instruction text with Main's exam
+        if: steps.setup.outcome == 'success'
+        timeout-minutes: 6
+        continue-on-error: ${{ github.event_name == 'pull_request_target' && steps.mode.outputs.advisory == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: consent-protocol/.venv/bin/python scripts/ci/readiness_exam.py --receipt "$RUNNER_TEMP/readiness-exam.json"
+
+      - name: Upload readiness exam receipt
+        if: always()
+        # Evidence only: an upload fault never decides the verdict.
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@v6
+        with:
+          name: readiness-exam-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/readiness-exam.json
+          if-no-files-found: ignore
+          retention-days: 30

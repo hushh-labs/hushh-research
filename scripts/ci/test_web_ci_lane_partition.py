@@ -36,6 +36,8 @@ from pathlib import Path
 from web_ci_lane_fixture import (
     ROOT,
     _bash,
+    test_browser_plan_skips_only_known_no_browser_selection,
+    test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
     _run,
     test_layout_overlap_retains_selected_coverage_and_failure_propagation,
     verify_connections_collection,
@@ -340,7 +342,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         workflow, re.S,
     )
     assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
+    assert "if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}" in evidence[1]
     assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
     paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
     assert paths
@@ -351,6 +353,13 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         "hushh-webapp/test-results/calendar-connected-*/trace.zip",
         "hushh-webapp/test-results/calendar-connected-*/test-failed-*.png",
         "hushh-webapp/test-results/calendar-connected-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/trace.zip",
+        "hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/direct-chat.layout-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md",
     ], "do not broaden synthetic evidence into protected browser artifacts"
     shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
     broken = workflow.replace(shard, shard + shard, 1)
@@ -512,6 +521,8 @@ def main() -> int:
     tests = (
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_browser_plan_skips_only_known_no_browser_selection,
+        test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,
         test_node_leg_leaves_diagram_rendering_to_browser_leg,

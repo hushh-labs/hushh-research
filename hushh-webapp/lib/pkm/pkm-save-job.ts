@@ -910,7 +910,7 @@ function explicitSaveDeps(params: ExplicitPkmSaveJobParams, job: PkmSaveJob): Pk
     prepare: ({ text, signal }) => previewAgentPkmMemory({
       userId: params.userId, message: text, currentDomains: job.currentDomains,
       currentManifests: params.currentManifests, vaultOwnerToken: params.vaultOwnerToken,
-      ingestionId: job.id, chunkIndex: (sequence += 1),
+      ingestionId: job.id, chunkIndex: (sequence += 1), sourceLabel: "agent_chat_owner_request",
       reconciliationCandidates: params.findReconciliationCandidates?.(text),
       signal, isEffectCurrent: params.isEffectCurrent,
     }),

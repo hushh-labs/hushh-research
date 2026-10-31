@@ -3,6 +3,7 @@ import SwiftUI
 import Capacitor
 import WebKit
 import Security
+import UserNotifications
 @testable import App
 
 private final class ZeroSafeAreaView: UIView {
@@ -62,6 +63,29 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(SmsAlarmLedger.endedBeforeAdmission(user: user, grant: ended))
         XCTAssertThrowsError(try SmsAlarmLedger.remember(user: user, grant: admitted))
         XCTAssertThrowsError(try SmsAlarmLedger.acknowledge(user: user, grant: admitted))
+    }
+
+    func testBackgroundAlarmHandoffIsOneBoundedSeriesThatOnlyOpensTheApp() throws {
+        // No background audio mode: ringing in-app alarms continue as one series of local alerts.
+        let requests = EmergencySmsCueHandoff.requests()
+        XCTAssertEqual(requests.count, EmergencySmsCueHandoff.offsets.count)
+        XCTAssertLessThanOrEqual(requests.count, 64) // iOS pending-request limit.
+        XCTAssertEqual(Set(requests.map(\.identifier)).count, requests.count)
+        // Cancel removes exactly what schedule adds, by fixed identifier.
+        XCTAssertEqual(requests.map(\.identifier), EmergencySmsCueHandoff.identifiers)
+        XCTAssertLessThan(EmergencySmsCueHandoff.soundSeconds, 30) // iOS plays at most 30 s.
+        for request in requests {
+            XCTAssertTrue(EmergencySmsCueHandoff.isHandoff(request.identifier))
+            XCTAssertNotNil(request.content.sound)
+            // Capacitor routes local taps to no handler: no action or routing data
+            // that would promise an acknowledgement. Tapping only opens the app.
+            XCTAssertEqual(request.content.categoryIdentifier, "")
+            XCTAssertTrue(request.content.userInfo.isEmpty)
+            let trigger = try XCTUnwrap(request.trigger as? UNTimeIntervalNotificationTrigger)
+            XCTAssertFalse(trigger.repeats)
+            XCTAssertLessThanOrEqual(trigger.timeInterval, 600)
+        }
+        XCTAssertFalse(EmergencySmsCueHandoff.isHandoff("chat.message.1"))
     }
 
     @MainActor

@@ -4,6 +4,7 @@ import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/noti
 
 import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
+import { calendarFollowupNotificationTapTarget } from "@/lib/calendar/calendar-followup-notification";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
@@ -242,6 +243,8 @@ export function directMessageNotificationTapTarget(
 export function buildNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string {
+  const followupTarget = calendarFollowupNotificationTapTarget(data);
+  if (followupTarget) return followupTarget;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   const directMessageTarget = directMessageNotificationTapTarget(data);
@@ -278,6 +281,8 @@ function resolveNotificationClickTarget(
   value: unknown,
   data: Record<string, unknown> | undefined,
 ): string {
+  const followupTarget = calendarFollowupNotificationTapTarget(data);
+  if (followupTarget) return followupTarget;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   // Older workers send a Feed URL but retain the original typed payload.

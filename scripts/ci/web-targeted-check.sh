@@ -6,6 +6,8 @@ WEB_DIR="$REPO_ROOT/hushh-webapp"
 
 # shellcheck source=scripts/ci/web-common.sh
 source "$REPO_ROOT/scripts/ci/web-common.sh"
+# shellcheck source=scripts/ci/web-targeted-plan.sh
+source "$REPO_ROOT/scripts/ci/web-targeted-plan.sh"
 
 # Which half of the matched packs this invocation runs.
 #
@@ -20,6 +22,11 @@ source "$REPO_ROOT/scripts/ci/web-common.sh"
 # every pack runs in exactly one leg, and together they run what `all` runs.
 # Guarded by scripts/ci/test_web_ci_lane_partition.py.
 WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
+WEB_TARGETED_ALL_PACKS="${WEB_TARGETED_ALL_PACKS:-0}"
+case "$WEB_TARGETED_ALL_PACKS" in
+  0|1) ;;
+  *) echo "Invalid full targeted-pack selection." >&2; exit 2 ;;
+esac
 case "$WEB_TARGETED_PART" in
   all|node|browser) ;;
   *)
@@ -27,7 +34,7 @@ case "$WEB_TARGETED_PART" in
     exit 2
     ;;
 esac
-browser_primary="$(node "$WEB_DIR/scripts/testing/playwright-shard.cjs")"
+web_targeted_prepare
 
 # Prints "browser" when the command is `npm run <script>` and that script, or
 # any script it reaches through `npm run`, invokes playwright; "node" otherwise.
@@ -50,12 +57,13 @@ check_part() {
   ' "$WEB_DIR/package.json" "$3"
 }
 
-web_ci_preflight
-web_ci_install
-
 CHANGED_FILE_LIST="$(web_ci_changed_files)"
 
-if [ -z "$CHANGED_FILE_LIST" ]; then
+if [ -z "$CHANGED_FILE_LIST" ] && [ "$WEB_TARGETED_ALL_PACKS" != "1" ]; then
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_write
+    exit 0
+  fi
   echo "No changed files resolved for targeted web checks."
   exit 0
 fi
@@ -65,6 +73,13 @@ printf 'Resolved %s changed file(s) for targeted web checks.\n' "$changed_count"
 
 has_match() {
   local pattern="$1"
+  if [ "$WEB_TARGETED_ALL_PACKS" = "1" ]; then
+    return 0
+  fi
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_match "$pattern"
+    return $?
+  fi
   # With pipefail, grep may close the pipe immediately after a match and turn
   # printf's SIGPIPE into a false negative for a long changed-file list.
   grep -Eq "$pattern" <<<"$CHANGED_FILE_LIST"
@@ -76,6 +91,10 @@ failed_checks=()
 run_check() {
   local name="$1"
   shift
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    web_targeted_plan_check "$name" "$@"
+    return 0
+  fi
   if [ "$WEB_TARGETED_PART" != "all" ]; then
     local part
     part="$(check_part "$@")"
@@ -122,7 +141,9 @@ fi
 if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
   # The node leg intentionally has no browser install. The browser leg owns
   # rendering; an unsplit local run still renders every diagram.
-  if [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
+  if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+    PLAN_BROWSER_REQUIRED=1
+  elif [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
     (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
   fi
   ran=1
@@ -171,7 +192,7 @@ if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-backgro
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-actions\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-(actions|preview)\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports|-preview|-preview-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_full_suite_check "Connections web boundary" npm run test:connections-web
   # Drive runs the full first-connect spec without a grep filter in both browser
   # projects. Its selected cases therefore include Connections' filtered cases.
@@ -452,6 +473,10 @@ fi
 if [ "$layout_contracts_required" -eq 1 ]; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
+fi
+
+if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
+  web_targeted_plan_finish
 fi
 
 if [ "$ran" -eq 0 ]; then

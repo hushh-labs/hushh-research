@@ -724,7 +724,7 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
                       )}
                       data-testid="circle-member"
                     >
-                      <AvatarBubble
+                      <AvatarBubble userId={member.userId}
                         initials={initialsFor(member.displayName)}
                         imageUrl={member.photoUrl}
                       />

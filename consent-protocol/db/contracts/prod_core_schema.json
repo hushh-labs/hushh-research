@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 441,
+  "expected_migration_version": 444,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -338,6 +338,8 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "rotate_followup_read_generation",
+    "calendar_email_followup_grant_current",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -616,6 +618,94 @@
       "review_id",
       "state",
       "user_id"
+    ],
+    "calendar_email_followup_conversations": [
+      "id",
+      "user_id",
+      "account_id",
+      "thread_hmac",
+      "thread_ref_ciphertext",
+      "subject_ciphertext",
+      "sender_ciphertext",
+      "latest_internal_date_ms",
+      "created_at",
+      "updated_at"
+    ],
+    "calendar_email_followup_monitors": [
+      "user_id",
+      "account_id",
+      "enabled",
+      "notifications_enabled",
+      "historical_start_at",
+      "time_zone",
+      "reminder_lead_days",
+      "reminder_hour",
+      "grant_epoch_digest",
+      "provider_subject_sha256",
+      "mail_generation",
+      "calendar_connected_at",
+      "calendar_grant_revision",
+      "generation",
+      "checkpoint_ciphertext",
+      "scan_state",
+      "scan_error_code",
+      "last_complete_at",
+      "next_scan_at",
+      "lease_id",
+      "lease_until",
+      "created_at",
+      "updated_at"
+    ],
+    "calendar_email_followup_mutations": [
+      "request_id",
+      "idempotency_key",
+      "resulting_revision",
+      "created_at"
+    ],
+    "calendar_email_followup_requests": [
+      "id",
+      "conversation_id",
+      "user_id",
+      "account_id",
+      "evidence_hmac",
+      "source_message_hmac",
+      "source_message_ref_ciphertext",
+      "source_body_digest",
+      "source_internal_date_ms",
+      "kind",
+      "state",
+      "title_ciphertext",
+      "quote_ciphertext",
+      "due_wording_ciphertext",
+      "due_date",
+      "due_relation",
+      "proposed_date",
+      "proposed_at",
+      "time_zone",
+      "responsibility",
+      "ambiguities",
+      "reminder_at",
+      "reminder_is_manual",
+      "reminder_sent_revision",
+      "booking_event_ref_ciphertext",
+      "booking_confirmed_at",
+      "revision",
+      "last_source_internal_date_ms",
+      "last_checked_at",
+      "reminder_lease_id",
+      "reminder_lease_until",
+      "reminder_retry_at",
+      "created_at",
+      "updated_at"
+    ],
+    "calendar_email_followup_scanned_messages": [
+      "user_id",
+      "account_id",
+      "message_hmac",
+      "thread_hmac",
+      "body_digest",
+      "internal_date_ms",
+      "processed_at"
     ],
     "chat_push_device_deliveries": [
       "accepted_at",
@@ -2337,7 +2427,10 @@
       "connected_at",
       "revoked_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "gmail_read_enabled",
+      "gmail_read_granted_at",
+      "gmail_read_generation"
     ],
     "google_email_send_actions": [
       "action_id",
@@ -2499,7 +2592,8 @@
       "send_enabled",
       "send_grant_generation",
       "status",
-      "user_id"
+      "user_id",
+      "followup_read_generation"
     ],
     "kai_run_state": [
       "run_id",
@@ -4717,5 +4811,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 441
+  "expected_schema_head": 444
 }

@@ -53,7 +53,11 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
   shard: parsePlaywrightShard(process.env.PLAYWRIGHT_SHARD),
-  reporter: process.env.CI ? "github" : "html",
+  reporter: process.env.CI
+    ? process.env.PLAYWRIGHT_LINE_REPORTER === "1"
+      ? [["github"], ["line"]]
+      : "github"
+    : "html",
 
   use: {
     baseURL,
@@ -144,7 +148,7 @@ export default defineConfig({
         /initial-contacts-welcome\.layout\.spec\.ts/,
         /circle-invite-picker\.layout\.spec\.ts/,
         /one-location-checkin-card\.layout\.spec\.ts/,
-        /person-profile-actions\.layout\.spec\.ts/,
+        /person-profile-(actions|preview)\.layout\.spec\.ts/,
         /sms-flow\.layout\.spec\.ts/,
         /mobile-overlay-safe-area\.layout\.spec\.ts/,
         // The shared voice/text dock and keyboard clearance ship in WKWebView.

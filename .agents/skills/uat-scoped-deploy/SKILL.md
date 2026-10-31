@@ -57,12 +57,15 @@ Non-owned surfaces:
 1. Default to `scope=auto`; let the resolver compare the target SHA with each service's currently deployed SHA and record both requested and resolved scope.
 2. Force `frontend`, `backend`, or `all` only after target-to-deployed-service delta proof establishes that the override covers every accumulated runtime change.
 3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
-4. Wait for `Main Post-Merge Smoke` to succeed for the landed `main` SHA, then trigger UAT with that exact SHA. Keep merge, smoke, and UAT deploy as separate evidence.
+4. Keep the workflow definition Main-owned, but select application source only from protected `uat` history. For direct UAT, qualify the protected UAT tip with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
+
+   See the [deploy proof reference](references/deploy-proof.md) for exact commands.
+
 5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
 8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
-9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal and candidate evaluator are required only for PKM upgrade/storage/migration contracts; reviewer BYOK is independently selected for vault/reviewer contracts. A missing deployed SHA fails closed. Never replace this selector with a workflow-local path list.
+9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; reviewer BYOK is independently selected for vault/reviewer contracts. A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
 
 ## Handoff Rules
 

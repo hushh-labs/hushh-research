@@ -681,7 +681,9 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     bridge = next(step for step in deploy["steps"] if step.get("id") == "resolve-sha")
     assert bridge["env"]["DEPLOY_SHA"] == "${{ needs.select-target.outputs.sha }}"
     validator = next(
-        step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
+        step
+        for step in deploy["steps"]
+        if step["name"] == "Validate deployment SHA in selected protected history"
     )
     assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert (
@@ -1010,7 +1012,15 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     # PyYAML's YAML 1.1 loader treats the workflow `on` key as True.
     dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
-    assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
+    plan = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "verification-plan"
+    )
+    assert plan["env"]["RUN_LIVE_MODEL_CHECKS"] == (
+        "${{ inputs.run_live_model_checks && 'true' || 'false' }}"
+    )
+    assert '--run-live-model-checks "${RUN_LIVE_MODEL_CHECKS}"' in plan["run"]
     semantic_steps = [
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -1808,11 +1818,66 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
     assert "UPSTREAM_JOB_STATUS: ${{ job.status }}" in workflow
     assert 'if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then' in workflow
     assert 'if [ "$upstream_failed" = "true" ]' in workflow
-    assert (
-        workflow.count('if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then')
-        == 1
+
+    def is_fail_closed(document):
+        steps = document["jobs"]["deploy"]["steps"]
+        status = [step for step in steps if step.get("id") == "release-status"]
+        summary = [step for step in steps if step.get("name") == "Deployment Summary"]
+        failure = [
+            step
+            for step in steps
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        ]
+        return (
+            len(status) == len(summary) == len(failure) == 1
+            and status[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and status[0].get("run", "").startswith('set -euo pipefail\nSTATUS="blocked"')
+            and 'if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then'
+            in status[0].get("run", "")
+            and 'STATUS="healthy"' in status[0].get("run", "")
+            and 'echo "status=$STATUS" >> "$GITHUB_OUTPUT"' in status[0].get("run", "")
+            and "steps.release-status.outputs.status || 'unknown'" in summary[0].get("run", "")
+            and "|| 'unknown'" in summary[0].get("run", "")
+            and failure[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and 'if [ "$STATUS" = pending_activation ]; then' in failure[0].get("run", "")
+            and 'if [ "$STATUS" != "healthy" ]; then' in failure[0].get("run", "")
+            and 'echo "Production release did not end healthy."' in failure[0].get("run", "")
+        )
+
+    assert is_fail_closed(yaml.safe_load(workflow))
+    for mutation in ("inverted_classification", "healthy_default", "inverted_guard"):
+        changed = yaml.safe_load(workflow)
+        status = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("id") == "release-status"
+        )
+        guard = next(
+            step
+            for step in changed["jobs"]["deploy"]["steps"]
+            if step.get("name") == "Fail workflow when production release did not end healthy"
+        )
+        if mutation == "inverted_classification":
+            status["run"] = status["run"].replace(
+                'outputs.release_failed }}" = "false"',
+                'outputs.release_failed }}" != "false"',
+            )
+        elif mutation == "healthy_default":
+            status["run"] = status["run"].replace('STATUS="blocked"', 'STATUS="healthy"', 1)
+        else:
+            guard["run"] = guard["run"].replace(
+                'if [ "$STATUS" != "healthy" ]; then',
+                'if [ "$STATUS" = "healthy" ]; then',
+            )
+        assert not is_fail_closed(changed)
+    misleading = yaml.safe_load(workflow)
+    summary = next(
+        step
+        for step in misleading["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Deployment Summary"
     )
-    assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
+    summary["run"] = summary["run"].replace("|| 'unknown'", "|| 'healthy'")
+    assert not is_fail_closed(misleading)
 
 
 def test_production_release_verifies_provenance_and_publishes_evidence() -> None:
@@ -2037,8 +2102,9 @@ def _provider_fixture(module, provider, *, document=None):
         "step_exit": 0,
         "capabilities": {},
     }
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
     policy = document["managed_runtime_uat"]
-    digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
     capabilities = _capability_results_fixture(policy)
     if provider == "vertex":
         capabilities["public_source"].update(research_contracts=1, attribution_cases=8)
@@ -2046,9 +2112,9 @@ def _provider_fixture(module, provider, *, document=None):
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
         "config_fingerprint": expected["config_fingerprint"],
-        "policy_generation": str(
-            uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
-        ),
+        "policy_generation": load_managed_runtime_policy(
+            environment="uat", provider=provider, document=document
+        )["generation"],
         "synthetic_only": True,
         "capabilities": capabilities,
         "ready": True,
@@ -2068,10 +2134,24 @@ def _provider_fixture(module, provider, *, document=None):
     [(True, False), (False, True), (True, True), (False, False)],
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
-def test_provider_release_admission_qualifies_the_configured_provider(azure, vertex, configured):
+@pytest.mark.parametrize("account", ["packaged", "switched"])
+def test_provider_release_admission_qualifies_the_configured_provider(
+    azure, vertex, configured, account
+):
     module = _managed_provider_gate()
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     document["managed_provider_selection"]["uat"] = configured
+    if account == "switched":
+        # The gate must bind the selected account's identity, never re-derive it.
+        accounts = document["managed_azure_accounts"]
+        accounts["accounts"]["spare"] = {
+            "tenant_id": "11111111-2222-4333-8444-555555555555",
+            "client_id": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+            "primary_endpoint": "https://spare-account.openai.azure.com/openai/v1/",
+            "phi_endpoint": "https://spare-account.services.ai.azure.com/openai/v1/",
+            "readiness_exam_client_id": None,
+        }
+        accounts["selection"]["uat"] = "spare"
     expected, a = _provider_fixture(module, "azure_openai", document=document)
     _, v = _provider_fixture(module, "vertex", document=document)
     result = module.evaluate(

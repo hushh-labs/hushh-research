@@ -14,7 +14,7 @@ export function FeedSmsAlertGroup({ group }: { group: SmsGroup }) {
   return (
     <details className="group/sms" data-testid="feed-sms-alert-group">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-3 py-3 focus-visible:outline-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-        <ConnectionPersonAvatar label={label} photoUrl={latest.person?.photoUrl} size="compact" />
+        <ConnectionPersonAvatar userId={latest.person?.userId} personRef={latest.person?.personRef} label={label} photoUrl={latest.person?.photoUrl} size="compact" />
         <span className="min-w-0 flex-1 space-y-0.5">
           <span data-profile-role="name" className="block truncate">{label}</span>
           <span data-profile-role="description" className="block text-muted-foreground">

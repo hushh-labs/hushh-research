@@ -80,6 +80,23 @@ describe("web system-notification click bridge", () => {
     });
   });
 
+  it("routes a follow-up to its selected account and request without trusting a supplied URL", () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const accountId = "mail-account_B";
+    expect(buildNotificationTapTarget({
+      type: "calendar_email_follow_up", account_id: accountId,
+      followup_request_id: requestId, request_url: "https://evil.example/redirect",
+    })).toBe(`/one/calendar?followupAccount=${accountId}&followupRequest=${requestId}`);
+    expect(buildNotificationTapTarget({
+      type: "calendar_email_follow_up", account_id: "../other",
+      followup_request_id: requestId,
+    })).toBe("/one/calendar");
+    expect(buildNotificationTapTarget({
+      type: "calendar_email_follow_up", account_id: accountId,
+      followup_request_id: "javascript:bad",
+    })).toBe("/one/calendar");
+  });
+
   it("builds a document-review route from only an allowlisted type and UUID", () => {
     const requestId = "11111111-1111-4111-8111-111111111111";
 

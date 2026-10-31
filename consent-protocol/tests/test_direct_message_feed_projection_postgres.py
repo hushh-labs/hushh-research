@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import io
 import os
@@ -13,13 +12,12 @@ from pathlib import Path
 from threading import Barrier, Event
 from types import SimpleNamespace
 
-import asyncpg
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
+from tests.feed_fixture_support import add_followup_fence_relations, apply_fixture_migrations
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -399,20 +397,10 @@ def projection_db():
             )
 
         def apply_migrations(filenames):
-            async def run():
-                connection = await asyncpg.connect(
-                    engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
-                )
-                try:
-                    return await apply_manifest_entries(
-                        connection,
-                        build_manifest_entries(ROOT / "db/migrations", filenames),
-                        mode=MigrationMode.REPLAY,
-                    )
-                finally:
-                    await connection.close()
+            return apply_fixture_migrations(engine, filenames)
 
-            return asyncio.run(run())
+        with engine.begin() as connection:
+            add_followup_fence_relations(connection)
 
         for _ in range(2):
             apply_migrations(

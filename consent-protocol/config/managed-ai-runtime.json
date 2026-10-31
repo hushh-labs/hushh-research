@@ -3,6 +3,20 @@
   "managed_provider_selection": {
     "uat": "azure_openai"
   },
+  "managed_azure_accounts": {
+    "selection": {
+      "uat": "azure-trial"
+    },
+    "accounts": {
+      "azure-trial": {
+        "tenant_id": "21cfeec0-6294-4c61-9ed4-f895165053f7",
+        "client_id": "3290830b-a60a-4230-91af-2f15336ccdf0",
+        "primary_endpoint": "https://oai-hussh-eee5f876655f1602.openai.azure.com/openai/v1/",
+        "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
+        "readiness_exam_client_id": "73234515-c512-45b9-bd7a-616db21e16c0"
+      }
+    }
+  },
   "private_drive_text_uat": {
     "enabled": true,
     "policy_id": "6f3464f2-5df4-4d23-864d-11f7b164c051",
@@ -95,11 +109,7 @@
       "location": "us-central1"
     },
     "azure": {
-      "tenant_id": "21cfeec0-6294-4c61-9ed4-f895165053f7",
-      "client_id": "3290830b-a60a-4230-91af-2f15336ccdf0",
-      "primary_endpoint": "https://oai-hussh-eee5f876655f1602.openai.azure.com/openai/v1/",
       "primary_deployment": "pwm-gpt-5-mini-eval",
-      "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
       "phi_deployment": "pwm-phi-4-mini-eval"
     }
   },

@@ -218,55 +218,228 @@ def test_hourly_runtime_observation_is_staged_by_environment_rollout(environment
     assert ("--emit-health-log" in result.stdout) is (rollout != "invalid")
 
 
-@pytest.mark.parametrize("case", ["normal", "lost-write", "expired", "replaced"])
+@pytest.mark.parametrize("case", ["normal", "lost-write", "expired", "replaced", "denied"])
 def test_cloud_health_lease_fences_duplicates_and_preserves_successors(case):
     root = Path(__file__).resolve().parents[2]
     path = root / "deploy/observability/auth_health_job.py"
     spec = importlib.util.spec_from_file_location("auth_health_job", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    state = {"generation": 0, "body": None}
+    state = {
+        "generation": 0,
+        "body": None,
+        "reads": 0,
+        "writes": 0,
+        "expected_generations": [],
+    }
     if case == "expired":
-        state.update(generation=4, body={"holder": "old", "expires": 1})
+        state.update(generation=4, body={"holder": "b" * 32, "expires": 1})
 
-    def cloud(args, **kwargs):
-        if args[1:3] == ["storage", "cp"]:
-            expected = int(
-                next(v.split("=", 1)[1] for v in args if v.startswith("--if-generation-match="))
-            )
-            if expected != state["generation"]:
-                raise module.BoundedReadError("exit")
-            state["body"] = json.loads(Path(args[3]).read_text())
+    class FakeStorage:
+        def write(self, payload, expected_generation):
+            state["writes"] += 1
+            state["expected_generations"].append(expected_generation)
+            if case == "denied":
+                raise module.HealthCommandFailure(
+                    module.HealthCommandStage.LEASE_CLAIM,
+                    module.BoundedFailureReason.UNCLASSIFIED,
+                )
+            if int(expected_generation) != state["generation"]:
+                raise module.LeasePreconditionFailed(module.HealthCommandStage.LEASE_CLAIM)
+            state["body"] = json.loads(payload)
             state["generation"] += 1
             if case == "lost-write" and state["generation"] == 1:
-                raise module.BoundedReadError("exit")
+                raise module.LeaseWriteUncertain(
+                    module.HealthCommandStage.LEASE_CLAIM,
+                    module.BoundedFailureReason.UNCLASSIFIED,
+                )
             if case == "replaced":
                 state["generation"] += 1
-                state["body"] = {"holder": "successor", "expires": 2000}
-            return b""
-        if args[1:4] == ["storage", "objects", "describe"]:
-            return str(state["generation"]).encode()
-        if args[1:3] == ["storage", "cat"]:
-            assert args[3].endswith("#" + str(state["generation"]))
+                state["body"] = {"holder": "c" * 32, "expires": 2000}
+
+        def generation(self):
+            state["reads"] += 1
+            return str(state["generation"])
+
+        def read(self, generation):
+            assert generation == str(state["generation"])
             return json.dumps(state["body"]).encode()
-        if args[1:3] == ["storage", "rm"]:
-            assert args[-2] == f"--if-generation-match={state['generation']}"
+
+        def delete(self, generation):
+            assert generation == str(state["generation"])
             state["body"] = None
             state["generation"] = 0
-            return b""
-        raise AssertionError("Unreviewed cloud operation")
+
+    storage = FakeStorage()
 
     if case == "replaced":
         with (
-            pytest.raises(ValueError, match="holder changed"),
-            module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000),
+            pytest.raises(module.HealthCommandFailure) as error,
+            module.lease("hushh-pda-uat", storage=storage, clock=lambda: 1000),
         ):
             pytest.fail("A successor's lease authorized this worker")
-        assert state["body"]["holder"] == "successor"
+        assert error.value.stage is module.HealthCommandStage.LEASE_READ
+        assert state["body"]["holder"] == "c" * 32
+    elif case == "denied":
+        with pytest.raises(module.HealthCommandFailure) as error:
+            with module.lease("hushh-pda-uat", storage=storage, clock=lambda: 1000):
+                pytest.fail("A refused generation-0 write authorized this worker")
+        assert error.value.stage is module.HealthCommandStage.LEASE_CLAIM
+        assert state["reads"] == 0
     else:
-        with module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000) as acquired:
+        with module.lease("hushh-pda-uat", storage=storage, clock=lambda: 1000) as acquired:
             assert acquired
-            with module.lease("hushh-pda-uat", run=cloud, clock=lambda: 1000) as duplicate:
+            assert state["body"]["expires"] == 1900
+            assert len(state["body"]["holder"]) == 32
+            with module.lease("hushh-pda-uat", storage=storage, clock=lambda: 1000) as duplicate:
                 assert not duplicate
             assert state["body"] is not None
         assert state["body"] is None
+        if case == "expired":
+            assert state["expected_generations"] == ["0", "4", "0"]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_reason", "exitcode"),
+    [
+        ("exit", "exit", 2),
+        ("timeout", "timeout", None),
+        ("private-value-marker", "unclassified", None),
+    ],
+)
+def test_auth_health_job_logs_only_bounded_failure_stage_and_reason(
+    monkeypatch, capsys, failure, expected_reason, exitcode
+):
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    private_marker = "private-value-marker"
+
+    def fail(*_args, **_kwargs):
+        raise module.BoundedReadError(failure, exitcode=exitcode)
+
+    monkeypatch.setattr(module, "bounded_stdout", fail)
+
+    class FailingLease:
+        def __enter__(self):
+            module.command(
+                ["gcloud", "storage", "cat", f"gs://private-bucket/{private_marker}"],
+                stage=module.HealthCommandStage.LEASE_READ,
+            )
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(module, "lease", lambda _project: FailingLease())
+    monkeypatch.setenv("AUTH_HEALTH_PROJECT", "hushh-pda")
+    monkeypatch.setenv("AUTH_PHONE_RUNTIME_HEALTH_ENABLED", "false")
+
+    assert module.main() == 2
+    output = capsys.readouterr()
+    expected = f"Auth health check unavailable; stage=lease_read; reason={expected_reason}"
+    if exitcode is not None:
+        expected += f"; exitcode={exitcode}"
+    assert output.out == expected + "\n"
+    assert private_marker not in output.out + output.err
+    assert "Bounded command read:" not in output.out + output.err
+    if failure not in {"exit", "timeout"}:
+        assert failure not in output.out + output.err
+
+
+def test_auth_health_job_refuses_unclassified_stage_without_running_command(monkeypatch):
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+    monkeypatch.setattr(module, "bounded_stdout", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(ValueError, match="Unclassified health command stage") as error:
+        module.command(
+            ["gcloud", "storage", "cat", "gs://private-bucket/private-object"],
+            stage="private-marker",
+        )
+
+    assert calls == []
+    assert "private-marker" not in str(error.value)
+
+
+def test_auth_health_job_preserves_stage_for_redacted_oserror(monkeypatch, capsys):
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    private_marker = "private-value-marker"
+
+    def fail(*_args, **_kwargs):
+        raise OSError(private_marker)
+
+    monkeypatch.setattr(module, "bounded_stdout", fail)
+
+    class FailingLease:
+        def __enter__(self):
+            module.command(
+                ["gcloud", "storage", "cat", f"gs://private-bucket/{private_marker}"],
+                stage=module.HealthCommandStage.LEASE_READ,
+            )
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(module, "lease", lambda _project: FailingLease())
+    monkeypatch.setenv("AUTH_HEALTH_PROJECT", "hushh-pda")
+    monkeypatch.setenv("AUTH_PHONE_RUNTIME_HEALTH_ENABLED", "false")
+
+    assert module.main() == 2
+    output = capsys.readouterr()
+    assert output.out == ("Auth health check unavailable; stage=lease_read; reason=unclassified\n")
+    assert private_marker not in output.out + output.err
+
+
+@pytest.mark.parametrize(
+    ("reason", "exitcode", "expected_reason", "expected_exitcode"),
+    [
+        ("exit", 2, "exit", 2),
+        ("exit", 0, "exit", None),
+        ("exit", 256, "exit", None),
+        ("private-marker", 2, "unclassified", None),
+        ("timeout", 2, "timeout", None),
+    ],
+)
+def test_bounded_read_error_exposes_only_validated_classification(
+    reason, exitcode, expected_reason, expected_exitcode
+):
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    error = module.BoundedReadError(reason, exitcode=exitcode)
+
+    assert error.reason == expected_reason
+    assert error.exitcode == expected_exitcode
+    assert "private-marker" not in str(error)
+
+
+def test_bounded_stdout_preserves_only_nonzero_numeric_exitcode():
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/observability/auth_health_job.py"
+    spec = importlib.util.spec_from_file_location("auth_health_job", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with pytest.raises(module.BoundedReadError) as error:
+        module.bounded_stdout(
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            max_bytes=64,
+            timeout=2,
+        )
+
+    assert error.value.reason == "exit"
+    assert error.value.exitcode == 7
+    assert "SystemExit" not in str(error.value)

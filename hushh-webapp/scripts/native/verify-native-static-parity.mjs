@@ -180,8 +180,10 @@ const smsAlarmService = androidManifest.match(/<service\b[^>]*android:name="\.pl
 if (!smsAlarmService?.includes('android:exported="false"') || !smsAlarmService.includes('android:foregroundServiceType="mediaPlayback"')) {
   fail("SMS alarms require a non-exported mediaPlayback foreground service.");
 }
-if (!infoPlist.includes("<string>audio</string>")) {
-  fail("SMS alarm playback requires the iOS audio background mode.");
+// One Voice's privacy contract forbids background audio. iOS SMS alarms ring
+// through AlarmKit on iOS 26+ and through notification sound otherwise.
+if (infoPlist.includes("<string>audio</string>")) {
+  fail("UIBackgroundModes must not include audio; SMS alarms use AlarmKit or notification sound.");
 }
 const androidContactsPlugin = read(androidContactsPluginPath);
 const androidDeviceRegion = androidContactsPlugin.match(

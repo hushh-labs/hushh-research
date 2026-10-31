@@ -29,8 +29,10 @@ python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
+python3 scripts/ci/test_readiness_exam_workflow.py
 python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_release_cadence_qualification.py
+python3 scripts/ci/test_uat_exact_ci.py
 python3 scripts/ci/test_release_cadence_maintenance.py
 python3 scripts/ci/test_release_cadence_monitor.py
 python3 scripts/ci/test_release_cadence_checkpoint.py
@@ -42,9 +44,15 @@ python3 scripts/ci/test_cloudrun_retention.py
 python3 scripts/ci/test_uat_per_revision_drain.py
 python3 scripts/ci/test_pending_uat_retention_state.py
 python3 scripts/ci/test_retention_preflight_checkpoint.py
+python3 scripts/ci/test_retention_error_diagnostics.py
+python3 scripts/ci/test_retention_preparing.py
 python3 scripts/ci/test_retention_preflight_evidence.py
+python3 scripts/ci/test_retention_production_evidence.py
+python3 scripts/ci/test_retention_production_clock_evidence.py
+python3 scripts/ci/test_retention_uat_guard_evidence.py
 python3 scripts/ci/test_wait_uat_capacity.py
 python3 scripts/ci/test_runtime_capacity_budget.py
+python3 scripts/ci/test_runtime_capacity_uat_health_job.py
 python3 scripts/ci/test_runtime_capacity_inventory.py
 python3 scripts/ci/test_runtime_capacity_volume.py
 python3 scripts/ci/test_runtime_capacity_isolated.py

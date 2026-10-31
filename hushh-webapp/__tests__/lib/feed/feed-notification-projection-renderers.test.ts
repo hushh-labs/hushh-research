@@ -25,6 +25,15 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it("keeps follow-up Feed copy generic and opens the owner-checked account request", () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const result = presentFeedItem(feedItem("followup_reminder", {
+      account_id: "account_B", request_id: requestId,
+      subject: "Private document", source_excerpt: "Never show me",
+    }, "calendar_email_followup"));
+    expect(result.href).toBe(`/one/calendar?followupAccount=account_B&followupRequest=${requestId}`);
+    expect(`${result.label} ${result.description}`).not.toMatch(/Private document|Never show me/);
+  });
   it("opens a recipient-bound card request without putting private card details in Feed", () => {
     const id = "11111111-1111-4111-8111-111111111111";
     const result = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Divya", wallet_card_request_id: id, wallet_card_request_status: "pending" }, "connections"));

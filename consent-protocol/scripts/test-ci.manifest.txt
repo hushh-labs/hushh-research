@@ -103,6 +103,7 @@ tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
+tests/services/test_calendar_directory_portraits.py
 tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
@@ -147,6 +148,9 @@ tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
+# An allowed request reaches Pay without avoidable waits: a busy owner is
+# seen before planning, Checkout and its notice never queue behind grants.
+tests/services/test_drive_request_instant_start.py
 # A "3 month meeting notes" request over a realistic Drive (synthetic titles):
 # exactly the in-period notes A may share, end to end on PostgreSQL.
 tests/services/test_drive_owner_meeting_notes_scenario.py
@@ -267,6 +271,7 @@ tests/test_mcp_public_tools_v030.py
 tests/test_mcp_commerce_projection.py
 tests/test_mcp_protocol_negotiation_v030.py
 tests/test_campaign_context_tool.py
+tests/test_careers_chat_actions.py
 tests/quality/test_kai_route_auth_compliance.py
 tests/test_kai_auth_matrix.py
 tests/test_kai_consent_grant_dynamic_scopes.py
@@ -286,6 +291,7 @@ tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connect_directory_postgres.py
+tests/services/test_calendar_directory_postgres.py
 tests/services/test_connect_directory_presence_postgres.py
 tests/test_environment_enrollment.py
 tests/test_one_capability_runtime_router_mount.py
@@ -313,6 +319,10 @@ tests/services/test_pkm_source_quote.py
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
+# Only verified advisors reach RIA Picks and investor data: the shared gate
+# refuses everyone else (403) before any service runs.
+tests/test_ria_verification_hardening.py
+tests/test_ria_picks_routes.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py
@@ -472,7 +482,12 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
+tests/test_auth_health_lease_rest.py
+tests/test_auth_health_read_diagnostics.py
 tests/test_auth_health_deployment.py
+tests/test_auth_health_uat_activation.py
+tests/test_auth_health_uat_installation.py
+tests/test_auth_health_wif_scopes.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -497,6 +512,7 @@ tests/test_frontend_prebuilt_image_contract.py
 tests/test_production_image_promotion_contract.py
 tests/test_uat_backend_image_promotion.py
 tests/test_predecessor_acceptance_contract.py
+tests/test_direct_uat_acceptance.py
 tests/test_uat_application_selection.py
 tests/test_production_emergency.py
 
@@ -884,6 +900,7 @@ tests/test_personal_agent_cloud_assignment.py
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
 tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
+tests/one_adk/test_azure_workload_identity.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.
 tests/routes/test_agent_chat_turn_restore.py
@@ -984,6 +1001,7 @@ tests/test_consent_signing_dev_rollout_contract.py
 tests/test_consent_token_asymmetric.py
 tests/test_database_connection_ceiling.py
 tests/test_dco_signoff_is_unmissable.py
+tests/test_dco_history_sync.py
 tests/test_debug_route_is_local_only.py
 tests/test_deprovision_routes_by_the_row.py
 tests/test_dev_migration_lane.py
@@ -1006,6 +1024,7 @@ tests/test_hosted_gcp_backend.py
 tests/test_journey_is_traceable.py
 tests/test_journey_parity.py
 tests/test_kms_key_resolver.py
+tests/test_managed_azure_accounts.py
 tests/test_managed_runtime_selection.py
 tests/test_memory_judge.py
 tests/test_model_access_policy.py
@@ -1429,6 +1448,7 @@ tests/test_referral_settings_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
+tests/test_pkm_memory_proposal_outcome.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
@@ -1520,6 +1540,9 @@ tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
 tests/services/test_calendar_meeting_grant_access.py
 tests/services/test_calendar_meeting_library_paging.py
+tests/services/test_calendar_meeting_organizer_resolution.py
+tests/services/test_calendar_meeting_request_readiness.py
+tests/services/test_google_provider_errors.py
 tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/test_calendar_schedule_routes.py
 
@@ -1551,6 +1574,14 @@ tests/test_todo_wallet_inventory_postgres.py
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
 tests/scripts/test_probe_drive_activity_planner.py
+tests/scripts/test_readiness_exam_manifest.py
+tests/scripts/test_readiness_transport_repeat.py
+tests/scripts/test_trust_failure_verdict.py
+tests/test_uat_readiness_verdict_collector.py
+tests/scripts/test_root_roundtrip_reasons.py
+tests/scripts/test_readiness_exam_premerge.py
+tests/scripts/test_readiness_exam_measurement.py
+tests/scripts/test_readiness_exam_runner.py
 tests/scripts/test_azure_readiness_deadline.py
 tests/scripts/test_probe_azure_openai_readiness.py
 

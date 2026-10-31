@@ -840,7 +840,7 @@ export function SaveMySoul() {
                       )}
                       data-testid="sos-contact"
                     >
-                      <AvatarBubble
+                      <AvatarBubble userId={contact.userId}
                         initials={initialsFor(contact.displayName)}
                         imageUrl={contact.photoUrl}
                         size={36}

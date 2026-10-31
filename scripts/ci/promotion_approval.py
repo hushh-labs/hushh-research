@@ -52,13 +52,16 @@ def verify(application: str, approval: str, *, resolve=git) -> dict:
 
 
 def uat_source(application: str, *, resolve=git) -> tuple[str, str]:
+    """Require new UAT selections to belong to protected UAT history.
+
+    Historical Main-backed receipts remain readable by the acceptance verifier;
+    they do not authorize a new Main-only dispatch.
+    """
     if not SHA.fullmatch(application):
         raise ValueError("A full application SHA is required")
-    if resolve("merge-base", application, "origin/main") == application:
-        return "main", "Main Post-Merge Smoke Gate"
     if resolve("merge-base", application, "origin/uat") == application:
         return "uat", "CI Status Gate,Queue Validation,Branch Validation Gate"
-    raise ValueError("Application is neither curated UAT nor an approved Main baseline")
+    raise ValueError("Application is not in protected UAT history")
 
 
 def main() -> int:
@@ -86,7 +89,8 @@ def main() -> int:
             with args.github_output.open("a", encoding="utf-8") as output:
                 output.write(f"branch={branch}\nchecks={checks}\n")
             print(
-                f"Selected {branch} source authority; canonical CI and Dev acceptance remain required."
+                f"Selected {branch} source authority; exact branch CI and "
+                "Main-owned UAT admission remain required."
             )
             return 0
         if args.output is None:

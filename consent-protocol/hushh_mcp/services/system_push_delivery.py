@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
+from urllib.parse import urlencode
 
 from sqlalchemy import text
 
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 _wakeup: asyncio.Event | None = None
 
 _SOURCE_TYPES = {
+    "calendar_email_follow_up": ("calendar_email_followup", "followup_request_id"),
     "location_share_created": ("share", "grant_id"),
     "location_access_request": ("location_request", "request_id"),
     "location_circle_member_added": ("circle_member", "circle_id"),
@@ -128,6 +130,41 @@ def _source(conn, event: dict) -> dict | None:
             WHERE s.circle_id=:source AND s.user_id=:user AND s.status='active'
               AND s.role='member' AND EXTRACT(EPOCH FROM s.joined_at)::TEXT=:revision AND c.status='active'
               AND c.system_kind IS DISTINCT FROM 'trusted' FOR SHARE OF s,c"""
+    elif kind == "calendar_email_followup":
+        account_id = conn.execute(
+            text("""SELECT account_id FROM calendar_email_followup_requests
+            WHERE id=:source AND user_id=:user"""),
+            params,
+        ).scalar()
+        if not account_id:
+            return None
+        # Acquire grant rows before the request/monitor locks below. Every
+        # disconnect and identity replacement must serialize with each alert.
+        if account_id == "default":
+            for statement in (
+                "SELECT 1 FROM google_provider_connections WHERE user_id=:user AND provider='google' FOR SHARE",
+                "SELECT 1 FROM google_service_grants WHERE user_id=:user AND provider='google' AND service='calendar' FOR SHARE",
+                "SELECT 1 FROM kai_gmail_connections WHERE user_id=:user FOR SHARE",
+            ):
+                if not conn.execute(text(statement), params).first():
+                    return None
+        elif not conn.execute(
+            text("""SELECT 1 FROM google_calendar_additional_accounts
+            WHERE user_id=:user AND account_id=:account_id FOR SHARE"""),
+            {**params, "account_id": account_id},
+        ).first():
+            return None
+        sql = """SELECT r.* FROM calendar_email_followup_requests r
+            JOIN calendar_email_followup_monitors m
+              ON m.user_id=r.user_id AND m.account_id=r.account_id
+            WHERE r.id=:source AND r.user_id=:user
+              AND r.state IN ('pending','snoozed')
+              AND r.revision::text=:revision
+              AND r.reminder_sent_revision=r.revision
+              AND r.reminder_at<=now() AND m.enabled=TRUE
+              AND m.notifications_enabled=TRUE
+              AND calendar_email_followup_grant_current(m)
+            FOR SHARE OF r,m"""
     else:
         return None
     result = conn.execute(text(sql), params).mappings().first()
@@ -135,6 +172,29 @@ def _source(conn, event: dict) -> dict | None:
 
 
 def _notification(conn, event: dict, source: dict) -> dict:
+    if event["source_kind"] == "calendar_email_followup":
+        request_id = str(source["id"])
+        return {
+            "user_id": event["recipient_user_id"],
+            "notification_type": "calendar_email_follow_up",
+            "title": "Follow-up reminder",
+            "body": "A request from your email needs attention.",
+            "request_url": "/one/calendar?"
+            + urlencode(
+                {
+                    "followupAccount": source["account_id"],
+                    "followupRequest": request_id,
+                }
+            ),
+            "notification_tag": f"calendar-followup:{request_id}:{event['source_revision']}",
+            "data": {
+                "message_id": str(event["id"]),
+                "user_id": event["recipient_user_id"],
+                "followup_request_id": request_id,
+                "account_id": source["account_id"],
+            },
+            "show_alert": True,
+        }
     from hushh_mcp.services.one_location_agent_service import (
         OneLocationAgentService,
         _access_ask_summary,
@@ -259,13 +319,20 @@ def _notification(conn, event: dict, source: dict) -> dict:
 
 
 def _deliver(db, event: dict) -> str:
-    from api.consent_listener import publish_user_state_event_threadsafe
+    from api.consent_listener import (
+        publish_user_state_event_in_transaction,
+        publish_user_state_event_threadsafe,
+    )
     from api.utils.firebase_admin import ensure_firebase_admin
     from hushh_mcp.services.account_deletion_lifecycle_service import (
         AccountDeletionLifecycleService,
     )
 
     user = event["recipient_user_id"]
+    if event["source_kind"] == "calendar_email_followup":
+        freshness = _followup_freshness(event)
+        if freshness != "ready":
+            return "suppressed" if freshness == "unavailable" else "deferred"
     with db.engine.begin() as conn:
         source = _source(conn, event)
         if not source:
@@ -280,26 +347,38 @@ def _deliver(db, event: dict) -> str:
             .mappings()
             .all()
         )
-    data = {
-        **{k: str(v) for k, v in payload["data"].items() if v is not None},
-        "type": payload["notification_type"],
-        "user_id": user,
-        "message_id": str(event["id"]),
-        "request_url": payload["request_url"],
-        "notification_tag": payload["notification_tag"],
-        "notification_presentation": "alert",
-    }
-    # An authenticated live SMS popup must not depend on token registration or
-    # Firebase health. The stable id deduplicates this companion with FCM.
-    publish_user_state_event_threadsafe(
-        user, {**data, "title": payload["title"], "body": payload["body"]}
-    )
+        data = {
+            **{k: str(v) for k, v in payload["data"].items() if v is not None},
+            "type": payload["notification_type"],
+            "user_id": user,
+            "message_id": str(event["id"]),
+            "request_url": payload["request_url"],
+            "notification_tag": payload["notification_tag"],
+            "notification_presentation": "alert",
+        }
+        if event["source_kind"] == "calendar_email_followup":
+            # Queue NOTIFY in the same transaction as the source/grant locks.
+            # PostgreSQL emits it at commit, before a waiting revoke can commit.
+            publish_user_state_event_in_transaction(
+                conn, user, {**data, "title": payload["title"], "body": payload["body"]}
+            )
+    if event["source_kind"] != "calendar_email_followup":
+        # Preserve the established delivery behavior for existing alert types.
+        publish_user_state_event_threadsafe(
+            user, {**data, "title": payload["title"], "body": payload["body"]}
+        )
     if not ids or not ensure_firebase_admin()[0]:
         return "pending"
     from firebase_admin import messaging
 
     complete = True
     for registration in ids:
+        if event["source_kind"] == "calendar_email_followup":
+            # A later email can arrive between the in-app alert and a device
+            # send. Re-read that thread before each recipient transport send.
+            freshness = _followup_freshness(event)
+            if freshness != "ready":
+                return "suppressed" if freshness == "unavailable" else "deferred"
         modern = registration["source"] == "installation"
         table = "user_push_installations" if modern else "user_push_tokens"
         predicate = "" if modern else f"AND {LEGACY_REGISTRY_OWNER_FILTER}"
@@ -389,6 +468,20 @@ def _deliver(db, event: dict) -> str:
     return "sent" if complete and accepted else "pending"
 
 
+def _followup_freshness(event: dict) -> str:
+    from hushh_mcp.services.calendar_email_followup_reminders import (  # noqa: PLC0415
+        verify_pending_push_source,
+    )
+
+    return asyncio.run(  # type: ignore[no-any-return]
+        verify_pending_push_source(
+            user_id=event["recipient_user_id"],
+            request_id=str(event["source_id"]),
+            revision=int(event["source_revision"]),
+        )
+    )
+
+
 def dispatch_system_pushes(db=None) -> int:
     db = db or get_db()
     processed = 0
@@ -429,12 +522,20 @@ def dispatch_system_pushes(db=None) -> int:
                 type(exc).__name__,
             )
         with db.engine.begin() as conn:
-            conn.execute(
-                text("""UPDATE system_push_outbox SET status=:status,
-                due_at=now()+make_interval(secs=>LEAST(300,5*CAST(power(2,LEAST(attempts,6)) AS INTEGER)))
-                WHERE id=:id AND lease_id=:lease AND status='leased'"""),
-                {"status": status, "id": event["id"], "lease": event["lease_id"]},
-            )
+            if status == "deferred":
+                conn.execute(
+                    text("""UPDATE system_push_outbox SET status='pending',
+                    attempts=GREATEST(attempts-1,0),due_at=now()+interval '5 minutes'
+                    WHERE id=:id AND lease_id=:lease AND status='leased'"""),
+                    {"id": event["id"], "lease": event["lease_id"]},
+                )
+            else:
+                conn.execute(
+                    text("""UPDATE system_push_outbox SET status=:status,
+                    due_at=now()+make_interval(secs=>LEAST(300,5*CAST(power(2,LEAST(attempts,6)) AS INTEGER)))
+                    WHERE id=:id AND lease_id=:lease AND status='leased'"""),
+                    {"status": status, "id": event["id"], "lease": event["lease_id"]},
+                )
         logger.info(
             "system_push.attempt kind=%s outcome=%s attempt=%s",
             event["source_kind"],
