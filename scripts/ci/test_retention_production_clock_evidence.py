@@ -17,8 +17,9 @@ from test_retention_production_evidence import clock_bound_fixture  # noqa: E402
 
 
 class ClockBoundProductionEvidenceTest(unittest.TestCase):
-    def test_only_the_nine_exact_clock_bound_history_rows_qualify(self):
+    def test_only_the_ten_exact_clock_bound_history_rows_qualify(self):
         expected_ids = {
+            41173362210,
             41169264544,
             41164989434,
             41160506962,
@@ -37,8 +38,17 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
                     clock["run"].update(status="queued", conclusion=None)
                 if run_id == 41164989434:
                     clock["run"].update(status="waiting", conclusion=None)
-                if run_id == 41169264544:
+                if run_id in {41169264544, 41173362210}:
                     clock["run"].update(status="waiting", conclusion=None)
+                if run_id == 41173362210:
+                    self.assertEqual(
+                        record.worker_display_title,
+                        "Capacity Maintenance tick (production)",
+                    )
+                    self.assertEqual(
+                        record.clock.title,
+                        "Capacity clock · repository_dispatch · run 466",
+                    )
                 with mock.patch.dict(
                     clock_evidence.CLOCK_BOUND_RECORDS, {run_id: record}
                 ):
@@ -65,7 +75,7 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
                         "clock_run_id": record.clock.run_id,
                     },
                 )
-                if run_id == 41169264544:
+                if run_id in {41169264544, 41173362210}:
                     wrong_title = {**run, "display_title": "Capacity Maintenance"}
                     with mock.patch.dict(
                         clock_evidence.CLOCK_BOUND_RECORDS, {run_id: record}

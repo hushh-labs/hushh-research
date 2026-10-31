@@ -58,6 +58,30 @@ _PUBLICATION_DIAGNOSTIC_SHA256 = (
     "8ee868f76c8d7b4061b1df961ad0c99add05c323e55482e5b80b4fc704c79bd8"
 )
 CLOCK_BOUND_RECORDS = {
+    41173362210: ClockBoundRecord(
+        worker_head_sha="ef062f1a406062301a8b9df319830742b6b05d55",
+        worker_created_at="2026-10-31T05:37:47Z",
+        worker_job_id=124456008994,
+        worker_job_started_at="2026-10-31T05:39:04Z",
+        worker_job_completed_at="2026-10-31T05:40:57Z",
+        source_profile="publication-939f",
+        diagnostic_sha256=_PUBLICATION_DIAGNOSTIC_SHA256,
+        clock=ClockEvidence(
+            run_id=41173284540,
+            event="repository_dispatch",
+            title="Capacity clock · repository_dispatch · run 466",
+            actor="github-actions[bot]",
+            head_sha="ef062f1a406062301a8b9df319830742b6b05d55",
+            created_at="2026-10-31T05:36:35Z",
+            check_job_id=124455548698,
+            check_completed_at="2026-10-31T05:37:36Z",
+            wake_job_id=124455744386,
+            wake_completed_at="2026-10-31T05:37:47Z",
+            tick_completed_at="2026-10-31T05:37:45Z",
+        ),
+        worker_checkout_sha="ef062f1a406062301a8b9df319830742b6b05d55",
+        worker_display_title="Capacity Maintenance tick (production)",
+    ),
     41169264544: ClockBoundRecord(
         worker_head_sha="f362f9dfaa55ff34e2b2c655f4d82ca5fdf36eea",
         worker_created_at="2026-10-31T04:36:28Z",
