@@ -94,3 +94,24 @@ Stable fixes propagate through manual reviewed sync PRs from Main to UAT/Dev and
 from UAT to Dev. There is no sync bot or automatic deployment. Record unresolved
 downstream sync obligations in the existing release record. Main receives reviewed
 operations/hotfix deltas or separately approved UAT-qualified product changes.
+
+## Target and execution preflight
+
+1. Before treating review or bypass as blocked, inspect live protection and
+   applicable rulesets for the PR's actual base, including that target's bypass
+   actors. Do not infer access from Main's policy, an Admin role, or deploy-user
+   allowlists. For same-repository PRs, `maintainer_can_modify` is not applicable;
+   record `N/A` rather than retrying or changing that setting.
+2. Before hooks, builds, or generators, set the matched repository Python and Node
+   profiles, dependency link, and actual target-base SHA required by the command.
+   Reuse an installed environment only after its lockfile and install-affecting
+   inputs match, including package manager, engines, workspace, dependencies,
+   overrides, resolutions, lifecycle scripts, and platform settings. A
+   script-only difference does not by itself prove dependency drift.
+3. Reuse the repository's common Git object store: fetch the required exact SHA and
+   add an owned worktree rather than cloning a second repository. Keep durable
+   checkpoints and patch/ref/index evidence under ignored `tmp/ops/<task>`; an OS
+   temporary directory is not a durable handoff location.
+4. Run final changed-owner checks and the architecture/AST ratchet against the exact
+   final tree after formatting and generation. Earlier receipts do not cover later
+   edits, and a budget failure must be fixed without waiving the contract.
