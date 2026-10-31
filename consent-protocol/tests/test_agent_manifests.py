@@ -321,8 +321,11 @@ def test_structure_agent_is_told_the_finance_hierarchy_and_its_source_managed_br
 # of each cap. The intent prompt had grown to 20,357 characters, carrying its
 # instruction twice. Raising a cap is a deliberate edit to this table, made
 # with the live eval result that justifies it, never a side effect.
+# Segmentation 5,400 -> 5,600 on 2026-10-30: quoting only Request.message cut
+# unmatched-quote 503s on UAT's Azure pwm-gpt-5-mini-eval from 11/50 to 1/50
+# (ten synthetic messages, five passes each).
 PKM_MEMORY_PROMPT_BUDGET = {
-    "agent_memory_segmentation": 5_400,
+    "agent_memory_segmentation": 5_600,
     "agent_memory_intent": 9_400,
     "agent_memory_merge": 7_300,
     "agent_pkm_structure": 14_200,

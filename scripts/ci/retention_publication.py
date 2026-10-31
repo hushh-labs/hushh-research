@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import retention_preflight_evidence as evidence
+from retention_publication_source import read_source as _source
 
 WORKFLOW = ".github/workflows/capacity-maintenance.yml"
 REPOSITORY = "hushh-labs/hushh-research"
@@ -14,6 +15,9 @@ REPOSITORY = "hushh-labs/hushh-research"
 LEGACY_BLOBS = evidence.LEGACY_BLOBS
 LEGACY_STEPS = evidence._STEP_NAMES
 RUNNER_WARNING = evidence.RUNNER_WARNING
+# The clock's tick for both environments. Its bot dispatch carries the same
+# authority as a scoped tick; each environment's proof decides what qualifies.
+UNSCOPED_TICK_TITLE = "Capacity Maintenance"
 
 
 def _require(owner, condition, message):
@@ -97,33 +101,10 @@ def _log(owner, job):
     return raw.decode("utf-8-sig")
 
 
-def _source(owner, repository, sha, paths=None):
-    def read(path, revision):
-        return json.loads(
-            owner.command(
-                "gh",
-                "api",
-                f"repos/{repository}/contents/{path}?ref={revision}",
-                "--jq",
-                "{sha,size}",
-            )
-        )
-
-    if paths is not None:
-        return {path: read(path, sha) for path in paths}
-    first = read(evidence.OWNER, sha)
-    profile = evidence.SOURCE_PROFILES.get(first.get("sha"))
-    _require(owner, profile is not None, "maintenance pre-mutation source is unknown")
-    return {
-        path: first if path == evidence.OWNER else read(path, sha) for path in profile
-    }
-
-
 def qualify(owner, repository, environment, run, job):
     """Bound I/O only; the existing pure evidence owners make the proof decision."""
     if environment not in {"uat", "production"} or repository != REPOSITORY:
         return None
-    # Production's reviewed guard-only proof loads only on its own path.
     production = (
         importlib.import_module("retention_production_evidence")
         if environment == "production"
@@ -147,9 +128,26 @@ def qualify(owner, repository, environment, run, job):
         ),
         "maintenance failed attempt origin changed",
     )
+    if production is not None and attempt.get("event") == "repository_dispatch":
+        clock = importlib.import_module("retention_production_clock_evidence")
+        return clock.qualify_publication(
+            owner,
+            repository,
+            run,
+            job,
+            attempt,
+            log_reader=_log,
+            source_reader=_source,
+            actor_validator=_legacy_actor,
+            workflow_path=WORKFLOW,
+        )
     _legacy_actor(owner, attempt, run, number, environment)
     log = _log(owner, job)
-    checkout = (production or evidence).actual_checkout(log, job)
+    checkout = (
+        production.actual_checkout(log, job)
+        if production is not None
+        else evidence.actual_checkout(log, job)
+    )
     _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
     blobs = _source(
         owner, repository, checkout, production.SOURCE_PATHS if production else None
@@ -168,6 +166,8 @@ def qualify(owner, repository, environment, run, job):
             repository, environment, attempt, job, log, blobs, workflow
         )
     return evidence.qualify_preflight_run(
+        repository, environment, attempt, job, log, blobs, workflow
+    ) or importlib.import_module("retention_uat_guard_evidence").qualify_guard_run(
         repository, environment, attempt, job, log, blobs, workflow
     )
 
@@ -189,7 +189,8 @@ def _legacy_actor(owner, attempt, run, number, environment):
             or (
                 attempt.get("event") == "repository_dispatch"
                 and actor == "github-actions[bot]"
-                and run.get("display_title") == owner.SCOPED_TICK_TITLES[environment]
+                and run.get("display_title")
+                in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}
             )
         )
         and (
@@ -385,12 +386,23 @@ def begin(owner, args, repository, run_id):
     """Publish an unfinished existing journal before live health; preserve restored intents."""
     services = owner.production_retention_context.services(owner, args)
     pending = list(services)
-    if args.apply and completion_receipt(owner, args.state_dir, args.environment) is None:
-        if any(path.name != "README.txt" or path.is_symlink() or not path.is_file()
-               for path in args.state_dir.iterdir()):
-            raise owner.retention.UnsafeState("Unsettled cleanup files require reconciliation before preparation")
+    if (
+        args.apply
+        and completion_receipt(owner, args.state_dir, args.environment) is None
+    ):
+        if any(
+            path.name != "README.txt" or path.is_symlink() or not path.is_file()
+            for path in args.state_dir.iterdir()
+        ):
+            raise owner.retention.UnsafeState(
+                "Unsettled cleanup files require reconciliation before preparation"
+            )
         owner.checkpoint(args, run_id, None, pending, "preparing")
-    observed = owner.latest_deploy_observation(repository, args.environment) if args.apply else None
+    observed = (
+        owner.latest_deploy_observation(repository, args.environment)
+        if args.apply
+        else None
+    )
     if args.apply:
         (args.state_dir / "README.txt").write_text(
             f"{args.environment} drain evidence; never deployment authority.\n"
@@ -417,9 +429,12 @@ def completion_receipt(owner, directory, environment):
         or completed.get("environment") != environment
         or completed.get("project") != owner.LANES[environment]["project"]
         or not (
-            type(completed.get("observed_run_id")) is int and completed["observed_run_id"] > 0
-            or completed.get("pass_status") == "preparing" and completed.get("checkpoint_version") == 3
-            and "observed_run_id" in completed and completed["observed_run_id"] is None
+            type(completed.get("observed_run_id")) is int
+            and completed["observed_run_id"] > 0
+            or completed.get("pass_status") == "preparing"
+            and completed.get("checkpoint_version") == 3
+            and "observed_run_id" in completed
+            and completed["observed_run_id"] is None
         )
         or type(completed.get("release_run_id")) is not int
         or completed["release_run_id"] < 1

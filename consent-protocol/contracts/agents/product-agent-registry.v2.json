@@ -3692,7 +3692,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Splits one natural-language prompt into PKM memory candidates, eight per batch, and accounts for every line it does not select.",
+      "description": "Splits Request.message, the owner's own text, into PKM memory candidates, eight per batch, quoting only that text, and accounts for every line it does not select.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -3792,7 +3792,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "a5b7bda20d105a653ed4ddbf4d6f80949de65ed5b838fc3961e0107a3fb8c51c",
+      "system_instruction_sha256": "8e432344682c21ccd5d514e5df6377045a199a19da8008c3276490d969b261be",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

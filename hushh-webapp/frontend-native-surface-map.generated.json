@@ -5842,7 +5842,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -11066,5 +11066,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e1d193c3759bb78519bc41f34d5d4c20bb98312c1c1e10542b62dbc411927b03"
+  "content_sha256": "fca16008ea0a3d9ceb0e5dbdb9f9003fb000beac18d3ca4afeb30d4234447485"
 }
