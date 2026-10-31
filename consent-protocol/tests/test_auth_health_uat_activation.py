@@ -145,6 +145,56 @@ def test_activation_creates_hourly_timer_only_after_bound_healthy_proof(monkeypa
     assert result["iam_effect"]["state"] == "already-present"
 
 
+def test_activation_accepts_exact_api_managed_scheduler_user_agent(monkeypatch, tmp_path):
+    scheduler = scheduler_resource()
+    scheduler["httpTarget"]["headers"]["User-Agent"] = "Google-Cloud-Scheduler"
+    module, state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch, current_job=job_resource(), timer=scheduler
+    )
+
+    result = module.activate_timer(
+        OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, EXECUTION, tmp_path / "receipt.json"
+    )
+
+    assert result["phase"] == "active"
+    assert result["state"] == "ENABLED"
+    assert state["timer"] == scheduler
+    assert not any(call[0] == "iam:set" for call in calls)
+    assert not any(
+        call[:3] in (("scheduler", "jobs", "create"), ("scheduler", "jobs", "resume"))
+        for call in calls
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_headers",
+    [
+        {"User-Agent": "unrecognized-agent"},
+        {"X-Unexpected": "value"},
+    ],
+)
+def test_activation_refuses_unrecognized_scheduler_headers_before_writes(
+    monkeypatch, tmp_path, extra_headers
+):
+    foreign = scheduler_resource()
+    foreign["httpTarget"]["headers"].update(extra_headers)
+    module, state, calls, _job, _execution, _events = runtime_fakes(
+        monkeypatch, current_job=job_resource(), timer=foreign
+    )
+
+    with pytest.raises(RuntimeError, match="timer does not match"):
+        module.activate_timer(
+            OPERATION, CHECKER_ID, CLOCK_ID, BUILD_ID, EXECUTION, tmp_path / "receipt.json"
+        )
+
+    assert state["timer"] == foreign
+    assert not any(call[0] == "iam:set" for call in calls)
+    assert not any(
+        call[:3] in (("scheduler", "jobs", "create"), ("scheduler", "jobs", "resume"))
+        for call in calls
+    )
+
+
 def test_activation_refuses_without_healthy_event_before_create_or_resume(monkeypatch, tmp_path):
     paused = scheduler_resource("PAUSED")
     module, state, calls, _job, _execution, _events = runtime_fakes(
