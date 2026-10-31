@@ -58,7 +58,7 @@ import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
-import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
+import { RiaAwareTopShellRouteSwipe } from "@/components/ria/layout/ria-aware-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
 import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-handoff";
@@ -752,13 +752,13 @@ function AppShellFrame({ children }: ProvidersProps) {
                                           : "min-h-0"
                                       }
                                     >
-                                      <TopShellRouteSwipe
+                                      <RiaAwareTopShellRouteSwipe
                                         tabSet={routeSwipeTabSet}
                                       >
                                         <OnboardingJourneyGuard>
                                           {children}
                                         </OnboardingJourneyGuard>
-                                      </TopShellRouteSwipe>
+                                      </RiaAwareTopShellRouteSwipe>
                                     </div>
                                   </div>
                                 </div>
@@ -810,13 +810,13 @@ function AppShellFrame({ children }: ProvidersProps) {
                                           : "min-h-0"
                                       }
                                     >
-                                      <TopShellRouteSwipe
+                                      <RiaAwareTopShellRouteSwipe
                                         tabSet={routeSwipeTabSet}
                                       >
                                         <OnboardingJourneyGuard>
                                           {children}
                                         </OnboardingJourneyGuard>
-                                      </TopShellRouteSwipe>
+                                      </RiaAwareTopShellRouteSwipe>
                                     </div>
                                   </div>
                                 </div>

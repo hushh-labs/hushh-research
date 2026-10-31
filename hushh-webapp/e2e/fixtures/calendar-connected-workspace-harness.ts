@@ -216,6 +216,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
           ] : []),
         ],
       })),
+      people: {
+        "qa-organizer-0@example.test": { userId: "qa-priya", photoUrl: fixturePortraits[1] },
+        "manish@example.test": { userId: "qa-manish", photoUrl: fixturePortraits[2] },
+      },
       pending_count: ["shared-id", "design"].filter(id => !invitationResponses.has(id)).length,
       unreadable_calendars: [], time_zone: body.time_zone, complete: true,
       start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
@@ -257,6 +261,11 @@ export async function openFixture(page: Page, width: number, locked = false, var
         ? route.fulfill({ status: 502, json: { detail: { message: "Availability could not be checked.", reason_code: "calendar_invalid_response" } } })
         : route.fulfill({ json: response });
     }
+    if (routePath.endsWith("/followups/status")) return route.fulfill({ json: {
+      account_id: String(body.account_id), mail_connected: false, monitoring_enabled: false,
+      background_available: false, scan_state: "off", incomplete_source_count: 0,
+      notifications_enabled: false, historical_start_at: null, time_zone: null,
+    } });
     return route.fulfill({ status: 500, json: { detail: "Unexpected fixture request" } });
   });
   const query = boardMode ? "?board=1" : replay ? "?providerReplay=1" : locked ? "?locked=1" : "";

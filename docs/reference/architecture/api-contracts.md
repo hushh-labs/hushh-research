@@ -225,6 +225,18 @@ The pod runs the existing authored structure and reconciliation agents against
 its owner's selected model, with bounded admission and disconnect cancellation.
 AI selection changes invalidate preparation and process-memory continuation
 reuse. Failed provider preparation refuses rather than selecting managed inference.
+Each attempt past the feature gate, admission refusals included, writes the same
+content-free `pkm.memory_proposal.outcome` line as the hub, with `route=pod`.
+The hub writes its line only for attempts that pass authentication, placement and
+request validation; refusals before the handler appear only in the request
+summary. Status `0` (`cancelled`) records a handler cancelled before it finished,
+such as the pod's queued-request disconnect check, and an omitted or null
+`capture_source` logs as `unspecified`. On the pod, `queue_timeout` means the
+150-second command budget ran out before admission, so no provider was called.
+`provider_unavailable` means a provider error, or that budget running out after
+admission. `model_unselected` counts only the owner-selection and unsupported-model
+refusals: a pod with no runtime model logs `unavailable`, and one with no model
+access logs `failed`.
 
 The owner app routes private notes directly to this door; unplaced or unresolved
 hosting refuses before transmission. The browser separately fetches authorized
@@ -2527,9 +2539,19 @@ fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
-`contacts.readonly` solely for guest photos. Calendar person avatars use the
-current HUSSH photo for an active Connection whose email is verified and
-matches exactly, or for the signed-in owner's verified primary/linked email.
+`contacts.readonly` solely for guest photos. Calendar account and booking
+surfaces retain their existing verified Connection and signed-in owner photo
+context. Invitations keep the signed-in owner's verified primary/linked email
+photo and match the fetched event's organizer and
+attendee emails to the Connect directory's active, visible profiles, including
+people in Find People who are not Connections. This server-side lookup requires
+a unique exact verified email from both the identity cache and the target's
+current Firebase account, plus contact listing eligibility; it returns only
+the matching user ID and the profile name and photo Connect shows (either may
+be absent, never both), keyed by an email already in the event.
+Invitation peers use only that fresh result, so a stale Connection email cannot
+override a changed Firebase identity.
+It is bounded to 100 event emails and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;
 an absent field is unverified. An account card also requires
@@ -2573,7 +2595,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
 | POST | `/api/one/calendar/board/day` | Firebase Bearer + each account's active Calendar OAuth grant | Return all paged events, hidden invitations and full-day free windows for up to three distinct accounts, with source coverage, cross-account overlaps and exact shared free-time intersection. A missing or changing account marks the result incomplete; no shared opening is offered. Per-account calendar-inclusion overrides affect availability only. |
-| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
+| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. The `people` map contains only Connect-visible, unique verified exact-email matches from fetched organizers and attendees, with user ID, Connect profile name and HUSSH photo (each nullable, never both); unavailable or ambiguous matches keep initials. Reports free/busy-only calendars explicitly. |
 | POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the selected account's attendee; prepare a ten-minute encrypted review of a response and optional editable organizer email. No meeting changes. `account_id` defaults to the legacy connection. |
 | POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current selected account/grant and ETag, patch only that attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
 | POST | `/api/one/calendar/attendance/rsvp/review` | Firebase Bearer + active owner-bound Calendar OAuth grant | Prepare a mail-free accepted/declined response for the owner's own invitation. Mail, alternative-time and unknown fields are rejected. |
@@ -3131,7 +3153,7 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
 | POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
-| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), or `business_directory_v1` (one business record with selectable listing fields). Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), `business_directory_v1` (one business record with selectable listing fields), `soul_markdown_v1` (memory.md capture) or `profile_review_v1` (profile research review). Optional `capture_source`: a closed, logging-only code naming the calling surface; the backend writes it to the content-free `pkm.memory_proposal.outcome` line, never passes it to an agent, and logs any other value as `unrecognized` without refusing the request. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |

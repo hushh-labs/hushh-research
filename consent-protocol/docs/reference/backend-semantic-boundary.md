@@ -1262,11 +1262,15 @@ agent is added.
   memory, or is a no-op. Manifests under `consent-protocol/hushh_mcp/agents/`.
 - Structured output: the existing `POST /api/pkm/memory/proposals` preview cards
   under `memoryProfile: "soul_markdown_v1"` and `currentDomains: ["one_memory"]`,
-  prepared through `prepareNaturalLanguagePkm` with the client-log label
-  `app_activity_digest`. The proposal request carries no source, so the memory
-  agents receive the digest as first-person text, and each cycle offers the
+  prepared through `prepareNaturalLanguagePkm` with the source label
+  `app_activity_digest`. The request carries that label only as the closed,
+  logging-only `capture_source` code: the backend writes it to the content-free
+  `pkm.memory_proposal.outcome` line and never passes it to the preparation
+  service, an agent prompt or the preview cache, and an unrecognized value logs
+  as `unrecognized` without failing the request. So the memory agents receive the
+  digest as first-person text with no source, and each cycle offers the
   current memory.md bullets as reconciliation candidates, as ambient chat
-  capture does. Only the write record `app_activity_product_default_auto_save`
+  capture does. Among stored records only the write record `app_activity_product_default_auto_save`
   identifies activity. Usable facts are staged with `stageMarkdownMemoryFacts`.
 - Host policy (`hushh-webapp/lib/pkm/live-activity/`) enforces form and
   authority only. It renders allowlisted events into dated first-person lines

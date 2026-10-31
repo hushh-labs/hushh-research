@@ -134,9 +134,10 @@ describe("curated Finance sharing projection", () => {
 
 describe("advisor policy access modes", () => {
   const advisor = { version: 2, purpose: "verified_ria_review", mode: "ongoing", sections: ["allocation", "performance", "holdings"], selectionHash: "a".repeat(64), showAmounts: true, model_processing: { version: 1, allowed: false }, durationSeconds: null };
-  it("allows real-time advisor access until stopped but never an open-ended snapshot", () => {
+  it("allows advisor access with or without an end date in either mode", () => {
     expect(financePolicySchema.safeParse(advisor).success).toBe(true);
-    expect(financePolicySchema.safeParse({ ...advisor, mode: "snapshot" }).success).toBe(false);
+    expect(financePolicySchema.safeParse({ ...advisor, mode: "snapshot" }).success).toBe(true);
     expect(financePolicySchema.safeParse({ ...advisor, mode: "snapshot", durationSeconds: 604800 }).success).toBe(true);
+    expect(financePolicySchema.safeParse({ ...advisor, durationSeconds: 60 }).success).toBe(false);
   });
 });

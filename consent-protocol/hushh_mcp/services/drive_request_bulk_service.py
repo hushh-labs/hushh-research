@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_owner_search_service import (
 )
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_request_brain import RequestBrain, interpret_request, suggested_plan
+from hushh_mcp.services.drive_search_start import owner_search_active, owner_vocabulary_hints
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_service import (
@@ -439,6 +440,8 @@ class DriveRequestBulkService:
         if authority_mode == "owner" and callable(migrate):
             if await migrate(user_id=user_id, request_id=request_id, authority_mode="owner"):
                 context = await self._context(user_id, request_id)
+        if await owner_search_active(self.search.store, user_id, request_id):
+            raise DriveReadError("search_in_progress")
         route = None
         planner_fallback = None
         brain = None
@@ -472,21 +475,9 @@ class DriveRequestBulkService:
                 .isoformat(timespec="seconds"),
                 "user_timezone": timezone,
             }
-            try:
-                async with asyncio.timeout(2):
-                    vocabulary = await self.owner_index.owner_vocabulary(owner_id=user_id)
-                if vocabulary:
-                    # Existing owner-scoped metadata only; never enumerate a
-                    # new corpus or turn a spelling hint into identity proof.
-                    prompt["untrusted_owner_vocabulary"] = sorted(
-                        {
-                            word
-                            for word in vocabulary
-                            if isinstance(word, str) and 1 <= len(word) <= 80
-                        }
-                    )[:120]
-            except Exception:
-                pass  # Optional discovery hints cannot change the request.
+            hints = await owner_vocabulary_hints(self.owner_index, user_id)
+            if hints is not None:
+                prompt["untrusted_owner_vocabulary"] = hints
             try:
                 planned = await plan_semantic_live_search(
                     self.semantic_planner,

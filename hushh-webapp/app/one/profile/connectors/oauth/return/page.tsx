@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2Icon } from "@/components/icons";
 
@@ -24,6 +25,11 @@ import {
   readDriveChatRecoveryHandoff,
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { Button } from "@/components/ui/button";
+import {
+  clearMeetingReviewOAuthReturn,
+  meetingReviewReturnHref,
+  readMeetingReviewOAuthReturn,
+} from "@/lib/consent/meeting-review-return";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { saveCustomConnectorOAuthResult } from "@/lib/connections/custom-connector-configuration";
 import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
@@ -50,6 +56,9 @@ function DrivePopupReturn() {
   }, [user?.uid]);
   const [message, setMessage] = useState("Finishing Drive authorization…");
   const [finished, setFinished] = useState(false);
+  // Set when this authorization began from one meeting-file request, so the
+  // organizer has a working way back to that exact request.
+  const [reviewHref, setReviewHref] = useState<string | null>(null);
   useEffect(() => {
     if (!details.current) {
       const search = new URL(window.location.href).searchParams;
@@ -70,10 +79,17 @@ function DrivePopupReturn() {
       if (ownerGeneration.current !== generation) return;
       if (attempt) notifyDrivePopup(attempt, outcome);
       details.current = null;
+      const review = readMeetingReviewOAuthReturn(user?.uid);
+      if (review) {
+        clearMeetingReviewOAuthReturn();
+        setReviewHref(meetingReviewReturnHref(review.requestId));
+      }
       setMessage(
         outcome === "succeeded"
-          ? "Authorization saved. Return to chat."
-          : "Authorization was not completed. Return to chat and try again.",
+          ? review ? "Authorization saved. Return to the meeting request." : "Authorization saved. Return to chat."
+          : review
+            ? "Authorization was not completed. Return to the meeting request and try again."
+            : "Authorization was not completed. Return to chat and try again.",
       );
       setFinished(true);
       window.close();
@@ -112,8 +128,13 @@ function DrivePopupReturn() {
       <p role="status" className="text-sm text-muted-foreground">
         {message}
       </p>
+      {finished && reviewHref ? (
+        <Button asChild className="min-h-11">
+          <Link href={reviewHref}>Back to the request</Link>
+        </Button>
+      ) : null}
       {finished ? (
-        <Button className="min-h-11" onClick={() => window.close()}>
+        <Button className="min-h-11" variant={reviewHref ? "outline" : "default"} onClick={() => window.close()}>
           Close window
         </Button>
       ) : null}
@@ -393,13 +414,23 @@ function ConnectorOAuthReturnContent({ details }: {
     // Connectors is a Profile section, not a page: the return opens it in the
     // Profile pane. The pane address is used directly so the native bundle,
     // which has no server to redirect /one/profile/connectors, lands there too.
-    const returnHref = buildConnectorSignInReturnHref(
+    const connectorsHref = buildConnectorSignInReturnHref(
       details.returnTo === "connector_settings" ? "connector_settings" : "chat",
     );
+    // An organizer who started this from one meeting-file request goes back to
+    // that exact request (it re-checks sign-in and Vault on arrival), never to
+    // a generic connections screen. Anything else keeps its destination.
+    const resolveReturnHref = () => {
+      if (details.curatedConnector || !userId) return connectorsHref;
+      const review = readMeetingReviewOAuthReturn(userId);
+      if (!review) return connectorsHref;
+      clearMeetingReviewOAuthReturn();
+      return meetingReviewReturnHref(review.requestId);
+    };
 
     if (cancelled) {
       setMessage("That connection was not completed.");
-      globalThis.setTimeout(() => router.replace(returnHref), 1500);
+      globalThis.setTimeout(() => router.replace(resolveReturnHref()), 1500);
       return;
     }
     if (
@@ -407,7 +438,7 @@ function ConnectorOAuthReturnContent({ details }: {
       (details.attemptId && (!user || !userId || details.ownerUserId !== userId))
     ) {
       setMessage("Missing authorization details. Please try again.");
-      globalThis.setTimeout(() => router.replace(returnHref), 1500);
+      globalThis.setTimeout(() => router.replace(resolveReturnHref()), 1500);
       return;
     }
 
@@ -440,7 +471,7 @@ function ConnectorOAuthReturnContent({ details }: {
         );
       })
       .finally(() => {
-        globalThis.setTimeout(() => router.replace(returnHref), 1500);
+        globalThis.setTimeout(() => router.replace(resolveReturnHref()), 1500);
       });
   }, [details, router, user, userId, vaultOwnerToken, ownerTokenStatus]);
 

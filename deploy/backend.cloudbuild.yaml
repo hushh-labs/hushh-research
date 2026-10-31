@@ -635,7 +635,13 @@ steps:
                     continue
             verdicts.append(payload)
         if {"azure_pwm_runtime_probe_result": "ok"} not in verdicts:
-            raise SystemExit("Azure PWM UAT runtime probe did not pass")
+            # Name the failed check in the build log: closed identifiers only.
+            failed = next((item for item in verdicts if isinstance(item, dict)
+                and item.get("azure_pwm_runtime_probe_result") == "failed"), {})
+            named = {key: failed[key] for key in ("classification", "error_type",
+                "failure_stage", "failure_reason", "leg") if isinstance(failed.get(key), str)}
+            raise SystemExit("Azure PWM UAT runtime probe did not pass "
+                + json.dumps(named, sort_keys=True))
         primary = [item for item in verdicts if isinstance(item, dict)
             and item.get("azure_pwm_runtime_probe_stage") == "primary_http"
             and item.get("result") == "ok" and item.get("http_status") == 200]
