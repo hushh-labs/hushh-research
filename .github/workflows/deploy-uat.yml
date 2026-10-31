@@ -1,4 +1,5 @@
 name: Deploy to UAT
+run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }} · scope ${{ inputs.scope || 'auto' }}
 
 on:
   workflow_dispatch:
@@ -21,7 +22,7 @@ on:
           - backend
           - frontend
       sha:
-        description: "Exact CI-qualified application SHA (blank selects protected UAT)"
+        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
         required: false
         type: string
       ci_run_id:
@@ -162,9 +163,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          # Explicit selection does not read history. Automatic selection and
-          # the later admission job retain full history for ancestry/deltas.
-          fetch-depth: ${{ inputs.sha != '' && 1 || 0 }}
+          # Explicit selection must prove membership in protected UAT history.
+          # Keep full history available for that ancestry check and later deltas.
+          fetch-depth: 0
           ref: ${{ github.sha }}
 
 
@@ -184,6 +185,9 @@ jobs:
               echo "UAT requires a full 40-character commit SHA."
               exit 1
             fi
+            python3 scripts/ci/promotion_approval.py uat \
+              --application-sha "$REQUESTED_SHA" \
+              --github-output "$RUNNER_TEMP/uat-source-authority-selection"
             echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
             echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
             exit 0
@@ -360,7 +364,7 @@ jobs:
 
       # Stable receipt-reader identity. Main retains its smoke requirement;
       # direct UAT source requires exact branch CI while Dev-backed promotion remains available.
-      - name: Validate deployment SHA against main
+      - name: Validate deployment SHA in selected protected history
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.application-authority.outputs.branch }}
@@ -3962,6 +3966,7 @@ jobs:
             echo ""
             echo "- Status: \`${release_status}\`"
             echo "- Application SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Source authority: \`${{ steps.application-authority.outputs.branch }}\`"
             echo "- Workflow SHA: \`${{ github.workflow_sha }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Serving revisions: backend \`${{ steps.final-state.outputs.backend_revision || 'unknown' }}\`; frontend \`${{ steps.final-state.outputs.frontend_revision || 'unknown' }}\`"

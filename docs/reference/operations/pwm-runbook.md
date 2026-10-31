@@ -189,7 +189,13 @@ answers 403 that probe fails and the workflow rolls back both halves. Ship
 pane and client changes alone:
 
 ```bash
-gh workflow run deploy-uat.yml -f scope=frontend -f sha=<green main sha>
+# Qualify the UAT candidate against the currently serving application SHA:
+gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving uat sha>
+# Dispatch the Main-owned release workflow with that exact candidate and
+# current validation attempt; the deployment may remain frontend-only.
+gh workflow run deploy-uat.yml --ref main -f scope=frontend \
+  -f sha=<uat candidate sha> -f ci_run_id=<uat ci run id> \
+  -f ci_run_attempt=<current attempt> -f ci_base_sha=<serving uat sha>
 gh run list --workflow deploy-uat.yml --limit 3 --json databaseId,status,conclusion,headSha,url
 python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --format text
 ```

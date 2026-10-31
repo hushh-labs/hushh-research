@@ -57,7 +57,7 @@ Non-owned surfaces:
 1. Default to `scope=auto`; let the resolver compare the target SHA with each service's currently deployed SHA and record both requested and resolved scope.
 2. Force `frontend`, `backend`, or `all` only after target-to-deployed-service delta proof establishes that the override covers every accumulated runtime change.
 3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
-4. Wait for `Main Post-Merge Smoke` to succeed for the landed `main` SHA, then trigger UAT with that exact SHA. Keep merge, smoke, and UAT deploy as separate evidence.
+4. Keep the workflow definition Main-owned, but select application source only from protected `uat` history. For direct UAT, qualify the protected UAT tip with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
 5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.

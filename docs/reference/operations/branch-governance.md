@@ -7,8 +7,9 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Visual Map
 
-The UAT branch and its default selector remain staged until their historical
-baseline is reconciled and the transition is separately authorized.
+Blank UAT source selection resolves to the protected UAT tip. Direct deployment
+remains unqualified until the historical baseline, exact-CI receipt and serving
+base are reconciled and the transition is separately authorized.
 
 ```mermaid
 flowchart LR
@@ -24,9 +25,10 @@ flowchart LR
 
 The protected Dev branch is the configured development intake and the default
 source for governed Dev deployment. Preserve its history and qualify the exact
-candidate; an active branch does not prove that its tip is serving. The UAT-tip
-default remains staged until its historical baseline and predecessor gates are
-qualified together. Main remains the release-control source; this transition
+candidate; an active branch does not prove that its tip is serving. The protected
+UAT-tip default is available for selection but cannot pass deployment admission
+until its historical baseline and predecessor gates are qualified together.
+Main remains the release-control source; this transition
 does not rewind application source or database history.
 
 UAT-focused work can use exact-source CI without a preceding Dev deployment.
@@ -97,9 +99,12 @@ branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
 Blank-SHA manual UAT selection uses the protected UAT tip through the existing
-`uat_application_selection.py` owner. Explicit historical Main candidates retain
-Main smoke and Dev-backed acceptance. For direct UAT, supply the validation run,
-current attempt and serving base; source selection alone is never admission.
+`uat_application_selection.py` owner. A new dispatch accepts an exact SHA only
+when it belongs to protected UAT history; a Main-only SHA is not a normal UAT
+source. Direct UAT also requires the exact full-scope candidate run, current
+attempt and observed serving base. Historical Main-backed receipts remain readable
+and retain their Dev-backed acceptance checks; they do not authorize a new Main-only
+dispatch.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
@@ -163,8 +168,8 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 
 | Lane | Source and authority |
 |---|---|
-| Dev | Feature PRs target protected `dev`; governed operators deploy an exact CI-green SHA through Main-owned tooling. Explicit feature refs remain supported. |
-| UAT | The Main-based default and historical Dev-backed receipts remain supported. Source implements direct admission for protected UAT candidates after exact CI; first live use still requires reconciled history and passing branch-CI/admission proof. |
+| Dev | Feature PRs target protected `dev`; Main-owned tooling deploys an exact CI-green SHA in protected Dev history. The `ref` input locates a SHA but does not authorize a feature-only or Main-only commit. |
+| UAT | Blank source selection resolves to the protected UAT tip. New selections must belong to protected UAT history; direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
@@ -197,7 +202,12 @@ freshness boundaries before it is enabled.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the preserved development branch and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-10. Protected UAT candidates use the exact-CI admission path; historical Main candidates retain Dev-backed acceptance and require Main smoke. UAT-only candidates also require canonical PR, queue, or full branch validation. Do not dispatch the direct path before its exact branch-CI and admission proof pass.
+10. New UAT selections must be in protected UAT history. Direct candidates use
+    the exact-CI admission path; historical Main-backed receipts remain readable
+    with their original Dev-backed checks but do not authorize a new Main-only
+    dispatch. UAT candidates also require canonical PR, queue, or full branch
+    validation. Do not dispatch the direct path before its exact CI and admission
+    proof pass.
 11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
@@ -238,8 +248,9 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Dev deploys through `Deploy to Dev` (manual dispatch from `main`, governed actor
    cohort identical to UAT).
-2. The deployed content is `dev` by default, or any requested ref;
-   the exact SHA must be reachable from that ref and carry a green `CI Status Gate`.
+2. The `ref` input defaults to `dev` and only locates the application SHA. The
+   selected SHA must belong to protected Dev history and carry an accepted exact
+   CI result; an explicit lookup ref cannot authorize branch-only content.
 3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
    UAT → production signoff lane, and Dev proves selected changes before promotion.
 4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
@@ -250,8 +261,12 @@ Before deleting a local backup branch, classify its unique commits as:
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
 3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
-4. Preflight requires reachability from Main or the protected UAT branch. Direct UAT candidates require exact current-branch CI and the observed serving base; Main candidates retain exact-SHA Dev acceptance for each selected service.
-5. Main candidates require `Main Post-Merge Smoke Gate`. UAT-only candidates require an authenticated canonical PR, queue or full branch gate; diagnostics never qualify.
+4. Preflight requires reachability from protected UAT. Direct UAT candidates
+   require exact current-branch CI and the observed serving base; source selection
+   alone is not admission.
+5. UAT candidates require an authenticated canonical PR, queue or full branch
+   gate; diagnostics never qualify. Historical Main-backed release receipts keep
+   their Main smoke and exact-SHA Dev-acceptance checks when read later.
 6. The canonical GitHub deployment environment for this lane is `uat`.
 7. Cloud Run traffic changes must be made only by the GitHub UAT workflow service account. Human `gcloud run deploy` or `gcloud run services update-traffic` against UAT is deploy-authority drift, even for maintainers.
 8. Every UAT backend/frontend revision must carry `HUSHH_DEPLOY_ENV`, `HUSHH_DEPLOY_SOURCE`, `HUSHH_DEPLOY_SHA`, and `HUSHH_DEPLOY_RUN_ID` from the workflow. UAT release classification treats missing or mismatched provenance as `deploy_authority_drift` and rolls back the affected service.
@@ -334,7 +349,7 @@ outside it, and the boundaries are enforced, not informal:
 | Merge cohort | `allowed-maintainers-to-approve` | bypass review + merge queue | `main` / `pr_train` `review_bypass_users` + `merge_queue_bypass_users` |
 | Pipeline editors | `pipeline-editors` | edit protected pipeline paths | `main.protected_pipeline_edit_users` |
 | Dev deploy cohort | `deploy-dev` | dispatch a dev deploy | `dev.manual_dispatch_users` |
-| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a protected-UAT application SHA with exact current CI | `uat.manual_dispatch_users` (held == merge cohort) |
 | Production deploy cohort | `deploy-production` | dispatch production deploy | `production.manual_dispatch_users` |
 
 Live membership is `config/ci-governance.json` only, never transcribed into this
@@ -584,7 +599,7 @@ The UAT workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `uat` | Maintainer-dispatched hosted validation lane for exact green `main` SHAs |
+| `uat` | Maintainer-dispatched hosted validation lane for protected-UAT application SHAs with exact current CI |
 
 Operational rules:
 
