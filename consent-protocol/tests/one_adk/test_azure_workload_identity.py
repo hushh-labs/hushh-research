@@ -220,6 +220,7 @@ async def test_identity_denial_outranks_nested_token_transport_failure():
         AzureAuthenticationError,
         acquire_token,
     )
+    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
     from hushh_mcp.runtime_providers.managed_text import fallback_reason
 
     response = httpx.Response(403, request=httpx.Request("GET", "https://identity.example"))
@@ -232,3 +233,4 @@ async def test_identity_denial_outranks_nested_token_transport_failure():
     with pytest.raises(AzureAuthenticationError) as observed:
         await acquire_token(token, {})
     assert fallback_reason(observed.value) is None
+    assert classify_provider_error(observed.value) == "candidate_misconfigured"

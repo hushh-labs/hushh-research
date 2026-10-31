@@ -116,6 +116,22 @@ def is_resource_exhausted(error: BaseException) -> bool:
     return False
 
 
+def _azure_failure_classification(error: BaseException) -> str | None:
+    """Preserve token acquisition's normalized availability/identity boundary."""
+    from .azure_call_lifecycle import (
+        AzureAuthenticationError,
+        AzureRateLimitedError,
+        AzureTokenServiceUnavailableError,
+    )
+
+    if isinstance(error, (AzureRateLimitedError, AzureTokenServiceUnavailableError)):
+        return PROVIDER_UNAVAILABLE
+    if isinstance(error, AzureAuthenticationError):
+        # Its suppressed context can contain a timeout even after identity denial.
+        return CANDIDATE_MISCONFIGURED
+    return None
+
+
 def classify_provider_error(error: BaseException) -> str:
     """Return the release classification for a failed provider call.
 
@@ -126,18 +142,11 @@ def classify_provider_error(error: BaseException) -> str:
     """
     from openai import APIConnectionError, APITimeoutError
 
-    from .azure_call_lifecycle import AzureRateLimitedError, AzureTokenServiceUnavailableError
-
     for current in _iter_causes(error):
-        if isinstance(
-            current,
-            (
-                AzureRateLimitedError,
-                AzureTokenServiceUnavailableError,
-                APIConnectionError,
-                APITimeoutError,
-            ),
-        ):
+        azure_classification = _azure_failure_classification(current)
+        if azure_classification is not None:
+            return azure_classification
+        if isinstance(current, (APIConnectionError, APITimeoutError)):
             return PROVIDER_UNAVAILABLE
         if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
             cause = current.__cause__ or current.__context__
