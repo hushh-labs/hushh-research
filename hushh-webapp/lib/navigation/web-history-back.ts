@@ -29,8 +29,9 @@ import {
 } from "@/lib/navigation/top-shell-back";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
-import { resolveProfilePaneUrlState, profilePaneHistoryDepth } from "@/lib/navigation/profile-pane";
+import { resolveProfilePaneUrlState, profilePaneHistoryDepth, personPreviewHistoryEntry } from "@/lib/navigation/profile-pane";
 import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
+import { isPersonProfilePreviewOpen } from "@/lib/connections/person-profile-preview";
 
 export type RouteLocation = { pathname: string; search: string };
 
@@ -159,11 +160,16 @@ function navigationEntryIndex(): number | null {
 
 let lastSettledHistoryState: unknown = null;
 
+function isOverlayAbovePersonPreview(doc: Document): boolean {
+  const overlays = doc.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+  return isPersonProfilePreviewOpen(doc) && !overlays[overlays.length - 1]?.hasAttribute("data-person-profile-preview");
+}
+
 function isTopmostConfirmationOpen(doc: Document): boolean {
   const overlays = doc.querySelectorAll<HTMLElement>(
     '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
   );
-  return overlays[overlays.length - 1]?.getAttribute("role") === "alertdialog";
+  return overlays[overlays.length - 1]?.getAttribute("role") === "alertdialog" || isPersonProfilePreviewOpen(doc);
 }
 
 function recordCurrentBrowserHistory(): void {
@@ -233,8 +239,9 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         currentIndex == null || currentIndex < 0 ||
         traversal.destination.index < 0 ||
         traversal.destination.index >= currentIndex ||
-        !isProfilePaneGoverned({ pathname: window.location.pathname, search: window.location.search }) ||
-        !isTopmostConfirmationOpen(document)
+        (personPreviewHistoryEntry(window.history.state) !== null && !isOverlayAbovePersonPreview(document)) ||
+        !(isPersonProfilePreviewOpen(document) ||
+          (isProfilePaneGoverned({ pathname: window.location.pathname, search: window.location.search }) && isTopmostConfirmationOpen(document)))
       ) return;
       // Consume Back before the URL changes, so Next cannot animate the pane
       // underneath the confirmation. Escape keeps dismissal/refusal owned by it.
@@ -251,6 +258,8 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         recordCurrentBrowserHistory();
         return;
       }
+      // A person preview owns a same-URL entry. Its pop reveals the still-mounted
+      // source; generic route correction must not dismiss the source sheet.
       const previous = lastSettled;
       const previousIndex = lastSettledIndex;
       const previousHistoryState = lastSettledHistoryState;
@@ -259,7 +268,11 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         search: window.location.search,
       };
       const revealedIndex = navigationEntryIndex();
-      if (dismissProfileConfirmationOnBack({
+      const restorePersonPreview = personPreviewHistoryEntry(previousHistoryState) !== null &&
+        personPreviewHistoryEntry(event.state) === null && isOverlayAbovePersonPreview(document) &&
+        (previousIndex == null || revealedIndex == null || isBackwardHistoryTraversal(previousIndex, revealedIndex));
+      if (restorePersonPreview) dismissTopmostOverlay(document);
+      if (restorePersonPreview || dismissProfileConfirmationOnBack({
         previous,
         previousHistoryState,
         revealedHistoryState: event.state,
@@ -271,9 +284,15 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         // The returning pop has equal depth and follows normal pane handling.
         event.stopImmediatePropagation();
         window.history.go(
-          profilePaneHistoryDepth(previousHistoryState) -
+          restorePersonPreview ? 1 : profilePaneHistoryDepth(previousHistoryState) -
           profilePaneHistoryDepth(event.state),
         );
+        return;
+      }
+      if (personPreviewHistoryEntry(previousHistoryState) !== null || personPreviewHistoryEntry(event.state) !== null) {
+        lastSettled = { pathname: window.location.pathname, search: window.location.search };
+        lastSettledIndex = navigationEntryIndex();
+        lastSettledHistoryState = event.state;
         return;
       }
       lastSettled = revealed;

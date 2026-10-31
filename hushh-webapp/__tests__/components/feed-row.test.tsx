@@ -71,7 +71,7 @@ describe("FeedRow", () => {
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
     expect(container.querySelector('[data-slot="feed-event-time"]')?.parentElement)
       .toHaveClass("items-center");
-    expect(screen.getByTestId("feed-row").querySelector("button"))
+    expect(screen.getByTestId("feed-row").querySelector("[data-person-row-action]")?.parentElement)
       .toHaveClass("min-h-[52px]");
   });
 
@@ -127,7 +127,7 @@ describe("FeedRow", () => {
       />,
     );
 
-    screen.getByText("Someone shared location").closest("button")?.click();
+    screen.getByRole("button", { name: /Open Someone shared location/i }).click();
     expect(onOpen).toHaveBeenCalledOnce();
   });
 

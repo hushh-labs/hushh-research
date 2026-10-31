@@ -68,7 +68,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
     <div
       role="status"
       data-testid="feed-push-prompt"
-      className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
+      className="mb-3 flex w-full flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded-[12px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-2"
     >
       <p data-profile-role="description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
         {alarmPermissionNeeded ? "Allow SMS alarms to hear Save My Soul alerts on your Lock Screen until you dismiss them."

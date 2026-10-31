@@ -315,7 +315,7 @@ export function ContactSyncResultsSheet({
                     key={match.userId}
                     className="flex min-h-16 items-center gap-3 px-3 py-2.5"
                   >
-                    <ConnectionPersonAvatar
+                    <ConnectionPersonAvatar userId={match.userId}
                       size="list"
                       photoUrl={match.photoUrl}
                       label={name}

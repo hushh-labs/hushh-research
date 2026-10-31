@@ -417,7 +417,7 @@ export function ShareLocationFlow({
         ) : (
           <ContactGroup>
             {people.items.map((recipient) => (
-              <ContactRow
+              <ContactRow userId={recipient.userId}
                 key={recipient.userId}
                 label={recipient.displayName}
                 photoUrl={recipient.photoUrl}

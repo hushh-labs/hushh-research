@@ -1,3 +1,6 @@
+import { isPersonProfilePreviewOpen } from "@/lib/connections/person-profile-preview";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { FilePenLine, Loader2, Mail, Send, X } from "@/components/icons";
@@ -222,6 +225,7 @@ function EmailDraftCardView({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      if (isPersonProfilePreviewOpen()) return;
       if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(event.target as Node)) {
         setActiveDropdownField(null);
       }
@@ -296,7 +300,7 @@ function EmailDraftCardView({
         {matchingConnections.map((conn) => {
           const hasEmail = Boolean(conn.email?.trim());
           return (
-            <button
+            <PersonSelectionSurface
               key={conn.userId}
               type="button"
               disabled={!hasEmail}
@@ -313,14 +317,7 @@ function EmailDraftCardView({
                   : "opacity-50 cursor-not-allowed"
               }`}
             >
-              {conn.photoUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
-              ) : (
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
-                  {(conn.displayName || "C").charAt(0).toUpperCase()}
-                </div>
-              )}
+              <ConnectionPersonAvatar userId={conn.userId} personRef={conn.publicPersonRef} label={conn.displayName || "Connection"} photoUrl={conn.photoUrl} className="!size-7" />
               <div className="flex-1 min-w-0">
                 <div className="truncate font-medium text-foreground text-xs">
                   {conn.displayName || "Connected User"}
@@ -330,7 +327,7 @@ function EmailDraftCardView({
                 </div>
               </div>
               <MaterialRipple variant="none" effect="glass" disabled={!hasEmail} />
-            </button>
+            </PersonSelectionSurface>
           );
         })}
       </div>

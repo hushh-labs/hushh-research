@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonPicker } from "@/components/location/ask/ask-person-picker";
+
 /**
  * `/one/location?action=ask&person=<user_id>` for the voice-first Location area.
  *
@@ -19,7 +21,6 @@ import {
   selectPendingOutgoingRequests,
   useLocationWorkspaceState,
 } from "@/components/location/location-home";
-import { useConnectedPeople } from "@/components/location/people/location-people";
 import {
   DurationPresetPicker,
   REQUEST_DURATION_LADDER,
@@ -35,7 +36,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   CARD_SURFACE,
   MUTED_TEXT,
-  SUBCARD_SURFACE,
 } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   EmptyState,
@@ -179,77 +179,6 @@ function requestStatusPill(request: OneLocationAccessRequest | null) {
     default:
       return <StatusPill tone="neutral">{request.status}</StatusPill>;
   }
-}
-
-function PersonPicker({
-  vaultOwnerToken,
-  onPick,
-}: {
-  vaultOwnerToken: string | null;
-  onPick: (userId: string) => void;
-}) {
-  const people = useConnectedPeople({ vaultOwnerToken });
-  if (people.status === "loading" && !people.items.length) {
-    return (
-      <div className="flex items-center gap-2 px-1 py-4 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span className={MUTED_TEXT}>Loading your people</span>
-      </div>
-    );
-  }
-  if (people.status === "ready" && !people.items.length) {
-    return (
-      <EmptyState
-        icon={<UserPlus className="h-6 w-6" aria-hidden="true" />}
-        title="No one to ask yet"
-        description="Location requests go to people you're connected with on One."
-        action={
-          <Button asChild className="min-h-11">
-            <Link href={ROUTES.CONNECT}>Invite someone</Link>
-          </Button>
-        }
-      />
-    );
-  }
-  return (
-    <div className="space-y-2" role="list" aria-label="Choose whom to ask">
-      {people.items.map((recipient) => (
-        <button
-          key={recipient.userId}
-          type="button"
-          role="listitem"
-          onClick={() => onPick(recipient.userId)}
-          className={cn(
-            SUBCARD_SURFACE,
-            "flex min-h-[58px] w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-[color:var(--app-card-surface-compact)]",
-          )}
-          data-testid="ask-person-option"
-        >
-          <ConnectionPersonAvatar
-            label={recipient.displayName}
-            photoUrl={recipient.photoUrl}
-            verified={recipient.phoneVerified}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="ui-text-row-label block truncate">
-              {recipient.displayName}
-            </span>
-          </span>
-        </button>
-      ))}
-      {people.hasMore ? (
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11 w-full"
-          disabled={people.status === "loading"}
-          onClick={() => void people.loadMore()}
-        >
-          Show more
-        </Button>
-      ) : null}
-    </div>
-  );
 }
 
 export function AskForLocationFlow({
@@ -416,7 +345,7 @@ export function AskForLocationFlow({
           data-testid="ask-not-connected"
         >
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={person.userId}
               label={person.name}
               photoUrl={person.photoUrl}
             />
@@ -451,7 +380,7 @@ export function AskForLocationFlow({
           data-testid="ask-connected"
         >
           <div className="flex items-center gap-3">
-            <ConnectionPersonAvatar
+            <ConnectionPersonAvatar userId={person.userId}
               label={person.name}
               photoUrl={person.photoUrl}
               verified={person.verified}

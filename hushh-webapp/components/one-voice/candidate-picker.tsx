@@ -9,6 +9,7 @@
  * "None of these" sends `candidate.choose none:true` so the model asks again.
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useId } from "react";
 import { Check, MapPin, Users } from "@/components/icons";
 
@@ -105,7 +106,7 @@ export function CandidatePicker({
           const detail = candidateDisambiguator(picker.kind, candidate);
           const selected = selectedId === id;
           return (
-            <button
+            <PersonSelectionSurface
               key={id}
               type="button"
               role="radio"
@@ -133,7 +134,7 @@ export function CandidatePicker({
                   <Users className="h-4 w-4" aria-hidden />
                 </span>
               ) : (
-                <AvatarBubble
+                <AvatarBubble userId={candidate.user_id} personRef={candidate.public_person_ref}
                   initials={initialsFor(name)}
                   size={36}
                   imageUrl={candidate.photo_url ?? null}
@@ -168,7 +169,7 @@ export function CandidatePicker({
                   aria-hidden
                 />
               ) : null}
-            </button>
+            </PersonSelectionSurface>
           );
         })}
       </div>
