@@ -44,13 +44,23 @@ def test_health_image_pins_runtime_packages_and_qualifies_tools_and_bundled_tls(
     assert base in dockerfile
     assert "ca-certificates=20250419+deb13u1" in dockerfile
     assert "curl=8.14.1-2+deb13u7" in dockerfile
-    assert "gcloud --version >/dev/null" in dockerfile
-    assert "curl --version >/dev/null" in dockerfile
+    config = dockerfile.index("ENV CLOUDSDK_CONFIG=/tmp/auth-health-gcloud")
+    prepare = dockerfile.index('RUN rm -rf "$CLOUDSDK_CONFIG"')
+    user = dockerfile.index("USER 1000:1000")
+    qualify = dockerfile.index('RUN test "$(id -u):$(id -g)" = "1000:1000"')
+    entrypoint = dockerfile.index("ENTRYPOINT ")
+    assert config < prepare < user < qualify < entrypoint
+    preparation = dockerfile[prepare:user]
+    assert 'install -d -o 1000 -g 1000 -m 0700 "$CLOUDSDK_CONFIG"' in preparation
+    qualification = dockerfile[qualify:entrypoint]
+    assert 'test -w "$CLOUDSDK_CONFIG"' in qualification
+    assert "gcloud --version >/dev/null" in qualification
+    assert "curl --version >/dev/null" in qualification
     assert "PYTHONPATH=/app/deploy/observability" in dockerfile
     assert (
         "from auth_health_job import _verified_tls_context; _verified_tls_context()" in dockerfile
     )
-    assert "USER 1000:1000" in dockerfile
+    assert '&& rm -rf "$CLOUDSDK_CONFIG"' in qualification
 
 
 def test_health_source_is_pinned_despite_concurrent_worktree_edit(tmp_path, monkeypatch):
