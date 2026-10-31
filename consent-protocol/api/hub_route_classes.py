@@ -166,6 +166,7 @@ POST /api/one/calendar/guest-photo-token
 POST /api/one/calendar/insights
 POST /api/one/calendar/meetings
 POST /api/one/calendar/meetings/requests
+POST /api/one/calendar/meetings/request-readiness
 POST /api/one/calendar/meetings/request-statuses
 POST /api/one/calendar/meetings/approved-detail
 POST /api/one/calendar/meetings/approved-open
