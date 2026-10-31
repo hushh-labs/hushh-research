@@ -268,13 +268,13 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # ==================== Gemini Model Configuration ====================
 
 # Standard model for general LLM operations across the codebase.
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+GEMINI_MODEL = "gemini-2.5-pro-preview"
 
 # Full path format (for ADK and direct API calls)
-GEMINI_MODEL_FULL = "models/gemini-3.1-pro-preview"
+GEMINI_MODEL_FULL = "models/gemini-2.5-pro-preview"
 
 # Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.1-pro-preview"
+GEMINI_MODEL_VERTEX = "gemini-2.5-pro-preview"
 
 # ==================== Kai Portfolio Import Defaults ====================
 
