@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -185,3 +186,61 @@ def verify_overlap_collection(calls, linux_identities, identities, collect, comm
                 "test", "e2e/first-connect-insights.layout.spec.ts", "--project=mobile-chrome",
             ], {"CI": "1"}, None), None)
             assert mobile and mobile <= linux_identities, "mobile first-connect coverage must remain"
+
+
+def _browser_plan(changed: str, **overrides: str) -> tuple[int, dict[str, str], list[str], str]:
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    env = {
+        "WEB_TARGETED_PLAN_ONLY": "1",
+        "WEB_TARGETED_PART": "browser",
+        "WEB_TARGETED_ALL_PACKS": "0",
+        "WEB_TARGETED_FULL_SUITE_OWNED": "1",
+        "WEB_TARGETED_BASE_SHA": head,
+        "WEB_TARGETED_HEAD_SHA": head,
+        "WEB_TARGETED_CHANGED_FILES": changed,
+        # Use stdout instead of writing into the enclosing CI step's output file.
+        "GITHUB_OUTPUT": "",
+    }
+    env.update(overrides)
+    code, calls, output = _run(TARGETED, env, stub_diagrams=True)
+    values = dict(re.findall(r"^(selection_known|browser_required)=(true|false)$", output, re.M))
+    return code, values, calls, output
+
+
+def test_browser_plan_skips_only_known_no_browser_selection() -> None:
+    code, values, calls, output = _browser_plan("hushh-webapp/lib/voice/voice-session.ts")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "false"}, values
+    assert calls == [], "planning must not install dependencies or execute a test pack"
+
+    for changed, extra in (
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts", {}),
+        ("docs/README.md", {"PLAYWRIGHT_SHARD": "4/4"}),
+    ):
+        code, values, calls, output = _browser_plan(changed, **extra)
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": "true"}, values
+        assert calls == [], "the unsharded plan must not execute browser commands"
+
+
+def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
+    code, values, calls, output = _browser_plan("hushh-webapp/unregistered/selector-input.ts")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "false", "browser_required": "true"}, values
+    assert calls == []
+
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/lib/voice/voice-session.ts", WEB_TARGETED_ALL_PACKS="1"
+    )
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, values
+    assert calls == []
+
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/lib/voice/voice-session.ts", WEB_TARGETED_BASE_SHA=""
+    )
+    assert code != 0, "missing exact base metadata must not produce a skippable plan"
+    assert "browser_required=false" not in output and "selection_known=true" not in output
+    assert calls == []
