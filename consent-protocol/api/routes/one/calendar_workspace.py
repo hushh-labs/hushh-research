@@ -437,30 +437,23 @@ async def request_meeting_files(
     token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Bind a selected Calendar attendee and occurrence to a manual Drive request."""
-    from api.routes.drive_sharing_owner import ContentOwner, sharing_error
-    from hushh_mcp.services.calendar_meeting_request_service import CalendarMeetingRequestService
-    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
-    from hushh_mcp.services.drive_sharing_service import DriveSharingService
+    from api.routes.one.calendar_meeting_request_actions import create_request
 
     verify_user_id_match(firebase_uid, token["user_id"])
-    response.headers["Cache-Control"] = "private, no-store"
-    owner = ContentOwner(token["user_id"], token["token"])
-    try:
-        await owner.require_current()
-        service = CalendarMeetingRequestService(
-            sharing=DriveSharingService(require_owner=owner.require_current)
-        )
-        result = await service.create(
-            user_id=owner.user_id,
-            **payload.model_dump(exclude={"expected_account_email"}),
-        )
-        await owner.require_current()
-        return result
-    except DriveSharingError as exc:
-        raise sharing_error(exc) from None
-    except Exception as exc:
-        raise _http(exc) from exc
+    return await create_request(payload, response, token, http_error=_http)
+
+
+@router.post("/meetings/request-readiness")
+async def meeting_request_readiness(
+    payload: CalendarMeetingRequiredSelection,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    from api.routes.one.calendar_meeting_request_actions import request_readiness
+
+    verify_user_id_match(firebase_uid, token["user_id"])
+    return await request_readiness(payload, response, token, http_error=_http)
 
 
 @router.post("/meetings/request-statuses")

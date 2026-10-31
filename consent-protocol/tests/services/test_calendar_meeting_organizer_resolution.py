@@ -79,9 +79,14 @@ def test_snake_case_omission_flag_is_honoured_only_for_summaries():
 
 
 class Script:
-    def __init__(self, *, organizer=(), refresh=(), alias_verified=False, fail_fetch=None):
+    def __init__(
+        self, *, organizer=(), refresh=(), alias_verified=False, fail_fetch=None, pending=()
+    ):
         self.organizer = list(organizer)  # one result per organizer query, in order
         self.refresh = refresh
+        self.pending = list(pending)  # one verdict per pending-request lookup, in order
+        self.pending_refresh = ()
+        self.pending_queries = 0
         self.alias_verified = alias_verified
         self.fail_fetch = fail_fetch
         self.organizer_queries = 0
@@ -96,6 +101,8 @@ class FakeConnection:
         if self.script.fail_fetch:
             raise self.script.fail_fetch
         if "make_interval" in sql:
+            if "connection_requests" in sql:
+                return [{"peer": peer} for peer in self.script.pending_refresh]
             self.script.refresh_args = args
             return [{"peer": peer} for peer in self.script.refresh]
         self.script.organizer_queries += 1
@@ -103,6 +110,10 @@ class FakeConnection:
         return [{"peer": peer} for peer in self.script.organizer[index]]
 
     async def fetchval(self, sql, *args, timeout=None):
+        if "connection_requests" in sql:
+            self.script.pending_queries += 1
+            index = min(self.script.pending_queries, len(self.script.pending)) - 1
+            return bool(self.script.pending[index]) if self.script.pending else False
         return self.script.alias_verified
 
 
@@ -380,3 +391,91 @@ def test_every_reason_the_service_can_raise_is_client_safe():
     }
     for code, reason in emitted:
         assert reason in CALENDAR_REFUSAL_REASONS[code]
+
+
+# ---- readiness before Send --------------------------------------------------------
+
+
+async def readiness():
+    return await service.organizer_readiness("requester-user", ORGANIZER)
+
+
+async def test_an_active_verified_organizer_is_ready(harness):
+    script = harness(Script(organizer=[["organizer-user"]]))
+    assert await readiness() == "ready"
+    assert script.pending_queries == 0  # connected people never read pending requests
+
+
+async def test_no_connection_and_no_pending_request_is_not_connected(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False]))
+    assert await readiness() == "not_connected"
+    assert script.pending_queries == 1
+
+
+async def test_a_pending_connection_request_is_reported_as_pending(harness):
+    harness(Script(organizer=[[]], refresh=[], pending=[True]))
+    assert await readiness() == "pending"
+
+
+async def test_pending_counterpart_with_a_stale_cache_is_refreshed_before_deciding(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False, True]))
+    script.pending_refresh = ["stale-pending-peer"]
+    assert await readiness() == "pending"
+    assert FakeIdentity.calls == ["stale-pending-peer"]
+    assert script.pending_queries == 2
+
+
+async def test_unrefreshable_pending_counterpart_is_not_connected_not_retry(harness):
+    script = harness(Script(organizer=[[]], refresh=[], pending=[False]))
+    script.pending_refresh = ["stale-dead"]
+    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    assert await readiness() == "not_connected"
+
+
+@pytest.mark.parametrize(
+    "script,expected",
+    [
+        (Script(organizer=[["peer-a", "peer-b"]]), "unavailable"),  # ambiguous
+        (Script(organizer=[["organizer-user"]]), "unavailable"),  # identity changed
+    ],
+)
+async def test_ambiguous_or_changed_identity_is_unavailable_never_connected(
+    harness, script, expected
+):
+    harness(script)
+    if script.organizer == [["organizer-user"]]:
+        FakeIdentity.results["organizer-user"] = {
+            "email": "renamed@example.test",
+            "email_verified": True,
+        }
+    assert await readiness() == expected
+
+
+@pytest.mark.parametrize("failure", [OSError("connection reset"), TimeoutError()])
+async def test_readiness_infrastructure_failure_is_retryable_never_not_connected(harness, failure):
+    harness(Script(fail_fetch=failure))
+    with pytest.raises(DriveSharingError) as caught:
+        await readiness()
+    assert (str(caught.value), caught.value.retryable) == (
+        "recipient_verification_unavailable",
+        True,
+    )
+
+
+async def test_readiness_never_replaces_the_authoritative_refusal(harness):
+    """A pending request is advisory only: creating still requires an active connection."""
+    harness(Script(organizer=[[]], refresh=[], pending=[True]))
+    assert await readiness() == "pending"
+    assert (await refusal()).diagnostic_reason == "organizer_unresolved"
+
+
+async def test_readiness_log_is_count_only_and_survives_the_redactor(
+    harness, caplog, production_log_redaction
+):
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    harness(Script(organizer=[[]], refresh=["stale-user-id-123"], pending=[False]))
+    assert await readiness() == "not_connected"
+    text = caplog.text
+    assert "[REDACTED]" not in text and "state=not.connected" in text
+    for private in (ORGANIZER, REQUESTER, "stale-user-id-123", "requester-user", "example.test"):
+        assert private not in text

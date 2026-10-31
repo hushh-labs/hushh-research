@@ -58,6 +58,9 @@ export class CalendarMeetingWorld {
   private sequence = 0;
   /** Is the organizer a verified, connected One user for the requester? */
   organizerConnected = true;
+  /** A connection request to the organizer that has not been accepted yet. */
+  connectionPending = false;
+  readonly readinessReads: Record<string, unknown>[] = [];
 
   constructor() {
     this.acl.add(`${this.prior.notesFileId}|${this.requester.googleEmail}`);
@@ -198,6 +201,13 @@ export class CalendarMeetingWorld {
           .map(request => ({ requestId: request.requestId, status: request.status, requestedTypes: request.types })),
         artifacts: this.artifactsFor(String(selection.occurrence_id)).map(({ kind, state }) => ({ kind, state })),
       })) });
+    }
+    if (route === "meetings/request-readiness") {
+      // Advisory and read-only: it creates nothing, and create re-checks the relationship.
+      this.readinessReads.push(body);
+      const error = this.selectionError(body);
+      if (error) return json(error.status, { detail: { code: error.code, message: "This meeting changed. Refresh and try again." } });
+      return json(200, { state: this.organizerConnected ? "ready" : this.connectionPending ? "pending" : "not_connected" });
     }
     if (route === "meetings/requests") {
       // The browser names only the verified selection and the types. Anything

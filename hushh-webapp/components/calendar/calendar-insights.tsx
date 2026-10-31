@@ -23,12 +23,13 @@ import type { FollowupRequest } from "@/lib/services/calendar-followups-service"
 import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
-import { focusedStatus, limitationText, meetingTime, requestRecovery, requestStatusText, selectionOf, type RequestRecovery } from "./calendar-insights-presentation";
-import { RequestRecoveryPanel } from "./calendar-request-recovery";
+import { focusedStatus, limitationText, meetingTime, requestStatusText, selectionOf } from "./calendar-insights-presentation";
+import { CalendarRequestSection } from "./calendar-request-section";
+import { useMeetingRequest } from "./use-meeting-request";
 import { useAccessWatch } from "@/lib/calendar/use-access-watch";
 import { useFeedRefresh } from "@/lib/calendar/use-feed-refresh";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
-import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
+import { markCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
@@ -85,12 +86,6 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const [libraryState, setLibraryState] = useState<{ key: string; value: MeetingLibrary } | null>(null);
   const [detailState, setDetailState] = useState<{ key: string; value: MeetingDetail & { artifacts: SourcedArtifact[] } } | null>(null);
   const [outcomesState, setOutcomesState] = useState<{ key: string; value: Record<string, MeetingRequestOutcome> } | null>(null);
-  const [requestChoice, setRequestChoice] = useState<("recording" | "notes")[]>([]);
-  const [requestStep, setRequestStep] = useState<"closed" | "choose" | "confirm">("closed");
-  const [requestBusy, setRequestBusy] = useState(false);
-  const [requestNotice, setRequestNotice] = useState("");
-  // Set only by a request that failed; a terminal one has no Send action left.
-  const [requestFailure, setRequestFailure] = useState<RequestRecovery | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -140,7 +135,6 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     }, 250);
     return () => window.clearTimeout(timer);
   }, [queryInput, searchPending]);
-  useEffect(() => { setRequestStep("closed"); setRequestChoice([]); setRequestNotice(""); setRequestFailure(null); }, [actionContext]);
   useEffect(() => () => { action.current?.controller.abort(); action.current?.popup.close(); action.current = null; }, [actionContext]);
   const entryRef = useRef<HTMLButtonElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -416,40 +410,31 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const missingKinds = (["recording", "notes"] as const).filter(kind => !verifiedKinds.has(kind));
   const requestStatus = (meeting: Meeting) =>
     requestStatusText(outcomes[meeting.occurrence_id], meeting.artifact_kinds.length > 0, accessExhausted);
-  const submitRequest = async () => {
-    if (!selected || requestBusy || !requestChoice.length) return;
-    const vaultToken = getVaultOwnerToken();
-    if (!vaultToken) { setRequestNotice("Unlock your vault to send this request."); return; }
-    const started = currentActionContext.current;
-    const selection: VerifiedMeetingSelection = {
-      account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
-      occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id,
-      date: day, time_zone: zone,
-    };
-    setRequestBusy(true); setRequestNotice(""); setRequestFailure(null);
-    try {
-      const idToken = await getToken.current();
-      const result = await CalendarInsightsService.requestFiles(selection, requestChoice, idToken, vaultToken);
-      if (currentActionContext.current !== started || !isVaultSessionEpochCurrent(epoch)) return;
-      setRequestStep("closed");
-      setRequestNotice(`Request sent to the organizer. Files will be shared with ${result.recipientEmail} only after an exact-file approval and access check.`);
-      setOutcomes(previous => ({ ...previous, [selected.occurrence_id]: {
-        occurrence_id: selected.occurrence_id,
-        requests: [{ requestId: result.requestId, status: result.status, requestedTypes: requestChoice }],
-        artifacts: previous[selected.occurrence_id]?.artifacts || [],
-      } }));
-    } catch (failure) {
-      if (currentActionContext.current !== started) return;
-      const recovery = requestRecovery(failure instanceof CalendarInsightsRequestError
-        ? { status: failure.status, code: failure.code, reason: failure.reason, message: failure.message }
-        : { message: failure instanceof Error ? failure.message : undefined });
-      setRequestFailure(recovery);
-      // A terminal refusal is explained by its own panel; a retryable one keeps the notice.
-      setRequestNotice(recovery.tone === "retry" ? recovery.message : "");
-    } finally { if (currentActionContext.current === started) setRequestBusy(false); }
-  };
+  const request = useMeetingRequest({
+    selection: selected ? { account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
+      occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone } : null,
+    contextKey: actionContext, revision, getIdToken: () => getToken.current(), getVaultOwnerToken,
+    active: canRefresh && view === "meeting" && Boolean(selected) && missingKinds.length > 0,
+    onSent: (occurrenceId, sent) => setOutcomes(previous => ({ ...previous, [occurrenceId]: {
+      occurrence_id: occurrenceId, requests: [sent], artifacts: previous[occurrenceId]?.artifacts || [] } })),
+  });
+  // The meeting, account, day and chosen files to come back to after Connect or Google.
+  const returnContext = (): CalendarMeetingReturnContext => ({ accountId: account.account_id, day, timeZone: zone, filter, query,
+    ...(view === "meeting" && selected ? { occurrenceId: selected.occurrence_id, ...(request.choice.length ? { requestedTypes: request.choice } : {}) } : {}) });
+  const restoreChoice = request.restore;
+  const pendingReturn = useRef(initialLibrary?.occurrenceId ? { occurrenceId: initialLibrary.occurrenceId, types: initialLibrary.requestedTypes || [], pages: 0 } : null);
+  useEffect(() => {
+    const target = pendingReturn.current;
+    if (!target || !library) return;
+    const meeting = library.meetings.find(item => item.occurrence_id === target.occurrenceId);
+    if (!meeting && library.next_cursor && target.pages++ < 8) { setCursor(library.next_cursor); return; }
+    pendingReturn.current = null;
+    if (!meeting) return;
+    restoreChoice(meeting.occurrence_id, target.types);
+    lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting");
+  }, [library, restoreChoice, setDetail]);
   const contextGuard = () => { const started = currentActionContext.current; return () => currentActionContext.current === started; };
-  const copyRequestText = selected ? `Could you share the ${requestChoice.join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
+  const copyRequestText = selected ? `Could you share the ${request.choice.join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
   const meetingRow = (meeting: Meeting) => <button className={styles.row} type="button" key={meeting.occurrence_id}
     ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }}
     onClick={() => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); }}>
@@ -503,7 +488,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {searchPending ? <p role="status" className={styles.muted}>Searching meetings…</p> : !library && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meetings…</p> : null}
       {loading && library ? <p role="status" className={styles.muted}>Checking for updates…</p> : null}
       {errorCard}
-      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.meeting_file_access === "missing" && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query })}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
+      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.meeting_file_access === "missing" && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
       {library ? <p role="status" className={styles.muted}>
         {query ? "Search results: " : ""}{library.meetings.length} meetings loaded · {availableMeetings.length} Available · {unavailableMeetings.length} Not available yet.
         {query ? " Clear search to see all meetings." : null}
@@ -525,24 +510,11 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {requestOutcome?.requests.length ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!) || "Only files verified for the selected Google account appear above."}</p> : null}
       {requestOutcome?.artifacts.some(item => item.state === "permission_required") && onAllowMeetingFiles ?
         <SectionCard><p>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
-          <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query })}>Allow recording and notes access</CalendarCompactAction>
+          <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
-      {requestNotice ? <p role="status" className={styles.muted}>{requestNotice}</p> : null}
-      {missingKinds.length && selected ? <SectionCard title="Request missing files">
-        {requestStep === "closed" ? <Button variant="outline" onClick={() => { setRequestChoice([]); setRequestStep("choose"); setRequestFailure(null); }}>Request recording or notes</Button> : null}
-        {requestStep === "choose" ? <div className="space-y-3"><p>Choose the files to ask the organizer for. A request does not grant access.</p>
-          {missingKinds.map(kind => <label key={kind} className="flex items-center gap-2"><input type="checkbox" checked={requestChoice.includes(kind)} onChange={event => setRequestChoice(previous => event.target.checked ? [...previous, kind] : previous.filter(item => item !== kind))} />{kind === "recording" ? "Recording" : "Notes"}</label>)}
-          <Button disabled={!requestChoice.length} onClick={() => setRequestStep("confirm")}>Review request</Button>
-          <Button variant="ghost" onClick={() => setRequestStep("closed")}>Cancel</Button>
-        </div> : null}
-        {requestStep === "confirm" && requestFailure?.tone !== "terminal" ? <div className="space-y-3"><p><strong>{selected.title}</strong> · {day}</p><p>Organizer: {selected.organizer?.displayName || selected.organizer?.email || "Unavailable"}</p><p>Requested: {requestChoice.join(" and ")}</p><p>Recipient Google account: <strong>{account.google_email || "Selected Calendar account"}</strong></p>
-          <p>The organizer must confirm the exact files and recipient before Drive sharing. Access appears here only after your selected account can open a file.</p>
-          <Button disabled={requestBusy} onClick={() => void submitRequest()}>{requestBusy ? "Sending…" : requestFailure ? "Try again" : "Send request"}</Button>
-          <Button variant="ghost" disabled={requestBusy} onClick={() => setRequestStep("choose")}>Back</Button>
-        </div> : null}
-        {requestFailure ? <RequestRecoveryPanel recovery={requestFailure} copyText={copyRequestText} contextGuard={contextGuard}
-          onClose={() => { setRequestStep("closed"); setRequestFailure(null); }} /> : null}
-      </SectionCard> : null}
+      {missingKinds.length && selected ? <CalendarRequestSection request={request} meeting={selected} day={day}
+        accountEmail={account.google_email || "Selected Calendar account"} missingKinds={missingKinds} copyText={copyRequestText}
+        contextGuard={contextGuard} onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
     </>}
   </div>;
 }
