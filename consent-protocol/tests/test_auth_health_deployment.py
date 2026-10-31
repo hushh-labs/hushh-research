@@ -34,7 +34,7 @@ def _assert_health_source_closure(verified):
     assert f"COPY {diagnostic_module} {diagnostic_module}" in packaged["Dockerfile"].decode()
 
 
-def test_health_image_pins_ca_package_and_qualifies_bundled_tls_context():
+def test_health_image_pins_runtime_packages_and_qualifies_tools_and_bundled_tls():
     root = Path(__file__).resolve().parents[2]
     dockerfile = (root / "deploy/observability/auth-health.Dockerfile").read_text()
     base = (
@@ -43,6 +43,9 @@ def test_health_image_pins_ca_package_and_qualifies_bundled_tls_context():
     )
     assert base in dockerfile
     assert "ca-certificates=20250419+deb13u1" in dockerfile
+    assert "curl=8.14.1-2+deb13u7" in dockerfile
+    assert "gcloud --version >/dev/null" in dockerfile
+    assert "curl --version >/dev/null" in dockerfile
     assert "PYTHONPATH=/app/deploy/observability" in dockerfile
     assert (
         "from auth_health_job import _verified_tls_context; _verified_tls_context()" in dockerfile
