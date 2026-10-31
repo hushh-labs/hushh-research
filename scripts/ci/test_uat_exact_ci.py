@@ -2,12 +2,15 @@
 """Fail closed when direct-UAT evidence changes or belongs to another source."""
 
 import json
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import promotion_approval as promotion
 import uat_exact_ci as subject
 
 
@@ -203,6 +206,132 @@ class ExactUatCiTest(unittest.TestCase):
 
 
 
+class ApplicationSourceAdmissionTest(unittest.TestCase):
+    def test_new_uat_selection_requires_protected_uat_membership(self):
+        application = "a" * 40
+
+        def protected_uat_member(*args):
+            if args == ("merge-base", application, "origin/uat"):
+                return application
+            raise AssertionError("UAT selection must use protected UAT history")
+
+        self.assertEqual(
+            promotion.uat_source(application, resolve=protected_uat_member),
+            ("uat", "CI Status Gate,Queue Validation,Branch Validation Gate"),
+        )
+
+    def test_main_alias_passes_only_when_the_sha_is_also_in_uat(self):
+        application = "b" * 40
+
+        def shared_main_uat_member(*args):
+            if args in {
+                ("merge-base", application, "origin/main"),
+                ("merge-base", application, "origin/uat"),
+            }:
+                return application
+            raise AssertionError("Selection must bind to protected UAT membership")
+
+        self.assertEqual(
+            promotion.uat_source(application, resolve=shared_main_uat_member)[0],
+            "uat",
+        )
+
+    def test_main_only_or_arbitrary_sha_is_not_a_new_uat_source(self):
+        application = "c" * 40
+
+        def main_only(*args):
+            if args == ("merge-base", application, "origin/main"):
+                return application
+            if args == ("merge-base", application, "origin/uat"):
+                return "0" * 40
+            raise AssertionError("Main membership cannot authorize a UAT dispatch")
+
+        with self.assertRaisesRegex(ValueError, "not in protected UAT history"):
+            promotion.uat_source(application, resolve=main_only)
+
+    def test_dev_normal_dispatch_checks_dev_membership_and_preserves_pod_source(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/deploy-dev.yml").read_text()
+        normal_gate = workflow.split(
+            "- name: Validate deployment SHA in protected Dev history", 1
+        )[1].split("\n      - name:", 1)[0]
+        pod_gate_section = workflow.split(
+            "- name: Verify exact pod source CI and ref", 1
+        )[1]
+        pod_gate = pod_gate_section.split("\n      - name:", 1)[0]
+
+        self.assertIn("REQUIRED_BRANCH: dev", normal_gate)
+        self.assertNotIn("steps.resolve-sha.outputs.ref", normal_gate)
+        self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
+        self.assertIn("Application lookup ref", workflow)
+        self.assertIn(
+            "run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            workflow,
+        )
+        self.assertIn("Source authority: protected \\`dev\\` history", workflow)
+
+    def test_dev_membership_accepts_a_main_alias_only_for_a_dev_member_sha(self):
+        root = Path(__file__).resolve().parents[2]
+        helper = root / "scripts/ci/require-deploy-sha-on-main.sh"
+        application = "a" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bin = Path(directory)
+            fake_git = fake_bin / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                'case "$1" in\n'
+                "  fetch|cat-file) exit 0 ;;\n"
+                '  merge-base) exit "${DEV_MEMBERSHIP_EXIT:-0}" ;;\n'
+                "esac\n"
+                "exit 0\n"
+            )
+            fake_git.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "REQUIRED_BRANCH": "dev",
+                "REQUIRE_CI_SUCCESS": "0",
+            }
+            member = subprocess.run(
+                ["bash", str(helper), application],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(member.returncode, 0, member.stderr)
+            environment["DEV_MEMBERSHIP_EXIT"] = "1"
+            outside = subprocess.run(
+                ["bash", str(helper), "b" * 40],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(outside.returncode, 0)
+
+    def test_explicit_uat_sha_is_checked_before_selection_completes(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+        selection = workflow.split('if [ -n "$REQUESTED_SHA" ]; then', 1)[1]
+        selection = selection.split('echo "sha=$REQUESTED_SHA"', 1)[0]
+
+        checkout = workflow.split("- name: Checkout code", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn("fetch-depth: 0", checkout)
+        self.assertIn("promotion_approval.py uat", selection)
+        self.assertIn(
+            "run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }}",
+            workflow,
+        )
+        self.assertIn('--application-sha "$REQUESTED_SHA"', selection)
+        self.assertIn(
+            "Source authority: \\`${{ steps.application-authority.outputs.branch }}\\`",
+            workflow,
+        )
+
+
 class _AttemptAPI:
     def __init__(self, run, jobs, runs, check):
         self.run, self.jobs, self.runs, self.check = run, jobs, runs, check
@@ -249,6 +378,8 @@ class ExactUatAttemptTest(unittest.TestCase):
         self.assertEqual(
             subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1
         )
+        with self.assertRaises(subject.Refused):
+            subject.verify_attempt(api, candidate, "d" * 40, 123, 1)
         exact["conclusion"] = "cancelled"
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
@@ -277,6 +408,9 @@ class ExactUatAttemptTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         run["run_attempt"] = 1
+        self._assert_later_failed_runs_refuse(api, candidate, base, run, runs)
+
+    def _assert_later_failed_runs_refuse(self, api, candidate, base, run, runs):
         runs.append(
             {
                 **run,
@@ -289,8 +423,7 @@ class ExactUatAttemptTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
-        # A later rerun of an older run has a smaller run ID, but is still
-        # the most recent attempt and must invalidate the old green result.
+        # A rerun with a smaller ID is still the most recent attempt.
         runs.append(
             {
                 **run,

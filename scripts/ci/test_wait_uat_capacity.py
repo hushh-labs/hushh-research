@@ -39,7 +39,7 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
-    def test_application_authority_matches_deploy_for_main_and_curated_uat(self):
+    def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
                 target = "a" * 40
@@ -53,18 +53,17 @@ class ApplicationAuthorityTests(unittest.TestCase):
                     return subprocess.CompletedProcess(arguments, 0, output, "")
 
                 with patch.dict(wait.os.environ, {"GITHUB_REF_NAME": "main", "GITHUB_ACTOR": "operator"}), patch.object(wait, "command", side_effect=run):
-                    if history == "unplaced":
+                    if history == "uat":
+                        wait.verify_request(target)
+                        authority = calls[-1][1]
+                        self.assertEqual(authority["REQUIRED_BRANCH"], "uat")
+                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
+                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
+                            "CI Status Gate,Queue Validation,Branch Validation Gate")
+                    else:
                         with self.assertRaisesRegex(wait.AdmissionError, "source history"):
                             wait.verify_request(target)
                         self.assertFalse(any(item[1] for item in calls))
-                    else:
-                        wait.verify_request(target)
-                        authority = calls[-1][1]
-                        self.assertEqual(authority["REQUIRED_BRANCH"], history)
-                        self.assertEqual(authority["REQUIRE_CI_SUCCESS"], "1")
-                        self.assertEqual(authority["REQUIRED_CHECK_NAME"],
-                            "Main Post-Merge Smoke Gate" if history == "main"
-                            else "CI Status Gate,Queue Validation,Branch Validation Gate")
 
 
 class CapacityAdmissionTests(unittest.TestCase):

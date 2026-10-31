@@ -18,13 +18,20 @@ If a previous run used an unjustified forced override, name that as evidence dri
 
 Follow `.agents/skills/repo-operations/references/admin-release-sop.md` for the
 ordinary merge-queue path or an explicitly authorized Admin PR landing. This
-spoke owns UAT scope and proof after that authority contract yields an exact
-green landed `main` SHA; it does not redefine merge or bypass semantics.
+spoke owns UAT scope and proof after that authority contract yields the
+Main-owned workflow; it does not redefine merge or bypass semantics. New
+application source must be an exact SHA in protected `uat` history. A
+Main-only SHA is not a normal UAT source.
 
-Use the resulting green `main` SHA:
+For a direct UAT candidate, first qualify the protected UAT tip against the
+currently serving UAT SHA, then dispatch the Main-owned release workflow with
+that exact CI run and attempt:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<main-sha>
+gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
+gh workflow run deploy-uat.yml --ref main -f scope=auto \
+  -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
+  -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha>
 ```
 
 Then watch:

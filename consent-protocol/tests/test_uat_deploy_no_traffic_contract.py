@@ -681,7 +681,9 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     bridge = next(step for step in deploy["steps"] if step.get("id") == "resolve-sha")
     assert bridge["env"]["DEPLOY_SHA"] == "${{ needs.select-target.outputs.sha }}"
     validator = next(
-        step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
+        step
+        for step in deploy["steps"]
+        if step["name"] == "Validate deployment SHA in selected protected history"
     )
     assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert (
