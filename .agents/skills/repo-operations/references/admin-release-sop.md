@@ -132,17 +132,8 @@ Production retains that application's UAT receipt. A distinct `main_approval_sha
 must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
 
-UAT application source must be an exact SHA in protected `uat` history. The
-workflow definition remains Main-owned. For a direct UAT candidate, validate
-the protected branch tip against the observed serving UAT SHA, then pass that
-exact run, attempt, and base to the release workflow:
-
-```bash
-gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
-gh workflow run deploy-uat.yml --ref main -f scope=auto \
-  -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
-  -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha>
-```
+For direct UAT qualification and dispatch, follow the
+[UAT-scoped deploy procedure](../../uat-scoped-deploy/SKILL.md).
 
 Production:
 
