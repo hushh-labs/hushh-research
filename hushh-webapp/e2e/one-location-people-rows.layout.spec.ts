@@ -280,7 +280,9 @@ for (const dark of [false, true]) {
           ];
           const rowBox = row.getBoundingClientRect();
           const personBox = person.getBoundingClientRect();
-          const name = person.querySelector('p[title]') as HTMLElement;
+          // The row action and profile avatar are sibling controls; the name
+          // remains in the shared visual content beside the row action.
+          const name = row.querySelector('p[title]') as HTMLElement;
           return {
             nameHeight: name.getBoundingClientRect().height,
             nameWhiteSpace: getComputedStyle(name).whiteSpace,
