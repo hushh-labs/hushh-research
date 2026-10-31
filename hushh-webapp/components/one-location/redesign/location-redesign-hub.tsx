@@ -149,6 +149,8 @@ import {
 import {
   LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
   LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+  LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME,
+  LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME,
 } from "./location-action-styles";
 import {
   ShareReplacementConfirmDialog,
@@ -3573,12 +3575,12 @@ export function PersonRow({
               onClick={shareReady ? onShare : onShareUnavailable}
               disabled={!shareReady && !onShareUnavailable}
               aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
-              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
+              className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
               aria-label={`Share your location with ${name}`}
             >
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
+                className={LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME}
               >
                 Share
               </span>
@@ -3591,12 +3593,12 @@ export function PersonRow({
               effect="fade"
               size="compact"
               onClick={onAsk}
-              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
+              className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
               aria-label={`Ask ${name} for their location`}
             >
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
+                className={LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME}
               >
                 Ask
               </span>
