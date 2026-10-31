@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonRow } from "@/components/one-voice/tool-result-person-row";
+
 /**
  * What a tool actually returned, on screen.
  *
@@ -38,7 +40,6 @@ import type {
   OpenedDraft,
   OpenedMailMessage,
 } from "@/lib/one-voice/mail-open";
-import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
   NOT_SUCCESS_STATUSES,
@@ -57,7 +58,6 @@ import {
 } from "@/lib/one-voice/session-reducer";
 import { cn } from "@/lib/utils";
 
-import { initialsFor } from "./entity-card";
 
 export type OpenMail = (input: {
   ordinal: number;
@@ -321,34 +321,6 @@ function remainingLabel(expiresAt: unknown, now = Date.now()): string | null {
   return `${hours} ${hours === 1 ? "hour" : "hours"} left`;
 }
 
-function PersonRow({
-  name,
-  photoUrl,
-  detail,
-}: {
-  name: string;
-  photoUrl: string | null;
-  detail?: string | null;
-}) {
-  return (
-    <li className="flex min-h-9 items-center gap-2.5">
-      <AvatarBubble
-        initials={initialsFor(name)}
-        size={28}
-        imageUrl={photoUrl}
-      />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--app-label)]">
-        {name}
-      </span>
-      {detail ? (
-        <span className="shrink-0 text-[12px] text-[color:var(--app-secondary-label)]">
-          {detail}
-        </span>
-      ) : null}
-    </li>
-  );
-}
-
 function FactRow({
   label,
   value,
@@ -392,6 +364,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       : null;
   const single = person ? [person] : [];
   const items: Array<{
+    userId?: string | null;
+    personRef?: string | null;
     key: string;
     name: string;
     photo: string | null;
@@ -403,6 +377,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       if (!name) return;
       const relationship = text(row.relationship);
       items.push({
+        userId: text(row.user_id),
+        personRef: text(row.public_person_ref),
         key: `${items.length}:${index}`,
         name,
         photo: text(row.photo_url),
@@ -430,6 +406,8 @@ function PeopleDetail({ result }: { result: ToolResultPublic }) {
       {items.slice(0, 8).map((item) => (
         <PersonRow
           key={item.key}
+          userId={item.userId}
+          personRef={item.personRef}
           name={item.name}
           photoUrl={item.photo}
           detail={item.detail}

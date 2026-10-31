@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import type { ComponentProps, ReactNode } from "react";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
  */
 export function ConnectPersonRow({
   leading,
+  leadingInteractive = false,
   title,
   description,
   supplement,
@@ -34,6 +36,7 @@ export function ConnectPersonRow({
 }: {
   /** The avatar, already sized to fit the 30px well. */
   leading: ReactNode;
+  leadingInteractive?: boolean;
   title: ReactNode;
   /** Relationship context, such as a connected date. Omitted when empty. */
   description?: ReactNode;
@@ -47,6 +50,7 @@ export function ConnectPersonRow({
   testId?: string;
   className?: string;
 }) {
+  const IdentityControl = leadingInteractive ? PersonSelectionSurface : "button";
   const identity = (
     <>
       {/* Centered on the text block, as in Feed's rows: pinned to the top it sat above
@@ -85,7 +89,7 @@ export function ConnectPersonRow({
     >
       <div className="min-w-0">
         {onOpen ? (
-          <button
+          <IdentityControl
             type="button"
             onClick={onOpen}
             aria-label={openLabel}
@@ -95,7 +99,7 @@ export function ConnectPersonRow({
             )}
           >
             {identity}
-          </button>
+          </IdentityControl>
         ) : (
           <div className={identityClassName}>{identity}</div>
         )}

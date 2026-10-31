@@ -71,6 +71,7 @@ export function ConsentCounterpartAvatar({
   if (!Glyph || photoUrl) {
     return (
       <ConnectionPersonAvatar
+        userId={["person", "investor", "ria"].includes(entry.counterpart_type) ? entry.counterpart_id : undefined}
         label={label}
         photoUrl={photoUrl}
         size="list"
@@ -206,6 +207,7 @@ export function ConsentPendingRequestRow({
       layout="person"
       onClick={onOpen}
       ariaLabel={onOpen ? `${counterpart}, ${summary}, review` : undefined}
+      leadingInteractive={["person", "investor", "ria"].includes(entry.counterpart_type)}
       leading={<ConsentCounterpartAvatar entry={entry} />}
       title={counterpart}
       description={

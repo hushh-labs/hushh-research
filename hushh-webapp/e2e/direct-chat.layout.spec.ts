@@ -190,7 +190,7 @@ for (const lane of ["People", "Circles"] as const) {
       await page.getByRole("button", { name: /Weekend friends/ }).click();
     }
     const list = page.getByRole("complementary", { name: lane === "People" ? "Conversations" : "Circles" });
-    const lastRow = list.getByRole("button", { name: lane === "People" ? /Connection 30/ : /Circle 30/ });
+    const lastRow = list.getByRole("button", { name: lane === "People" ? /^Connection 30/ : /Circle 30/ });
     await expect(lastRow).toBeAttached();
     for (const inset of [0, 300]) {
       if (inset) await page.evaluate((height) => {
@@ -235,7 +235,7 @@ for (const width of [768, 820, 1024]) {
 test("native session opens a conversation without a browser Firebase user", async ({ page }) => {
   await mount(page, false, false, true);
   await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
   expect(await page.evaluate(() => (window as any).directChatAuthFixture.tokenRequests)).toEqual(["fixture-owner"]);
   await expect(page.getByText("This conversation could not be opened. Try again.")).toHaveCount(0);
@@ -250,7 +250,7 @@ for (const failure of ["token unavailable", "route mint failed"] as const) {
     } else {
       await fixture(page, "fixture.failNextRouteMint()");
     }
-    const row = page.getByRole("button", { name: /Arjun Mehta/ });
+    const row = page.getByRole("button", { name: /^Arjun Mehta/ });
     await row.click();
     await expect(page.getByText("This conversation could not be opened. Try again.")).toBeVisible();
     await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
@@ -298,7 +298,7 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await expect(chat).toHaveAttribute("data-theme", "light");
   await expect(page.getByRole("button", { name: "Switch to dark mode" })).toBeVisible();
 
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(chat).toHaveAttribute("data-chat-open", "true");
   await expect(page.locator("[data-direct-message-composer-input]")).toBeVisible();
   expect(await navigation.innerText()).toBe(navLabels);
@@ -321,7 +321,7 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const canvas = page.locator("[data-direct-message-page]");
     await expect.poll(async () => (await page.getByRole("heading", { name: "Messages" }).boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
     expect((await canvas.boundingBox())!.y).toBe(minimumTop);
-    await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+    await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
@@ -758,7 +758,7 @@ test("retries a committed send with the same id and keeps older history availabl
 test("a late send cannot redirect another conversation or erase its draft", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page); await fixture(page, "fixture.holdSend()");
   await page.locator("[data-direct-message-composer-input]").fill("Message for Maya"); await page.getByRole("button", { name: "Send message" }).click();
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   await page.locator("[data-direct-message-composer-input]").fill("Arjun’s separate draft");
   await fixture(page, "fixture.releaseSend()");
@@ -820,7 +820,7 @@ test.describe("compact message layout", () => {
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
   await expect.poll(() => page.url()).toBe("http://localhost/one/messages");
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeVisible();
@@ -879,7 +879,7 @@ for (const width of [320, 1440]) {
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
     await page.getByRole("button", { name: "Delete chat", exact: true }).click();
     await expect(chat).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toBeVisible();
     await fixture(page, "fixture.incoming('maya')");
     await expect(chat).toBeVisible();
     await row.click();
@@ -927,7 +927,7 @@ for (const width of [320, 1440]) {
 test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await mount(page);
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
 
   // A new document has no conversation token in its URL or history.state.
@@ -959,7 +959,7 @@ test("background refreshes do not read new messages; changing owner clears prior
   await fixture(page, "fixture.lifecycle('active')"); await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 81" })).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(readCount);
   await fixture(page, "fixture.changeOwner()");
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toHaveCount(0);
   await fixture(page, "fixture.releaseInbox()");
 });
 
@@ -1131,11 +1131,11 @@ for (const width of [390, 1440]) test(`visited conversations stay readable durin
   await page.setViewportSize({ width, height: 900 });
   const errors = await mount(page);
   await page.getByRole("button", { name: "Back to messages" }).click();
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
   await page.getByRole("button", { name: "Back to messages" }).click();
   await fixture(page, "fixture.holdHistory()");
-  await page.getByRole("button", { name: /Maya Rao/ }).click();
+  await page.getByRole("button", { name: /^Maya Rao/ }).click();
   await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
   await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Connecting…", { exact: true })).toHaveCount(0);
@@ -1148,9 +1148,9 @@ for (const width of [390, 1440]) test(`visited conversations stay readable durin
 
 test("cold route resolution completes an already pending inbox request", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page, false, true);
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toHaveCount(0);
   await fixture(page, "fixture.releaseInbox()");
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toBeVisible();
 });
 
 for (const width of [320, 393, 1440]) {

@@ -107,7 +107,7 @@ export function PeopleStep({
                   className="flex min-h-[44px] items-center gap-3 py-1.5"
                   data-testid="location-setup-person"
                 >
-                  <AvatarBubble
+                  <AvatarBubble userId={person.userId}
                     initials={personInitials(person.displayName)}
                     imageUrl={person.photoUrl ?? null}
                     size={36}

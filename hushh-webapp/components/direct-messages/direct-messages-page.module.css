@@ -1790,7 +1790,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatResults > p { padding: 16px; color: var(--chat-muted); font-size: 13px; }
 .newChatPerson { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 12px; text-align: left; font-size: 14px; line-height: 21px; font-weight: 550; }
 .newChatPerson:hover, .newChatPerson:focus-visible { background: color-mix(in srgb, var(--chat-ios-accent) 9%, transparent); outline: none; }
-.newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
+.newChatPerson:is(:disabled, [data-disabled=true]) { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   /* Both panes reserve the viewport-centered composer and navigation. */

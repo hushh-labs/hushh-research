@@ -18,7 +18,6 @@ import {
 } from "@/components/icons";
 import { CalendarAgentIcon } from "@/components/icons/agents";
 import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
-
 import {
   consentInformationLabel,
   joinInformationLabels,
@@ -48,7 +47,6 @@ import { circleChatHref } from "@/lib/circle-chat/routes";
 import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
-
 export type FeedItemPresentation = {
   icon: ComponentType<{ className?: string; color?: string }>;
   domainLabel: string;
@@ -56,6 +54,7 @@ export type FeedItemPresentation = {
   description: string;
   href: string | null;
   person?: {
+    personRef?: string | null;
     displayName: string;
     photoUrl: string | null;
   } | null;
@@ -192,6 +191,7 @@ function counterpartPerson(
   return {
     displayName,
     photoUrl: resolveCounterpartPhotoUrl(metadata),
+    personRef: metadataString(metadata, "counterpart_person_ref") || null,
   };
 }
 

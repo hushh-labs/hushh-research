@@ -436,8 +436,8 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("See your full day in Google Calendar")).toHaveCount(0);
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
-    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
+    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("..").locator("[data-photo-source=hussh]")).toHaveCount(1);
+    await expect.poll(() => page.getByRole("button", { name: "Open invitation: QA Product Sync" }).locator("..").locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     await expect(page.getByRole("button", { name: "Show Google contact photos" })).toHaveCount(0);
     const invitationBounds = (await cta.boundingBox())!;
     expect(invitationBounds.width).toBe(scheduleBounds.width);
