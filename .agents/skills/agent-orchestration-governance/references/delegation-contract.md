@@ -211,10 +211,10 @@ under `.agents/subagents` are the authored fleet. Do not create vendor directori
 per-host adapters, startup hooks or generated Markdown copies of those lanes.
 
 1. Select a canonical lane and read its role, authority and skill references directly.
-2. Use the active host's supported delegation controls. Repository files alone do not
-   register tools or subagents in a host that does not read them.
-3. Preserve read-only authority when passing a lane to a child. A lane that needs a
-   file changed returns the change to the parent rather than making it.
-4. Inherit the parent model unless the canonical lane states a reviewed reason.
+2. Use active host controls; repo files do not register tools on hosts that do not
+   load them. Check state: `send_message` reaches running agents; use supported
+   follow-up or resume for idle or completed agents, then verify they are running.
+3. Keep lanes read-only and return file changes to the parent; inherit the parent's model unless the canonical lane gives a reviewed reason.
 
-Verify child terminal state and owned cleanup. Close through supported controls before reclaiming capacity; otherwise report the limitation. Completion is not closure; preserve the close freeze circuit breaker.
+Verify child terminal state, cleanup and supported closure before reclaiming capacity;
+if closure is unavailable, report it. Preserve the close freeze circuit breaker.

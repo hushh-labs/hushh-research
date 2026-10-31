@@ -27,6 +27,7 @@ import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
 import production_retention_context
+import retention_pass_diagnostics as pass_diagnostics
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -111,8 +112,6 @@ GITHUB_LOOKUP_SECONDS = 90
 PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
 _API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
-
-
 def command(*args: str) -> str:
     timeout = 180.0
     deadline = _LOOKUP_DEADLINE.get()
@@ -1721,36 +1720,25 @@ def maintenance_cli():
 
 
 def maintenance_pass() -> int:
-    args = maintenance_cli()
+    args = pass_diagnostics.run_stage("arguments", maintenance_cli)
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
     if args.check_mutations:
-        assert_no_pending_mutations(repository, args.state_dir, args.environment)
+        pass_diagnostics.reconcile_pending(assert_no_pending_mutations, repository, args)
         return 0
     if args.apply:
-        assert_checkpoint_publication(repository, args.environment)
-        restore_state(repository, args.state_dir, environment=args.environment)
+        pass_diagnostics.checkpoint_guard(assert_checkpoint_publication, repository, args)
+        pass_diagnostics.restore_checkpoint(restore_state, repository, args)
         importlib.import_module("retention_publication").preserve(sys.modules[__name__], args)
-    args.operational_anchor = production_retention_context.load_operational(sys.modules[__name__], args)
-    args.worker_anchor = production_retention_context.worker(sys.modules[__name__], args, repository)
-    if (
-        (args.verify_source_only or args.apply)
-        and not args.force_inspection
-        and not maintenance_due(
-            repository,
-            args.state_dir,
-            environment=args.environment,
-            release_run_id=int(args.release_run_id) if args.release_run_id else None,
-            restore=not args.apply,
-        )
+    pass_diagnostics.load_release_context(
+        production_retention_context, args, repository, sys.modules[__name__]
+    )
+    if not pass_diagnostics.should_run_preflight(
+        args, repository, maintenance_due, os.environ.get("GITHUB_OUTPUT")
     ):
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write("cleanup_ready=false\n")
         return 0
-    found = preflight_release(args, repository)
+    found = pass_diagnostics.find_release(preflight_release, args, repository)
     if found is None:
         return 0
     run_id, release = found
@@ -1762,6 +1750,7 @@ def maintenance_pass() -> int:
     for service in list(pending):
         if not args.apply:
             break
+        pass_diagnostics.CURRENT_STAGE.set("pending_mutation_reconcile")
         try:
             retention.reconcile_mutation(
                 args.state_dir / f"{service}.json",
@@ -1779,6 +1768,7 @@ def maintenance_pass() -> int:
             record_uat_cleanup_outcome(args, outcome)
             return 0
     if args.apply and args.environment == "production":
+        pass_diagnostics.CURRENT_STAGE.set("capacity_bridge")
         try:
             capacity_bridge.maintain(release, args.state_dir / "completed.json", create=args.production_capacity_bridge)
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
@@ -1788,6 +1778,7 @@ def maintenance_pass() -> int:
             record_uat_cleanup_outcome(args, outcome)
             return 0
     for service, keep in service_settings.items():
+        pass_diagnostics.CURRENT_STAGE.set("revision_cleanup")
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
@@ -1846,6 +1837,7 @@ def maintenance_pass() -> int:
         if args.apply:
             checkpoint(args, run_id, observation, pending, "in_progress")
     if args.apply and args.environment == "uat":
+        pass_diagnostics.CURRENT_STAGE.set("deferred_clock_validation")
         deadlines: list[int] = []
         for service in lane_config["services"]:
             state_file = args.state_dir / f"{service}.json"
@@ -1887,6 +1879,7 @@ def maintenance_pass() -> int:
                     f"drain_not_before={max(deadlines) if deadlines else ''}\n"
                 )
     if args.apply:
+        pass_diagnostics.CURRENT_STAGE.set("completion_checkpoint")
         checkpoint(args, run_id, observation, [], "complete")
         record_uat_cleanup_outcome(args, "applied")
     elif os.environ.get("GITHUB_OUTPUT"):
@@ -1894,6 +1887,7 @@ def maintenance_pass() -> int:
             output.write("cleanup_outcome=dry_run\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        pass_diagnostics.CURRENT_STAGE.set("summary")
         retry_path = (
             "Pending deletions are retried by hourly scheduled maintenance passes. "
         )
@@ -1922,7 +1916,7 @@ def maintenance_pass() -> int:
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        sys.exit(pass_diagnostics.run_stage("startup", main))
     except (
         retention.UnsafeState,
         retention.BudgetExpired,
@@ -1932,5 +1926,10 @@ if __name__ == "__main__":
         OSError,
         KeyError,
     ) as exc:
-        print(f"Hosted maintenance stopped: {exc}", file=sys.stderr)
+        print(
+            pass_diagnostics.safe_failure_diagnostic(
+                pass_diagnostics.CURRENT_STAGE.get(), exc, retention
+            ),
+            file=sys.stderr,
+        )
         sys.exit(1)

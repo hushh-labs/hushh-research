@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 from itertools import chain, repeat
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 from uuid import UUID
 
 import pytest
 
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
-from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
+from hushh_mcp.services.drive_share_notification_worker import (
+    PROMPT_NOTIFICATION_TYPES,
+    DriveShareNotificationWorker,
+)
 from hushh_mcp.services.drive_work_drain import DriveWorkDrain, _safe_outcomes
 from hushh_mcp.services.stripe_connect_balances import WORKER_OUTCOMES
 
@@ -191,7 +194,11 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
     workers[1].run.assert_not_awaited()
     workers[2].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=75)
     bulk.run.assert_awaited_once_with(max_jobs=250, deadline_seconds=80)
-    workers[3].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=35)
+    # Request and payment notices first, then every notice after grants.
+    assert workers[3].run.await_args_list == [
+        call(max_jobs=20, deadline_seconds=35, event_types=PROMPT_NOTIFICATION_TYPES),
+        call(max_jobs=20, deadline_seconds=35),
+    ]
     assert result["workers"] == {
         "groups": {"deferred": 1},
         "documents": {"deferred": 1},
@@ -215,16 +222,19 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
 async def test_sharing_stage_binds_checkout_before_dispatching_payment_notice():
     workers = [_worker({"outcomes": {}}) for _ in range(4)]
     checkout = _worker({"outcomes": {"ready": 1}})
+    checkouts_before_notices = []
 
     async def notification_after_checkout(**_):
-        assert checkout.run.await_count == 1
+        # The drain contains a raise here, so record what each pass saw instead.
+        checkouts_before_notices.append(checkout.run.await_count)
         return {"outcomes": {"settled": 1}}
 
     workers[3].run.side_effect = notification_after_checkout
     result = await _drain(workers, checkout_worker=checkout).run(stage="sharing")
 
     assert result["workers"]["checkouts"] == {"ready": 1}
-    assert result["workers"]["notifications"] == {"settled": 1}
+    # Both the payment-notice pass and the final pass follow the bound Checkout.
+    assert checkouts_before_notices == [1, 1]
 
 
 @pytest.mark.asyncio
@@ -399,8 +409,8 @@ async def test_sharing_notification_budget_is_shared_across_both_outboxes(
             for index in range(start, start + count)
         }
 
-        async def due(limit):
-            return list(pending.values())[:limit]
+        async def due(limit, types=()):
+            return [] if types else list(pending.values())[:limit]
 
         async def claim(*, event_id):
             return pending.pop(event_id, None)

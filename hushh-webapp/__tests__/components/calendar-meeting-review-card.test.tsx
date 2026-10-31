@@ -78,10 +78,10 @@ describe("Calendar organizer exact-file review", () => {
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledWith(requestId, "vault-owner-token",
       expect.objectContaining({ candidateToken: { ciphertext: "sealed" } }), ["approvednote123"]));
     expect(await screen.findByText("Final file and recipient review")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share selected files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Give access" })).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "Approved note" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /I confirm these selected files/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Share selected files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Give access" }));
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(
       "vault-owner-token", requestId, expect.objectContaining({ requestType: "calendar_meeting" }),
       expect.any(Function), [documentId], false, undefined, true,

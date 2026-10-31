@@ -127,8 +127,8 @@ flowchart TB
     ciGate["CI Status Gate"]
     main["main"]
     smoke["Main Post-Merge Smoke Gate"]
-    devWorkflow["Deploy to Dev<br/>any CI-green ref, never promotes"]
-    uatWorkflow["Deploy to UAT<br/>manual exact green main SHA"]
+    devWorkflow["Deploy to Dev<br/>protected Dev SHA + exact CI, never promotes"]
+    uatWorkflow["Deploy to UAT<br/>protected UAT SHA + exact CI/base"]
     prodWorkflow["Deploy to Production<br/>governed exact green main SHA"]
   end
 

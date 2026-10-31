@@ -7,6 +7,7 @@ import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-servic
 const ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_google_oauth_popup_attempt_fallback_v1";
 const SETTLEMENT_KEY = "one_google_oauth_popup_settlement_v1";
+const ACK_KEY = "one_google_oauth_popup_ack_v1";
 const MAX_AGE_MS = 15 * 60 * 1000;
 const MEETING_SCOPES = [
   "https://www.googleapis.com/auth/meetings.space.readonly",
@@ -242,7 +243,95 @@ export function settleGoogleOAuthPopup(
     /* best effort */
   }
   clearGoogleOAuthAttempt(attempt.attemptId);
+  try {
+    // Best effort: browsers only honour this for a reachable opener. When
+    // Google's opener policy severed it, the original page focuses itself.
+    window.opener?.focus();
+  } catch {
+    /* focus is a courtesy, never a requirement */
+  }
   window.setTimeout(() => window.close(), 0);
+}
+
+export type GoogleOAuthSettlementAck = {
+  schemaVersion: 1;
+  type: "google_oauth_settlement_ack";
+  attemptId: string;
+};
+
+function isSettlementAck(value: unknown, attemptId: string): value is GoogleOAuthSettlementAck {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<GoogleOAuthSettlementAck>;
+  return item.schemaVersion === 1 && item.type === "google_oauth_settlement_ack" &&
+    validId(item.attemptId) && item.attemptId === attemptId;
+}
+
+/**
+ * The original One page calls this after it has accepted a correlated
+ * settlement and applied it, so a popup that cannot close itself can say so
+ * truthfully. It is advisory: it carries no permission and no content.
+ */
+export function acknowledgeGoogleOAuthSettlement(attemptId: string, popup?: Window | null): void {
+  if (!validId(attemptId)) return;
+  const ack: GoogleOAuthSettlementAck = { schemaVersion: 1, type: "google_oauth_settlement_ack", attemptId };
+  try {
+    popup?.postMessage(ack, window.location.origin);
+  } catch {
+    /* the popup may be closed or severed; storage below still reaches it */
+  }
+  try {
+    window.localStorage.setItem(ACK_KEY, JSON.stringify({ ...ack, sentAt: Date.now() }));
+  } catch {
+    /* best effort */
+  }
+  try {
+    window.focus();
+  } catch {
+    /* best effort */
+  }
+}
+
+/** Calls back once the original page acknowledges this exact attempt. Returns an unsubscribe. */
+export function watchGoogleOAuthSettlementAck(attemptId: string, onAck: () => void): () => void {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener("message", onMessage);
+    window.removeEventListener("storage", onStorage);
+    try {
+      const raw = window.localStorage.getItem(ACK_KEY);
+      if (raw && isSettlementAck(JSON.parse(raw), attemptId)) window.localStorage.removeItem(ACK_KEY);
+    } catch {
+      /* stale acknowledgements are harmless: they only match one attempt id */
+    }
+    onAck();
+  };
+  const onMessage = (event: MessageEvent) => {
+    if (event.origin === window.location.origin && isSettlementAck(event.data, attemptId)) finish();
+  };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== ACK_KEY || !event.newValue) return;
+    try {
+      if (isSettlementAck(JSON.parse(event.newValue), attemptId)) finish();
+    } catch {
+      /* ignore malformed storage */
+    }
+  };
+  window.addEventListener("message", onMessage);
+  window.addEventListener("storage", onStorage);
+  // The acknowledgement may land before this popup starts listening.
+  try {
+    const raw = window.localStorage.getItem(ACK_KEY);
+    if (raw && isSettlementAck(JSON.parse(raw), attemptId)) finish();
+  } catch {
+    /* fall through to the live listeners */
+  }
+  return () => {
+    done = true;
+    window.removeEventListener("message", onMessage);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 export function consumeStoredGoogleOAuthPopupSettlement(

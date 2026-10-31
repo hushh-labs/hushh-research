@@ -62,10 +62,6 @@ export function CalendarConnectHero({
       </Button>
 
       {children}
-
-      <p className={`${presentationStyles.support} mt-3 text-muted-foreground`}>
-        Google will ask for Calendar access and optional Meet and meeting-file access for Recordings &amp; Notes.
-      </p>
     </section>
   );
 }
