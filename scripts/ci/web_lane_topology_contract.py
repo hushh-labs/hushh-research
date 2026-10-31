@@ -28,6 +28,9 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
     assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
     execution = targeted.split("      - name: Run targeted web contract checks\n", 1)[1].split("\n      - name:", 1)[0]
     assert execution.count("PLAYWRIGHT_SHARD:") == 1, "duplicate PLAYWRIGHT_SHARD environment key"
+    assert "PLAYWRIGHT_LINE_REPORTER: ${{ matrix.part == 'browser' && '1' || '0' }}" in execution
+    assert 'process.env.PLAYWRIGHT_LINE_REPORTER === "1"' in playwright
+    assert '[["github"], ["line"]]' in playwright
     assert "timeout-minutes: 30" in targeted
     assert "fail-fast: false" in targeted
 

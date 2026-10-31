@@ -3,10 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { captureKeyboardGeometry } from "./fixtures/direct-chat-keyboard-geometry";
 import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 import { registerMessagesPresentationCases } from "./fixtures/messages-presentation-cases";
 import { registerMessagesReactionCases } from "./fixtures/messages-reaction-cases";
 import { registerMessagesVoiceCases } from "./fixtures/messages-voice-cases";
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.title !== "keeps chat navigation and keyboard controls reachable at 768x852") return;
+  await captureKeyboardGeometry(page, testInfo);
+});
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -584,7 +590,6 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
     await page.locator("[data-direct-message-composer-input]").fill("A multiline draft\n".repeat(40));
     const inset = height! < 500 ? 140 : 300;
     await page.evaluate((value) => { document.documentElement.classList.add("kb-open", "native-keyboard-inset"); document.documentElement.style.setProperty("--kb-height", `${value}px`); }, inset);
-    fs.writeFileSync(test.info().outputPath("keyboard-geometry.json"), JSON.stringify(await page.evaluate(() => Array.from(document.querySelectorAll('[data-app-shell-width],[data-direct-message-page],main,header,textarea,form')).map((node) => ({tag: node.tagName, cls: node.className, box: node.getBoundingClientRect().toJSON(), minHeight: getComputedStyle(node).minHeight, padding: getComputedStyle(node).padding, flex: getComputedStyle(node).flex, height: getComputedStyle(node).height}))), null, 2));
     const editor = page.locator("[data-direct-message-composer-input]");
     const send = page.getByRole("button", { name: "Send message" });
     await expect.poll(async () => (await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(height! - inset + 1);
