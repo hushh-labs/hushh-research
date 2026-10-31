@@ -54,6 +54,24 @@ def request_requires_explicit_dates(purpose: str) -> bool:
     return isinstance(purpose, str) and bool(_RELATIVE_DAY_OR_WEEK.search(purpose))
 
 
+# Closed diagnostic reasons a Calendar request refusal may show a client. They
+# describe the requester's own selection and never reveal whether a named person
+# has a One account; finer causes stay in the operator log.
+CALENDAR_REFUSAL_REASONS = {
+    "calendar_organizer_unavailable": frozenset({"organizer_missing", "organizer_unresolved"}),
+    "calendar_attendee_required": frozenset(
+        {
+            "requester_is_organizer",
+            "event_cancelled",
+            "attendees_omitted",
+            "requester_not_listed",
+            "duplicate_attendee",
+            "requester_declined",
+        }
+    ),
+}
+
+
 class DriveSharingError(DriveReadError):
     def __init__(self, code: str, *, diagnostic_reason: str | None = None, **kwargs):
         super().__init__(code, **kwargs)

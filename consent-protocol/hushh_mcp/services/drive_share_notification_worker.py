@@ -61,6 +61,15 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_declined": ("Drive question declined", "Open One for details."),
 }
 DOCUMENT_SHARE_NOTIFICATION_TYPES = frozenset(DOCUMENT_SHARE_NOTIFICATION_COPY)
+# Notices that need no grant to be true, so they need not wait behind grants:
+# a new request for the owner, and the requester's own payment steps.
+PROMPT_NOTIFICATION_TYPES = frozenset(
+    {
+        "document_share_request",
+        "document_share_payment_ready",
+        "document_share_payment_confirmed",
+    }
+)
 # The one extra field a document_share_request push may carry: the owner's
 # first unmet setup step. Web and native map it to a fixed local screen and
 # drop any other value; keep aligned with lib/consent/document-request-setup.ts.
@@ -130,18 +139,32 @@ class DriveShareNotificationWorker:
             Callable[..., int], send_user_data_push
         )
 
-    async def _jobs(self, max_jobs: int, store: DriveShareNotificationStore | None = None):
+    async def _jobs(
+        self,
+        max_jobs: int,
+        store: DriveShareNotificationStore | None = None,
+        event_types: frozenset[str] | None = None,
+    ):
         store = store or self.store
         attempted = 0
         inspected: set[str] = set()
         while attempted < max_jobs and len(inspected) < max_jobs * 5:
-            due = await store.due(min(max_jobs - attempted, max_jobs * 5 - len(inspected)))
+            limit = min(max_jobs - attempted, max_jobs * 5 - len(inspected))
+            # A narrowed pass reads only its own types, so it never moves any
+            # other notice in the outbox's rotation for the full pass.
+            due = await (
+                store.due(limit)
+                if event_types is None
+                else store.due(limit, types=tuple(sorted(event_types)))
+            )
             fresh = [item for item in due if str(item["event_id"]) not in inspected]
             if not fresh:
                 return
             for item in fresh:
                 event_id = str(item["event_id"])
                 inspected.add(event_id)
+                if event_types is not None and item.get("event_type") not in event_types:
+                    continue  # A narrowed pass leaves every other notice queued, unclaimed.
                 # A queued event is not dispatch authority. It can be
                 # inspected while the recipient is outside the strict UAT
                 # cohort, but it must remain queued until feature admission
@@ -205,25 +228,34 @@ class DriveShareNotificationWorker:
             return cast(str, await store.retry(job))
         return "settled" if await store.settle(job) else "not_claimed"
 
-    async def run(self, *, max_jobs: int = 8, deadline_seconds: int = 540) -> dict[str, Any]:
+    async def run(
+        self,
+        *,
+        max_jobs: int = 8,
+        deadline_seconds: int = 540,
+        event_types: frozenset[str] | None = None,
+    ) -> dict[str, Any]:
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= 20
             or type(deadline_seconds) is not int
             or not 1 <= deadline_seconds <= 540
+            or (event_types is not None and not event_types <= DOCUMENT_SHARE_NOTIFICATION_TYPES)
         ):
             raise ValueError("invalid worker bounds")
+        # A narrowed pass reads only the document-share outbox those types live in.
+        stores = self.stores if event_types is None else self.stores[:1]
         counts: Counter[str] = Counter()
         attempted = 0
         try:
             async with asyncio.timeout(deadline_seconds):
-                for index, store in enumerate(self.stores):
+                for index, store in enumerate(stores):
                     if attempted >= max_jobs:
                         break
                     # Reserve a share of this finite sweep for later outboxes;
                     # a busy document queue must not starve Drive answers.
-                    budget = max(1, (max_jobs - attempted) // (len(self.stores) - index))
-                    async for job, enabled in self._jobs(budget, store):
+                    budget = max(1, (max_jobs - attempted) // (len(stores) - index))
+                    async for job, enabled in self._jobs(budget, store, event_types):
                         if not enabled:
                             counts["disabled"] += 1
                             continue

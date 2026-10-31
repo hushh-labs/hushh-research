@@ -140,6 +140,43 @@ def test_production_cohort_drift_is_reported() -> None:
     assert "unauthorized-newcomer" in errors[0]
 
 
+def test_a_trusted_readiness_exam_environment_must_admit_only_main() -> None:
+    """A loosened or recreated exam environment would hand the probe subject to any branch."""
+    module = _module()
+    policy = {"readiness_exam": {"environment": "readiness-exam"}}
+    trusted = {"azure-trial": {"readiness_exam_client_id": "probe-app"}}
+    main_only = {"branch_policies": [{"type": "branch", "name": "main"}]}
+
+    def stub(environment: dict, branches: dict, secrets: int = 0) -> list[str]:
+        def fake_gh_json(path: str) -> dict:
+            if path.endswith("/deployment-branch-policies"):
+                return branches
+            if path.endswith("/secrets"):
+                return {"total_count": secrets}
+            return environment
+
+        module._gh_json = fake_gh_json
+        return module._assert_readiness_exam("owner/repo", policy, trusted)
+
+    custom = {
+        "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}
+    }
+    assert stub(custom, main_only) == []
+    widened = {"branch_policies": [*main_only["branch_policies"], {"type": "branch", "name": "*"}]}
+    assert "must admit exactly the main branch" in stub(custom, widened)[0]
+    # GitHub recreates a deleted environment with no deployment branch policy.
+    assert "must admit exactly the main branch" in stub({"deployment_branch_policy": None}, {})[0]
+    assert "must hold no secrets" in stub(custom, main_only, secrets=1)[0]
+
+    def unreachable(path: str) -> dict:
+        raise AssertionError(f"no probe identity, yet {path} was read")
+
+    module._gh_json = unreachable
+    assert module._assert_readiness_exam(
+        "owner/repo", policy, {"azure-trial": {"readiness_exam_client_id": None}}
+    ) == []
+
+
 def test_production_tripwire_matches_committed_policy() -> None:
     """The constant must equal the live committed policy.
 
@@ -431,6 +468,7 @@ def main() -> int:
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
+        test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,

@@ -22,6 +22,8 @@ describe("CalendarAgentPage", () => {
     mocks.attendance = null;
     useOneConversationSession.getState().clearSession();
     mocks.getIdToken.mockResolvedValue("firebase-token");
+    // Settling a consent window brings this page forward; jsdom does not implement focus.
+    vi.spyOn(window, "focus").mockImplementation(() => undefined);
     vi.spyOn(window, "open").mockImplementation(
       () =>
         (mocks.popup = ({

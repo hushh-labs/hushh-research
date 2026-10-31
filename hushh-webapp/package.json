@@ -135,7 +135,7 @@
     "test:ui-contracts": "npm run test:ui-contract-validators && npm run test:back-hierarchy",
     "test:web-history-boundary": "CI=1 playwright test e2e/navigation.spec.ts --grep \"native Back corrects\" --project=chromium --workers=1 --retries=0",
     "test:calendar-workspace-layout": "CI=1 PLAYWRIGHT_START_SERVER=0 playwright test e2e/calendar-connected-workspace.layout.spec.ts --project=chromium --project=webkit --workers=1",
-    "test:calendar-hussh-photos": "vitest run __tests__/lib/calendar-hussh-people.test.ts __tests__/lib/use-calendar-hussh-people.test.tsx __tests__/lib/invitation-people.test.ts __tests__/components/calendar-invitation-detail-photos.test.tsx __tests__/components/calendar-invitations.test.tsx __tests__/components/calendar-account-board.test.tsx"
+    "test:calendar-hussh-photos": "vitest run __tests__/lib/calendar-hussh-people.test.ts __tests__/lib/use-calendar-hussh-people.test.tsx __tests__/components/calendar-invitation-detail-photos.test.tsx __tests__/components/calendar-invitations.test.tsx __tests__/components/calendar-account-board.test.tsx"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",

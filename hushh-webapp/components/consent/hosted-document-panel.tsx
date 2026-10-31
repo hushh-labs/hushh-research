@@ -55,6 +55,10 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
   const statusRead = useRef<AbortController | null>(null);
   const foregroundBusy = useRef(false);
   const termsVersion = useRef<string | null>(null);
+  // The parent passes a new closure on every render; reading it through a ref keeps
+  // the session reset below keyed on the session alone.
+  const idToken = useRef(getIdToken);
+  useLayoutEffect(() => { idToken.current = getIdToken; }, [getIdToken]);
   const refreshPayment = useCallback(async (signal: AbortSignal, next: HostedTermsProjection) => {
     if (!session.isCurrent() || signal.aborted) return;
     if (next.ownerUserId === session.userId || !["ready_for_buyer", "checkout_open"].includes(next.status)) {
@@ -62,14 +66,15 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
       return;
     }
     try {
-      const token = await getIdToken();
+      const token = await idToken.current();
       if (!session.isCurrent() || signal.aborted) return;
       const payment = await DriveRequestPaymentService.status(token, requestId);
       if (session.isCurrent() && !signal.aborted)
         setPaymentReady(payment.paymentsReady === true && payment.ownerPriceRequired !== true && payment.ownerPayoutAccountReady !== false && ["awaiting_payment", "checkout_open"].includes(payment.status));
     } catch { if (session.isCurrent() && !signal.aborted) setPaymentReady(false); }
-  }, [session, requestId, getIdToken]);
+  }, [session, requestId]);
   const source = useHostedSourceSelection(session, requestId, activityScope.current === session ? terms : null);
+  const refreshSource = source.refresh;
   useLayoutEffect(() => { setSelected([]); setCopyAccepted(false); }, [source.files]);
   const loadActivity = useCallback(async (signal: AbortSignal) => {
     const timeline = await DocumentHostingService.timeline(session, requestId, signal, activityCursor.current);
@@ -89,12 +94,14 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
     if (!preserveDrafts) {
       setPrice(next.amountCents === null ? "" : String(next.amountCents / 100));
       setDeadline(next.accessExpiresAt);
+      // A foreground read rechecks the selectable files; the background poll keeps the draft.
+      refreshSource();
     }
     if (next.ownerUserId === session.userId) {
       await loadActivity(signal).catch(() => undefined);
     }
     await refreshPayment(signal, next);
-  }, [session, requestId, loadActivity, refreshPayment]);
+  }, [session, requestId, loadActivity, refreshPayment, refreshSource]);
   useLayoutEffect(() => {
     // Session identity owns all draft, operation and decrypted presentation state.
     // Reset before paint so a renewed owner session cannot inherit a retired operation.
@@ -133,7 +140,7 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
     try {
       const next = await effect(controller.signal);
       if (!controller.signal.aborted && session.isCurrent()) {
-        if (next) { setTerms(next); await refreshPayment(controller.signal, next); }
+        if (next) { setTerms(next); source.refresh(); await refreshPayment(controller.signal, next); }
         else if (options.refreshTerms !== false) await reload(controller.signal);
         if (options.refreshTerms !== false && !controller.signal.aborted && session.isCurrent()) onChanged();
       }

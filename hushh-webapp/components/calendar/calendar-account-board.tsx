@@ -32,8 +32,10 @@ import { CalendarInvitations } from "./calendar-invitations";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
 import { CalendarJoinLink } from "./calendar-join-link";
 import { bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
+import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import { calendarDate, calendarProviderDayUrl, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
@@ -55,6 +57,7 @@ type Props = {
   onDisconnectAccount: (accountId: string) => void;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
   onMailConnect?: () => Promise<void>;
+  onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
   onChat: (prompt?: string, slot?: CalendarSlotHandoff) => void;
 };
 
@@ -130,7 +133,7 @@ function JoinVideoIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
 }
 
-export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onChat }: Props) {
+export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onFollowupMailConnect, onChat }: Props) {
   const [restored, setRestored] = useState(() => {
     const value = consumeCalendarMeetingOAuthReturn(userId);
     return value && status.accounts?.some(account => account.account_id === value.accountId) ? value : null;
@@ -142,6 +145,21 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const [tab, setTab] = useState<"board" | "invitations" | "insights">(restored ? "insights" : "board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
   const [insightsAccount, setInsightsAccount] = useState(restored?.accountId || status.accounts?.[0]?.account_id || "default");
+  const [followupIntent, setFollowupIntent] = useState<{ accountId: string; requestId: string } | null>(null);
+  const intentRead = useRef(false);
+  useEffect(() => {
+    if (intentRead.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const accountId = params.get("followupAccount");
+    const requestId = params.get("followupRequest");
+    if (!accountId || !requestId) { intentRead.current = true; return; }
+    if (!calendarFollowupHref(accountId, requestId) ||
+        !status.accounts?.some(account => account.account_id === accountId)) return;
+    intentRead.current = true;
+    setFollowupIntent({ accountId, requestId });
+    setInsightsAccount(accountId);
+    setTab("insights");
+  }, [status.accounts]);
   useEffect(() => {
     if (tab === "insights" && restored?.accountId === insightsAccount) setRestored(null);
   }, [tab, restored, insightsAccount]);
@@ -333,10 +351,30 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
         <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={calendarPeople} />
-        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /> : <p role="alert">Reconnect this account to see its insights.</p>}
+        {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={(result, startAt, _accountId, accountEmail) => { closeBooking(); setDate(bookingLocalFields(startAt, zone).date); notifyCalendarChanged(userId); setRevision(value => value + 1); morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`); }} /> : null}
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+        const request = booking.followupRequest;
+        const selectedAccount = booking.accountId;
+        closeBooking();
+        setDate(bookingLocalFields(startAt, booking.timeZoneHint || zone).date);
+        notifyCalendarChanged(userId);
+        setRevision(value => value + 1);
+        if (request) {
+          try {
+            if (selectedAccount !== accountId || !result.event.id) throw new Error("Follow-up account or event changed.");
+            const ownerToken = getVaultOwnerToken?.();
+            if (!ownerToken) throw new Error("Unlock One to link this event to its follow-up.");
+            await CalendarFollowupsService.confirmBooking(userId, accountId, request, result.event.id, await getIdToken(), ownerToken);
+            setInsightsRefreshRevision(value => value + 1);
+          } catch {
+            morphyToast.error("Calendar event created, but its follow-up could not be marked booked. Review it again before dismissing reminders.");
+            return;
+          }
+        }
+        morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`);
+      }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
         <DialogContent className={styles.occasionDialog}>
           {occasionAccount ? <>

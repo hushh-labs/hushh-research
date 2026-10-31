@@ -340,7 +340,10 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         workflow, re.S,
     )
     assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}" in evidence[1]
+    assert (
+        "if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}"
+        in evidence[1]
+    )
     assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
     paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
     assert paths

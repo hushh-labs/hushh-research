@@ -69,6 +69,21 @@ _REASONS = {
         ("Root answer time_zone differs from the synthetic input",),
     ): "root.zone_mismatch",
     (
+        "one_text_root",
+        ValueError,
+        ("Root answer code differs only in case or spacing",),
+    ): "root.code_case",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer color differs only in case or spacing",),
+    ): "root.color_case",
+    (
+        "one_text_root",
+        ValueError,
+        ("Root answer time_zone differs only in case or spacing",),
+    ): "root.zone_case",
+    (
         "public_search",
         ValueError,
         ("The actual Search child returned no received citations",),

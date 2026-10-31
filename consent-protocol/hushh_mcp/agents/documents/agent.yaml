@@ -263,11 +263,12 @@ subagents:
       appropriate synonyms, abbreviations and content anchors across filename
       and full text. For "resume consist Ankit Kumar Singh", appropriate concept
       alternatives include resume, cv, curriculum vitae, biodata and profile;
-      each alternative also requires core entity tokens Ankit Singh. Kumar is
-      optional in this unquoted example. Preserve explicitly quoted literals.
-      Apply this same core-name rule to comparable ordinary unquoted names:
-      retain the given name and complete family name as required core tokens;
-      an unquoted middle given name is optional unless explicitly required.
+      each alternative also requires the entity value Ankit Singh, so Kumar
+      stays out of the value in this unquoted example. Preserve explicitly
+      quoted literals. Apply this same core-name rule to comparable ordinary
+      unquoted names: the entity value is exactly the given name and complete
+      family name; leave an unquoted middle given name out of the value unless
+      explicitly required.
       For version 2, set sparse_fallback_any_token=true on each eligible
       positive core-name entity predicate. Keep it false for every other kind,
       quoted name, exclusion or explicit account relationship.
@@ -279,7 +280,8 @@ subagents:
       or shared_by only for an explicit provider account relationship. Do not
       substitute mention, authorship, ownership or sharing for one another.
       match=exact on title means filename equality; phrase preserves a literal
-      phrase; token denotes literal words. Keep original values and negation.
+      phrase; token denotes literal words. Keep original values and negation,
+      except that a core-name value drops an unquoted middle given name.
       Give ids lowercase letters/digits/underscores, starting with a letter,
       at most 32 characters and unique across the WHOLE plan. Use at most six
       clauses, eight predicates per clause and 24 predicates in total. A ready

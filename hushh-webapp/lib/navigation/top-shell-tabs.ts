@@ -241,12 +241,32 @@ export interface RiaRouteTabSetOptions {
   includePicks?: boolean;
 }
 
+/**
+ * The one place the RIA tab options apply. The visible tab strip and the
+ * shell's swipe model both go through it, so a tab that is not offered can be
+ * neither seen nor swiped into. A person already on Picks (a link, Search or
+ * One) still sees where they are; the page's verification gate explains the
+ * lock. Other tab sets pass through unchanged.
+ */
+export function applyRiaTabOptions(
+  tabSet: TopShellTabSet,
+  options: RiaRouteTabSetOptions = {},
+): TopShellTabSet {
+  if (
+    tabSet.id !== TOP_SHELL_TAB_REGISTRY.ria.id ||
+    (options.includePicks ?? true) ||
+    tabSet.activeValue === "picks"
+  ) {
+    return tabSet;
+  }
+  return { ...tabSet, tabs: tabSet.tabs.filter((tab) => tab.value !== "picks") };
+}
+
 export function resolveRiaRouteTabSet(
   routeKey: string,
   options: RiaRouteTabSetOptions = {},
 ): TopShellTabSet | null {
   const { pathname } = splitRouteKey(routeKey);
-  const includePicks = options.includePicks ?? true;
 
   if (
     pathname === ROUTES.RIA_HOME ||
@@ -257,13 +277,10 @@ export function resolveRiaRouteTabSet(
     pathname === ROUTES.RIA_PICKS
   ) {
     const definition = TOP_SHELL_TAB_REGISTRY.ria;
-    return {
-      ...definition,
-      tabs: includePicks
-        ? definition.tabs
-        : definition.tabs.filter((tab) => tab.value !== "picks"),
-      activeValue: activeRiaRouteTabFromPath(pathname),
-    };
+    return applyRiaTabOptions(
+      { ...definition, activeValue: activeRiaRouteTabFromPath(pathname) },
+      options,
+    );
   }
 
   return null;
