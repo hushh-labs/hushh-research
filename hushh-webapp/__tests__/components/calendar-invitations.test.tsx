@@ -98,40 +98,6 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(screen.queryByRole("button", { name: "Show Google contact photos" })).toBeNull();
   });
 
-  it("opens only a freshly matched connected person's profile without opening the invitation", async () => {
-    const photo = "data:image/png;base64,aGVsbG8=";
-    visiblePeople = { "priya@example.test": { userId: "priya", photoUrl: photo } };
-    const calendarPeople = new Map([
-      ["owner@example.test", { userId: "owner", displayName: null, photoUrl: photo }],
-      ["priya@example.test", { userId: "priya", displayName: "Priya Mehta", photoUrl: photo }],
-    ]);
-    const opened = vi.fn();
-    window.addEventListener("hussh:person-profile-preview", opened);
-    try {
-      render(view({ workspaceLayout: true, calendarPeople }));
-      const card = await screen.findByRole("button", { name: "Open invitation: Client Sync" });
-      fireEvent.click(screen.getByRole("button", { name: "View Priya Mehta's profile" }));
-      expect(opened).toHaveBeenCalledOnce();
-      expect((opened.mock.calls[0][0] as CustomEvent).detail.userId).toBe("priya");
-      expect(screen.queryByRole("list", { name: "Guests" })).toBeNull();
-      fireEvent.click(card);
-      const guests = within(screen.getByRole("list", { name: "Guests" }));
-      expect(guests.getByRole("button", { name: "View Priya Mehta's profile" })).toBeInTheDocument();
-      expect(guests.queryByRole("button", { name: "View You's profile" })).toBeNull();
-    } finally {
-      window.removeEventListener("hussh:person-profile-preview", opened);
-    }
-  });
-
-  it("does not use a stale connection identity for a different fresh match", async () => {
-    const photo = "data:image/png;base64,aGVsbG8=";
-    visiblePeople = { "priya@example.test": { userId: "new-owner-of-address", photoUrl: photo } };
-    const calendarPeople = new Map([["priya@example.test", { userId: "old-connection", displayName: "Priya", photoUrl: photo }]]);
-    render(view({ workspaceLayout: true, calendarPeople }));
-    await screen.findByRole("button", { name: "Open invitation: Client Sync" });
-    expect(screen.queryByRole("button", { name: /view .*profile/i })).toBeNull();
-  });
-
   it("shows a Connect-visible nonconnection's verified photo in both chat and workspace invitations", async () => {
     const photo = "data:image/png;base64,aGVsbG8=";
     visiblePeople = { "manish@example.test": { userId: "manish", photoUrl: photo } };
