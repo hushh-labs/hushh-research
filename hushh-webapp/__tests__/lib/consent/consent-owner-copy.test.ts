@@ -5,6 +5,8 @@ import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { OwnerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 import {
   consentEntryInformationLabel,
   consentInformationLabel,
