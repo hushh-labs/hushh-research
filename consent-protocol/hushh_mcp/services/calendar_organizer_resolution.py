@@ -81,21 +81,21 @@ _PEERS_NEEDING_REFRESH = """SELECT p.peer FROM (
      LIMIT $3"""
 
 # The requester's own pending connection requests, in either direction. Both
-# sides already know about these, so reading them discloses nothing new.
-_PENDING_COUNTERPART = """CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id
-                                ELSE r.requester_user_id END"""
-_PENDING_ORGANIZER = f"""SELECT 1 FROM connection_requests r
+# sides already know about these, so reading them discloses nothing new. The SQL
+# is written out in full rather than assembled, so no query is ever built from
+# strings.
+_PENDING_ORGANIZER = """SELECT 1 FROM connection_requests r
      WHERE r.status='pending' AND (r.requester_user_id=$1 OR r.addressee_user_id=$1)
        AND (EXISTS (SELECT 1 FROM actor_identity_cache i
-           WHERE i.user_id={_PENDING_COUNTERPART}
+           WHERE i.user_id=CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END
              AND i.email_verified AND lower(i.email)=$2)
          OR EXISTS (SELECT 1 FROM actor_verified_email_aliases a
-           WHERE a.user_id={_PENDING_COUNTERPART}
+           WHERE a.user_id=CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END
              AND a.email_normalized=$2 AND a.verification_status='verified'
              AND a.revoked_at IS NULL))
      LIMIT 1"""
-_PENDING_NEEDING_REFRESH = f"""SELECT p.peer FROM (
-       SELECT DISTINCT {_PENDING_COUNTERPART} AS peer
+_PENDING_NEEDING_REFRESH = """SELECT p.peer FROM (
+       SELECT DISTINCT CASE WHEN r.requester_user_id=$1 THEN r.addressee_user_id ELSE r.requester_user_id END AS peer
          FROM connection_requests r
          WHERE r.status='pending'
            AND (r.requester_user_id=$1 OR r.addressee_user_id=$1)) p
