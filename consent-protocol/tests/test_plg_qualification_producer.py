@@ -309,9 +309,9 @@ def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment)
     steps = document["jobs"]["deploy"]["steps"]
     names = {step.get("name") for step in steps}
     assert {
-        "Validate deployment SHA against requested ref"
+        "Validate deployment SHA in protected Dev history"
         if environment == "dev"
-        else "Validate deployment SHA against main",
+        else "Validate deployment SHA in selected protected history",
         f"Produce exact-SHA {environment.upper() if environment == 'uat' else 'dev'} acceptance",
         "Post-deploy dev schema contract gate"
         if environment == "dev"
