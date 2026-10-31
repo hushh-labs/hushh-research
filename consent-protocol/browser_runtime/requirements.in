@@ -1,4 +1,4 @@
 # Isolated worker only. Do not add agent, cloud, vault or provider SDKs here.
-playwright==1.63.0
-pydantic==2.12.5
+playwright==1.64.1
+pydantic==2.14.1
 httpx==0.28.1
