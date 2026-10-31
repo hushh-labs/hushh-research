@@ -229,7 +229,7 @@ Never rename required job/check contexts for cosmetic consistency.
 | Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
 | Security | `deployment-security.yml`, `verify-protected-lists.yml`, `supply-chain.yml` | Protected alert clearance inside explicit releases; manual diagnostics; protected-list fallback during cloud-timer qualification; changed-dependency SBOM/provenance |
 | Performance | `editor-performance-nightly.yml` | Daily runner/browser performance drift check, complementing changed-path PR coverage |
-| Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
+| Dependency cache | `ios-swift-package-cache.yml` | Daily Main-owned Swift package cold-fetch verification and lockfile-keyed Linux browser cache warm |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
 
 The separate weekly offline pod drill and weekday completion-judge workflow
@@ -577,7 +577,7 @@ browser packs run across four Playwright shards; each job has a 30-minute budget
 Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
-2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its five jobs are `Web Targeted Contracts (node)` and `(browser-1-of-4)` through `(browser-4-of-4)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. All four `WEB_TARGETED_PART=browser` jobs run the matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/4` through `4/4`; the matrix aggregate must succeed for frontend changes. The Connections pack uses one worker; its timing, geometry and engine coverage remain unchanged. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its five jobs are `Web Targeted Contracts (node)` and `(browser-1-of-4)` through `(browser-4-of-4)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. Browser shards first plan the complete changed-file selection with the same selector; a known selection with no browser command skips browser cache restore, npm install, browser install and browser checks. Unknown selection, missing metadata, or selector errors keep the full browser path and select all packs. All four browser jobs retain `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/4` through `4/4`; the matrix aggregate must succeed for frontend changes. The Connections pack uses one worker; its timing, geometry and engine coverage remain unchanged. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
@@ -1004,7 +1004,9 @@ alerts remain independently reported.
 
 PR and queue source scans retain Gitleaks with read-only credentials. Draft PRs
 run safety, governance and UI contract checks; selected expensive lanes run when
-the PR is ready. `Draft Safety Gate` cannot satisfy merge or deployment admission.
+the PR is ready. The non-required Merge Fidelity advisory also starts only when
+the PR is ready; `CI Status Gate` does not depend on it. `Draft Safety Gate` cannot
+satisfy merge or deployment admission.
 Manual `PR Validation` with scope `auto` or `all` provides full branch diagnostics.
 
 [Deployment Security](../../../.github/workflows/deployment-security.yml) reads
@@ -1280,13 +1282,14 @@ entries first. At 20:00Z on 2026-10-14 the budget held 10.65 GB, and
 pull-request Next.js entries that no other pull request could restore were
 5.50 GB of it.
 
-The two large build caches are therefore saved on `main` only, and only when
-the key is new. `PR Validation` restores them with `actions/cache/restore`:
+These caches are saved on `main` only, and only when the key is new. `PR Validation`
+restores them with `actions/cache/restore`:
 
 | Cache | Saved by | Restored by | Key |
 |---|---|---|---|
 | Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
-| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`iOS Swift Package Cache`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+| Playwright browsers, `~/.cache/ms-playwright` (~400 MB) | The Linux job in [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), on its daily lookup, Main manual dispatch, or Main push changing the web lockfile/workflow; installs and saves only a missing key. | The four `Web Targeted Contracts (browser-*)` jobs | Runner OS, architecture, and hash of `hushh-webapp/package-lock.json`. PRs restore only; each still installs required Ubuntu system libraries and runs the selected browser tests. |
 
 Each day's Next.js entry stops being read once the next day's is saved, but it
 stays until it has gone 7 days unread, so up to a week of them (about 3 GB) can
@@ -1311,8 +1314,8 @@ entry stay green, but a pin that can no longer be fetched would fail every iOS
 pull request at the next graph change or eviction.
 
 `scripts/ci/test_ci_cache_scopes.py`, in the governance check, fails when a
-`PR Validation` job saves either cache, or when a restore stops looking up the
-path and key its saver writes.
+`PR Validation` job saves any of these caches, when Main cache-key paths drift,
+or when a restore stops looking up the path and key its saver writes.
 
 ---
 

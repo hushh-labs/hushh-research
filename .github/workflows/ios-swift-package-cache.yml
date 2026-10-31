@@ -1,4 +1,4 @@
-name: "Warm iOS Dependency Cache"
+name: "Warm CI Dependency Caches"
 
 # Saves the Swift package clone directory that PR Validation's iOS Native
 # (Xcode) lane restores before `xcodebuild -resolvePackageDependencies`.
@@ -6,7 +6,9 @@ name: "Warm iOS Dependency Cache"
 # under refs/pull/<N>/merge and no other PR can restore it; an entry saved on
 # main is restorable by every PR. So the PR lane only restores, and this
 # workflow writes the entry, on main, once per package graph. Key, size and
-# eviction budget are explained on the restore step in ci.yml.
+# eviction budget are explained on the restore step in ci.yml. A separate
+# Linux job warms PR Validation's Playwright browser cache from Main; it has
+# its own OS-qualified key and does not change the macOS cache cadence.
 #
 # Every Sunday, and on a dispatch with `cold` ticked, the resolve also runs,
 # from an empty directory, when this graph's entry already exists. Before this
@@ -21,6 +23,11 @@ name: "Warm iOS Dependency Cache"
 # one open issue that collects every failed run.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ios-swift-package-cache.yml"
+      - "hushh-webapp/package-lock.json"
   # 05:37 UTC is in the quietest window for PR Validation: 05:00-06:59 UTC held
   # 3 of 357 runs on 2026-10-12/13, and macOS is 5 of the org's 20 job slots.
   # Off the hour, and clear of capacity-maintenance (:11/:26/:41/:56) and
@@ -49,7 +56,7 @@ jobs:
     name: "Resolve and save Swift packages"
     # Only main's entries reach every PR; a dispatch from another branch would
     # spend a macOS runner on an entry nothing restores.
-    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: macos-15
     timeout-minutes: 30
     outputs:
@@ -160,6 +167,54 @@ jobs:
         with:
           path: ${{ runner.temp }}/spm
           key: ${{ steps.spm-cache.outputs.cache-primary-key }}
+
+  warm-playwright:
+    name: "Warm Playwright browsers for pull requests"
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      # Lookup only: the PR lanes restore this entry and never save PR-scoped
+      # browser copies. A lockfile-triggered Main run populates a missing key.
+      - name: Look up the Main Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
+          lookup-only: true
+
+      - name: Install lockfile dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
+
+      - name: Install Chromium and WebKit browser binaries
+        id: playwright-browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: hushh-webapp
+        timeout-minutes: 10
+        run: npx playwright install chromium webkit
+
+      - name: Save Playwright browsers for pull requests
+        if: github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true' && steps.playwright-browsers.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
 
   report-failure:
     name: "File the failure"
