@@ -76,6 +76,23 @@ describe("confirmation above Profile", () => {
     })).toBe(true);
     expect(doc.querySelector('[role="alertdialog"]')).not.toBeNull();
   });
+
+  it("dismisses a person preview above Profile while preserving Forward traversal", () => {
+    const doc = documentWithOverlay("dialog");
+    doc.body.lastElementChild!.setAttribute("data-person-profile-preview", "");
+    const close = vi.fn();
+    doc.body.lastElementChild!.addEventListener("keydown", close);
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+      previousEntryIndex: 4, revealedEntryIndex: 5, doc,
+    })).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+      previousEntryIndex: 4, revealedEntryIndex: 3, doc,
+    })).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+  });
 });
 
 describe("decideWebHistoryBackCorrection (pure)", () => {

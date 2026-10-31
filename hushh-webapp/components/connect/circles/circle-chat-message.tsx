@@ -99,7 +99,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   return <li data-chat-message={message.id} className={`${styles.item} ${grouped ? styles.grouped : ""}`}>
     {showDay ? <div className="pb-4 pt-1"><OneChatTimeSeparator dateTime={message.createdAt} label={conversationDayLabel(message.createdAt)} /></div> : null}
     <div className={`${styles.row} ${own ? styles.own : ""}`} data-message-role={own ? "user" : "peer"}>
-      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
+      {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar userId={message.senderUserId} size="comfortable" className="!size-8" label={senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
         <div className={styles.bubbleWrap}>
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}

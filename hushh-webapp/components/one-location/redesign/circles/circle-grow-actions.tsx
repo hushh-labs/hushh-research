@@ -331,10 +331,10 @@ export function CircleInvitePeopleSheet({
                       const atCapacity =
                         selectedConnections.size >= selectionLimit;
                       return (
-                        <SettingsRow
+                        <SettingsRow leadingInteractive
                           key={connection.userId}
                           leading={
-                            <ConnectionPersonAvatar
+                            <ConnectionPersonAvatar userId={connection.userId}
                               photoUrl={connection.photoUrl ?? null}
                               label={connectPersonName(connection)}
                               verified={Boolean(connection.isRia)}

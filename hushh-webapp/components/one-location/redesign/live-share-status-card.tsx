@@ -16,6 +16,7 @@
  */
 
 import { type MouseEvent, useEffect, useRef } from "react";
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import { Loader2, MapPin, MessageSquareIcon as MessageSquare } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export type LiveShareStatus = {
    */
   names: string[];
   people?: Array<{
+    userId?: string | null;
     displayName: string;
     photoUrl?: string | null;
   }>;
@@ -126,7 +128,7 @@ function initialsForName(name: string): string {
 }
 
 function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
-  const people =
+  const people: NonNullable<LiveShareStatus["people"]> =
     status.people?.length
       ? status.people
       : status.names
@@ -138,7 +140,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     // identify the relationship; the remaining count carries the rest.
     const visiblePeople = people.slice(0, 2);
     const fallbackCount = Math.min(status.count, 2);
-    const slots = visiblePeople.length
+    const slots: NonNullable<LiveShareStatus["people"]> = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
           displayName: `${index + 1}`,
@@ -147,12 +149,11 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     const remaining = Math.max(status.count - slots.length, 0);
     return (
       <span
-        aria-hidden="true"
         className="flex h-7 shrink-0 items-center"
         data-testid="one-location-live-share-identities"
       >
         {slots.map((person, index) => (
-          <span
+          <PersonProfileButton userId={person.userId} label={person.displayName}
             key={`${person.displayName}-${index}`}
             data-live-share-avatar
             className="-ml-2 first:ml-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
@@ -167,7 +168,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
             ) : (
               initialsForName(person.displayName)
             )}
-          </span>
+          </PersonProfileButton>
         ))}
         {remaining > 0 ? (
           <span
@@ -182,8 +183,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
   }
 
   return (
-    <span
-      aria-hidden="true"
+    <PersonProfileButton userId={people[0]?.userId} label={names[0] ?? "this person"}
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
       data-testid="one-location-live-share-identities"
     >
@@ -197,7 +197,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
       ) : (
         initialsForName(names[0] ?? "1")
       )}
-    </span>
+    </PersonProfileButton>
   );
 }
 

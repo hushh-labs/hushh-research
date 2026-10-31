@@ -27,8 +27,10 @@ export function CirclePersonSelectionRow({
   return (
     <SettingsRow
       layout="person"
+      leadingInteractive
       leading={
         <ConnectionPersonAvatar
+          userId={person.userId}
           size="list"
           photoUrl={person.photoUrl}
           label={name}
@@ -39,7 +41,7 @@ export function CirclePersonSelectionRow({
       title={name}
       description={connectPersonSelectionDetail(person)}
       ariaPressed={selected}
-      ariaLabel={ariaLabel}
+      ariaLabel={ariaLabel ?? `${selected ? "Deselect" : "Select"} ${name}`}
       describeContent
       disabled={disabled}
       trailing={

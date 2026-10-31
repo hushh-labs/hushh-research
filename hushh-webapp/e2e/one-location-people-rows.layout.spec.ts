@@ -280,7 +280,9 @@ for (const dark of [false, true]) {
           ];
           const rowBox = row.getBoundingClientRect();
           const personBox = person.getBoundingClientRect();
-          const name = person.querySelector('p[title]') as HTMLElement;
+          // The row action and profile avatar are sibling controls; the name
+          // remains in the shared visual content beside the row action.
+          const name = row.querySelector('p[title]') as HTMLElement;
           return {
             nameHeight: name.getBoundingClientRect().height,
             nameWhiteSpace: getComputedStyle(name).whiteSpace,
@@ -376,14 +378,14 @@ for (const dark of [false, true]) {
           expect(action.surfaceWeight).toBe("550");
           expect(action.surfaceFontFamily).toContain("Plus Jakarta Sans");
           expect(action.surfaceTracking).toBe("normal");
-          expect(action.surfaceBorderWidth).toBe("1px");
-          expect(parseFloat(action.radius)).toBeGreaterThanOrEqual(action.surfaceHeight / 2);
+          expect(action.surfaceBorderWidth).toBe("0px");
+          expect(action.background).toBe("rgba(0, 0, 0, 0)");
           expect(action.cornerShape).not.toContain("superellipse");
           expect(action.targetBackground).toBe("rgba(0, 0, 0, 0)");
-          expect(action.surfaceHeight).toBe(44);
-          expect(action.surfaceTopInset).toBe(0);
-          expect(action.surfaceBottomInset).toBe(0);
-          expect(action.surfaceWidth).toBe(action.width);
+          expect(action.surfaceHeight).toBe(18);
+          expect(action.surfaceTopInset).toBe(13);
+          expect(action.surfaceBottomInset).toBe(13);
+          expect(action.surfaceWidth).toBeLessThanOrEqual(action.width);
           expect(action.surfaceFits).toBe(true);
           expect(action.surfaceColor).toBe(action.color);
           expect(action.iconCount).toBe(0);
@@ -395,8 +397,7 @@ for (const dark of [false, true]) {
           )).toBe(true);
           expect(action.height).toBe(44);
           expect(action.width).toBeGreaterThanOrEqual(44);
-          expect(action.width).toBeGreaterThanOrEqual(width <= 350 ? 72 : width <= 620 ? 78 : 88);
-          expect(action.width).toBeLessThanOrEqual(116);
+          expect(action.width).toBeLessThanOrEqual(52);
           expect(action.inside).toBe(true);
           expect(action.left).toBeGreaterThanOrEqual(row.personRight);
           expect(Math.abs(action.center - row.personCenter)).toBeLessThanOrEqual(6);
