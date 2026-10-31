@@ -36,6 +36,8 @@ from pathlib import Path
 from web_ci_lane_fixture import (
     ROOT,
     _bash,
+    test_browser_plan_skips_only_known_no_browser_selection,
+    test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
     _run,
     test_layout_overlap_retains_selected_coverage_and_failure_propagation,
     verify_connections_collection,
@@ -522,6 +524,8 @@ def main() -> int:
     tests = (
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_browser_plan_skips_only_known_no_browser_selection,
+        test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,
         test_node_leg_leaves_diagram_rendering_to_browser_leg,
