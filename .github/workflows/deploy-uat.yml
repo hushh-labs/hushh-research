@@ -400,6 +400,11 @@ jobs:
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
+          # Calendar follow-ups release tooling: main's copy must run even when the approved
+          # application SHA predates it, so redeploying an older SHA still pauses the job.
+          mkdir -p "${RUNNER_TEMP}/release-tools/calendar"
+          cp deploy/calendar/setup_followup_scheduler.sh deploy/calendar/verify_followup_release.py \
+            "${RUNNER_TEMP}/release-tools/calendar/"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -3317,6 +3322,41 @@ jobs:
           if not all(checks.values()):
               raise SystemExit('Scheduled mail drain scheduler configuration drifted')
           PY
+
+      # deploy/uat-surface-gates.txt in the deployed commit is the single source of truth: the same
+      # file set the backend flags and key binding, and here it sets the job and proves the serving
+      # revisions match. It runs only with a backend deploy so flags and job always change together.
+      - name: Activate Calendar follow-ups drain
+        id: activate-calendar-followups
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          OIDC_AUDIENCE: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: calendar-email-followups
+          JOB_NAME: calendar-email-followups-uat
+          BATCH_LIMIT: "10"
+        run: |
+          set -euo pipefail
+          bash "${RUNNER_TEMP}/release-tools/calendar/setup_followup_scheduler.sh" \
+            | tee /tmp/uat-calendar-followups-scheduler-setup.log
+          python3 "${RUNNER_TEMP}/release-tools/calendar/verify_followup_release.py" verify \
+            --project "${PROJECT_ID}" --region "${SCHEDULER_LOCATION}" \
+            --service "${{ env.BACKEND_SERVICE }}" \
+            --application-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --evidence /tmp/uat-calendar-followups-release-evidence.json
+
+      - name: Upload Calendar follow-ups release evidence
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: uat-calendar-followups-release
+          path: |
+            /tmp/uat-calendar-followups-scheduler-setup.log
+            /tmp/uat-calendar-followups-release-evidence.json
+          if-no-files-found: warn
 
       - name: Activate PWM completion notifications
         id: activate-pwm-notifications
