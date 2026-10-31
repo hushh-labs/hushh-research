@@ -594,12 +594,16 @@ also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
 
-Failed synthetic Wallet and connected Calendar layout runs retain
-`synthetic-layout-failures-<matrix-label>` for seven days: only those fixtures'
-traces, failure screenshots and error context are admitted. Protected reviewer
-journeys must never enter these artifacts. Earlier commands can clear their
-output; this does not prove retention for preceding packs or failures that pass
-on retry.
+Failed synthetic Wallet, connected Calendar, direct-chat and Feed layout runs
+retain `synthetic-layout-failures-<matrix-label>` for seven days. The allowlist
+contains only those fixtures' traces, failure screenshots and error context;
+the direct-chat 768x852 keyboard case also retains its synthetic geometry JSON.
+Uploads on cancellation are best-effort because a hard job timeout can stop the
+runner before the upload step. Targeted browser jobs combine GitHub annotations
+with Playwright's line reporter so the active test title remains visible in the
+runner log. Protected reviewer journeys must never enter these artifacts.
+Earlier commands can clear their output; this does not prove retention for
+preceding packs or failures that pass on retry.
 
 Calendar's lock regression holds the next Schedule response while asserting that
 the prior private view is cleared, then releases distinct fresh information.
