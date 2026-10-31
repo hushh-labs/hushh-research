@@ -47,8 +47,10 @@ python3 scripts/ci/test_retention_preflight_checkpoint.py
 python3 scripts/ci/test_retention_preparing.py
 python3 scripts/ci/test_retention_preflight_evidence.py
 python3 scripts/ci/test_retention_production_evidence.py
+python3 scripts/ci/test_retention_uat_guard_evidence.py
 python3 scripts/ci/test_wait_uat_capacity.py
 python3 scripts/ci/test_runtime_capacity_budget.py
+python3 scripts/ci/test_runtime_capacity_uat_health_job.py
 python3 scripts/ci/test_runtime_capacity_inventory.py
 python3 scripts/ci/test_runtime_capacity_volume.py
 python3 scripts/ci/test_runtime_capacity_isolated.py

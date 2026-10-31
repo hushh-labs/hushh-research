@@ -53,7 +53,11 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
   shard: parsePlaywrightShard(process.env.PLAYWRIGHT_SHARD),
-  reporter: process.env.CI ? "github" : "html",
+  reporter: process.env.CI
+    ? process.env.PLAYWRIGHT_LINE_REPORTER === "1"
+      ? [["github"], ["line"]]
+      : "github"
+    : "html",
 
   use: {
     baseURL,

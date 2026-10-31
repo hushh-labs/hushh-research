@@ -189,9 +189,9 @@ class DriveTrustedAutoService:
     ) -> dict[str, int]:
         """Plan new trusted requests while reserving time for worker continuation."""
         outcomes = {"started": 0, "deferred": 0}
-        for item in await self.sharing.due_trusted_searches(
-            limit=min(20, max_jobs * 4), **({"v1_only": True} if v1_only else {})
-        ):
+        # Look past up to 19 requests waiting on their owner's other search (due each drain).
+        lane = {"v1_only": True} if v1_only else {}
+        for item in await self.sharing.due_trusted_searches(limit=20, **lane):
             if outcomes["started"] >= max_jobs:
                 break
             if deadline_at is not None and deadline_at - asyncio.get_running_loop().time() < 20:
@@ -234,9 +234,9 @@ class DriveTrustedAutoService:
                             after_page=None if package else self.after_search_page,
                         )
                 outcomes["started"] += 1
-                # The durable search may have no committed rows yet. Wake its
-                # own slice before spending this invocation on empty batches.
-                await self.wake("v1" if v1_only else "suggestions")
+                # Wake the new search's own slice, and the checkout lane its Pay needs.
+                for stage in ("v1",) if v1_only else ("suggestions", "sharing"):
+                    await self.wake(stage)
             except (DriveReadError, TimeoutError) as error:
                 await self.sharing.defer_trusted_search(
                     user_id=user_id, request_id=request_id, code=_defer_code(error)

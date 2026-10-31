@@ -137,7 +137,13 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
 
 class PublicationRoutingTest(unittest.TestCase):
     def test_production_failure_is_qualified_by_its_own_owner_at_the_actual_checkout(self):
-        publication = importlib.import_module("retention_publication")
+        # deploy-production copies a pinned tool list onto older checkouts; the UAT
+        # proof module is not in it, so production must import and qualify without it.
+        with mock.patch.dict(sys.modules, {"retention_uat_guard_evidence": None}):
+            sys.modules.pop("retention_publication", None)
+            self._qualify_production(importlib.import_module("retention_publication"))
+
+    def _qualify_production(self, publication):
         run, job, log, blobs = fixture()
         run.update(actor={"login": "ankitkumarsingh1702"}, triggering_actor={"login": "ankitkumarsingh1702"})
         reads = []

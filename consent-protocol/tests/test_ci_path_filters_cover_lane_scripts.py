@@ -21,10 +21,24 @@ AUTH_HEALTH_TESTS = (
     "consent-protocol/tests/test_auth_health_deployment.py",
     "consent-protocol/tests/test_auth_health_inventory.py",
     "consent-protocol/tests/test_auth_health_lease_rest.py",
+    "consent-protocol/tests/test_auth_health_uat_activation.py",
+    "consent-protocol/tests/test_auth_health_uat_installation.py",
     "consent-protocol/tests/test_auth_health_wif_scopes.py",
     "consent-protocol/tests/test_phone_list_health.py",
 )
-AUTH_HEALTH_PATHS = frozenset((AUTH_HEALTH_SOURCE, *AUTH_HEALTH_TESTS))
+AUTH_HEALTH_PATHS = frozenset(
+    (
+        AUTH_HEALTH_SOURCE,
+        "deploy/observability/setup_auth_health.py",
+        "deploy/observability/auth_health_uat_common.py",
+        "deploy/observability/auth_health_uat_job_install.py",
+        "deploy/observability/auth_health_uat_timer_activation.py",
+        "deploy/observability/auth_health_uat_installer.py",
+        "consent-protocol/tests/auth_health_uat_cloud_fakes.py",
+        "consent-protocol/tests/auth_health_uat_installer_fixtures.py",
+        *AUTH_HEALTH_TESTS,
+    )
+)
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
 # Code each side's lanes execute, beyond the scripts/ci closure. The native
@@ -156,14 +170,6 @@ def _resolve_path_outputs(
     return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
-def _filter_outputs_for(paths: tuple[str, ...]) -> dict[str, str]:
-    filters = _filters()
-    return {
-        name: str(any(filters[name].match_file(path) for path in paths)).lower()
-        for name in _filter_patterns()
-    }
-
-
 @cache
 def _tracked_files() -> tuple[str, ...]:
     listing = subprocess.run(  # noqa: S603 - fixed argv, read-only
@@ -283,7 +289,11 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
 
 
 def _auth_health_decision(paths, tmp_path, event="pull_request", override=False):
-    outputs = _filter_outputs_for(paths)
+    filters = _filters()
+    outputs = {
+        name: str(any(filters[name].match_file(path) for path in paths)).lower()
+        for name in _filter_patterns()
+    }
     return outputs, _resolve_path_outputs(event, outputs, tmp_path, override=override)
 
 
@@ -451,6 +461,7 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
 def test_every_script_a_lane_runs_schedules_that_lane() -> None:
     problems = _uncovered_lane_scripts(_filters())
     assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
+    assert all(_filters()[lane].match_file(ORCHESTRATOR) for lane in ("frontend", "backend"))
 
 
 def test_every_script_the_lanes_own_code_names_schedules_that_lane() -> None:
@@ -471,12 +482,6 @@ def test_no_scripts_ci_file_falls_through_every_filter() -> None:
         if not (filters["frontend"].match_file(path) or filters["backend"].match_file(path))
     ]
     assert not unscheduled, f"scripts/ci files that schedule no lane: {unscheduled}"
-
-
-def test_the_orchestrator_schedules_both_sides() -> None:
-    filters = _filters()
-    assert filters["frontend"].match_file(ORCHESTRATOR)
-    assert filters["backend"].match_file(ORCHESTRATOR)
 
 
 def test_the_checker_catches_a_filter_that_drops_a_lane_script() -> None:

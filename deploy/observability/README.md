@@ -372,6 +372,33 @@ project-wide viewer access, application revision or traffic. A lost response is
 reconciled by reading the same binding; a replaced identity refuses. Local setup
 verifies this existing permission instead of retrying a denied IAM write.
 
+The original prepared UAT operation has two additional Main-only actions, kept
+separate from image preparation and runtime access. `health_action=install-job`
+requires that operation ID, the recorded checker and clock unique IDs, and the
+successful image-build ID. It verifies the immutable source archive, exact
+project-owned bucket, existing secret/log/bucket bindings and both service
+account identities before creating only the reviewed Cloud Run Job with runtime
+observation enabled, using the already-granted service-level Viewer binding. It
+does not create a Scheduler job or change IAM. An
+existing job is accepted only when its operation, project, identity, image and
+task configuration match exactly; a different image requires a separately
+reviewed upgrade.
+
+`health_action=activate-timer` requires the same IDs and build plus the full
+resource name of a recent completed execution. It independently reads the job,
+execution owner reference, exact image/task template and one in-window healthy
+UAT runtime health event before any activation. It then adds only
+`roles/run.invoker` for the exact clock service-account member on the exact
+operation-owned Cloud Run Job, preserving the other job-policy grants and
+verifying the readback. This job-level grant is distinct from the existing
+service-level `roles/run.viewer` observation permission. A missing timer is
+created directly at `17 * * * *` UTC only after these checks; an existing timer
+can be resumed only when its operation, target, identity and hourly configuration
+match. Cloud Scheduler does not allow a paused state at creation, so this flow
+never creates then pauses a timer. Conditional bindings, a refused or unresolved
+job-policy write, or ambiguous provider state stop activation before the timer
+mutation. Faster qualification schedules are not part of this installer.
+
 
 Read back the exact workflow source, actor, attempt, image-only artifact and
 successful native Cloud Build before resuming the original local ownership

@@ -1,6 +1,9 @@
 """Startup/readiness contract for the isolated, scanner-equipped ingress."""
 
 import asyncio
+import logging
+import threading
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,6 +18,10 @@ def enable_selected_indexing_for_worker_readiness(monkeypatch):
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
     monkeypatch.setenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", "false")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    import server_drive_worker as worker
+
+    # Admission tests stub the request planner warm-up; its own tests replace it.
+    monkeypatch.setattr(worker, "warm_semantic_request_planner", lambda: None)
 
 
 @pytest.mark.asyncio
@@ -420,3 +427,64 @@ def test_worker_process_logs_info_lines_through_the_redaction_filter():
     )
     assert "drive_probe owner=[REDACTED]" in result.stderr
     assert "synthetic.owner@example.invalid" not in result.stderr
+
+
+@pytest.mark.asyncio
+async def test_worker_loads_the_request_planner_before_taking_drain_work(monkeypatch):
+    import server_drive_worker as worker
+
+    # 2026-10-30: a new instance loaded the planner inside an allowed request's
+    # 90 s search budget, was cancelled twice, and the search started 5 min late.
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    loaded = threading.Event()
+
+    def warm():
+        time.sleep(0.05)
+        loaded.set()
+
+    monkeypatch.setattr(worker, "warm_semantic_request_planner", warm)
+    async with worker.lifespan(worker.app):
+        assert loaded.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["failed", "timeout"])
+async def test_planner_warmup_never_decides_worker_readiness(monkeypatch, caplog, outcome):
+    import server_drive_worker as worker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    # Only the timeout case races its bound; a failure must report as a failure.
+    monkeypatch.setattr(
+        worker, "PLANNER_WARMUP_TIMEOUT_SECONDS", 0.05 if outcome == "timeout" else 5
+    )
+    release = threading.Event()
+
+    def warm():
+        if outcome == "failed":
+            raise RuntimeError("synthetic planner load failure")
+        release.wait(5)
+
+    monkeypatch.setattr(worker, "warm_semantic_request_planner", warm)
+    try:
+        with caplog.at_level(logging.INFO, logger=worker.logger.name):
+            async with asyncio.timeout(2), worker.lifespan(worker.app):
+                assert await worker.ready() == {"status": "ready"}
+    finally:
+        release.set()
+    assert f"stage=planner outcome={outcome}" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_failed_admission_does_not_wait_for_the_planner(monkeypatch, tmp_path):
+    import server_drive_worker as worker
+
+    release = threading.Event()
+    monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
+    monkeypatch.setattr(worker, "warm_semantic_request_planner", lambda: release.wait(5))
+    try:
+        async with asyncio.timeout(2):
+            with pytest.raises(RuntimeError, match="missing its pinned local model"):
+                async with worker.lifespan(worker.app):
+                    pytest.fail("A worker without its model was admitted")
+    finally:
+        release.set()

@@ -103,6 +103,7 @@ tests/services/test_calendar_native_optional_scope.py
 tests/services/test_google_calendar_guest_photo_token.py
 tests/services/test_google_calendar_event_type.py
 tests/services/test_google_calendar_profile_photos.py
+tests/services/test_calendar_directory_portraits.py
 tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
@@ -147,6 +148,9 @@ tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
+# An allowed request reaches Pay without avoidable waits: a busy owner is
+# seen before planning, Checkout and its notice never queue behind grants.
+tests/services/test_drive_request_instant_start.py
 # A "3 month meeting notes" request over a realistic Drive (synthetic titles):
 # exactly the in-period notes A may share, end to end on PostgreSQL.
 tests/services/test_drive_owner_meeting_notes_scenario.py
@@ -287,6 +291,7 @@ tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connect_directory_postgres.py
+tests/services/test_calendar_directory_postgres.py
 tests/services/test_connect_directory_presence_postgres.py
 tests/test_environment_enrollment.py
 tests/test_one_capability_runtime_router_mount.py
@@ -480,6 +485,8 @@ tests/test_phone_list_health.py
 tests/test_auth_health_lease_rest.py
 tests/test_auth_health_read_diagnostics.py
 tests/test_auth_health_deployment.py
+tests/test_auth_health_uat_activation.py
+tests/test_auth_health_uat_installation.py
 tests/test_auth_health_wif_scopes.py
 tests/test_account_phone_trace_loop.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
@@ -1533,6 +1540,8 @@ tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
 tests/services/test_calendar_meeting_grant_access.py
 tests/services/test_calendar_meeting_library_paging.py
+tests/services/test_calendar_meeting_organizer_resolution.py
+tests/services/test_google_provider_errors.py
 tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/test_calendar_schedule_routes.py
 
