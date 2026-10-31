@@ -19,9 +19,12 @@ matches the authored manifests rather than hand-maintained prose.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 
 from hushh_mcp.services.generated_contracts import generated_contract_path
+
+logger = logging.getLogger(__name__)
 
 # Curated from the canonical docs above. Durable identity and values, not
 # per-turn data. Kept tight so the static system-prompt prefix stays cacheable.
@@ -76,6 +79,15 @@ def _load_registry_agents() -> dict[str, dict]:
     try:
         payload = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        # One's persona grounding is built at MODULE level in agent_tree.py, so an
+        # empty catalogue here is baked into the process for its whole life -- every
+        # turn it ever serves runs without it. Worth a log line rather than a silent
+        # shrug, which is how it reached production unnoticed.
+        logger.error(
+            "one_persona_registry_unreadable path=%s "
+            "(the generated agent catalogue will be empty for this process)",
+            registry_path,
+        )
         return {}
     agents = payload.get("agents") if isinstance(payload, dict) else None
     if not isinstance(agents, list):
@@ -111,6 +123,84 @@ def build_specialist_capability_catalog(roster_ids: list[str]) -> str:
     )
 
 
+# What a person can actually reach by voice today, grouped the way somebody
+# would describe it rather than by action-id prefix. Only areas a person would
+# recognise as a feature of their own: `route`, `auth`, `setup`, `onboarding`,
+# `phone_mandate` and `vault` are plumbing, and `ria` is persona-gated to
+# advisors, so naming it to an investor would be an offer they cannot take up.
+_USER_FACING_AREAS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Location", ("location",)),
+    ("Connections", ("connect", "people", "connections")),
+    ("Email", ("email",)),
+    ("Identity verification", ("kyc",)),
+    ("Connected systems", ("connected_systems",)),
+)
+
+
+def _runnable_area_names() -> list[str]:
+    """Areas with at least one voice action that can actually run today.
+
+    Derived, not authored, and that is the entire point. A former static
+    examples page taught actions that had become unwired. A person could follow
+    the tutorial, see nothing happen, and conclude the private agent was
+    broken. This derivation keeps the displayed capability scope aligned with
+    the generated contract instead.
+
+    The same three conditions the publishing surfaces use -- wired, a path that
+    actually dispatches, and not manual_only -- so this answer moves with the
+    contract instead of needing a person to remember to edit prose.
+
+    Degrades to an empty list on any read failure. One then explains what it is
+    without listing areas, which is a smaller loss than refusing to talk.
+    """
+    try:
+        payload = json.loads(
+            generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError):
+        return []
+    actions = payload.get("actions") if isinstance(payload, dict) else None
+    if not isinstance(actions, list):
+        return []
+
+    runnable_prefixes: set[str] = set()
+    for entry in actions:
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("execution_target")
+        if not isinstance(target, dict) or target.get("status") != "wired":
+            continue
+        if target.get("path") not in ("local_handler", "route", "control"):
+            continue
+        if entry.get("execution_policy") == "manual_only":
+            continue
+        action_id = entry.get("action_id")
+        if isinstance(action_id, str) and "." in action_id:
+            runnable_prefixes.add(action_id.split(".", 1)[0])
+
+    return [
+        name for name, prefixes in _USER_FACING_AREAS if runnable_prefixes.intersection(prefixes)
+    ]
+
+
+def build_product_explainer() -> str:
+    """Derived voice inventory only; authored explanatory policy lives in YAML."""
+    areas = _runnable_area_names()
+    if not areas:
+        return ""
+    return (
+        "\n\nGenerated voice-surface action areas (not the typed Chat tool inventory): "
+        + ", ".join(areas)
+        + "."
+    )
+
+
 def build_one_persona_grounding(roster_ids: list[str]) -> str:
-    """Compose the durable persona core with the generated specialist catalog."""
-    return _ONE_PERSONA_CORE + build_specialist_capability_catalog(list(roster_ids))
+    """Compose the durable persona core, the generated catalog, and the explainer."""
+    return (
+        _ONE_PERSONA_CORE
+        + build_specialist_capability_catalog(list(roster_ids))
+        + build_product_explainer()
+    )

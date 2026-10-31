@@ -49,9 +49,9 @@ flowchart LR
 - **Unchanged (verify still green):** `consent-protocol/hushh_mcp/adk_bridge/connections_agent.py` and `consent-protocol/tests/test_connections_a2a.py` — the A2A wrapper already maps `clientPrompt` → `A2ADirective(kind="prompt")` and `delegate_result` selection → `selection_result`.
 
 **Reference files (read, do not modify):**
-- `consent-protocol/hushh_mcp/services/gmail_chat_service.py` — the clean tool-loop template (constructor model seam, `_run_tool_loop`, `_build_tools`, `_finish`).
+- `consent-protocol/hushh_mcp/services/email_chat_service.py` — the clean tool-loop template (constructor model seam, `_run_tool_loop`, `_build_tools`, `_finish`).
 - `consent-protocol/hushh_mcp/services/location_chat_service.py` (lines 509-723) — the loop that collects `prompts` from tools and surfaces `clientPrompt`; `_selection_seed_text`/`_selection_display_text` for reference.
-- `consent-protocol/tests/test_gmail_chat_service.py` — the fake-store + scripted-model test harness this plan copies.
+- `consent-protocol/tests/test_email_chat_service.py` — the fake-store + scripted-model test harness this plan copies.
 
 ---
 
@@ -234,7 +234,7 @@ Add the Gemini model seam and function-calling loop, and the three read tools. A
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `consent-protocol/tests/services/test_connections_chat_service.py` — copy the harness from `tests/test_gmail_chat_service.py`:
+Add to `consent-protocol/tests/services/test_connections_chat_service.py` — copy the harness from `tests/test_email_chat_service.py`:
 
 ```python
 from types import SimpleNamespace

@@ -49,8 +49,14 @@ class _FakeRequest:
         return self._disconnected
 
 
+class _NoopFeedService:
+    def record_event(self, **_kwargs: Any) -> None:
+        return None
+
+
 def test_run_manager_start_conflict_and_cancel() -> None:
     run_manager_module = _load_run_manager_module()
+    run_manager_module.FeedService = _NoopFeedService
     KaiAnalyzeRunManager = run_manager_module.KaiAnalyzeRunManager
 
     async def _scenario() -> None:
@@ -118,10 +124,11 @@ def test_run_manager_start_conflict_and_cancel() -> None:
 
 def test_run_manager_stream_resume_replays_and_continues() -> None:
     run_manager_module = _load_run_manager_module()
+    run_manager_module.FeedService = _NoopFeedService
     KaiAnalyzeRunManager = run_manager_module.KaiAnalyzeRunManager
 
     async def _scenario() -> None:
-        manager = KaiAnalyzeRunManager(retention_seconds=300)
+        manager = KaiAnalyzeRunManager(retention_seconds=300, cleanup_interval_seconds=0.01)
         consent_token = f"consent_{uuid.uuid4().hex}"
 
         async def deterministic_generator(
@@ -150,7 +157,7 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
             debate_session_id="sess_b",
             ticker="MSFT",
             risk_profile="balanced",
-            context={},
+            context={"pick_source": "test-source", "authorized_package": {"private": "context"}},
             consent_token=consent_token,
             generator_factory=deterministic_generator,
         )
@@ -174,4 +181,149 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
         assert all(frame.get("event") != "start" for frame in replay_from_cursor)
         assert any(frame.get("event") == "decision" for frame in replay_from_cursor)
 
+        assert run.consent_token == ""
+        assert run.context == {"pick_source": "test-source"}
+        assert run.to_public_dict()["pick_source"] == "test-source"
+        assert run.latest_cursor == 2
+        # Expired replay is reclaimed while idle, without another start/read.
+        active = run_manager_module.AnalyzeRunRecord(
+            run_id="active",
+            user_id="other",
+            debate_session_id="active-session",
+            ticker="MSFT",
+            risk_profile="balanced",
+            context=None,
+            consent_token=consent_token,
+        )
+        manager._runs_by_id[active.run_id] = active
+        assert run.completed_monotonic is not None
+        run.completed_monotonic -= 301
+        async with asyncio.timeout(1):
+            while run.run_id in manager._runs_by_id:
+                await asyncio.sleep(0.01)
+        assert manager._runs_by_id[active.run_id] is active
+        task = manager._retention_task
+        await manager.stop_retention()
+        assert task is not None and task.done()
+        assert manager._retention_task is None
+
     asyncio.run(_scenario())
+
+
+def test_finalization_cancellation_releases_authority_without_changing_replay() -> None:
+    module = _load_run_manager_module()
+    module.FeedService = _NoopFeedService
+
+    async def scenario() -> None:
+        manager = module.KaiAnalyzeRunManager(store=False)
+        finalizing = asyncio.Event()
+
+        async def generator(*args):
+            yield _frame(1, "decision", {"decision": "hold"}, terminal=True)
+
+        async def blocked_feed(run):
+            finalizing.set()
+            await asyncio.Event().wait()
+
+        manager._record_outcome_feed = blocked_feed
+        _, run = await manager.start_or_get_active(
+            user_id="owner",
+            debate_session_id="session",
+            ticker="MSFT",
+            risk_profile="balanced",
+            context={"authorized_package": {"private": "value"}, "pick_source": "source"},
+            consent_token=f"consent_{uuid.uuid4().hex}",
+            generator_factory=generator,
+        )
+        try:
+            await asyncio.wait_for(finalizing.wait(), timeout=1)
+            assert run.worker_task is not None
+            run.worker_task.cancel()
+            await asyncio.gather(run.worker_task, return_exceptions=True)
+            assert run.consent_token == ""
+            assert run.context == {"pick_source": "source"}
+            assert run.latest_cursor == 1
+            assert run.terminal_frame is run.events[0]
+            assert run.status == "completed"
+        finally:
+            await manager.stop_retention()
+
+    asyncio.run(scenario())
+
+
+def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_immutable() -> None:
+    run_manager_module = _load_run_manager_module()
+    feed_calls: list[dict[str, Any]] = []
+
+    class _FeedRecorder:
+        def record_event(self, **kwargs: Any) -> None:
+            feed_calls.append(kwargs)
+
+    run_manager_module.FeedService = _FeedRecorder
+    manager = run_manager_module.KaiAnalyzeRunManager(retention_seconds=300, store=False)
+
+    def _run(run_id: str):
+        return run_manager_module.AnalyzeRunRecord(
+            run_id=run_id,
+            user_id="user_feed",
+            debate_session_id="session_feed",
+            ticker="AAPL",
+            risk_profile="balanced",
+            context={},
+            consent_token=f"consent_{uuid.uuid4().hex}",
+        )
+
+    async def _deliver(run: Any) -> None:
+        async for _frame_out in manager.stream_run_events(
+            run=run, start_cursor=0, request=_FakeRequest()
+        ):
+            pass
+
+    completed = _run("run_stable")
+    canceled = _run("run_canceled")
+    failed = _run("run_failed")
+    undelivered = _run("run_nobody_attached")
+
+    async def _scenario() -> None:
+        decision = {"ticker": "AAPL", "decision": "hold", "confidence": 0.7}
+        await manager._append_frame(completed, _frame(1, "decision", decision, terminal=True))
+        await manager._append_frame(completed, _frame(2, "decision", decision, terminal=True))
+        await manager._append_frame(
+            completed,
+            _frame(3, "error", {"code": "LATE_ERROR"}, terminal=True),
+        )
+        await manager._append_frame(
+            canceled, _frame(1, "aborted", {"code": "ANALYZE_RUN_CANCELED"}, terminal=True)
+        )
+        await manager._append_frame(
+            failed, _frame(1, "error", {"code": "ANALYZE_RUN_WORKER_FAILED"}, terminal=True)
+        )
+        await manager._append_frame(undelivered, _frame(1, "decision", decision, terminal=True))
+        # Negative controls: a cancelled or failed run is never announced as
+        # ready, and neither is a completed run nobody received (its result was
+        # never saved, so "Analysis ready" would point at nothing).
+        for run in (canceled, failed):
+            await _deliver(run)
+        assert feed_calls == []
+
+        # Delivered twice (reattach): announced exactly once.
+        await _deliver(completed)
+        await _deliver(completed)
+
+    asyncio.run(_scenario())
+
+    assert completed.status == "completed"
+    assert completed.terminal_event == "decision"
+    assert completed.terminal_payload is not None
+    assert completed.terminal_payload["decision"] == "hold"
+    assert undelivered.completion_feed_recorded is False
+    assert feed_calls == [
+        {
+            "user_id": "user_feed",
+            "source_domain": "kai",
+            "event_type": "kai_analysis_completed",
+            "actor_label": "Kai",
+            "metadata": {"ticker": "AAPL", "run_id": "run_stable"},
+            "source_row_id": "run_stable",
+        }
+    ]

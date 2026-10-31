@@ -1,0 +1,166 @@
+"""Admission for staged connector effects, separate from owner/provider grants.
+
+Connection, selected-file setup and owner-authorized Chat reads are available
+without a reviewer cohort. OAuth configuration, grants and per-call authority
+remain independent checks. Indexing, live Drive and sharing stay staged.
+"""
+
+from __future__ import annotations
+
+import os
+
+FEATURES = {
+    "protected_document_delivery": "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
+    "connections_panel_v2": "CONNECTIONS_PANEL_V2",
+    "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_live": "GOOGLE_DRIVE_LIVE",
+    "google_drive_picker": "GOOGLE_DRIVE_PICKER",
+    "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
+    "drive_four_group_index": "DRIVE_FOUR_GROUP_INDEX_ENABLED",
+    "drive_period_packets": "DRIVE_PERIOD_PACKETS_ENABLED",
+    "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "gmail_chat_reads": "GMAIL_CHAT_READS",
+    "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
+    "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
+}
+
+# These are ordinary owner-initiated capabilities, not UAT rollout effects.
+# Keeping their response keys preserves existing clients while removing the
+# environment/cohort dependency from connection and read-only Chat use.
+# curated_mcp_connectors (an operator-registered provider such as HubSpot) is
+# available to every owner: whether a provider is offered is decided by its
+# active registry row, its OAuth secrets being present in this environment, and
+# a registered return address, and every change it makes is still reviewed. An
+# environment without the provider's secrets never offers it.
+OWNER_AVAILABLE = frozenset(
+    {
+        "google_drive_connection",
+        "google_drive_picker",
+        "google_drive_chat_reads",
+        "gmail_chat_reads",
+        "curated_mcp_connectors",
+    }
+)
+
+# Production activation is a separate, explicit rollout. An existing UAT
+# cohort or all-users setting must never become production authority merely
+# because the same backend image is deployed there.
+PRODUCTION_STAGED_DRIVE = frozenset(
+    {
+        "protected_document_delivery",
+        "connections_panel_v2",
+        "google_drive_live",
+        "drive_document_indexing",
+        "drive_four_group_index",
+        "drive_document_sharing",
+    }
+)
+
+
+def _production_owner_admitted(user_id: str) -> bool:
+    if not user_id or user_id.strip() != user_id:
+        return False
+    raw = os.getenv("CONNECTOR_PRODUCTION_OWNER_COHORT", "")
+    all_users = os.getenv("CONNECTOR_PRODUCTION_ALL_USERS", "").strip().lower() == "true"
+    if all_users:
+        return not raw
+    members = raw.split(",")
+    if (
+        not raw
+        or len(members) > 25
+        or len(set(members)) != len(members)
+        or any(
+            not member
+            or member.lower() in {"*", "all"}
+            or len(member) > 128
+            or any(char.isspace() for char in member)
+            for member in members
+        )
+    ):
+        return False
+    return user_id in members
+
+
+def connector_feature_enabled(feature: str, user_id: str) -> bool:
+    if feature == "protected_document_delivery":
+        return bool(
+            user_id
+            and user_id.strip() == user_id
+            and len(user_id) <= 128
+            and os.getenv("ENVIRONMENT", "").strip().lower()
+            in {"uat", "production", "test", "local", "development"}
+            and os.getenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", "").strip().lower() == "true"
+        )
+    if (
+        feature == "curated_mcp_connectors"
+        and os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    ):
+        return bool(
+            user_id
+            and user_id.strip() == user_id
+            and os.getenv("CURATED_MCP_CONNECTORS", "").strip().lower() == "true"
+        )
+    if feature in OWNER_AVAILABLE:
+        return bool(user_id and user_id.strip() == user_id)
+    environment = os.getenv("ENVIRONMENT", "").strip().lower()
+    if environment == "production":
+        env_name = FEATURES.get(feature)
+        return bool(
+            feature in PRODUCTION_STAGED_DRIVE
+            and env_name
+            and os.getenv(env_name, "").strip().lower() == "true"
+            and _production_owner_admitted(user_id)
+        )
+    if environment not in {"uat", "test", "local", "development"}:
+        return False
+    env_name = FEATURES.get(feature)
+    if not env_name or os.getenv(env_name, "").strip().lower() != "true":
+        return False
+    raw = os.getenv("CONNECTOR_INTERNAL_OWNER_COHORT", "")
+    all_uat_users = os.getenv("CONNECTOR_UAT_ALL_USERS", "").strip().lower() == "true"
+    if all_uat_users:
+        # Keep the broad UAT mode explicit and mutually exclusive with the
+        # exact-UID cohort. A malformed hosted config must fail closed.
+        return environment == "uat" and not raw and bool(user_id and user_id.strip())
+    members = [value.strip() for value in raw.split(",")]
+    if not raw or any(
+        not value
+        or value.lower() in {"*", "all"}
+        or len(value) > 128
+        or any(char.isspace() for char in value)
+        for value in members
+    ):
+        return False
+    return bool(user_id) and user_id in members
+
+
+def connector_features(user_id: str) -> dict[str, bool]:
+    return {feature: connector_feature_enabled(feature, user_id) for feature in FEATURES}
+
+
+def connector_feature_owner_cohort(*features: str) -> tuple[str, ...] | None:
+    """Query scope for background workers: None means all, () means nobody.
+
+    Reuse the admission predicate before applying a database LIMIT so excluded
+    owners cannot starve admitted work. This scope never replaces per-call checks.
+    """
+    production = os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    raw = os.getenv(
+        "CONNECTOR_PRODUCTION_OWNER_COHORT" if production else "CONNECTOR_INTERNAL_OWNER_COHORT",
+        "",
+    )
+    if raw:
+        candidates = raw.split(",") if production else [value.strip() for value in raw.split(",")]
+        return tuple(
+            owner
+            for owner in dict.fromkeys(candidates)
+            if all(connector_feature_enabled(feature, owner) for feature in features)
+        )
+    # With no configured cohort, staged admission is owner-independent. A
+    # synthetic identity only evaluates configuration; no account is accessed.
+    return (
+        None
+        if features
+        and all(connector_feature_enabled(feature, "connector-scope-check") for feature in features)
+        else ()
+    )

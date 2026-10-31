@@ -1,0 +1,71 @@
+id: 26d40949-9732-4965-a09d-6cef6c99b1ce
+app_name: nav
+user_id: conformance_fixture_user
+state:
+  hussh:timezone: UTC
+events:
+  - content:
+      parts:
+        - text: Show my previously revoked location sharing.
+      role: user
+    invocation_id: e-2d9be017-fa83-4247-8ab5-aae9f3f74ea3
+    author: user
+    actions:
+      state_delta: {}
+    id: 0a91f2d1-707e-47bc-a139-00d0fe0c641c
+    timestamp: 1789526759.000385
+  - model_version: gemini-3.8-flash
+    content:
+      parts:
+        - function_call:
+            id: call_108295
+            args:
+              request: previously revoked location sharing
+            name: consent
+          thought_signature: AY89a194_byZRS31ZHS2pty2KqgSYWbYu2r6uZSdg74ilMhJ4ix0JUpbH0Gqk0O1V9ua-pnSWa8MFVjSqNmg_4x75UhmWR0gEM3zVrb4vmV07OhNfUEYW0v58OjAfBz-g3q7TXgvxrUwshyIco8JzfrdS_nv1chPoLQXySmzy_yKB8llRW3C8v9TakxTMfatGiyF-nD4G_7Pve-PhVx-tY-cd9ZCe4-4F-85Pmh5LZPV9-TwTiXIh7tip7IZe7xa-gqzNYhFfXLo-LO0KBbnWBh_0uEgVvWTHfHXZtJR-lFy8bT1kA0HhM0jDIJxjUWF2vf77NIKQ7BdLMtuetX6rma2GjKa8uDOnYFXu1UP2YjKY0qWNEpdX4iEVCW9ZfGVOPBxC47c3EM9hUEdaNciIPxU3Mukq1fNATiTKppEibanaM5x9YoQtdPINlyBVfyQgjhmTKKepuPaEGdy8kKfxog0Q0j2rqOndOSOTCz1rsrryRGxrdqQnDq-wAHJM5lYBi_7oAcodir9sxHWTNaXVEofn0xHnNX69TaaHXY_KRYng4qeITvMORYeY9pjjWFmc34WRFRfJpEfjUu4t9SY6D2EjNSFKEbtsw==
+      role: model
+    finish_reason: STOP
+    usage_metadata:
+      candidates_token_count: 17
+      candidates_tokens_details:
+        - modality: TEXT
+          token_count: 17
+      prompt_token_count: 407
+      prompt_tokens_details:
+        - modality: TEXT
+          token_count: 407
+      thoughts_token_count: 88
+      total_token_count: 512
+      traffic_type: ON_DEMAND
+    invocation_id: e-2d9be017-fa83-4247-8ab5-aae9f3f74ea3
+    author: nav
+    node_info:
+      path: nav@1
+    long_running_tool_ids: []
+    id: 652fbfed-5745-4f72-839a-c93141b88158
+    timestamp: 1789526759.001647
+  - content:
+      parts:
+        - function_response:
+            id: call_108295
+            name: consent
+            response:
+              result: |-
+                Here is your previously revoked location sharing record:
+
+                * **Fixture Alex**: view your live location (Status: revoked)
+        - text: |-
+            Here is your previously revoked location sharing record:
+
+            * **Fixture Alex**: view your live location (Status: revoked)
+      role: user
+    invocation_id: e-2d9be017-fa83-4247-8ab5-aae9f3f74ea3
+    author: nav
+    actions:
+      skip_summarization: true
+      state_delta: {}
+    node_info:
+      path: nav@1
+    id: 8ef50f69-923c-43b1-a535-e67d7a5b3cc5
+    timestamp: 1789526769.0417018
+last_update_time: 1789526769.0417018

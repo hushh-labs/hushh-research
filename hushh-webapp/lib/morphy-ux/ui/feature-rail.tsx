@@ -42,13 +42,13 @@ export function FeatureRail({
           ref={topDotRef}
           data-rail-dot="top"
           data-state="muted"
-          className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border/90 opacity-40 transition-opacity duration-200 data-[state=active]:opacity-100"
+          className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border/90 opacity-40 transition-opacity duration-150 data-[state=active]:opacity-100"
         />
         <div
           ref={bottomDotRef}
           data-rail-dot="bottom"
           data-state="muted"
-          className="absolute left-1/2 bottom-0 h-1.5 w-1.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-border/90 opacity-40 transition-opacity duration-200 data-[state=active]:opacity-100"
+          className="absolute left-1/2 bottom-0 h-1.5 w-1.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-border/90 opacity-40 transition-opacity duration-150 data-[state=active]:opacity-100"
         />
       </div>
     </div>

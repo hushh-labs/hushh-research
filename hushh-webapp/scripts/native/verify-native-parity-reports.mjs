@@ -130,11 +130,12 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
         }`
       );
     }
-    if ((observed.auth || "") !== route.expectedAuth) {
+    const allowedAuthStates = route.allowedAuthStates || [route.expectedAuth];
+    if (!allowedAuthStates.includes(observed.auth || "")) {
       fail(
         failures,
         platform,
-        `${route.route} auth=${observed.auth || ""}; expected ${route.expectedAuth}`
+        `${route.route} auth=${observed.auth || ""}; allowed ${allowedAuthStates.join(", ")}`
       );
     }
     if (!route.allowedDataStates.includes(observed.data || "")) {

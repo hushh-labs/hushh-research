@@ -13,9 +13,9 @@ describe("getCapabilityStatusDisplay", () => {
           prerequisite: "vault",
           requiresUnlock: true,
         },
-        { actionLabel: "Connect Gmail", resumeActionLabel: "Finish Gmail" },
+        { actionLabel: "Connect Mail", resumeActionLabel: "Finish Mail" },
       ),
-    ).toMatchObject({ label: "Connect Gmail", isActionable: true });
+    ).toMatchObject({ label: "Connect Mail", isActionable: true });
   });
 
   it("uses the authored continuation after partial setup", () => {
@@ -28,8 +28,8 @@ describe("getCapabilityStatusDisplay", () => {
           prerequisite: null,
           requiresUnlock: false,
         },
-        { actionLabel: "Connect Gmail", resumeActionLabel: "Finish Gmail" },
+        { actionLabel: "Connect Mail", resumeActionLabel: "Finish Mail" },
       ),
-    ).toMatchObject({ label: "Finish Gmail", isActionable: true });
+    ).toMatchObject({ label: "Finish Mail", isActionable: true });
   });
 });

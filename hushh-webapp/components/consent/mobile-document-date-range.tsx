@@ -1,0 +1,200 @@
+"use client";
+
+import { useDeferredValue, useMemo, useRef, useState } from "react";
+import {
+  addDays,
+  addMonths,
+  format,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import { cn } from "@/lib/utils";
+
+const MONTHS = Array.from({ length: 12 }, (_, month) =>
+  format(new Date(2024, month, 1), "MMMM"),
+);
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function displayDate(value: string): string {
+  return value ? format(parseISO(value), "MMM d, yyyy") : "Choose date";
+}
+
+/** A single, explicit two-tap range control for the narrow request sheet. */
+export function MobileDocumentDateRange({
+  start,
+  end,
+  onStartChange,
+  onEndChange,
+}: {
+  start: string;
+  end: string;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState<"start" | "end" | null>(null);
+  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const startButton = useRef<HTMLButtonElement>(null);
+  const endButton = useRef<HTMLButtonElement>(null);
+  // Native mobile selects can emit several year changes while a person drags
+  // through the option list. Keep the select itself responsive and let the
+  // 42-cell calendar settle on the latest month after that burst. Rendering
+  // every intermediate grid synchronously made reverse scrolling feel stuck.
+  const calendarMonth = useDeferredValue(month);
+  const calendarCurrent = calendarMonth.getTime() === month.getTime();
+  const currentYear = new Date().getFullYear();
+  const yearRangeEnd = Math.max(currentYear + 10, month.getFullYear());
+  const firstDay = useMemo(
+    () => startOfWeek(startOfMonth(calendarMonth)),
+    [calendarMonth],
+  );
+  const days = useMemo(
+    () => Array.from({ length: 42 }, (_, index) => addDays(firstDay, index)),
+    [firstDay],
+  );
+  const years = useMemo(() => {
+    const firstYear = 1900;
+    return Array.from(
+      { length: yearRangeEnd - firstYear + 1 },
+      (_, index) => firstYear + index,
+    );
+  }, [yearRangeEnd]);
+
+  const open = (field: "start" | "end") => {
+    if (editing === field) {
+      setEditing(null);
+      return;
+    }
+    const relevantDate = field === "start" ? start : end || start;
+    if (relevantDate) setMonth(startOfMonth(parseISO(relevantDate)));
+    setEditing(field);
+  };
+
+  const choose = (date: Date) => {
+    if (!calendarCurrent || !editing) return;
+    const selected = format(date, "yyyy-MM-dd");
+    if (editing === "start") {
+      onStartChange(selected);
+      if (end && end < selected) onEndChange("");
+      setEditing("end");
+      endButton.current?.focus();
+    } else {
+      onEndChange(selected);
+      setEditing(null);
+      endButton.current?.focus();
+    }
+  };
+
+  return (
+    <div className="min-w-0 space-y-3 sm:hidden" data-mobile-document-dates>
+      <div className="grid grid-cols-2 gap-2">
+        {(["start", "end"] as const).map((field) => (
+          <button
+            key={field}
+            ref={field === "start" ? startButton : endButton}
+            type="button"
+            aria-label={`${field === "start" ? "Start" : "End"} date: ${displayDate(field === "start" ? start : end)}`}
+            aria-expanded={editing === field}
+            aria-controls="mobile-document-calendar"
+            onClick={() => open(field)}
+            className={cn(
+              "min-h-14 min-w-0 rounded-[var(--app-input-radius)] border bg-[color:var(--app-secondary-surface)] px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)]",
+              editing === field
+                ? "border-[color:var(--app-accent)]"
+                : "border-[color:var(--app-separator)]",
+            )}
+          >
+            <span data-consent-role="helper" className="block text-xs text-[color:var(--app-secondary-label)]">
+              {field === "start" ? "Start date" : "End date"}
+            </span>
+            <span data-consent-role="row-title" className="block truncate text-sm font-medium text-[color:var(--app-label)]">
+              {displayDate(field === "start" ? start : end)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {editing ? (
+        <div id="mobile-document-calendar" role="group" aria-label={`Choose ${editing} date`}>
+          <span role="status" className="sr-only">
+            {editing === "start" ? "Choose a start date." : "Choose an end date on or after the start date."}
+          </span>
+          <div className="mb-2 flex min-h-11 items-center justify-between gap-1">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() => setMonth(addMonths(month, -1))}
+              className="min-h-11 min-w-11 rounded-full text-[color:var(--app-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)]"
+            >
+              ‹
+            </button>
+            <select data-consent-input="true"
+              aria-label="Month"
+              value={month.getMonth()}
+              onChange={(event) =>
+                setMonth(new Date(month.getFullYear(), Number(event.target.value), 1))
+              }
+              className="min-h-11 min-w-0 flex-1 rounded-[var(--app-input-radius)] bg-[color:var(--app-secondary-surface)] px-1 text-center text-sm font-semibold text-[color:var(--app-label)]"
+            >
+              {MONTHS.map((label, index) => (
+                <option key={label} value={index}>{label}</option>
+              ))}
+            </select>
+            <select data-consent-input="true"
+              aria-label="Year"
+              value={month.getFullYear()}
+              onChange={(event) =>
+                setMonth(new Date(Number(event.target.value), month.getMonth(), 1))
+              }
+              className="min-h-11 w-[72px] rounded-[var(--app-input-radius)] bg-[color:var(--app-secondary-surface)] px-1 text-center text-sm font-semibold text-[color:var(--app-label)]"
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() => setMonth(addMonths(month, 1))}
+              className="min-h-11 min-w-11 rounded-full text-[color:var(--app-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)]"
+            >
+              ›
+            </button>
+          </div>
+          <div className="grid grid-cols-7 text-center text-xs text-[color:var(--app-secondary-label)]">
+            {WEEKDAYS.map((day) => <span key={day} className="min-w-11">{day}</span>)}
+          </div>
+          <div className="grid grid-cols-7" data-calendar-days aria-busy={!calendarCurrent}>
+            {days.map((date) => {
+              const value = format(date, "yyyy-MM-dd");
+              if (date.getMonth() !== calendarMonth.getMonth())
+                return <span key={value} aria-hidden="true" className="min-h-11 min-w-11" />;
+              const selected = value === start || value === end;
+              const inRange = Boolean(start && end && value > start && value < end);
+              const unavailable = editing === "end" && Boolean(start && value < start);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={format(date, "EEEE, MMMM d, yyyy")}
+                  aria-pressed={selected}
+                  disabled={unavailable || !calendarCurrent}
+                  onClick={() => choose(date)}
+                  className={cn(
+                    "min-h-11 min-w-11 rounded-full text-sm font-medium focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-30",
+                    selected
+                      ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                      : inRange
+                        ? "bg-[color:var(--app-accent-tint)] text-[color:var(--app-label)]"
+                        : "text-[color:var(--app-label)]",
+                  )}
+                >
+                  {date.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

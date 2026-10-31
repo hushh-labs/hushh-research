@@ -116,7 +116,7 @@ export interface CapabilitySetupInputs {
   exploredCapabilityIds?: ReadonlySet<string>;
   /**
    * Location readiness signal: whether the user has a location recipient key
-   * (their live location is set up). Only knowable post-unlock (it lives behind
+   * (live location is set up). Only knowable post-unlock (it lives behind
    * the vault). `true` → set up, `false` → not set up, `undefined` → not fetched
    * yet (or vault locked). Fed by a lightweight `getState` fetch when unlocked.
    */
@@ -337,6 +337,19 @@ export function resolveCapabilitySetupState(
     inputs.preVaultState?.setupCapabilityIds.includes(id)
   ) {
     return simple(id, "completed");
+  }
+
+  // A person who explicitly declined this capability (e.g. dismissed a
+  // connect prompt) has made a real, durable decision -- report it as
+  // `skipped`, not `not-started`, so it reads as done rather than
+  // outstanding and a proactive prompt knows not to re-ask. Checked before
+  // any capability-specific resolver so no branch below can silently
+  // override an explicit decline with a guessed live status.
+  if (
+    TERMINAL_SETUP_IDS.has(id) &&
+    inputs.preVaultState?.setupCapabilityDeclinedIds.includes(id)
+  ) {
+    return simple(id, "skipped");
   }
 
   if (id === "finance") return resolveFinance(inputs);

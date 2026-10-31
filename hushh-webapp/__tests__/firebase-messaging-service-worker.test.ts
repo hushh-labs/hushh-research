@@ -1,46 +1,151 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
+import { IDBFactory } from "fake-indexeddb";
+import fixture from "./fixtures/chat-push-preview.json";
+import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
+import { sealNotificationPreview } from "@/lib/notifications/chat-preview";
 
 import { describe, expect, it } from "vitest";
 
-type ServiceWorkerHandler = (event: {
+type ServiceWorkerEvent = {
   data?: { json: () => unknown } | Record<string, unknown>;
+  notification?: {
+    close: () => void;
+    data?: Record<string, unknown>;
+  };
   waitUntil?: (promise: Promise<unknown>) => void;
-}) => void;
+};
+type ServiceWorkerHandler = (event: ServiceWorkerEvent) => void;
 
-function createHarness(options: { acknowledgeVisibleDelivery: boolean }) {
+function createHarness(options: {
+  acknowledgeVisibleDelivery?: boolean;
+  acknowledgeNotificationClick?: boolean;
+  clientState?: "visible" | "hidden" | "none";
+  clients?: Array<{
+    visibilityState: "visible" | "hidden";
+    focused?: boolean;
+    acknowledgeDelivery?: boolean;
+    acknowledgeClick?: boolean;
+    hideBeforeDeliveryAck?: boolean;
+    postMessageThrows?: boolean;
+    navigate?: "success" | "failure" | "unavailable";
+  }>;
+  deliveredTags?: string[];
+  failFirstShow?: boolean;
+  database?: IDBFactory;
+}) {
   const handlers = new Map<string, ServiceWorkerHandler>();
   const shown: Array<{ title: string; options?: Record<string, unknown> }> = [];
+  const clientMessages: Array<Record<string, unknown>> = [];
+  const clientMessagesByIndex: Array<Array<Record<string, unknown>>> = [];
+  const openedUrls: string[] = [];
+  const navigatedUrls: string[] = [];
+  const closedTags: string[] = [];
+  let focusCount = 0;
+  let showAttempts = 0;
+  const clientState = options.clientState ?? "visible";
+  const definitions =
+    options.clients ??
+    (clientState === "none"
+      ? []
+      : [
+          {
+            visibilityState: clientState,
+            focused: clientState === "visible",
+            acknowledgeDelivery: options.acknowledgeVisibleDelivery,
+            acknowledgeClick: options.acknowledgeNotificationClick,
+            navigate: "success" as const,
+          },
+        ]);
+  const clients = definitions.map((definition, clientIndex) => {
+    clientMessagesByIndex[clientIndex] = [];
+    const client: {
+      visibilityState: "visible" | "hidden";
+      focused: boolean;
+      focus: () => Promise<undefined>;
+      postMessage: (payload: Record<string, unknown>) => void;
+      navigate?: (url: string) => Promise<unknown>;
+    } = {
+      visibilityState: definition.visibilityState,
+      focused: definition.focused === true,
+      focus: async () => {
+        focusCount += 1;
+        return undefined;
+      },
+      postMessage: (payload: Record<string, unknown>) => {
+        if (definition.postMessageThrows) throw new Error("stale client");
+        clientMessages.push(payload);
+        clientMessagesByIndex[clientIndex]?.push(payload);
+        if (definition.hideBeforeDeliveryAck) {
+          client.visibilityState = "hidden";
+        }
+        if (
+          definition.acknowledgeDelivery &&
+          !definition.hideBeforeDeliveryAck &&
+          typeof payload.delivery_id === "string" &&
+          payload.delivery_id
+        ) {
+          queueMicrotask(() => {
+            handlers.get("message")?.({
+              data: {
+                type: "hushh:fcm_push_ack",
+                delivery_id: payload.delivery_id,
+              },
+            });
+          });
+        }
+        if (
+          definition.acknowledgeClick &&
+          typeof payload.click_id === "string" &&
+          payload.click_id
+        ) {
+          queueMicrotask(() => {
+            handlers.get("message")?.({
+              data: {
+                type: "hushh:fcm_notification_click_ack",
+                click_id: payload.click_id,
+              },
+            });
+          });
+        }
+      },
+    };
+    if (definition.navigate !== "unavailable") {
+      client.navigate = async (url: string) => {
+        navigatedUrls.push(url);
+        if (definition.navigate === "failure") {
+          throw new Error("navigation failed");
+        }
+        return client;
+      };
+    }
+    return client;
+  });
   const serviceWorker = {
     __HUSHH_FCM_ACK_TIMEOUT_MS__: 5,
     clients: {
-      matchAll: async () => [
-        {
-          visibilityState: "visible",
-          postMessage: (payload: { delivery_id?: string }) => {
-            if (!options.acknowledgeVisibleDelivery || !payload.delivery_id)
-              return;
-            queueMicrotask(() => {
-              handlers.get("message")?.({
-                data: {
-                  type: "hushh:fcm_push_ack",
-                  delivery_id: payload.delivery_id,
-                },
-              });
-            });
-          },
-        },
-      ],
-      openWindow: async () => undefined,
+      matchAll: async () => clients,
+      openWindow: async (url: string) => {
+        openedUrls.push(url);
+        return undefined;
+      },
     },
     registration: {
       showNotification: async (
         title: string,
         notificationOptions?: Record<string, unknown>,
       ) => {
+        if (options.failFirstShow && showAttempts++ === 0) throw new Error("presentation unavailable");
         shown.push({ title, options: notificationOptions });
       },
+      getNotifications: async ({ tag }: { tag?: string } = {}) =>
+        (options.deliveredTags || [])
+          .filter((candidate) => !tag || candidate === tag)
+          .map((candidate) => ({
+            close: () => closedTags.push(candidate),
+          })),
     },
     addEventListener: (type: string, handler: ServiceWorkerHandler) => {
       handlers.set(type, handler);
@@ -50,7 +155,8 @@ function createHarness(options: { acknowledgeVisibleDelivery: boolean }) {
     path.join(process.cwd(), "public", "firebase-messaging-sw.js"),
     "utf8",
   );
-  vm.runInNewContext(source, {
+  const database = options.database ?? new IDBFactory();
+  const context = vm.createContext({
     self: serviceWorker,
     setTimeout,
     clearTimeout,
@@ -58,12 +164,56 @@ function createHarness(options: { acknowledgeVisibleDelivery: boolean }) {
     Date,
     Math,
     Promise,
+    encodeURIComponent,
+    indexedDB: database,
+    crypto: webcrypto,
+    TextEncoder,
+    TextDecoder,
+    Uint8Array,
+    ArrayBuffer,
+    atob,
+    btoa,
   });
+  context.importScripts = (name: string) => vm.runInContext(fs.readFileSync(path.join(process.cwd(), "public", name.replace(/^\//u, "")), "utf8"), context);
+  vm.runInContext(source, context);
 
   return {
+    database,
+    hideClients() { clients.forEach(client => { client.visibilityState = "hidden"; client.focused = false; }); },
+    async message(data: Record<string, unknown>) {
+      let pending = Promise.resolve<unknown>(undefined);
+      handlers.get("message")?.({ data, waitUntil: promise => { pending = promise; } });
+      await pending;
+    },
+    async installKey(keyId: string = fixture.keyId) {
+      const decode = (value: string) => Uint8Array.from(Buffer.from(value, "base64url"));
+      const key = await webcrypto.subtle.importKey("pkcs8", decode(fixture.privateKey), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = database.open("hussh-chat-preview-v1", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("keys");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = reject;
+      });
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("keys", "readwrite");
+        transaction.objectStore("keys").put({ keyId, privateKey: key }, "active");
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = reject;
+      });
+      db.close();
+    },
+    openPreview: (data: Record<string, unknown>) => (serviceWorker as unknown as { openChatNotificationPreview: (value: Record<string, unknown>) => Promise<unknown> }).openChatNotificationPreview(data),
     shown,
+    clientMessages,
+    clientMessagesByIndex,
+    openedUrls,
+    navigatedUrls,
+    closedTags,
+    get focusCount() {
+      return focusCount;
+    },
     async push(type: string, data: Record<string, string> = { type }) {
-      let pending = Promise.resolve();
+      let pending = Promise.resolve<unknown>(undefined);
       handlers.get("push")?.({
         data: {
           json: () => ({
@@ -77,34 +227,260 @@ function createHarness(options: { acknowledgeVisibleDelivery: boolean }) {
       });
       await pending;
     },
+    async malformedPush() {
+      let pending = Promise.resolve<unknown>(undefined);
+      handlers.get("push")?.({
+        data: {
+          json: () => {
+            throw new Error("malformed");
+          },
+        },
+        waitUntil: (promise) => {
+          pending = promise;
+        },
+      });
+      await pending;
+    },
+    async click(data: Record<string, unknown> = {}) {
+      let pending = Promise.resolve<unknown>(undefined);
+      handlers.get("notificationclick")?.({
+        notification: {
+          close: () => undefined,
+          data,
+        },
+        waitUntil: (promise) => {
+          pending = promise;
+        },
+      });
+      await pending;
+    },
   };
 }
 
-describe("Firebase messaging service-worker foreground ownership", () => {
-  it("suppresses the system banner only after the visible app acknowledges delivery", async () => {
-    const harness = createHarness({ acknowledgeVisibleDelivery: true });
-    await harness.push("location_share_created");
+describe("Firebase messaging service-worker lifecycle ownership", () => {
+  it("routes a cold follow-up tap to the exact account and request", async () => {
+    const harness = createHarness({ clientState: "none" });
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    await harness.click({
+      type: "calendar_email_follow_up", account_id: "account_B",
+      followup_request_id: requestId, request_url: "https://evil.example/redirect",
+    });
+    expect(harness.openedUrls).toEqual([`/one/calendar?followupAccount=account_B&followupRequest=${requestId}`]);
+  });
+  it.each([
+    "location_share_created",
+    "connection_request",
+    "consent_request",
+    "kai_analysis_complete",
+    "future_notification_type",
+  ])(
+    "suppresses %s system UI after the visible app acknowledges",
+    async (type) => {
+      const harness = createHarness({ acknowledgeVisibleDelivery: true });
+      await harness.push(type);
+      expect(harness.shown).toEqual([]);
+    },
+  );
+
+  it("uses the system notification when the selected visible app cannot acknowledge", async () => {
+    const harness = createHarness({ acknowledgeVisibleDelivery: false });
+    await harness.push("connection_request");
+    expect(harness.shown.map((item) => item.title)).toEqual([
+      "connection_request",
+    ]);
+  });
+
+  it("uses generic copy and a fixed review route for an opaque document-share push", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_review_ready", {
+      type: "document_share_review_ready",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      deep_link: "/one/profile?ignored=true",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+    });
+
+    expect(harness.shown).toHaveLength(1);
+    expect(harness.shown[0]).toEqual({
+      title: "Files ready to review",
+      options: expect.objectContaining({
+        body: "Open One to choose what to share.",
+        requireInteraction: false,
+        renotify: false,
+        silent: false,
+        vibrate: undefined,
+        data: expect.objectContaining({
+          type: "document_share_review_ready",
+          request_id: "11111111-1111-4111-8111-111111111111",
+          url: "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+          source_url:
+            "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+        }),
+      }),
+    });
+    const notificationData = harness.shown[0]?.options?.data as Record<
+      string,
+      unknown
+    >;
+    expect(notificationData.file_name).toBeUndefined();
+    expect(notificationData.recipient_email).toBeUndefined();
+    expect(notificationData.request_url).toBeUndefined();
+  });
+
+  it("redacts an unreviewed document-share event while leaving its tap fail-closed", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_future_event", {
+      type: "document_share_future_event",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(harness.shown[0]).toEqual(
+      expect.objectContaining({ title: "Document request" }),
+    );
+    const notificationData = harness.shown[0]?.options?.data as Record<
+      string,
+      unknown
+    >;
+    expect(notificationData).toEqual(
+      expect.objectContaining({
+        type: "document_share_future_event",
+        url: "/one/feed",
+      }),
+    );
+    expect(notificationData.request_id).toBeUndefined();
+    expect(notificationData.file_name).toBeUndefined();
+    expect(notificationData.recipient_email).toBeUndefined();
+    expect(notificationData.request_url).toBeUndefined();
+  });
+
+  it("does not let a hidden tab suppress system presentation", async () => {
+    const harness = createHarness({
+      acknowledgeVisibleDelivery: true,
+      clientState: "hidden",
+    });
+    await harness.push("consent_request");
+
+    expect(harness.shown.map((item) => item.title)).toEqual([
+      "consent_request",
+    ]);
+    expect(harness.clientMessages).toContainEqual({
+      type: "hushh:fcm_feed_changed",
+      reason: "push_received",
+    });
+  });
+
+  it("elects one focused visible owner and sends refresh-only messages to peers", async () => {
+    const harness = createHarness({
+      clients: [
+        { visibilityState: "visible", focused: false },
+        {
+          visibilityState: "visible",
+          focused: true,
+          acknowledgeDelivery: true,
+        },
+        { visibilityState: "hidden", focused: false },
+      ],
+    });
+    await harness.push("connection_request");
+
+    expect(harness.shown).toEqual([]);
+    expect(harness.clientMessagesByIndex[0]).toEqual([
+      { type: "hushh:fcm_feed_changed", reason: "push_received" },
+    ]);
+    expect(harness.clientMessagesByIndex[1]?.[0]).toEqual(
+      expect.objectContaining({ type: "hushh:fcm_push_received" }),
+    );
+    expect(harness.clientMessagesByIndex[2]).toEqual([
+      { type: "hushh:fcm_feed_changed", reason: "push_received" },
+    ]);
+  });
+
+  it("falls back to system UI when the selected owner becomes hidden before ACK", async () => {
+    const harness = createHarness({
+      clients: [
+        {
+          visibilityState: "visible",
+          focused: true,
+          acknowledgeDelivery: true,
+          hideBeforeDeliveryAck: true,
+        },
+      ],
+    });
+    await harness.push("consent_request");
+    expect(harness.shown.map((item) => item.title)).toEqual([
+      "consent_request",
+    ]);
+  });
+
+  it.each(["consent_opened", "consent_resolved"])(
+    "keeps background %s bookkeeping silent, including legacy payloads",
+    async (type) => {
+      const tag = "consent-request:request-1";
+      const harness = createHarness({
+        clientState: "none",
+        deliveredTags: [tag],
+      });
+      await harness.push(type, {
+        type,
+        request_id: "request-1",
+        notification_tag: tag,
+      });
+      expect(harness.shown).toEqual([]);
+      expect(harness.closedTags).toEqual([tag]);
+    },
+  );
+
+  it("honors the explicit silent presentation contract for future types", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("future_bookkeeping", {
+      type: "future_bookkeeping",
+      notification_presentation: "silent",
+    });
     expect(harness.shown).toEqual([]);
   });
 
-  it("falls back to the system banner when the visible app does not acknowledge", async () => {
-    const harness = createHarness({ acknowledgeVisibleDelivery: false });
-    await harness.push("location_share_created");
-    expect(harness.shown.map((item) => item.title)).toEqual([
-      "location_share_created",
-    ]);
+  it("applies the same visible-owner policy to malformed legacy payloads", async () => {
+    const harness = createHarness({ acknowledgeVisibleDelivery: true });
+    await harness.malformedPush();
+    expect(harness.shown).toEqual([]);
   });
 
-  it("keeps system delivery for notification families not rendered by the provider", async () => {
-    const harness = createHarness({ acknowledgeVisibleDelivery: true });
-    await harness.push("kai_analysis_complete");
-    expect(harness.shown.map((item) => item.title)).toEqual([
-      "kai_analysis_complete",
-    ]);
+  it.each(["2000-01-01T00:00:00Z", "invalid"])("silences an expired or invalid SMS deadline: %s", async (expires_at) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("location_share_created", { type: "location_share_created", share_kind: "sos", grant_id: "expired-sms", expires_at });
+    expect(harness.shown).toEqual([]);
+  });
+
+  it("remembers SMS delivery and Stop across worker restarts without swallowing a new grant", async () => {
+    const first = createHarness({ clientState: "none" });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "sms-1", expires_at: new Date(Date.now() + 60_000).toISOString() };
+    await first.push(sms.type, sms);
+    expect(first.shown).toHaveLength(1);
+    const restarted = createHarness({ clientState: "none", database: first.database });
+    await restarted.push(sms.type, sms);
+    expect(restarted.shown).toHaveLength(0);
+    await restarted.push("location_share_revoked", { type: "location_share_revoked", grant_id: "sms-2", notification_presentation: "silent" });
+    const again = createHarness({ clientState: "none", database: first.database });
+    await again.push(sms.type, { ...sms, grant_id: "sms-2" });
+    expect(again.shown).toHaveLength(0);
+    await again.push(sms.type, { ...sms, grant_id: "sms-3" });
+    expect(again.shown).toHaveLength(1);
+  });
+
+  it("retries an SMS after system presentation fails", async () => {
+    const harness = createHarness({ clientState: "none", failFirstShow: true });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "retry-sms" };
+    await expect(harness.push(sms.type, sms)).rejects.toThrow("presentation unavailable");
+    await harness.push(sms.type, sms);
+    expect(harness.shown).toHaveLength(1);
   });
 
   it("uses a persistent vibrating system alert for background emergency SMS", async () => {
-    const harness = createHarness({ acknowledgeVisibleDelivery: false });
+    const harness = createHarness({ clientState: "none" });
     await harness.push("location_share_created", {
       type: "location_share_created",
       share_kind: "sos",
@@ -118,7 +494,276 @@ describe("Firebase messaging service-worker foreground ownership", () => {
         renotify: true,
         silent: false,
         vibrate: [240, 120, 240, 120, 520],
+        data: expect.objectContaining({ url: "/one/location?section=shared" }),
       }),
     });
   });
+
+  it.each(["location_share_created", "location_access_approved"])(
+    "routes a warm %s body tap to Shared with me without document navigation",
+    async (type) => {
+      const harness = createHarness({
+        acknowledgeVisibleDelivery: true,
+        acknowledgeNotificationClick: true,
+      });
+      await harness.click({
+        type,
+        grant_id: "old-target",
+      });
+
+      expect(harness.focusCount).toBe(1);
+      expect(harness.openedUrls).toEqual([]);
+      expect(harness.navigatedUrls).toEqual([]);
+      expect(harness.clientMessages).toContainEqual(
+        expect.objectContaining({
+          type: "hushh:fcm_notification_clicked",
+          url: "/one/location?section=shared",
+          reason: "notification_click",
+        }),
+      );
+    },
+  );
+
+  it("navigates a stale warm client when the click bridge does not acknowledge", async () => {
+    const harness = createHarness({ acknowledgeNotificationClick: false });
+    await harness.click({ type: "connection_request" });
+    expect(harness.navigatedUrls).toEqual(["/one/feed"]);
+    expect(harness.openedUrls).toEqual([]);
+  });
+
+  it("falls back immediately when posting to a stale warm client throws", async () => {
+    const harness = createHarness({
+      clients: [
+        {
+          visibilityState: "visible",
+          focused: true,
+          postMessageThrows: true,
+          navigate: "success",
+        },
+      ],
+    });
+    await harness.click({ type: "connection_request" });
+    expect(harness.navigatedUrls).toEqual(["/one/feed"]);
+  });
+
+  it("opens Feed when a stale client cannot be navigated", async () => {
+    const harness = createHarness({
+      clients: [
+        {
+          visibilityState: "visible",
+          focused: true,
+          navigate: "failure",
+        },
+      ],
+    });
+    await harness.click({ type: "connection_request" });
+    expect(harness.openedUrls).toEqual(["/one/feed"]);
+  });
+
+  it("preserves consent identity while routing a body tap through Feed", async () => {
+    const harness = createHarness({
+      acknowledgeNotificationClick: true,
+    });
+    await harness.click({
+      type: "consent_request",
+      request_id: "request 1",
+      bundle_id: "bundle&1",
+    });
+    expect(harness.clientMessages).toContainEqual(
+      expect.objectContaining({
+        type: "hushh:fcm_notification_clicked",
+        url: "/one/feed?notificationRequestId=request%201&notificationBundleId=bundle%261",
+      }),
+    );
+  });
+
+  it("opens only the canonical document review for a cold document-share tap", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.click({
+      type: "document_share_request",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      deep_link: "/one/profile?ignored=true",
+    });
+
+    expect(harness.openedUrls).toEqual([
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+    ]);
+  });
+
+  it.each([
+    [
+      "drive",
+      "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+    ],
+    ["payouts", "/one/profile/payouts?from=%2Fone%2Ffeed"],
+    ["price", "/one/profile/request-pricing?from=%2Fone%2Ffeed"],
+  ] as const)("opens the app's %s setup screen for an owner's request push", async (setup, href) => {
+    // The worker cannot import TypeScript, so its fixed targets must match.
+    expect(documentRequestSetupHref(setup)).toBe(href);
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_request", {
+      type: "document_share_request",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      setup,
+    });
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data).toEqual(expect.objectContaining({ setup, url: href, source_url: href }));
+    await harness.click(data);
+    expect(harness.openedUrls).toEqual([href]);
+  });
+
+  it.each([
+    { type: "document_share_request", setup: "https://evil.example" },
+    { type: "document_share_request", setup: "drive?x=1" },
+    { type: "document_share_review_ready", setup: "drive" },
+  ])("drops setup $setup on $type and keeps the review route", async (fields) => {
+    const review =
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111";
+    const raw = { ...fields, request_id: "11111111-1111-4111-8111-111111111111" };
+    const harness = createHarness({ clientState: "none" });
+    await harness.push(fields.type, raw);
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.setup).toBeUndefined();
+    expect(data.url).toBe(review);
+    // A tap on an unreduced payload falls back the same way.
+    await harness.click(raw);
+    expect(harness.openedUrls).toEqual([review]);
+  });
+
+  it("opens the live Feed for payment and drops private push fields", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_payment_ready", {
+      type: "document_share_payment_ready",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      file_name: "private.pdf",
+      purpose: "private purpose",
+    });
+    expect(harness.shown[0]?.title).toBe("Payment needed");
+    // The owner sets the price, so a push never names a fixed amount.
+    expect(harness.shown[0]?.options?.body).toBe("Pay in One to continue your document request.");
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.url).toBe("/one/feed");
+    expect(JSON.stringify(data)).not.toMatch(/private\.pdf|private purpose/);
+  });
+
+  it.each([
+    ["document_share_question", "Drive question"],
+    ["document_share_answered", "Drive question answered"],
+    ["document_share_declined", "Drive question declined"],
+  ])("shows %s with its own words and opens the question card", async (type, title) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push(type, {
+      type,
+      request_id: "22222222-2222-4222-8222-222222222222",
+      question: "private question text",
+    });
+    expect(harness.shown[0]?.title).toBe(title);
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.url).toBe(
+      "/one/consent?tab=pending&requestId=drive_query_request%3A22222222-2222-4222-8222-222222222222",
+    );
+    expect(data.question).toBeUndefined();
+  });
+
+  it("fails closed to Feed for a malformed document-share tap", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.click({
+      type: "document_share_review_ready",
+      request_id: "not-a-uuid",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(harness.openedUrls).toEqual(["/one/feed"]);
+  });
+
+  it.each(["location_share_created", "location_access_approved"])(
+    "opens Shared with me for a cold %s body tap",
+    async (type) => {
+      const harness = createHarness({ clientState: "none" });
+      await harness.click({
+        type,
+        request_url: "/one/location?grantId=old&section=people",
+      });
+      expect(harness.openedUrls).toEqual(["/one/location?section=shared"]);
+    },
+  );
+
+  it.each(["location_share_created", "location_access_approved"])(
+    "navigates a stale web client to Shared with me for %s",
+    async (type) => {
+      const harness = createHarness({ acknowledgeNotificationClick: false });
+      await harness.click({ type });
+      expect(harness.navigatedUrls).toEqual(["/one/location?section=shared"]);
+      expect(harness.openedUrls).toEqual([]);
+    },
+  );
+
+  it.each([
+    "location_access_request",
+    "location_share_shortened",
+    "location_share_duration_changed",
+    "location_share_revoked",
+    "location_share_expired",
+  ])("preserves the default destination for %s", async (type) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.click({ type });
+    expect(harness.openedUrls).toEqual(["/one/feed"]);
+  });
+});
+
+
+it("opens Python and browser previews with the same binding and rejects tampering", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { chat_preview: fixture.sealed, preview_context: fixture.context };
+  expect(await harness.openPreview(data)).toEqual(fixture.preview);
+  expect(await harness.openPreview({ ...data, preview_context: fixture.context + "-other" })).toBeNull();
+  const damaged = JSON.parse(fixture.sealed) as string[];
+  damaged[3] = (damaged[3][0] === "A" ? "B" : "A") + damaged[3].slice(1);
+  expect(await harness.openPreview({ ...data, chat_preview: JSON.stringify(damaged) })).toBeNull();
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+  const sealed = await sealNotificationPreview({ userId: "fixture", keyId: fixture.keyId, publicKey: fixture.publicKey }, fixture.context, fixture.preview);
+  expect(await harness.openPreview({ ...data, chat_preview: sealed })).toEqual(fixture.preview);
+});
+
+it("renders sealed authoritative Circle identity and suppresses pushes after account rotation", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { type: "location_circle_message", circle_id: "11111111-2222-3333-4444-555555555555", message_id: "fixture-circle-message",
+    recipient_key_id: fixture.keyId, chat_preview: fixture.sealed, chat_identity: fixture.identity, preview_context: fixture.context,
+    chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) };
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.shown[0].title).toBe("Weekend");
+  expect(harness.shown[0].options?.body).toBe("Alice: " + fixture.preview.text);
+  await harness.installKey("new-owner-preview-key");
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.clientMessages).toHaveLength(0);
+});
+
+
+const chatData = (sequence: string, messageId = `m${sequence}`) => ({ type: "location_circle_message",
+  circle_id: "11111111-2222-3333-4444-555555555555", recipient_key_id: fixture.keyId, message_id: messageId,
+  chat_sequence: sequence, chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) });
+it("does not alert an acknowledged message again after its chat hides", async () => {
+  const h = createHarness({ acknowledgeVisibleDelivery: true }); await h.installKey();
+  await h.push("location_circle_message", chatData("10")); h.hideClients();
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(0);
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
+});
+it("retries a message whose system presentation failed", async () => {
+  const h = createHarness({ clientState: "none", failFirstShow: true }); await h.installKey();
+  await expect(h.push("location_circle_message", chatData("10"))).rejects.toThrow("presentation unavailable");
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+});
+it("keeps read frontiers monotonic and scoped to the active recipient key", async () => {
+  const h = createHarness({ clientState: "none" }); await h.installKey();
+  const read = { type: "hushh:chat_read", keyId: fixture.keyId, threadId: chatData("1").circle_id };
+  await h.message({ ...read, sequence: 10 }); await h.message({ ...read, sequence: 4 });
+  await h.push("location_circle_message", chatData("9")); expect(h.shown).toHaveLength(0);
+  await h.message({ ...read, keyId: "other-owner-key", sequence: 999 });
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
 });

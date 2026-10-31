@@ -8,9 +8,10 @@ Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -23,32 +24,61 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.services.capability_run_service import (
+    MAX_CAPABILITY_RUN_RETENTION_PURGE,
+    get_capability_run_store,
+)
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from hushh_mcp.services.google_maps_service import (
     GoogleMapsError,
     GoogleMapsService,
     NearbyPlaceCategory,
 )
+from hushh_mcp.services.location_onboarding_runtime import (
+    get_location_onboarding_runtime_service,
+)
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
+    is_sos_share,
     location_error_detail,
 )
 from hushh_mcp.services.one_location_circle_service import (
+    CIRCLE_MAX_CUSTOM_TYPES,
     OneLocationCircleError,
     OneLocationCircleService,
+)
+from hushh_mcp.services.one_location_feature_admission import (
+    nearby_presence_cohort,
+    nearby_presence_enabled,
 )
 from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
 )
+from hushh_mcp.services.one_location_place_rating_service import (
+    OneLocationPlaceRatingService,
+    PlaceRatingError,
+)
+from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
+from hushh_mcp.services.scheduler_identity import (
+    SchedulerIdentityError,
+    legacy_shared_token_allowed,
+    verified_scheduler_identity,
+)
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
+# Invitation presentation is not a protected Location workflow capability.
+# Mount it separately in the One API, like the existing public People router.
+public_router = APIRouter(prefix="/api/one", tags=["One Location Invitations"])
+
+logger = logging.getLogger(__name__)
 
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
@@ -83,13 +113,21 @@ class CreateGrantRequest(_CamelModel):
         default=None,
         alias="sourceCircleId",
     )
-    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
 
 class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
 
     recipient_key_id: str = Field(
         alias="recipientKeyId",
@@ -102,12 +140,35 @@ class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
         max_length=160,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
     )
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
     confirmed_at: datetime = Field(alias="confirmedAt")
     envelope: dict[str, Any]
 
 
 class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+
+
+class CommandOperationRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+
+
+class SosEmailRecipientsRequest(_CamelModel):
+    """Which contacts One may email for a Save my Soul alert.
+
+    `grantIds` is the authorization, not a hint: only the recipients of live
+    SOS grants the caller's own account just created are returned. No
+    coordinates here — the message is rendered and sent by One, and the server
+    never sees a plaintext location (`one_location_envelopes` keeps
+    coordinates inside the ciphertext).
+    """
+
+    grant_ids: list[str] = Field(alias="grantIds", min_length=1, max_length=20)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -121,14 +182,130 @@ class UpdateMapPreferencesRequest(_CamelModel):
     )
 
 
+class UpdateAutoApprovePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    enabled: bool
+    scope_kind: Literal["all_contacts", "circle", "circles"] | None = Field(
+        default=None,
+        alias="scopeKind",
+    )
+    circle_id: UUID | None = Field(default=None, alias="circleId")
+    circle_ids: list[UUID] | None = Field(default=None, alias="circleIds", max_length=30)
+
+
+class UpdateNearbyCheckInPreferencesRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    visible: bool
+    allow_connection_requests: bool = Field(alias="allowConnectionRequests")
+
+
+class UpdateSosVoicePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    default_action: Literal["open", "trigger"] = Field(alias="defaultAction")
+
+
 class CreateAccessRequest(_CamelModel):
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    client_operation_id: str | None = Field(
+        default=None, alias="clientOperationId", min_length=1, max_length=160
+    )
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
-    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    # How much time the requester actually wants. Optional so an older client
+    # keeps its current behaviour (no preference -> the owner picks), and a
+    # request, never an authorization: only approve_request writes a grant.
+    requested_duration_hours: float | None = Field(
+        default=None, alias="requestedDurationHours", gt=0, le=24
+    )
+    requested_duration_mode: str | None = Field(
+        default=None,
+        alias="requestedDurationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    # The live share this ask wants lengthened. A hint the service verifies
+    # against the real grant between these two people before honouring it.
+    extends_grant_id: str | None = Field(default=None, alias="extendsGrantId", max_length=128)
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    # Required so a cached pre-standing-rule browser cannot make an automatic
+    # call look like an explicit manual tap merely by omitting the new context.
+    approval_mode: Literal["manual", "automatic"] = Field(alias="approvalMode")
+
+    # Both default to None so an approval with no duration means "grant what
+    # they asked for". Sending one still wins -- the owner can always give less
+    # (or more) than was asked.
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str | None = Field(
+        default=None,
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    # Present only when the first-party client is applying the current
+    # server-owned standing rule. The service locks and revalidates this exact
+    # version before it writes a grant.
+    auto_approve_rule_version: int | None = Field(
+        default=None,
+        alias="autoApproveRuleVersion",
+        ge=1,
+    )
+    expected_request_revision: int | None = Field(
+        default=None, alias="expectedRequestRevision", ge=1
+    )
+
+    @model_validator(mode="after")
+    def validate_approval_intent(self) -> "ResolveAccessRequest":
+        automatic = self.approval_mode == "automatic"
+        if automatic and self.auto_approve_rule_version is None:
+            raise ValueError("automatic approval requires a current rule version")
+        if automatic and (self.duration_hours is not None or self.duration_mode is not None):
+            raise ValueError("automatic approval must use the requested duration")
+        if not automatic and self.auto_approve_rule_version is not None:
+            raise ValueError("manual approval cannot cite an automatic rule")
+        return self
+
+
+class ShortenGrantRequest(_CamelModel):
+    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
+
+
+class SetGrantDurationRequest(_CamelModel):
+    """A new end time for a share the owner already has running.
+
+    `durationHours` is null for "until I stop", which is why it is optional
+    here and refused by the service for share kinds that may not be open-ended.
+    """
+
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    client_operation_id: str | None = Field(
+        default=None,
+        alias="clientOperationId",
+        min_length=8,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
 
 
 class ReferralRequest(_CamelModel):
@@ -137,8 +314,22 @@ class ReferralRequest(_CamelModel):
 
 
 class CreatePublicInviteRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    # `le=2`, not `le=24`. A public link is readable by anyone holding it, which
+    # is a different promise from a private share to a named person who can be
+    # un-shared -- and 24 was the private ceiling, copied. The service checks it
+    # again (PUBLIC_INVITE_MAX_DURATION_HOURS): this stops the request at the
+    # edge with a field-level error, that one holds for every other caller.
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=2)
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
+
+
+class RevokePublicInviteRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    command_binding: dict[str, Any] = Field(alias="commandBinding")
 
 
 class CreateCircleInviteRequest(_CamelModel):
@@ -151,26 +342,109 @@ class ClaimCircleInviteRequest(_CamelModel):
 
 
 class CreateNamedCircleRequest(_CamelModel):
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
+
+
+class BootstrapNamedCircleRequest(_CamelModel):
+    # No circle id and no kind: onboarding may only ever create the caller their
+    # own first Circle, so there is nothing for a caller to point this at.
+    name: str = Field(min_length=1, max_length=80)
+    purpose: Literal["signup_contacts_v1"] | None = None
+
+
+class CircleCommandRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    command_binding: dict[str, Any] = Field(alias="commandBinding")
 
 
 class UpdateNamedCircleRequest(_CamelModel):
-    name: str | None = Field(default=None, min_length=2, max_length=80)
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
+    name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
+
+
+class DeleteCircleTypeRequest(_CamelModel):
+    custom_type_label: str = Field(alias="customTypeLabel", min_length=1, max_length=80)
+
+
+def _circle_command_kwargs(
+    payload: CircleCommandRequest | UpdateNamedCircleRequest | None,
+) -> dict[str, Any]:
+    if payload is None or (
+        payload.command_operation_id is None and payload.command_binding is None
+    ):
+        return {}
+    return {
+        "command_operation_id": payload.command_operation_id,
+        "command_binding": payload.command_binding,
+    }
 
 
 class NamedCircleCodeRequest(_CamelModel):
     code: str = Field(min_length=12, max_length=32)
 
 
+class PublicNamedCirclePreview(_CamelModel):
+    name: str
+    owner_display_name: str = Field(alias="ownerDisplayName")
+
+
+class PublicNamedCirclePreviewResponse(_CamelModel):
+    circle: PublicNamedCirclePreview
+
+
+class CircleMemberPageItem(_CamelModel):
+    user_id: str = Field(alias="userId")
+    display_name: str = Field(alias="displayName")
+    photo_url: str | None = Field(default=None, alias="photoUrl")
+    role: str
+    joined_at: str | None = Field(default=None, alias="joinedAt")
+    phone_verified: bool = Field(alias="phoneVerified")
+    secure_location_ready: bool = Field(alias="secureLocationReady")
+    key_id: str | None = Field(default=None, alias="keyId")
+    public_key_jwk: dict[str, Any] | None = Field(default=None, alias="publicKeyJwk")
+    key_algorithm: str = Field(alias="keyAlgorithm")
+    key_registered_at: str | None = Field(default=None, alias="keyRegisteredAt")
+    can_receive_location: bool = Field(alias="canReceiveLocation")
+    relationship: str
+    can_connect: bool = Field(alias="canConnect")
+    connected_from_contacts: bool = Field(alias="connectedFromContacts")
+    is_ria: bool = Field(default=False, alias="isRia")
+
+
+class CircleMembersPageResponse(_CamelModel):
+    items: list[CircleMemberPageItem]
+    page: int
+    has_more: bool = Field(alias="hasMore")
+    total_count: int = Field(alias="totalCount")
+
+
 class CreateCircleMemberInvitesRequest(_CamelModel):
+    context: Literal["explicit", "signup"] = "explicit"
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
+    operation_id: str | None = Field(default=None, alias="operationId", pattern=r"^[a-f0-9]{64}$")
+    batch_index: int = Field(default=0, alias="batchIndex", ge=0, lt=250)
+    batch_count: int = Field(default=1, alias="batchCount", ge=1, le=250)
     circle_id: UUID = Field(alias="circleId")
     invitee_user_ids: list[_CircleInviteeUserId] = Field(
         alias="inviteeUserIds",
         min_length=1,
         max_length=20,
     )
+
+
+class RefreshPublicInviteLocationRequest(_CamelModel):
+    # Required, unlike the create payload's optional snapshot: a heartbeat with
+    # no point is not a heartbeat.
+    location_snapshot: dict[str, Any] = Field(alias="locationSnapshot")
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -225,6 +499,24 @@ class NearbyPresenceCheckInRequest(_CamelModel):
     )
     consent_accepted: bool = Field(alias="consentAccepted")
     allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    consent_version: str | None = Field(default=None, alias="consentVersion", max_length=80)
+
+
+class NearbyPresenceCheckoutRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    presence_id: UUID | None = Field(alias="presenceId")
+    presence_version: int = Field(alias="presenceVersion", ge=0, strict=True)
+
+
+class NearbyPresenceExtendRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    increment_minutes: Literal[30, 60] = Field(alias="incrementMinutes")
 
 
 class NearbyConnectionRequest(_CamelModel):
@@ -237,6 +529,45 @@ class NearbyConnectionRequest(_CamelModel):
     )
 
 
+class PlaceRatingSubmitRequest(_CamelModel):
+    """A 1-5 star rating for a place the caller was recorded at.
+
+    No note field on purpose. The author's note is written to their own vault,
+    client-side encrypted, and never reaches this server -- a plaintext note
+    attached to a venue and a timestamp is a movement log with commentary.
+
+    `consentVersion` is sent by the client and checked against the server's
+    current version rather than stamped here. A rating is permanent, so a stale
+    client must not be able to save one under a promise it never displayed.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+    rating: int = Field(ge=1, le=5)
+    consent_version: str = Field(alias="consentVersion", min_length=1, max_length=80)
+    consent_accepted: bool = Field(alias="consentAccepted")
+
+
+class PlaceRatingDeleteRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+
+
+class PlaceRatingSummariesRequest(_CamelModel):
+    """Anonymous averages for a list of places.
+
+    A POST rather than a GET because the list is a body, not a query string:
+    twenty provider place ids do not belong in a URL, and a place id in a URL
+    is a place id in every access log between here and the browser.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    place_ids: list[str] = Field(alias="placeIds", min_length=1, max_length=25)
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
@@ -247,6 +578,10 @@ def _circle_service() -> OneLocationCircleService:
 
 def _nearby_presence_service() -> OneLocationNearbyPresenceService:
     return OneLocationNearbyPresenceService()
+
+
+def _place_rating_service() -> OneLocationPlaceRatingService:
+    return OneLocationPlaceRatingService()
 
 
 def _user_id(token_data: dict[str, Any]) -> str:
@@ -264,6 +599,21 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    if isinstance(exc, ActionDirectiveAuthorityError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOCATION_COMMAND_CHANGED",
+                "message": "This command changed or expired. Refresh it before continuing.",
+            },
+        )
+    if isinstance(exc, PlaceRatingError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
     if isinstance(exc, NearbyPresenceError):
         return HTTPException(
             status_code=exc.status_code,
@@ -299,52 +649,11 @@ def _retention_auth_enabled() -> bool:
     return True
 
 
-def _nearby_presence_cohort() -> set[str] | None:
-    """Production allowlist. `None` means "no cohort configured"."""
-
-    raw = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT") or "").strip()
-    if not raw:
-        return None
-    if raw.lower() == "all":
-        return set()
-    return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _nearby_presence_enabled(user_id: str | None = None) -> bool:
-    """Whether nearby check-in is reachable for this caller.
-
-    Non-production lanes are unchanged: the flow is on unless
-    `ONE_LOCATION_NEARBY_PRESENCE_MODE` names something other than the UAT
-    simulation.
-
-    Production is off unless deliberately opted into, because the reported
-    point is client-supplied and unattestable -- see the continuity guard in
-    `one_location_nearby_presence_service`, which bounds a roaming attack but
-    cannot prove any single check-in. Opting in therefore takes two steps, not
-    one: `ONE_LOCATION_NEARBY_PRESENCE_MODE=production` *and* a cohort. A
-    production rollout with no cohort configured stays closed, so forgetting
-    the second variable fails safe rather than opening the flow to everyone.
-    """
-
-    environment = (
-        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
-    )
-    safe_environments = {"development", "dev", "local", "test", "uat", "staging"}
-    mode = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_MODE") or "").strip().lower()
-
-    if environment in safe_environments:
-        if mode:
-            return mode in {"uat_simulation", "production"}
-        return True
-
-    if mode != "production":
-        return False
-    cohort = _nearby_presence_cohort()
-    if cohort is None:
-        return False
-    if not cohort:
-        return True
-    return bool(user_id) and str(user_id) in cohort
+# Nearby check-in admission lives in one module so the HTTP routes and the
+# One Live Voice tools gate on the same predicate. The underscore names stay
+# bound here because the surface map and existing tests reference them.
+_nearby_presence_cohort = nearby_presence_cohort
+_nearby_presence_enabled = nearby_presence_enabled
 
 
 # Retained under the old name because the surface map and existing tests
@@ -369,9 +678,49 @@ def _set_private_no_store(response: Response) -> None:
     response.headers["Pragma"] = "no-cache"
 
 
+def _verified_scheduler_identity(request: Request, config_prefix: str):
+    """Verify a scheduler OIDC token, or return None when none was presented.
+
+    A presented-but-invalid token raises rather than returning None, so it cannot
+    fall through to the weaker shared-header path below.
+    """
+    try:
+        return verified_scheduler_identity(request, config_prefix)
+    except SchedulerIdentityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+                "reason": error.reason,
+            },
+        ) from error
+
+
 def _require_retention_auth(request: Request) -> None:
+    """OIDC first; the shared header only while the legacy path is still open.
+
+    Order matters. Checking OIDC first means that once both Cloud Scheduler jobs are
+    reconfigured, turning the legacy path off is a config change and not a code
+    change -- and until then a job that presents a valid OIDC token is never asked
+    for a header it no longer carries.
+    """
     if not _retention_auth_enabled():
         return
+
+    identity = _verified_scheduler_identity(request, "ONE_LOCATION_RETENTION")
+    if identity is not None:
+        return
+
+    if not legacy_shared_token_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+            },
+        )
+
     expected = str(os.getenv("ONE_LOCATION_RETENTION_TOKEN") or "").strip()
     if not expected:
         raise HTTPException(
@@ -392,6 +741,55 @@ def _require_retention_auth(request: Request) -> None:
         )
 
 
+async def _sms_roster_identity_ready(
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(_service(), owner_user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_grant_identity_ready(
+    payload: CreateGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        if is_sos_share(share_kind=payload.share_kind, reason=payload.reason):
+            await refresh_sms_recipient_identities(
+                _service(),
+                owner_user_id=_user_id(token_data),
+                recipient_user_id=payload.recipient_user_id,
+            )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_envelope_identity_ready(
+    payload: CreateGrantWithEnvelopeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    return await _sms_grant_identity_ready(payload, token_data)
+
+
+async def _sms_add_identity_ready(
+    payload: AddSmsContactRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(
+            _service(),
+            owner_user_id=_user_id(token_data),
+            recipient_user_id=payload.recipient_user_id,
+            adding_contact=True,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
 @router.get("/location/state")
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
@@ -400,7 +798,7 @@ def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/sms-contacts")
+@router.post("/location/sms-contacts", dependencies=[Depends(_sms_add_identity_ready)])
 def add_location_sms_contact(
     payload: AddSmsContactRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -410,22 +808,77 @@ def add_location_sms_contact(
             "smsContactUserIds": _service().add_sms_contact(
                 owner_user_id=_user_id(token_data),
                 contact_user_id=payload.recipient_user_id,
+                **(
+                    {"operation_id": payload.command_operation_id}
+                    if payload.command_operation_id
+                    else {}
+                ),
             )
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/sos-email-recipients")
+def list_location_sos_email_recipients(
+    payload: SosEmailRecipientsRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Resolve who One may email for a Save my Soul alert.
+
+    The push notification is the first channel and reaches nobody when a
+    contact has notifications off or the app uninstalled; email is the second.
+    One renders and sends that mail through `hushh-mail-api`; account and
+    support notices use the separate delegated `one@hushh.ai` sender. This
+    endpoint only answers who is reachable under the caller's own grants.
+
+    Never fails the caller: the alert has already gone out by the time this is
+    called, so a resolution problem is an empty list, not an error. An
+    exception here would make a successful emergency look like a failed one.
+    """
+    # Contact addresses in the body; never cached, never stored.
+    _set_private_no_store(response)
+    try:
+        return _service().list_sos_email_recipients(
+            owner_user_id=_user_id(token_data),
+            grant_ids=payload.grant_ids,
+        )
+    except Exception:
+        logger.warning("one.location.sos_email_recipients.route_failed", exc_info=False)
+        return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
+
+
+@router.get("/location/sms-contacts", dependencies=[Depends(_sms_roster_identity_ready)])
+def get_location_sms_contacts(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    _set_private_no_store(response)
+    service = _service()
+    owner = _user_id(token_data)
+    ids = service.list_sms_contact_ids(owner_user_id=owner)
+    return {
+        "smsContactUserIds": ids,
+        "recipients": service.list_verified_recipients(
+            owner_user_id=owner, user_ids=ids, limit=max(1, len(ids))
+        )
+        if ids
+        else [],
+    }
+
+
 @router.delete("/location/sms-contacts/{recipient_user_id}")
 def remove_location_sms_contact(
     recipient_user_id: _RecipientUserId,
     token_data: dict = Depends(require_vault_owner_token),
+    payload: CommandOperationRequest | None = None,
 ):
     try:
         return {
             "smsContactUserIds": _service().remove_sms_contact(
                 owner_user_id=_user_id(token_data),
                 contact_user_id=recipient_user_id,
+                **({"operation_id": payload.command_operation_id} if payload else {}),
             )
         }
     except Exception as exc:
@@ -436,6 +889,20 @@ def remove_location_sms_contact(
 def get_location_map_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_map_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/map-preferences")
+def get_location_map_preferences(token_data: dict = Depends(require_vault_owner_token)):
+    """Read the viewer's own map presence preference.
+
+    Separate from `/location/map-state`, which also returns every marker and
+    costs a decrypt-and-render pass. Location settings needs one boolean, and
+    should not pay for the map to ask a question about a switch.
+    """
+    try:
+        return {"preferences": _service().get_map_preferences(user_id=_user_id(token_data))}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -451,6 +918,96 @@ def update_location_map_preferences(
                 user_id=_user_id(token_data),
                 presence_mode=payload.presence_mode,
                 renderer_consent_version=payload.renderer_consent_version,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/auto-approve-preference")
+def update_location_auto_approve_preference(
+    payload: UpdateAutoApprovePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_auto_approve_preference(
+                user_id=_user_id(token_data),
+                enabled=payload.enabled,
+                scope_kind=payload.scope_kind,
+                circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
+                circle_ids=(
+                    [str(value) for value in payload.circle_ids]
+                    if payload.circle_ids is not None
+                    else None
+                ),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/nearby-check-in-preferences")
+def get_location_nearby_check_in_preferences(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own Nearby Check-In defaults.
+
+    Separate from `/location/state`, which also carries grants, circles, and
+    recipients -- Voice Settings needs two booleans, and should not pay for
+    the full bulk fetch to render a settings page.
+    """
+    try:
+        return {
+            "preferences": _service().get_nearby_check_in_defaults(user_id=_user_id(token_data))
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/nearby-check-in-preferences")
+def update_location_nearby_check_in_preferences(
+    payload: UpdateNearbyCheckInPreferencesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preferences": _service().update_nearby_check_in_defaults(
+                user_id=_user_id(token_data),
+                visible=payload.visible,
+                allow_connection_requests=payload.allow_connection_requests,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/sos-voice-preference")
+def get_location_sos_voice_preference(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the viewer's own standing default for a bare emergency voice phrase.
+
+    Separate from `/location/state` for the same reason as the Nearby
+    Check-In preferences route -- Voice Settings needs one field, not the
+    full bulk fetch.
+    """
+    try:
+        return {"preference": _service().get_sos_voice_preference(user_id=_user_id(token_data))}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/sos-voice-preference")
+def update_location_sos_voice_preference(
+    payload: UpdateSosVoicePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_sos_voice_preference(
+                user_id=_user_id(token_data),
+                default_action=payload.default_action,
             )
         }
     except Exception as exc:
@@ -474,13 +1031,42 @@ def get_location_activity(
 
 
 @router.post("/location/retention/purge")
-def purge_location_retention(request: Request, older_than_hours: float = 12):
+async def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
     try:
-        result = _service().purge_terminal_work(older_than_hours=older_than_hours)
-        result["nearby_presence"] = _nearby_presence_service().purge_terminal(
-            older_than_hours=older_than_hours
+        await CommandCheckpointStore().purge_expired()
+        result = await run_in_threadpool(
+            _service().purge_terminal_work, older_than_hours=older_than_hours
         )
+        result["nearby_presence"] = await run_in_threadpool(
+            _nearby_presence_service().purge_terminal,
+            older_than_hours=older_than_hours,
+        )
+        # The Location ledger owns short-lived local-draft/finalize authority;
+        # the generic parent-run purge then lets PostgreSQL cascade any
+        # remaining expired Location children.  Neither cleanup is reachable
+        # through a client database role: this endpoint remains maintenance
+        # token protected above.
+        result[
+            "location_onboarding_drafts"
+        ] = await get_location_onboarding_runtime_service().purge_expired_drafts()
+        result["capability_runs"] = await get_capability_run_store().purge_expired(
+            limit=MAX_CAPABILITY_RUN_RETENTION_PURGE
+        )
+        # Visits carry their own seven-day window, so this deliberately ignores
+        # `older_than_hours` and purges on the row's own `expires_at`.
+        #
+        # Best-effort, like every other rating call reached from a check-in
+        # path. Retention is the job that keeps the rest of Location tidy, and
+        # a rating ledger that cannot be reached -- an environment without the
+        # table, a transient database fault -- must not turn the whole purge
+        # into a 503 and leave everything else uncollected.
+        try:
+            result["place_rating_visits"] = await run_in_threadpool(
+                _place_rating_service().purge_expired_visits
+            )
+        except Exception:  # noqa: BLE001 - see comment above
+            logger.warning("one_location.place_rating_visit_purge_failed", exc_info=True)
         return result
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -488,12 +1074,24 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
 
 @router.get("/location/recipients")
 def list_verified_location_recipients(
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    query: str | None = Query(default=None, max_length=160),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {
-            "recipients": _service().list_verified_recipients(owner_user_id=_user_id(token_data))
-        }
+        response.headers["Cache-Control"] = "private, no-store"
+        service = _service()
+        owner_user_id = _user_id(token_data)
+        if all(value is None for value in (page, limit, query)):
+            return {"recipients": service.list_verified_recipients(owner_user_id=owner_user_id)}
+        return service.list_verified_recipients_page(
+            owner_user_id=owner_user_id,
+            query=query or "",
+            page=page or 1,
+            limit=limit or 50,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -503,7 +1101,28 @@ def list_named_location_circles(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {"circles": _circle_service().list_circles(user_id=_user_id(token_data))}
+        return {
+            "circles": _circle_service().list_circles(user_id=_user_id(token_data)),
+            "customTypePolicy": {"version": 1, "maxTypes": CIRCLE_MAX_CUSTOM_TYPES},
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-types")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def delete_named_location_circle_type(
+    request: Request,
+    response: Response,
+    payload: DeleteCircleTypeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    _set_private_no_store(response)
+    try:
+        return _circle_service().delete_custom_type(
+            owner_user_id=_user_id(token_data), label=payload.custom_type_label
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -522,6 +1141,11 @@ def create_named_location_circle(
                 owner_user_id=_user_id(token_data),
                 name=payload.name,
                 kind=payload.kind,
+                **(
+                    {"custom_type_label": payload.custom_type_label}
+                    if payload.custom_type_label is not None
+                    else {}
+                ),
             )
         }
     except Exception as exc:
@@ -546,19 +1170,82 @@ def get_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/circles/{circle_id}/overview")
+def get_named_location_circle_overview(
+    circle_id: _CircleId,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Return Circle metadata/capabilities without a partial or complete roster."""
+
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().get_circle_overview(
+                user_id=_user_id(token_data), circle_id=circle_id
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get(
+    "/location/circles/{circle_id}/members",
+    response_model=CircleMembersPageResponse,
+    response_model_by_alias=True,
+)
+def list_named_location_circle_members(
+    circle_id: _CircleId,
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    query: str = Query(default="", max_length=160),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return _circle_service().list_circle_members_page(
+            user_id=_user_id(token_data),
+            circle_id=circle_id,
+            query=query,
+            page=page,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.get("/location/circles/{circle_id}/eligible-connections")
 def list_named_circle_eligible_connections(
     circle_id: _CircleId,
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    query: str | None = Query(default=None, max_length=160),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
+        response.headers["Cache-Control"] = "private, no-store"
         actor_user_id = _user_id(token_data)
         service = _circle_service()
-        return {
-            "eligibleConnections": service.list_eligible_direct_connections(
+        if all(value is None for value in (page, limit, query)):
+            eligible_connections = service.list_eligible_direct_connections(
                 actor_user_id=actor_user_id,
                 circle_id=circle_id,
-            ),
+            )
+            page_metadata: dict[str, Any] = {}
+        else:
+            paged = service.list_eligible_direct_connections_page(
+                actor_user_id=actor_user_id,
+                circle_id=circle_id,
+                query=query or "",
+                page=page or 1,
+                limit=limit or 50,
+            )
+            eligible_connections = paged.pop("items")
+            page_metadata = paged
+        return {
+            "eligibleConnections": eligible_connections,
             "pendingInvites": service.list_member_invites(
                 user_id=actor_user_id,
                 circle_id=circle_id,
@@ -568,6 +1255,7 @@ def list_named_circle_eligible_connections(
                 actor_user_id=actor_user_id,
                 circle_id=circle_id,
             ),
+            **page_metadata,
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -577,20 +1265,28 @@ def list_named_circle_eligible_connections(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def update_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
     payload: UpdateNamedCircleRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        return {
-            "circle": _circle_service().update_circle(
-                owner_user_id=_user_id(token_data),
-                circle_id=circle_id,
-                name=payload.name,
-                kind=payload.kind,
-            )
-        }
+        command = _circle_command_kwargs(payload)
+        result = _circle_service().update_circle(
+            owner_user_id=_user_id(token_data),
+            circle_id=circle_id,
+            name=payload.name,
+            kind=payload.kind,
+            **(
+                {"custom_type_label": payload.custom_type_label}
+                if payload.custom_type_label is not None
+                else {}
+            ),
+            **command,
+        )
+        return result if command else {"circle": result}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -599,16 +1295,20 @@ def update_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def delete_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().delete_circle(
+        result = _circle_service().delete_circle(
             owner_user_id=_user_id(token_data),
             circle_id=circle_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"deleted": True}
+        return result if payload else {"deleted": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -630,6 +1330,153 @@ def create_named_location_circle_code(
                 actor_user_id=_user_id(token_data),
                 circle_id=circle_id,
                 rotate=rotate,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@public_router.post(
+    "/location/circle-codes/public-preview", response_model=PublicNamedCirclePreviewResponse
+)
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def public_preview_named_location_circle_code(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    response: Response,
+):
+    """Bounded anonymous link preview. Resolve and join remain authenticated."""
+    del request
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return {"circle": _circle_service().preview_public_invite_code(code=payload.code)}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-codes/preview")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def preview_named_location_circle_code(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Show who is behind a code before anyone commits to joining them.
+
+    Firebase auth rather than a vault owner token for the same reason bootstrap
+    is: someone handed a code arrives mid-setup, before a vault exists, and the
+    vault-gated resolve route would reject exactly the person the code was meant
+    for. Read-only, and it reveals nothing a valid code did not already grant --
+    an invalid code is rejected by the same path as before.
+
+    Deliberately separate from the vault-gated resolve rather than loosening it,
+    so the existing route keeps its guarantees untouched.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().resolve_invite_code(
+                user_id=firebase_uid,
+                code=payload.code,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/bootstrap")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def bootstrap_named_location_circle(
+    request: Request,
+    payload: BootstrapNamedCircleRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Mint the caller's first Circle code during onboarding, before a vault exists.
+
+    Firebase auth rather than a vault owner token, because onboarding runs in the
+    pre-vault setup journey and every other Circle route would reject it -- which
+    silently removed the invite screen from the one flow that needs it. The Circle
+    service reads no vault key material (create_circle and create_invite_code are
+    keyed on the user id alone), so require_vault_owner_token was authenticating
+    here, not guarding key custody.
+
+    The route accepts no circle id and never rotates, so the widest thing it can
+    do is create the caller their first Circle.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "invite": (
+                _circle_service().bootstrap_signup_contacts_circle(user_id=firebase_uid)
+                if payload.purpose == "signup_contacts_v1"
+                else _circle_service().bootstrap_first_circle(
+                    user_id=firebase_uid, name=payload.name
+                )
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/sms-system")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_sms_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's SMS Circle and fold their contacts into it.
+
+    Called on bootstrap, so it is a find-or-create rather than a create: the
+    second and every later call return the same Circle, and a contact the owner
+    has since removed is not re-added (see `ensure_sms_system_circle`).
+
+    Vault-owner token, unlike the onboarding bootstrap route above, because this
+    one migrates real recipients rather than minting an empty Circle -- it reads
+    who the owner picked for emergency SMS, which is exactly the material the
+    vault gate exists to protect.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_sms_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/trusted")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_trusted_system_circle_route(
+    request: Request,
+    response: Response,
+    summary_only: bool = Query(default=False, alias="summaryOnly"),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find or create the caller's empty, manually curated Trusted Circle.
+
+    This endpoint only provisions the default Circle and its owner membership.
+    It does not inspect Connections and never adds, restores, or reconciles a
+    member. Existing Trusted memberships remain unchanged.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_trusted_system_circle(
+                owner_user_id=_user_id(token_data),
+                summary_only=summary_only,
             )
         }
     except Exception as exc:
@@ -694,16 +1541,20 @@ def join_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def leave_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().leave_circle(
+        result = _circle_service().leave_circle(
             user_id=_user_id(token_data),
             circle_id=circle_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"left": True}
+        return result if payload else {"left": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -712,18 +1563,22 @@ def leave_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def remove_named_location_circle_member(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
     member_user_id: _CircleMemberUserId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().remove_member(
+        result = _circle_service().remove_member(
             owner_user_id=_user_id(token_data),
             circle_id=circle_id,
             member_user_id=member_user_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"removed": True}
+        return result if payload else {"removed": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -740,12 +1595,30 @@ def create_named_circle_member_invites(
         actor_user_id = _user_id(token_data)
         service = _circle_service()
         invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
+        result = service.create_member_invites(
+            actor_user_id=actor_user_id,
+            circle_id=str(payload.circle_id),
+            invitee_user_ids=invitee_user_ids,
+            **({"signup_insert_only": True} if payload.context == "signup" else {}),
+            **(
+                {
+                    "operation_id": payload.operation_id,
+                    "batch_index": payload.batch_index,
+                    "batch_count": payload.batch_count,
+                    "command_directive_id": payload.command_directive_id,
+                }
+                if payload.operation_id
+                else {}
+            ),
+        )
+        # `invites` is always empty now -- connections are added outright
+        # rather than invited -- and is kept so older clients parse the same
+        # shape. `added` is what actually happened.
         return {
-            "invites": service.create_member_invites(
-                actor_user_id=actor_user_id,
-                circle_id=str(payload.circle_id),
-                invitee_user_ids=invitee_user_ids,
-            )["invites"]
+            "invites": result.get("invites") or [],
+            "added": list(result.get("addedUserIds") or []),
+            "skipped": list(result.get("skippedUserIds") or []),
+            "skippedReasons": dict(result.get("skippedReasons") or {}),
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -773,16 +1646,18 @@ def list_named_circle_member_invites(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
 def accept_named_circle_member_invite(
     request: Request,
+    response: Response,
     invite_id: _CircleMemberInviteId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
         result = _circle_service().accept_member_invite(
-            user_id=_user_id(token_data),
-            invite_id=invite_id,
+            user_id=_user_id(token_data), invite_id=invite_id, **_circle_command_kwargs(payload)
         )
-        return {"circle": result["circle"], "invite": result["invite"]}
+        return result if payload else {"circle": result["circle"], "invite": result["invite"]}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -791,17 +1666,18 @@ def accept_named_circle_member_invite(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def decline_named_circle_member_invite(
     request: Request,
+    response: Response,
     invite_id: _CircleMemberInviteId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        return {
-            "invite": _circle_service().decline_member_invite(
-                user_id=_user_id(token_data),
-                invite_id=invite_id,
-            )
-        }
+        result = _circle_service().decline_member_invite(
+            user_id=_user_id(token_data), invite_id=invite_id, **_circle_command_kwargs(payload)
+        )
+        return result if payload else {"invite": result}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -825,15 +1701,25 @@ def cancel_named_circle_member_invite(
 
 
 @router.post("/location/public-invites")
+# Every sibling mutation on this router is throttled and this one was not, so
+# nothing stood between a retry loop -- or a double tap on a slow connection --
+# and a run of simultaneously live public links. Same budget as the circle
+# mutations: minting a link people can watch you through is not something
+# anyone does six times a minute on purpose.
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def create_public_location_invite(
+    request: Request,
     payload: CreatePublicInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
             duration_hours=payload.duration_hours,
             location_snapshot=payload.location_snapshot,
+            command_operation_id=payload.command_operation_id,
+            command_binding=payload.command_binding,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -843,6 +1729,35 @@ def create_public_location_invite(
 def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites/{invite_id}/location")
+@limiter.limit(RateLimits.ONE_LOCATION_PUBLIC_LINK_HEARTBEAT)
+def refresh_public_location_invite_location(
+    request: Request,
+    invite_id: _InviteId,
+    payload: RefreshPublicInviteLocationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Move the pin on the caller's own live public link.
+
+    Declared above the `{public_token}/submit` route on purpose: FastAPI
+    matches in declaration order, and both live under
+    `/location/public-invites/{...}/`. They cannot actually collide -- the
+    suffixes differ -- but keeping the two owner-scoped, invite-id-keyed
+    routes together is what stops a future third one from being added under
+    the anonymous token prefix by accident.
+    """
+
+    del request
+    try:
+        return _service().refresh_public_invite_location(
+            owner_user_id=_user_id(token_data),
+            invite_id=invite_id,
+            location_snapshot=payload.location_snapshot,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -866,15 +1781,21 @@ def submit_public_location_invite(
 
 
 @router.delete("/location/public-invites/{invite_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_public_location_invite(
+    request: Request,
     invite_id: _InviteId,
+    payload: RevokePublicInviteRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return {
             "invite": _service().revoke_public_invite(
                 owner_user_id=_user_id(token_data),
                 invite_id=invite_id,
+                command_operation_id=payload.command_operation_id if payload else None,
+                command_binding=payload.command_binding if payload else None,
             )
         }
     except Exception as exc:
@@ -1033,7 +1954,10 @@ async def maps_nearby_places(
             lng=payload.lng,
             category=payload.category,
         )
-        return {"suggestions": suggestions}
+        return {
+            "suggestions": suggestions,
+            "discoveryIncomplete": getattr(suggestions, "discovery_incomplete", False),
+        }
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -1073,6 +1997,15 @@ async def check_in_nearby(
             duration_minutes=payload.duration_minutes,
             consent_accepted=payload.consent_accepted,
             allow_connection_requests=payload.allow_connection_requests,
+            place_category=str(place.get("primaryType") or "") or None,
+            **(
+                {
+                    "command_operation_id": str(payload.command_operation_id),
+                    "consent_version": payload.consent_version,
+                }
+                if payload.command_operation_id
+                else {}
+            ),
         )
         return state
     except GoogleMapsError as exc:
@@ -1112,11 +2045,42 @@ def get_nearby_presence(
 def checkout_nearby(
     request: Request,
     response: Response,
+    payload: NearbyPresenceCheckoutRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     _set_private_no_store(response)
     try:
-        return _nearby_presence_service().checkout(user_id=_user_id(token_data))
+        return _nearby_presence_service().checkout(
+            user_id=_user_id(token_data),
+            **(
+                {
+                    "command_operation_id": payload.command_operation_id,
+                    "presence_id": str(payload.presence_id) if payload.presence_id else None,
+                    "presence_version": payload.presence_version,
+                }
+                if payload
+                else {}
+            ),
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/nearby-presence")
+@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_WRITE)
+def extend_nearby_presence(
+    request: Request,
+    response: Response,
+    payload: NearbyPresenceExtendRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _nearby_presence_service().extend(
+            user_id=_user_id(token_data),
+            increment_minutes=payload.increment_minutes,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1136,6 +2100,128 @@ def request_nearby_connection(
             user_id=_user_id(token_data),
             participant_alias=payload.participant_alias,
         )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Place ratings
+#
+# Gated by `_require_nearby_presence_simulation` like every other nearby route:
+# a rating cannot exist without a check-in, so it must be dark wherever check-in
+# is. That means production stays dark until the mode and a cohort are both set,
+# which is correct and will be reported as a bug at least once.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/location/place-ratings/pending")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_pending_place_ratings(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Visits the caller could still rate."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "pendingRatings": _place_rating_service().list_rateable_visits(
+                user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_ratings(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=25, ge=1, le=50),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """The caller's own ratings. Never anybody else's, and never an author id."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return _place_rating_service().list_own_ratings(
+            user_id=_user_id(token_data),
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings/summaries")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_READ)
+def list_place_rating_summaries(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSummariesRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Anonymous per-place averages. Never who rated, never how many exactly."""
+
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        return {
+            "summaries": _place_rating_service().place_summaries(
+                place_ids=payload.place_ids,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE_DAILY)
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def submit_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingSubmitRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        rating = await run_in_threadpool(
+            service.submit_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+            rating=payload.rating,
+            consent_version=payload.consent_version,
+            consent_accepted=payload.consent_accepted,
+        )
+        return {"rating": rating}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/place-ratings")
+@limiter.limit(RateLimits.ONE_LOCATION_PLACE_RATING_WRITE)
+async def delete_place_rating(
+    request: Request,
+    response: Response,
+    payload: PlaceRatingDeleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _require_nearby_presence_simulation(_user_id(token_data))
+    _set_private_no_store(response)
+    try:
+        service = _place_rating_service()
+        result = await run_in_threadpool(
+            service.delete_rating,
+            user_id=_user_id(token_data),
+            place_id=payload.place_id,
+        )
+        return result
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1177,7 +2263,7 @@ async def maps_route_eta(
         ) from exc
 
 
-@router.post("/location/grants")
+@router.post("/location/grants", dependencies=[Depends(_sms_grant_identity_ready)])
 def create_location_grant(
     payload: CreateGrantRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -1189,11 +2275,13 @@ def create_location_grant(
                 recipient_user_id=payload.recipient_user_id,
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
                 source_circle_id=(
                     str(payload.source_circle_id) if payload.source_circle_id is not None else None
                 ),
+                require_recipient_phone_verified=False,
                 enforce_connection=True,
             )
         }
@@ -1201,7 +2289,7 @@ def create_location_grant(
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/grants/with-envelope")
+@router.post("/location/grants/with-envelope", dependencies=[Depends(_sms_envelope_identity_ready)])
 def create_location_grant_with_envelope(
     payload: CreateGrantWithEnvelopeRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -1214,7 +2302,16 @@ def create_location_grant_with_envelope(
             recipient_user_id=payload.recipient_user_id,
             recipient_key_id=payload.recipient_key_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
             client_operation_id=payload.client_operation_id,
+            **(
+                {
+                    "command_operation_id": payload.command_operation_id,
+                    "command_directive_id": payload.command_directive_id,
+                }
+                if payload.command_operation_id
+                else {}
+            ),
             confirmed_at=payload.confirmed_at,
             envelope=payload.envelope,
             reason=payload.reason,
@@ -1222,6 +2319,7 @@ def create_location_grant_with_envelope(
             source_circle_id=(
                 str(payload.source_circle_id) if payload.source_circle_id is not None else None
             ),
+            require_recipient_phone_verified=False,
             enforce_connection=True,
         )
     except Exception as exc:
@@ -1256,12 +2354,22 @@ def store_location_envelope(
 @router.get("/location/grants/{grant_id}/envelope")
 def view_latest_location_envelope(
     grant_id: _GrantId,
+    allow_empty: bool = Query(
+        False,
+        description=(
+            "Treat 'grant is live but the owner has not published yet' as a "
+            "success (200 with envelope=null) instead of a 404. Opt-in so "
+            "already-shipped clients keep the legacy LOCATION_ENVELOPE_MISSING "
+            "error contract they branch on."
+        ),
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return _service().view_latest_envelope(
             recipient_user_id=_user_id(token_data),
             grant_id=grant_id,
+            allow_empty=allow_empty,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1283,6 +2391,55 @@ def revoke_location_grant(
         raise _handle_error(exc) from exc
 
 
+@router.patch("/location/grants/{grant_id}/shorten")
+def shorten_location_grant(
+    grant_id: _GrantId,
+    payload: ShortenGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Bring a grant's expiry earlier. Either party may call this; the
+    service rejects any attempt to move the expiry later -- extending
+    access is the owner's consent to give again, via request_access, not a
+    duration either side can hand themselves through this route."""
+    try:
+        return {
+            "grant": _service().shorten_grant(
+                caller_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
+                client_operation_id=payload.client_operation_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/grants/{grant_id}/duration")
+def set_location_grant_duration(
+    grant_id: _GrantId,
+    payload: SetGrantDurationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Set a new end time on a share you own, in either direction.
+
+    Owner only, and the service enforces that by matching on `owner_user_id`
+    alone. A recipient still has just `/shorten`: giving time back needs no
+    permission, taking more is the owner's to give -- and here the owner is the
+    caller, so lengthening their own share is that consent, not a bypass of it."""
+    try:
+        return {
+            "grant": _service().set_grant_duration(
+                owner_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
+                client_operation_id=payload.client_operation_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/requests")
 def request_location_access(
     payload: CreateAccessRequest,
@@ -1294,7 +2451,15 @@ def request_location_access(
                 requester_user_id=_user_id(token_data),
                 owner_user_id=payload.owner_user_id,
                 message=payload.message,
-                requested_duration_hours=payload.duration_hours,
+                enforce_peer_eligibility=True,
+                requested_duration_hours=payload.requested_duration_hours,
+                requested_duration_mode=payload.requested_duration_mode,
+                extends_grant_id=payload.extends_grant_id,
+                client_operation_id=payload.client_operation_id,
+                command_operation_id=payload.command_operation_id,
+                command_directive_id=payload.command_directive_id
+                if payload.command_operation_id
+                else None,
             )
         }
     except Exception as exc:
@@ -1311,7 +2476,15 @@ def approve_location_access_request(
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
+            approval_mode=payload.approval_mode,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
+            auto_approve_rule_version=payload.auto_approve_rule_version,
+            **(
+                {"expected_request_revision": payload.expected_request_revision}
+                if payload.expected_request_revision is not None
+                else {}
+            ),
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1326,6 +2499,23 @@ def deny_location_access_request(
         return {
             "request": _service().deny_request(
                 owner_user_id=_user_id(token_data),
+                request_id=request_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/requests/{request_id}/withdraw")
+def withdraw_location_access_request(
+    request_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Take back a pending request you sent. Only the asker can call this."""
+    try:
+        return {
+            "request": _service().withdraw_request(
+                requester_user_id=_user_id(token_data),
                 request_id=request_id,
             )
         }

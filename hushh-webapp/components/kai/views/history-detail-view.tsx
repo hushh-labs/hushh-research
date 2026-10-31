@@ -11,7 +11,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, RefreshCw, Clock } from "lucide-react";
+import { ArrowLeft, RefreshCw, Clock } from "@/components/icons";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
@@ -24,6 +24,7 @@ import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
@@ -123,7 +124,8 @@ export function HistoryDetailView({
     };
   }, [entry]);
 
-  const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const [marketSnapshotState, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const marketSnapshot = marketSnapshotForTicker(marketSnapshotState, entry.ticker);
 
   useEffect(() => {
     if (!userId) return;
@@ -131,7 +133,7 @@ export function HistoryDetailView({
 
     const cached = getLatestMarketSnapshotFromCache(userId, entry.ticker);
     if (!cancelled) {
-      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, entry.ticker));
     }
 
     if (!vaultOwnerToken) return () => {
@@ -147,7 +149,7 @@ export function HistoryDetailView({
           daysBack: 7,
         });
         if (!cancelled) {
-          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, entry.ticker));
         }
       } catch {
         // keep best-known quote
@@ -164,7 +166,7 @@ export function HistoryDetailView({
 
   if (embedded) {
     return (
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
         {showHeader ? (
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">
@@ -276,7 +278,7 @@ export function HistoryDetailView({
         </div>
       </div>
       
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
 
 
       {/* Stored analysis badge */}
@@ -296,9 +298,9 @@ export function HistoryDetailView({
 
       {/* Debate Transcript (Static Replay) */}
       {entry.debate_transcript && (
-        <div className="pt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4  delay-200">
+        <div className="pt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
            <div className="flex items-center gap-2 px-1">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/70">Debate Transcript</h3>
+              <h3 className="font-mono text-xs font-normal uppercase tracking-widest text-muted-foreground/70">Debate Transcript</h3>
               <div className="h-px bg-border/50 flex-1" />
            </div>
            

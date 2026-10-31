@@ -69,6 +69,7 @@ export function useMarketplaceChat(params: {
       try {
         const result = await OneMarketplaceService.chat({
           vaultOwnerToken,
+          vaultKey,
           message,
           conversationId: conversationIdRef.current,
         });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 /**
  * Location's first actions that DO something.
@@ -18,15 +18,12 @@ const RESUME = "location.resume_updates";
 const SHARE = "location.share_selected";
 
 describe("what a spoken Location action is allowed to do", () => {
-  it("lets pausing run directly and makes resuming ask first", () => {
-    // The asymmetry is the entire safety argument for pausing being direct.
-    // Turning visibility OFF can only ever reduce what others can see, and
-    // someone saying "hide my location" is in no position to be asked twice.
-    // Turning it back ON makes them visible again to every active grant, so
-    // it has to be looked at. If these two ever end up with the same policy,
-    // one of them is wrong.
+  it("matches the direct toggle policy without creating new sharing access", () => {
+    // Resume refreshes only unexpired grants. Permission is observed by the
+    // device preparation; new disclosure still uses the confirmed share action.
     expect(getKaiActionById(PAUSE)?.execution_policy).toBe("allow_direct");
-    expect(getKaiActionById(RESUME)?.execution_policy).toBe("confirm_required");
+    expect(getKaiActionById(RESUME)?.execution_policy).toBe("allow_direct");
+    expect(getKaiActionById(RESUME)?.command?.permission).toBe("location");
   });
 
   it("never lets a share run without the person seeing it", () => {
@@ -36,28 +33,35 @@ describe("what a spoken Location action is allowed to do", () => {
     expect(getKaiActionById(SHARE)?.risk_level).toBe("high");
   });
 
-  it("gives the share a duration to say and no way to name a recipient", () => {
+  it("accepts people or circles and defers missing inputs to current preparation", () => {
     const action = getKaiActionById(SHARE);
     const slots = Object.keys(action?.goal?.slot_schema || {});
+    const personInput = action?.goal?.required_inputs?.find((spec) => spec.slot === "person");
+    const durationInput = action?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
 
-    // Duration is the only thing voice supplies. WHO the share goes to comes
-    // from what the person selected with their own hands in the composer.
-    // A recipient slot here -- under any name -- would mean a misheard
-    // sentence could send someone's live location to the wrong person, which
-    // is exactly the failure this design exists to make impossible.
-    expect(slots).toEqual(["duration_hours"]);
-    expect(slots.join(" ")).not.toMatch(/recipient|person|contact|name|who/i);
+    // Runtime preparation resolves the complete audience and actual duration
+    // before confirmation. The model does not have to supply both a person
+    // and a circle, nor repeat a value already chosen in this task.
+    expect(slots).toEqual(["person", "duration_hours", "circle"]);
+    expect(personInput?.required).toBe(false);
+    expect(durationInput?.required).toBe(false);
   });
 
-  it("offers only durations the composer itself has buttons for", () => {
+  it("keeps bounded duration choices for runtime preparation", () => {
     // Bounded so a spoken number cannot become an arbitrary grant length.
+    // The composer's own one-tap buttons are narrower than this (15 min, 1
+    // hour, Custom, Until I stop -- see SHARE_DURATION_LADDER in
+    // duration-presets.tsx): voice is deliberately more permissive, matching
+    // page.tsx's SHARE_VOICE_DURATION_VALUES rather than the visible grid, so
+    // a spoken "half an hour" or "8 hours" is not refused for being off it.
     const input = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
       (spec) => spec.slot === "duration_hours",
     );
-    expect(input?.options).toEqual(["0.25", "0.5", "1", "4", "24"]);
-    // Not required: saying "share with them" keeps whatever the composer
-    // already shows rather than blocking on a number the person never
-    // intended to give.
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+    // The preparer asks when missing; the semantic slot can remain absent
+    // until that card settles. It cannot bypass the duration-bound review.
     expect(input?.required).toBe(false);
   });
 });
@@ -75,7 +79,7 @@ describe("saying a person's name", () => {
     expect(getKaiActionById(SHARE)?.execution_policy).toBe("confirm_required");
   });
 
-  it("takes the spoken name and nothing that identifies an account", () => {
+  it("takes person and circle names without exposing account identifiers", () => {
     // The slot carries what the person said out loud, which the model already
     // heard. It must never carry a user id: that would mean the model had been
     // given a contact list to resolve names against, and the live-context
@@ -85,7 +89,7 @@ describe("saying a person's name", () => {
     const slots = Object.keys(
       getKaiActionById(SELECT)?.goal?.slot_schema || {},
     );
-    expect(slots).toEqual(["person"]);
+    expect(slots).toEqual(["person", "circle"]);
     expect(slots.join(" ")).not.toMatch(/user_?id|account|email|phone|key/i);
   });
 });
@@ -163,6 +167,10 @@ describe("destructive voice actions can explain themselves", () => {
     "connect.remove_connection",
     "location.remove_emergency_contact",
     "location.remove_from_circle",
+    "location.leave_circle",
+    "location.delete_circle",
+    "location.delete_saved_location",
+    "location.trigger_sos",
   ] as const;
 
   it.each(CONFIRMED_BY_CARD)("%s carries the words its card shows", (actionId) => {
@@ -171,5 +179,90 @@ describe("destructive voice actions can explain themselves", () => {
     expect(action?.execution_target.status).toBe("wired");
     // Long enough to be a sentence about consequences rather than a label.
     expect((action?.meaning || "").length).toBeGreaterThan(40);
+  });
+});
+
+describe("a bare 'stop sharing' actually stops something (#6081)", () => {
+  const VIEW = "location.open_active_shares";
+  const STOP_ALL = "location.pause_updates";
+
+  it("owns the bare phrase on the action that stops, not the one that just opens a list", () => {
+    // Regression: "stop sharing" used to sit only on open_active_shares (a
+    // low-risk VIEW), so saying it opened a screen and nothing actually
+    // stopped. It now belongs to pause_updates, the safe, decisive reading of
+    // an urgent, nameless "stop sharing".
+    const viewAliases = (getKaiActionById(VIEW)?.aliases ?? []).map((a) => a.toLowerCase());
+    const stopAliases = (getKaiActionById(STOP_ALL)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(viewAliases).not.toContain("stop sharing");
+    expect(stopAliases).toContain("stop sharing");
+  });
+
+  it("keeps pause_updates allow_direct so the bare phrase still runs immediately", () => {
+    expect(getKaiActionById(STOP_ALL)?.execution_policy).toBe("allow_direct");
+  });
+});
+
+describe("'send it' is not owned by two acting actions at once (#6082)", () => {
+  const ASK = "location.send_request";
+  const SHARE_IT = "location.share_selected";
+
+  it("removed the shared alias from both composers' finalizers", () => {
+    // Regression: both the ask-for-location composer and the
+    // share-my-location composer carried the identical alias "send it",
+    // which action_tools.py's exact-match scoring cannot break a tie on.
+    // Neither composer needs it -- both still have unambiguous finalizers
+    // ("confirm the request" / "confirm the share").
+    const askAliases = (getKaiActionById(ASK)?.aliases ?? []).map((a) => a.toLowerCase());
+    const shareAliases = (getKaiActionById(SHARE_IT)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(askAliases).not.toContain("send it");
+    expect(shareAliases).not.toContain("send it");
+    expect(askAliases).toContain("confirm the request");
+    expect(shareAliases).toContain("confirm the share");
+  });
+});
+
+describe("'share my location' redirects to the sender once recipients are picked (#6083)", () => {
+  const OPEN = "location.open_share";
+  const SEND = "location.share_selected";
+
+  it("tells the model in its own meaning to prefer share_selected once the composer is populated", () => {
+    // Not an alias move (from cold, opening the composer IS correct) -- the
+    // ambiguity is resolved via meaning text redirecting to the sender,
+    // matching the pattern already established for location.sos_default.
+    expect(getKaiActionById(OPEN)?.meaning ?? "").toMatch(/share_selected/);
+    expect(getKaiActionById(SEND)?.meaning ?? "").toMatch(/open_share/);
+  });
+});
+
+describe("asking for someone's location asks how long, like sharing does", () => {
+  const ASK = "location.send_request";
+  const SHARE = "location.share_selected";
+
+  it("defers duration selection to preparation with the same bounded options", () => {
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.required).toBe(false);
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+  });
+
+  it("offers the same lengths as a share, so the two do not disagree", () => {
+    const ask = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    const share = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(ask?.options).toEqual(share?.options);
+  });
+
+  it("never offers an open-ended request", () => {
+    // requestAccess is sent as requestedDurationMode: "timed", so
+    // "until I stop" has nothing to map onto and would resolve to NaN hours.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.options).not.toContain("until_stopped");
+    expect(input?.prompt ?? "").not.toMatch(/until you stop/i);
   });
 });

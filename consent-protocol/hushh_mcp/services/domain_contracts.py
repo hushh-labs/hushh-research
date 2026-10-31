@@ -48,9 +48,22 @@ class DomainSharingPolicy:
     denied_manifest_path_parts: frozenset[str] = frozenset()
     requestable_scopes: frozenset[str] | None = None
     allow_public_projection: bool = True
+    # Per-item sharing: the only shareable unit is one item under this branch,
+    # ``attr.<domain>.<branch>.<item_id>``, and only when the OWNER starts the
+    # grant. A requester can never ask for it, by wildcard or by exact path.
+    per_item_grant_branch: str | None = None
+    per_item_id_pattern: str | None = None
 
 
 CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
+    DomainContractEntry(
+        domain_key="identity",
+        display_name="Identity",
+        icon_name="user-round",
+        color_hex="#0F766E",
+        description="Owner-authored identity details and personal profile facts",
+        status="active_core",
+    ),
     DomainContractEntry(
         domain_key="financial",
         display_name="Financial",
@@ -124,6 +137,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="wallet",
+        display_name="Wallet",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Owner-stored credit and debit cards, encrypted client-side under the vault key",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",
@@ -190,6 +211,19 @@ CURRENT_READABLE_PROJECTION_VERSION = "6.0.0"
 CURRENT_READABLE_SUMMARY_VERSION = 6
 GENERIC_DOMAIN_CONTRACT_VERSION = 4
 DYNAMIC_DOMAIN_CONTRACT_VERSION = 4
+# The reserved-branch relocation moves agent-written entries out of app-owned
+# branches into their agent_memory sibling (contracts/pkm/reserved-branches.v1.json),
+# on the device, through the PKM upgrade gate. It is recorded by a manifest
+# summary marker, not a domain contract version: shipped builds refuse to write a
+# domain stored at a newer version than their own, so a version bump would lock
+# their Finance and Location saves. The TypeScript twin is in
+# hushh-webapp/lib/personal-knowledge-model/upgrade-contracts.ts; a parity test
+# reads both.
+RESERVED_BRANCH_MIGRATION_VERSION = 1
+RESERVED_BRANCH_MIGRATION_MARKER = "reserved_branch_migration_version"
+RESERVED_BRANCH_MIGRATION_DOMAINS: frozenset[str] = frozenset(
+    {"financial", "identity", "location", "professional", "ria", "shopping", "wallet"}
+)
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
 FINANCIAL_DOMAIN_CONTRACT_VERSION = GENERIC_DOMAIN_CONTRACT_VERSION
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
@@ -199,6 +233,35 @@ FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "analysis_history",
     "runtime",
     "analysis.decisions",
+    # Zero-knowledge Plaid (founder decision 2026-09-23): raw records sealed in
+    # the owner's vault, never shareable. Only `summary` crosses a grant.
+    "connections_v1",
+    "accounts_v1",
+    "holdings_v1",
+    "securities_v1",
+    "transactions_v1",
+    "derived_v1",
+    "summary",
+    # The readable view of the same records (Finance > kind of account >
+    # institution > account). Private like them; rebuilt from them on every change.
+    "linked_accounts",
+)
+
+# Finance branches the bank-connection lane rebuilds whole on every sync
+# (hushh-webapp/lib/kai/plaid-vault/projection.ts `assemble`). A memory agent's
+# write into one would be erased by the next refresh, or would corrupt the
+# records the refresh reads, so the PKM structure agents never target them.
+FINANCIAL_SOURCE_MANAGED_BRANCHES: frozenset[str] = frozenset(
+    {
+        "connections_v1",
+        "accounts_v1",
+        "holdings_v1",
+        "securities_v1",
+        "transactions_v1",
+        "derived_v1",
+        "summary",
+        "linked_accounts",
+    }
 )
 
 FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
@@ -250,6 +313,70 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         color_hex="#D4AF37",
         description="Persisted Kai decision metadata and audit lineage",
     ),
+    DomainSubintentEntry(
+        domain_key="financial.connections_v1",
+        parent_domain="financial",
+        display_name="Financial Connections",
+        icon_name="link",
+        color_hex="#D4AF37",
+        description="Linked financial connections sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.accounts_v1",
+        parent_domain="financial",
+        display_name="Financial Accounts",
+        icon_name="landmark",
+        color_hex="#D4AF37",
+        description="Linked account records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.holdings_v1",
+        parent_domain="financial",
+        display_name="Financial Holdings",
+        icon_name="pie-chart",
+        color_hex="#D4AF37",
+        description="Raw holdings records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.securities_v1",
+        parent_domain="financial",
+        display_name="Financial Securities",
+        icon_name="line-chart",
+        color_hex="#D4AF37",
+        description="Security reference records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.transactions_v1",
+        parent_domain="financial",
+        display_name="Financial Transactions",
+        icon_name="receipt",
+        color_hex="#D4AF37",
+        description="Raw transaction records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.derived_v1",
+        parent_domain="financial",
+        display_name="Financial Derived Facts",
+        icon_name="sparkles",
+        color_hex="#D4AF37",
+        description="Private records and derived facts computed on device; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.linked_accounts",
+        parent_domain="financial",
+        display_name="Linked Accounts",
+        icon_name="landmark",
+        color_hex="#D4AF37",
+        description="Linked bank, investment, card, and loan accounts by institution; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.summary",
+        parent_domain="financial",
+        display_name="Financial Summary",
+        icon_name="bar-chart-3",
+        color_hex="#D4AF37",
+        description="Shareable financial summary: bands and percentages only",
+    ),
 )
 
 SOURCE_LIBRARY_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
@@ -263,9 +390,29 @@ SOURCE_LIBRARY_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
     ),
 )
 
+WALLET_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
+    DomainSubintentEntry(
+        domain_key="wallet.summary",
+        parent_domain="wallet",
+        display_name="Card Summaries",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Card nicknames, brand, last four digits, expiry, and issuing region",
+    ),
+    DomainSubintentEntry(
+        domain_key="wallet.secrets",
+        parent_domain="wallet",
+        display_name="Card Secrets",
+        icon_name="key-round",
+        color_hex="#B45309",
+        description="Full card number, CVV, PIN, and cardholder name, revealed only on explicit owner consent",
+    ),
+)
+
 CANONICAL_SUBINTENT_REGISTRY = (
     *FINANCIAL_SUBINTENT_REGISTRY,
     *SOURCE_LIBRARY_SUBINTENT_REGISTRY,
+    *WALLET_SUBINTENT_REGISTRY,
 )
 CANONICAL_SUBINTENT_KEYS = tuple(entry.domain_key for entry in CANONICAL_SUBINTENT_REGISTRY)
 CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBINTENT_KEYS}))
@@ -273,13 +420,55 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library"})
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
+    "one_memory": DomainSharingPolicy(
+        domain_key="one_memory",
+        allow_domain_wildcard=False,
+        allowed_manifest_path_prefixes=(),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "one_living_sources": DomainSharingPolicy(
+        domain_key="one_living_sources",
+        allow_domain_wildcard=False,
+        allowed_manifest_path_prefixes=(),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "one_todos": DomainSharingPolicy(
+        domain_key="one_todos",
+        allow_domain_wildcard=False,
+        allowed_manifest_path_prefixes=(),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "identity": DomainSharingPolicy(
+        domain_key="identity",
+        allow_public_projection=False,
+    ),
     "financial": DomainSharingPolicy(
         domain_key="financial",
         allow_domain_wildcard=False,
-        denied_manifest_path_prefixes=("analysis_history",),
+        # `sources` holds the raw per-connection copies (Plaid items, statement
+        # snapshots) and `runtime` holds app state: private records, never
+        # shareable. The zero-knowledge Plaid branches (`connections_v1` ..
+        # `derived_v1`) hold the vault-sealed raw records and private derived
+        # facts. Sharing gets the `summary` branch instead (founder decision
+        # 2026-09-23).
+        denied_manifest_path_prefixes=(
+            "analysis_history",
+            "sources",
+            "runtime",
+            "connections_v1",
+            "accounts_v1",
+            "holdings_v1",
+            "securities_v1",
+            "transactions_v1",
+            "derived_v1",
+            "linked_accounts",
+        ),
         denied_manifest_path_parts=frozenset(
             {
                 "agent_votes",
@@ -287,6 +476,15 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
                 "raw_card",
                 "stream_diagnostics",
                 "transcript",
+                # Account identifiers and security codes never leave the vault
+                # through a grant, wherever they sit in the tree.
+                "account_mask",
+                "mask",
+                "account_number",
+                "routing_number",
+                "symbol_cusip",
+                "cusip",
+                "last_error_message",
             }
         ),
     ),
@@ -319,6 +517,38 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
         ),
         requestable_scopes=frozenset(),
         allow_public_projection=False,
+    ),
+    "wallet": DomainSharingPolicy(
+        domain_key="wallet",
+        allow_domain_wildcard=False,
+        # Reserved owner-managed domain, but deliberately shareable: external
+        # systems may request card summaries or full card secrets as exactly
+        # these branch wildcards, and every grant is an explicit owner approval
+        # delivered through the consent-gated encrypted export path.  The
+        # domain-level wildcard and exact-path scopes stay non-requestable.
+        allowed_manifest_path_prefixes=("summary", "secrets"),
+        requestable_scopes=frozenset(
+            {
+                "attr.wallet.summary.*",
+                "attr.wallet.secrets.*",
+            }
+        ),
+        allow_public_projection=False,
+    ),
+    "secrets": DomainSharingPolicy(
+        domain_key="secrets",
+        allow_domain_wildcard=False,
+        # API keys, passwords, tokens, private keys, and card and government id
+        # numbers held for the owner (contracts/pkm/secret-patterns.v1.json).
+        # One only ever knows an item exists, by its label. Nothing here is
+        # requestable: no wildcard, no branch, no exact path. The one way out
+        # is a grant the owner starts for a single item, whose scope is exactly
+        # ``attr.secrets.items.<sec_id>`` (pkm_scope_policy.is_owner_item_grant_scope).
+        allowed_manifest_path_prefixes=("items",),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+        per_item_grant_branch="items",
+        per_item_id_pattern=r"^sec_[a-f0-9]{16}$",
     ),
 }
 
@@ -439,6 +669,23 @@ def is_allowed_top_level_domain(domain: str) -> bool:
 def current_domain_contract_version(domain: str) -> int:
     _canonical = canonical_top_level_domain(domain)
     return GENERIC_DOMAIN_CONTRACT_VERSION
+
+
+def needs_reserved_branch_migration(domain: str, summary_projection: object) -> bool:
+    """True when ``domain`` holds a reserved branch and its manifest lacks the marker.
+
+    The marker is set by an upgrade-claim commit from a client that ran the
+    relocation, and the server carries it across ordinary writes
+    (``PersonalKnowledgeModelService._normalize_manifest_payload``).
+    """
+    if canonical_top_level_domain(domain) not in RESERVED_BRANCH_MIGRATION_DOMAINS:
+        return False
+    projection = summary_projection if isinstance(summary_projection, dict) else {}
+    try:
+        recorded = int(projection.get(RESERVED_BRANCH_MIGRATION_MARKER) or 0)
+    except (TypeError, ValueError):
+        recorded = 0
+    return recorded < RESERVED_BRANCH_MIGRATION_VERSION
 
 
 def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None:

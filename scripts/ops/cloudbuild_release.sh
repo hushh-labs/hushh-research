@@ -79,7 +79,7 @@ case "$TARGET_ENV" in
   production)
     GCP_PROJECT_ID="hushh-pda"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda:us-central1:hushh-vault-db"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda:us-central1:hushh-vault-db"
@@ -89,7 +89,7 @@ case "$TARGET_ENV" in
   uat)
     GCP_PROJECT_ID="hushh-pda-uat"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://uat.one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://uat.one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.uat.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda-uat:us-central1:hushh-uat-pg"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"
@@ -265,11 +265,11 @@ BACKEND_SECRET_ARGS=(
 )
 if [[ "$TARGET_ENV" == "production" ]]; then
   BACKEND_SECRET_ARGS+=(--consent-sse-enabled "false"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai"
     --hushh-trusted-device-enabled "false")
+elif [[ "$TARGET_ENV" == "uat" ]]; then
+  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true")
 else
-  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai,uat.one.hushh.ai")
+  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true")
 fi
 
 run "$PROTOCOL_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${BACKEND_SECRET_ARGS[@]}" \
@@ -344,7 +344,6 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY"
   SUBS="${SUBS}##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY"
   SUBS="${SUBS}##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY"
-  SUBS="${SUBS}##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON"
   SUBS="${SUBS}##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN"
   SUBS="${SUBS}##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL"
   SUBS="${SUBS}##_ONE_WALLET_CARD_ENABLED=true##_WALLET_PASS_PROVIDER=service"
@@ -355,6 +354,11 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_DEPLOY_ENV=${TARGET_ENV}##_DEPLOY_SOURCE=${DEPLOY_SOURCE}"
   SUBS="${SUBS}##_DEPLOY_SHA=${DEPLOY_SHA}##_GITHUB_RUN_ID=${RUN_ID}"
 
+  # Preserve the managed-AI billing split in the fallback release path too.
+  if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" || "$TARGET_ENV" == "dev" ]]; then
+    SUBS="${SUBS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+  fi
+
   if [[ "$TARGET_ENV" == "production" ]]; then
     SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=4##_DB_SQLALCHEMY_MAX_OVERFLOW=0"
@@ -364,8 +368,8 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET"
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_ENABLED=true"
   else
-    # UAT runs a smaller pool and an app-review overlay; see deploy-uat.yml.
-    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=3"
+    # UAT: smaller SQLAlchemy pool, app-review overlay (deploy-uat.yml); asyncpg 4 = 3 LISTENs + 1.
+    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=0"
     SUBS="${SUBS}##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3"
     SUBS="${SUBS}##_APP_REVIEW_MODE=true"
@@ -453,7 +457,7 @@ fi
 log "Verifying runtime env parity"
 PARITY_ARGS=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION"
   --backend-service "$BACKEND_SERVICE" --frontend-service "$FRONTEND_SERVICE"
-  --require-plaid --require-market-data --require-gmail --require-voice
+  --require-plaid --require-market-data --require-gmail --require-calendar
   --assert-runtime-env-contract
   --report-path "${ARTIFACT_DIR}/runtime-parity.json")
 [[ "$TARGET_ENV" == "production" ]] && PARITY_ARGS+=(--require-connected-systems --require-prod-phone-test)

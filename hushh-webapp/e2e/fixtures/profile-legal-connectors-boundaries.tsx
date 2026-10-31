@@ -1,0 +1,141 @@
+// Synthetic boundaries for the Profile pane Legal + Connectors harness. The
+// production ProfilePane (sheet, header, Back, close, URL state), the legal
+// reader, the Legal and Connectors stack entries and the pane navigation
+// helpers are real; only routing, the vault gate and the heavy Profile
+// workspace are stood in for.
+import { useState, useSyncExternalStore } from "react";
+import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
+import { parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
+
+import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
+import {
+  buildProfileLegalStackEntries,
+  ProfileLegalRows,
+} from "@/components/profile/profile-legal-section";
+import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
+import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
+import {
+  pushProfilePaneLocation,
+  replaceProfilePaneLocation,
+  type ProfilePaneLocation,
+} from "@/lib/navigation/profile-pane";
+import type {
+  ProfileDetail,
+  ProfilePanel,
+} from "@/lib/navigation/profile-routes";
+
+export * from "./connections-boundaries";
+
+function subscribe(listener: () => void) {
+  window.addEventListener("popstate", listener);
+  return () => window.removeEventListener("popstate", listener);
+}
+
+function useLocationKey() {
+  return useSyncExternalStore(
+    subscribe,
+    () => `${window.location.pathname}${window.location.search}`,
+    () => "/",
+  );
+}
+
+export function usePathname() {
+  useLocationKey();
+  return window.location.pathname;
+}
+
+export function useSearchParams() {
+  const key = useLocationKey();
+  return new URLSearchParams(key.includes("?") ? key.split("?")[1] : "");
+}
+
+export function useRouter() {
+  const go = (method: "pushState" | "replaceState") => (href: string) => {
+    window.history[method]({}, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+  return { push: go("pushState"), replace: go("replaceState"), back: () => window.history.back() };
+}
+
+export function useVault() {
+  return { vaultOwnerToken: "synthetic-owner", isVaultUnlocked: true };
+}
+
+/**
+ * Stand-in for the Profile workspace in pane presentation: the same root
+ * Legal group (the real rows), a Connectors row, and the real stack entries,
+ * moving through the real pane history helpers exactly as
+ * ProfilePageContent's updateProfileView does.
+ */
+export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocation }) {
+  const accent = useAccent();
+  const [price, setPrice] = useState("");
+  const search = useSearchParams();
+  const location = paneLocation ?? { panel: null, detail: null };
+  const updateView = (
+    next: { panel?: ProfilePanel | null; detail?: ProfileDetail | null },
+    mode: "push" | "replace" = "push",
+  ) => {
+    const target = {
+      panel: next.panel === undefined ? location.panel : next.panel,
+      detail: next.detail === undefined ? location.detail : next.detail,
+    };
+    if (mode === "push") pushProfilePaneLocation(window.location.pathname, search, target);
+    else replaceProfilePaneLocation(window.location.pathname, search, target);
+  };
+  const entries: ProfileStackEntry[] = [];
+  if (location.panel === "legal") {
+    entries.push(...buildProfileLegalStackEntries({ detail: location.detail, updateView }));
+  } else if (location.panel === "connectors") {
+    entries.push(buildProfileConnectorsStackEntry({ detail: location.detail, updateView }));
+  } else if (location.panel === "account") {
+    entries.push({ key: "panel:account", title: "Account", content: <SettingsGroup title="Account"><SettingsRow title="Signed-in account" /></SettingsGroup> });
+  } else if (location.panel === "request-pricing") {
+    entries.push({ key: "panel:request-pricing", title: "Request pricing", content:
+      <DocumentRequestPricingCard model={{ available: true, saved: { enabled: false, amountCents: 1000, version: 1 },
+        dollars: price, loading: false, saving: false, error: null, notice: null,
+        amountCents: parseDocumentRequestPrice(price), dirty: Boolean(price), save: async () => {}, change: setPrice, retry: () => {} }} /> });
+  } else if (location.panel === "preferences") {
+    entries.push({ key: "panel:preferences", title: "Preferences", content:
+      search.get("renderer") === "controls" ?
+      <ProfileAppearanceControls value={accent} nativeContext={{ owner: null, context: "synthetic-preferences", eligible: false }} /> :
+      <ProfileAppearancePreferences accent={accent} onAccentChange={writeAccent}
+        onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
+        onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })} /> });
+  }
+  return (
+    <SettingsPresentationProvider density="compact">
+      <AppPageShell as="div" width="reading" fitContent>
+      <ProfileStackNavigator
+        resetScroll={false}
+        entries={entries}
+        rootContent={
+          <div className="flex flex-col gap-6 pt-6">
+            <SettingsGroup title="Your settings" separatorInset>
+              <SettingsRow title="Appearance & preferences" chevron testId="profile-preferences-row" onClick={() => updateView({ panel: "preferences", detail: null }, "push")} />
+              <SettingsRow title="Account" chevron testId="profile-account-row" onClick={() => updateView({ panel: "account", detail: null }, "push")} />
+              <SettingsRow
+                title="Connectors"
+                chevron
+                testId="profile-connectors-row"
+                onClick={() => updateView({ panel: "connectors", detail: null }, "push")}
+              />
+            </SettingsGroup>
+            <SettingsGroup title="Legal" separatorInset>
+              <ProfileLegalRows
+                onOpen={(document) => updateView({ panel: "legal", detail: document }, "push")}
+              />
+            </SettingsGroup>
+          </div>
+        }
+      />
+      </AppPageShell>
+    </SettingsPresentationProvider>
+  );
+}

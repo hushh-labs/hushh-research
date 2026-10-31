@@ -1,11 +1,13 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
+import { VaultQuickUnlockTrustLocalService } from "@/lib/services/vault-quick-unlock-trust-local-service";
 
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 import { VaultService, type VaultMethod } from "@/lib/services/vault-service";
 import { rewrapVaultKeyWithPassphrase } from "@/lib/vault/rewrap-vault-key";
+import { unlockVaultWithPassphrase } from "@/lib/vault/passphrase-key";
 import { trackEvent } from "@/lib/observability/client";
 
 export type { VaultMethod } from "@/lib/services/vault-service";
@@ -16,13 +18,14 @@ export type VaultCapabilityMatrix = {
   generatedWebPrf: boolean;
   recommendedMethod: VaultMethod;
   reason?: string;
+  biometricLabel?: string;
 };
 
 function ensureVaultKeyHex(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(
-      "Vault key in memory is invalid. Unlock vault again and retry.",
+      "Your unlock key is invalid. Unlock again and retry.",
     );
   }
   return normalized;
@@ -37,7 +40,7 @@ function normalizeVaultMethodError(error: unknown): Error {
     lowered.includes("rp id is not allowed")
   ) {
     return new Error(
-      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for one.hushh.ai.",
+      "This passkey was enrolled under an older domain. Use password once, then enroll passkey again for one.hushh.ai.",
     );
   }
 
@@ -47,10 +50,18 @@ function normalizeVaultMethodError(error: unknown): Error {
     );
   }
 
-  if (lowered.includes("passphrase wrapper missing")) {
+  if (/(?:password|passphrase) wrapper missing/.test(lowered)) {
     return new Error(
-      "Passphrase wrapper is missing for this vault. Use passphrase/recovery flow once to repair wrapper enrollment.",
+      "Password is missing. Use password or recovery once to repair it.",
     );
+  }
+
+  if (/(?:password|passphrase) wrapper (?:cannot be removed|is mandatory|is required)/.test(lowered)) {
+    return new Error("Password unlock is required and can’t be removed.");
+  }
+
+  if (lowered.includes("vault unlock method is not configured")) {
+    return new Error("Password unlock is not set up yet. Use your recovery key to restore access.");
   }
 
   return error instanceof Error ? error : new Error(message);
@@ -86,6 +97,7 @@ export class VaultMethodService {
           generatedNativeBiometric: true,
           generatedWebPrf: false,
           recommendedMethod: "generated_default_native_biometric",
+          biometricLabel: support.biometricLabel,
         };
       }
 
@@ -121,20 +133,27 @@ export class VaultMethodService {
     displayName: string;
     targetMethod: VaultMethod;
     passphrase?: string;
+    signal?: AbortSignal;
+    requestId?: string;
   }): Promise<{ method: VaultMethod }> {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      params.signal?.throwIfAborted();
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
+      const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       if (params.targetMethod === "passphrase") {
-        const passphrase = params.passphrase?.trim();
+        // Preserve the input verbatim, matching create and unlock: trimming
+        // only here made a passphrase with boundary whitespace unlock with a
+        // different string than the one the owner typed when switching to it.
+        const passphrase = params.passphrase;
         if (!passphrase || passphrase.length < 8) {
-          throw new Error("Passphrase must be at least 8 characters.");
+          throw new Error("Password must be at least 8 characters.");
         }
 
         const wrapped = await rewrapVaultKeyWithPassphrase({
@@ -145,6 +164,7 @@ export class VaultMethodService {
         await VaultService.upsertVaultWrapper({
           userId: params.userId,
           vaultKeyHash,
+          vaultOwnerToken,
           wrapper: {
             method: "passphrase",
             encryptedVaultKey: wrapped.encryptedVaultKey,
@@ -153,7 +173,7 @@ export class VaultMethodService {
           },
         });
 
-        await VaultService.setPrimaryVaultMethod(params.userId, "passphrase");
+        await VaultService.setPrimaryVaultMethod(params.userId, "passphrase", "default", vaultOwnerToken);
         dispatchVaultRekeyed(params.userId, "vault_method_switched_to_passphrase");
         trackEvent("profile_method_switch_result", {
           result: "success",
@@ -165,28 +185,33 @@ export class VaultMethodService {
         await VaultBootstrapService.provisionGeneratedMethodMaterial({
           userId: params.userId,
           displayName: params.displayName,
+          targetMethod: params.targetMethod,
+          signal: params.signal,
+          requestId: params.requestId,
         });
 
       if (material.mode !== params.targetMethod) {
         throw new Error("Requested method is not supported on this device.");
       }
 
+      let wrapperWriteAttempted = false;
       try {
+        params.signal?.throwIfAborted();
         const wrapped = await rewrapVaultKeyWithPassphrase({
           vaultKeyHex: canonicalVaultKey,
           wrappingSecret: material.wrappingSecret,
         });
 
+        params.signal?.throwIfAborted();
+        const wrapperId = material.wrapperId ?? material.passkeyCredentialId ?? "default";
+        wrapperWriteAttempted = true;
         await VaultService.upsertVaultWrapper({
           userId: params.userId,
           vaultKeyHash,
+          vaultOwnerToken,
           wrapper: {
             method: material.mode,
-            wrapperId:
-              material.passkeyCredentialId ??
-              (material.mode === "generated_default_native_biometric"
-                ? "default"
-                : "default"),
+            wrapperId,
             encryptedVaultKey: wrapped.encryptedVaultKey,
             salt: wrapped.salt,
             iv: wrapped.iv,
@@ -198,25 +223,54 @@ export class VaultMethodService {
             passkeyLastUsedAt: Date.now(),
           },
         });
-
+        params.signal?.throwIfAborted();
+        const persisted = await VaultService.getVaultState(params.userId);
+        const persistedWrapper = VaultService.getWrapperByMethod(persisted, material.mode, { wrapperId });
+        if (!persistedWrapper || (persistedWrapper.wrapperId ?? "default") !== wrapperId) {
+          throw new Error("Quick unlock could not be verified. Your existing unlock methods still work.");
+        }
+        const recoveredKey = await unlockVaultWithPassphrase(
+          material.wrappingSecret, persistedWrapper.encryptedVaultKey,
+          persistedWrapper.salt, persistedWrapper.iv,
+        );
+        if (!recoveredKey || ensureVaultKeyHex(recoveredKey) !== canonicalVaultKey) {
+          throw new Error("Quick unlock verification failed. Your existing unlock methods still work.");
+        }
+        await VaultService.assertVaultKeyMatchesState(persisted, recoveredKey);
+        params.signal?.throwIfAborted();
+        if (material.mode === "generated_default_native_biometric") {
+          // Persist the opaque device pointer before changing account preference.
+          // Failure here leaves the old primary usable and both wrappers intact.
+          await VaultBootstrapService.preferDeviceBiometricWrapper(params.userId, wrapperId);
+        }
+        params.signal?.throwIfAborted();
         await VaultService.setPrimaryVaultMethod(
           params.userId,
           material.mode,
-          material.passkeyCredentialId ?? "default",
+          wrapperId,
+          vaultOwnerToken,
         );
-        dispatchVaultRekeyed(params.userId, "vault_method_switched_to_generated");
+        // This write is the commit point. A later cancellation cannot undo it
+        // or truthfully report failed enrollment. The UI's epoch check still
+        // prevents this result from reopening a cancelled/changed session.
+        // Adding a verified wrapper for the SAME key is not rekeying. Do not
+        // lock the surviving session (including the setup flow) as a side effect.
         trackEvent("profile_method_switch_result", {
           result: "success",
         });
+        // The quick method was just verified on this device: the gate may
+        // start it by itself from the next launch on.
+        void VaultQuickUnlockTrustLocalService.mark(params.userId, material.mode);
         return { method: material.mode };
       } catch (error) {
         if (
           material.mode === "generated_default_native_biometric" &&
-          Capacitor.isNativePlatform()
+          Capacitor.isNativePlatform() && !wrapperWriteAttempted
         ) {
           await VaultBootstrapService.clearGeneratedDefaultMaterial(
             params.userId,
             material.mode as GeneratedVaultKeyMode,
+            material.wrapperId,
           );
         }
         throw error;
@@ -234,19 +288,27 @@ export class VaultMethodService {
     currentVaultKey: string;
     newPassphrase: string;
     keepPrimaryMethod?: boolean;
+    signal?: AbortSignal;
+    /** Called after acknowledged persistence, before the intentional rekey lock. */
+    onCommitted?: (result: { primaryMethod: VaultMethod; passphraseUpdated: true }) => void;
   }): Promise<{ primaryMethod: VaultMethod; passphraseUpdated: true }> {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      params.signal?.throwIfAborted();
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
+      const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
-      const nextPassphrase = params.newPassphrase.trim();
+      // Preserve the input verbatim, matching create and unlock: trimming
+      // only here made a passphrase with boundary whitespace unlock with a
+      // different string than the one the owner typed when changing it.
+      const nextPassphrase = params.newPassphrase;
       if (nextPassphrase.length < 8) {
-        throw new Error("Passphrase must be at least 8 characters.");
+        throw new Error("Password must be at least 8 characters.");
       }
 
       const wrapped = await rewrapVaultKeyWithPassphrase({
@@ -254,9 +316,12 @@ export class VaultMethodService {
         wrappingSecret: nextPassphrase,
       });
 
+      params.signal?.throwIfAborted();
+
       await VaultService.upsertVaultWrapper({
         userId: params.userId,
         vaultKeyHash,
+        vaultOwnerToken,
         wrapper: {
           method: "passphrase",
           wrapperId: "default",
@@ -272,16 +337,17 @@ export class VaultMethodService {
           params.userId,
           "passphrase",
           "default",
+          vaultOwnerToken,
         );
-        dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-        return { primaryMethod: "passphrase", passphraseUpdated: true };
       }
-
-      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-      return {
-        primaryMethod: state.primaryMethod,
+      const result: { primaryMethod: VaultMethod; passphraseUpdated: true } = {
+        primaryMethod: keepPrimaryMethod ? state.primaryMethod : "passphrase",
         passphraseUpdated: true,
       };
+      try { params.onCommitted?.(result); }
+      catch { console.warn("VAULT_METHOD_POST_COMMIT_OBSERVER_FAILED"); }
+      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
+      return result;
     } catch (error) {
       throw normalizeVaultMethodError(error);
     }
@@ -298,15 +364,15 @@ export class VaultMethodService {
   }): Promise<{ primaryMethod: VaultMethod }> {
     try {
       if (params.method === "passphrase") {
-        throw new Error("Passphrase unlock cannot be removed.");
+        throw new Error("Password unlock cannot be removed.");
       }
 
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
-        throw new Error("Vault key mismatch detected. Unlock vault again.");
+        throw new Error("Key mismatch detected. Unlock again.");
       }
 
       const wrapperId = params.wrapperId ?? "default";
@@ -330,7 +396,7 @@ export class VaultMethodService {
       );
       if (!fallbackWrapper) {
         throw new Error(
-          "Passphrase unlock must be repaired before removing this method.",
+          "Password unlock must be repaired before removing this method.",
         );
       }
 

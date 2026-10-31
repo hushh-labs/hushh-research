@@ -13,9 +13,13 @@ const installDir = path.join(tempRoot, "install");
 fs.mkdirSync(installDir, { recursive: true });
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const npmCli = command === "npm" && process.env.npm_execpath;
+  const result = spawnSync(npmCli ? process.execPath : command, npmCli ? [npmCli, ...args] : args, {
+    cwd,
+    encoding: "utf8",
+  });
   if (result.status !== 0) {
-    throw new Error(`${command} failed: ${result.stderr || result.stdout}`);
+    throw new Error(`${command} failed: ${result.error?.message || result.stderr || result.stdout}`);
   }
   return result.stdout;
 }

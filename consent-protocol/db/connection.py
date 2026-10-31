@@ -39,7 +39,10 @@ import asyncio
 import hashlib
 import logging
 import os
-from typing import Optional
+from collections.abc import Iterator
+from contextlib import asynccontextmanager, contextmanager
+from threading import Lock
+from typing import Any, Optional
 from urllib.parse import quote_plus
 
 import asyncpg
@@ -79,6 +82,11 @@ _DB_CONNECTION_ERROR_PATTERNS = (
     "timed out",
     "ssl syscall error: eof detected",
 )
+_DB_CONNECTION_CAPACITY_ERROR_PATTERNS = (
+    "remaining connection slots are reserved",
+    "too many connections",
+    "too many clients already",
+)
 
 # Database connection pool (singleton) and its init lock.
 # The lock ensures only one coroutine runs the create_pool() call even when
@@ -106,6 +114,31 @@ class DatabaseUnavailableError(RuntimeError):
         super().__init__(message)
 
 
+class DedicatedConnectionCapacityError(DatabaseUnavailableError):
+    """The worker's non-request connection budget is already in use."""
+
+
+# Process-wide, including callers on different event loops. Reserve before any
+# network await; release only after the session has closed or been terminated.
+_DEDICATED_CONNECTION_LIMIT = 3
+_dedicated_connection_count = 0
+_dedicated_connection_guard = Lock()
+
+
+@contextmanager
+def _dedicated_connection_slot() -> Iterator[None]:
+    global _dedicated_connection_count
+    with _dedicated_connection_guard:
+        if _dedicated_connection_count >= _DEDICATED_CONNECTION_LIMIT:
+            raise DedicatedConnectionCapacityError("Background database work is busy; retry later.")
+        _dedicated_connection_count += 1
+    try:
+        yield
+    finally:
+        with _dedicated_connection_guard:
+            _dedicated_connection_count -= 1
+
+
 def _is_connection_unavailable_error(exc: BaseException) -> bool:
     current: BaseException | None = exc
     seen: set[int] = set()
@@ -114,7 +147,10 @@ def _is_connection_unavailable_error(exc: BaseException) -> bool:
         if isinstance(current, (ConnectionError, OSError, TimeoutError)):
             return True
         message = str(current).strip().lower()
-        if message and any(pattern in message for pattern in _DB_CONNECTION_ERROR_PATTERNS):
+        if message and any(
+            pattern in message
+            for pattern in _DB_CONNECTION_ERROR_PATTERNS + _DB_CONNECTION_CAPACITY_ERROR_PATTERNS
+        ):
             return True
         current = current.__cause__ or current.__context__
     return False
@@ -137,8 +173,20 @@ def local_database_unavailable_hint() -> str | None:
     )
 
 
+def database_unavailable_hint(details: str) -> str | None:
+    """Return a recovery hint that matches the actual database failure class."""
+
+    normalized = str(details).strip().lower()
+    if any(pattern in normalized for pattern in _DB_CONNECTION_CAPACITY_ERROR_PATTERNS):
+        return (
+            "The shared database is at connection capacity. Wait briefly and retry; "
+            "do not restart the Cloud SQL proxy unless it is actually down."
+        )
+    return local_database_unavailable_hint()
+
+
 def format_database_unavailable_details(details: str) -> str:
-    hint = local_database_unavailable_hint()
+    hint = database_unavailable_hint(details)
     normalized = str(details).strip()
     if not hint:
         return normalized
@@ -185,6 +233,190 @@ def _get_pool_int(env_name: str, default: int, *, minimum: int) -> int:
         )
         return default
     return value
+
+
+# ---------------------------------------------------------------------------
+# Pool acquire guardrail
+#
+# asyncpg's ``Pool.acquire()`` waits FOREVER when every connection is checked
+# out, and none of this repo's call sites pass a timeout. Behind Supabase's
+# PgBouncer that never mattered — connections were cheap and plentiful. On
+# Cloud SQL every connection is a real Postgres backend, so the pool was
+# clamped hard, and an unbounded wait against a small pool is a hang.
+#
+# On 2026-08-23 that combination took UAT phone verification down for six
+# hours: connections were held by slow handlers, every later request queued on
+# acquire() with no deadline, and Cloud Run killed each one at its 3600s
+# request timeout while it held a concurrency slot for the full hour. Nothing
+# could drain.
+#
+# The fix is a deadline. ``Pool.execute()``/``fetch()``/``fetchval()`` and the
+# rest all funnel through ``self.acquire()`` internally, so bounding acquire
+# bounds every one of them from a single place — including any asyncpg method
+# this repo does not call today.
+#
+# Three things this deliberately does NOT do:
+#
+#   1. It does not hand the deadline to asyncpg. ``Pool._acquire`` records its
+#      timeout on the connection holder and ``Pool.release()`` later reuses it
+#      as the budget for ``Connection.reset()``. Passing a deadline down would
+#      silently cap every release too, and a reset that overran would terminate
+#      the connection and force a fresh handshake — churn, exactly when the
+#      database is already struggling. We keep our own deadline out here and
+#      leave asyncpg's release semantics untouched.
+#
+#   2. It does not claim every timeout is pool exhaustion. The wait covers
+#      connection ESTABLISHMENT as well as the queue wait, so a TCP/TLS/auth
+#      timeout to Cloud SQL surfaces here too. Reporting that as "pool
+#      exhausted, raise DB_POOL_MAX_SIZE" would send an operator the wrong way
+#      during a real database outage — and would add connection pressure to an
+#      instance that is already failing. We only claim exhaustion when our own
+#      deadline actually elapsed; anything faster is re-raised untouched so the
+#      real connection error, and local_database_unavailable_hint(), survive.
+#
+#   3. It does not bind callers who must wait. A background job that needs one
+#      connection once, for the life of the process, loses nothing by waiting
+#      and loses everything by failing early. Such callers pass an explicit
+#      ``timeout=None`` and keep asyncpg's original unbounded behaviour.
+#
+# The default is sized above the cold-start cost this repo documents at
+# server.py — a burst of first requests can stall 15-30s while additional
+# connections are established to Cloud SQL on a single vCPU. A deadline under
+# that would turn every cold start into a 503 storm. It is not sized to undercut
+# the proxy's per-route timeouts (the tightest are 10s), because it cannot do
+# both, and not hanging matters far more than which layer reports the failure.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_ACQUIRE_TIMEOUT_SECONDS = 60.0
+
+# Distinguishes "caller said nothing" from "caller explicitly said None".
+# ``acquire(timeout=None)`` has to keep meaning "wait as long as it takes".
+_UNSET: Any = object()
+
+
+def _get_acquire_timeout_seconds() -> float:
+    """Seconds to wait for a pooled connection before failing fast.
+
+    Tunable via DB_POOL_ACQUIRE_TIMEOUT_SECONDS. The window has to clear the
+    15-30s cold-start handshake burst documented in server.py, because this
+    deadline covers establishing a new connection as well as waiting for a
+    free one.
+    """
+    raw = os.getenv(
+        "DB_POOL_ACQUIRE_TIMEOUT_SECONDS", str(_DEFAULT_ACQUIRE_TIMEOUT_SECONDS)
+    ).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid float for DB_POOL_ACQUIRE_TIMEOUT_SECONDS=%r; using default %.1f",
+            raw,
+            _DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_ACQUIRE_TIMEOUT_SECONDS
+    if value <= 0:
+        logger.warning(
+            "Out-of-range DB_POOL_ACQUIRE_TIMEOUT_SECONDS=%r; expected > 0. Using default %.1f",
+            raw,
+            _DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_ACQUIRE_TIMEOUT_SECONDS
+    return value
+
+
+def _pool_exhausted_error(elapsed: float) -> "DatabaseUnavailableError":
+    """Build the 503 raised when our own acquire deadline actually elapsed."""
+    logger.warning(
+        "db.pool_acquire_timeout: no connection available after %.1fs (DB_POOL_MAX_SIZE=%s)",
+        elapsed,
+        os.getenv("DB_POOL_MAX_SIZE", "<default>"),
+    )
+    return DatabaseUnavailableError(
+        "The database is busy. Please try again.",
+        hint=(
+            f"No pooled connection became available within {elapsed:.1f}s. Either the "
+            "pool is too small for the admitted concurrency, or a handler is holding a "
+            "pooled connection across slow network I/O."
+        ),
+    )
+
+
+class _BoundedAcquireContext:
+    """Put a deadline on asyncpg's PoolAcquireContext without changing release.
+
+    Supports both shapes this repo uses:
+        async with pool.acquire() as conn: ...
+        conn = await pool.acquire()
+    """
+
+    __slots__ = ("_ctx", "_deadline")
+
+    def __init__(self, ctx: Any, deadline: float) -> None:
+        self._ctx = ctx
+        self._deadline = deadline
+
+    async def _guarded(self, awaitable: Any) -> Any:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        try:
+            return await asyncio.wait_for(awaitable, timeout=self._deadline)
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            elapsed = loop.time() - started
+            if elapsed < self._deadline * 0.9:
+                # Something inside timed out well before our deadline — almost
+                # always the connection attempt itself. That is a different
+                # incident with a different fix, so let the real error through.
+                raise
+            raise _pool_exhausted_error(elapsed) from exc
+
+    async def _enter(self) -> Any:
+        return await self._guarded(self._ctx.__aenter__())
+
+    async def _direct(self) -> Any:
+        return await self._guarded(_await_context(self._ctx))
+
+    def __await__(self) -> Any:
+        return self._direct().__await__()
+
+    async def __aenter__(self) -> Any:
+        return await self._enter()
+
+    async def __aexit__(self, exc_type: Any = None, exc_val: Any = None, exc_tb: Any = None) -> Any:
+        return await self._ctx.__aexit__(exc_type, exc_val, exc_tb)
+
+
+async def _await_context(ctx: Any) -> Any:
+    """Await a PoolAcquireContext as a coroutine so wait_for can wrap it."""
+    return await ctx
+
+
+_ORIGINAL_POOL_ACQUIRE: Any = None
+
+
+def _install_bounded_acquire() -> None:
+    """Give every unqualified asyncpg pool acquire a deadline. Idempotent."""
+    global _ORIGINAL_POOL_ACQUIRE
+    if _ORIGINAL_POOL_ACQUIRE is not None:
+        return
+
+    original = asyncpg.pool.Pool.acquire
+    _ORIGINAL_POOL_ACQUIRE = original
+
+    def acquire(self: Any, *, timeout: Any = _UNSET) -> Any:
+        if timeout is not _UNSET:
+            # The caller owns the deadline, including `timeout=None` meaning
+            # "wait as long as it takes" for a background job that must not
+            # fail early.
+            return original(self, timeout=timeout)
+        # timeout=None keeps asyncpg's holder budget untouched, so Pool.release()
+        # keeps its original unbounded reset. Our deadline lives outside.
+        return _BoundedAcquireContext(original(self, timeout=None), _get_acquire_timeout_seconds())
+
+    acquire.__doc__ = original.__doc__
+    asyncpg.pool.Pool.acquire = acquire
+
+
+_install_bounded_acquire()
 
 
 def get_database_url() -> str:
@@ -239,6 +471,51 @@ def _get_database_url() -> str:
     return get_database_url()
 
 
+@asynccontextmanager
+async def dedicated_connection():
+    """Use a separate connection for long-lived session-scoped database locks.
+
+    A provider call made while holding an advisory lock must not reserve one of
+    the request pool's limited connections. The caller owns the lock lifetime;
+    this context always closes the dedicated connection and releases its locks.
+    The shared worker budget fails fast instead of starving the request pool.
+    """
+    if _is_offline_mode():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            yield conn
+        return
+
+    with _dedicated_connection_slot():
+        timeout = _get_connect_timeout_seconds()
+        socket = os.getenv("DB_UNIX_SOCKET")
+        if socket:
+            conn = await asyncpg.connect(
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASSWORD"),
+                database=os.getenv("DB_NAME", "postgres"),
+                host=socket,
+                port=int(os.getenv("DB_PORT", "5432")),
+                timeout=timeout,
+                command_timeout=60,
+            )
+        else:
+            conn = await asyncpg.connect(
+                _get_database_url(),
+                ssl=get_database_ssl(),
+                timeout=timeout,
+                command_timeout=60,
+            )
+        try:
+            yield conn
+        finally:
+            try:
+                await conn.close(timeout=5)
+            except BaseException:
+                conn.terminate()
+                raise
+
+
 async def get_pool() -> asyncpg.Pool:
     """Get or create the connection pool.
 
@@ -273,10 +550,7 @@ async def get_pool() -> asyncpg.Pool:
         database_url = _get_database_url()
         ssl_config = get_database_ssl()
         connect_timeout_seconds = _get_connect_timeout_seconds()
-        # Pool sizing is env-tunable. The previous fixed max_size=10 was easily
-        # exhausted when a few slow endpoints held connections, causing other
-        # requests to block on acquire() until they hit the connect timeout and
-        # 500'd. A larger ceiling plus a warm floor removes that cliff.
+        # Listener transport reuses the reviewed, environment-tunable pool ceiling.
         pool_min_size = _get_pool_int("DB_POOL_MIN_SIZE", 2, minimum=0)
         pool_max_size = _get_pool_int("DB_POOL_MAX_SIZE", 20, minimum=1)
         if pool_max_size < pool_min_size:
@@ -330,9 +604,12 @@ async def get_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Close the connection pool."""
+    from db.listener_connection import forget_listener_pool
+
     global _pool
     if _pool:
         await _pool.close()
+        forget_listener_pool(_pool)
         _pool = None
         logger.info("PostgreSQL connection pool closed")
 

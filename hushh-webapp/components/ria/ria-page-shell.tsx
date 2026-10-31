@@ -1,11 +1,19 @@
 "use client";
 
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+import {
+  createContext,
+  useContext,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
+import type { LucideIcon } from "@/components/icons";
+import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "@/components/icons";
+import { usePathname, useRouter } from "next/navigation";
 
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { ROUTES } from "@/lib/navigation/routes";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
+import { Button } from "@/lib/morphy-ux/button";
 
 import {
   AppPageContentRegion,
@@ -22,6 +30,7 @@ import {
   PageHeader,
   SectionHeader,
 } from "@/components/app-ui/page-sections";
+import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import {
   SurfaceCard,
   SurfaceInset,
@@ -30,6 +39,56 @@ import {
   type SurfaceTone,
 } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
+import { isRiaVerified, riaVerificationStatusOf } from "@/lib/ria/ria-verification";
+
+const RIA_AGENT_HEADER_CLASSNAME =
+  "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
+
+const RiaPrimaryWorkspaceContext = createContext(false);
+
+function isRiaPrimaryWorkspacePath(pathname: string | null): boolean {
+  const normalizedPathname = pathname?.replace(/\/+$/, "") || "/";
+  return (
+    normalizedPathname === ROUTES.RIA_PROFILE ||
+    normalizedPathname === ROUTES.RIA_CLIENTS ||
+    normalizedPathname === ROUTES.RIA_PICKS
+  );
+}
+
+/**
+ * Persistent shell for the three primary RIA workspace routes.
+ *
+ * `/ria/layout.tsx` survives pathname changes between Profile, Clients, and
+ * Picks. Keeping the identity header and route selector here means those
+ * elements stay mounted while each route page replaces only its content.
+ */
+export function RiaPrimaryWorkspaceShell({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+
+  if (!isRiaPrimaryWorkspacePath(pathname)) return <>{children}</>;
+
+  return (
+    <RiaPrimaryWorkspaceContext.Provider value>
+      <AppPageShell as="main" fitContent width="agent" headerContentSpacing="compact">
+        <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
+          <PageHeader
+            title="Advisor"
+            accent="ria"
+            titleRole="agent"
+            actionsInlineMobile
+            className={RIA_AGENT_HEADER_CLASSNAME}
+          />
+          <RiaRouteSelector />
+        </AppPageHeaderRegion>
+        {children}
+      </AppPageShell>
+    </RiaPrimaryWorkspaceContext.Provider>
+  );
+}
 
 export function RiaPageShell({
   eyebrow,
@@ -38,8 +97,20 @@ export function RiaPageShell({
   actions,
   icon = BriefcaseBusiness,
   statusPanel,
+  showRouteSelector = false,
   children,
-  width = "standard",
+  // "standard" (90rem / 1440px) matched Connect and Marketplace, but those
+  // are directory-browsing surfaces; RIA's own screens are read-and-act
+  // workspaces, closer in shape to Location's primary surface, which uses
+  // "agent" (880px). At phone width the two are visually identical --
+  // both exceed the viewport, so `width: 100%` governs either way -- the
+  // difference shows up on an iPad or any Capacitor window wider than a
+  // phone, which is where "very wide, wrong container" was reported from.
+  width = "agent",
+  // "page" for a screen inside RIA (an account, a request, one client's
+  // workspace); "agent" for a screen a person lands on, which wears the same
+  // hero header as Location -- a filled accent tile and the larger title.
+  titleRole = "page",
   className,
   headerClassName,
   contentClassName,
@@ -50,10 +121,12 @@ export function RiaPageShell({
   title: string;
   description?: string;
   actions?: ReactNode;
-  icon?: LucideIcon;
+  icon?: LucideIcon | null;
   statusPanel?: ReactNode;
+  showRouteSelector?: boolean;
   children: ReactNode;
   width?: AppPageShellWidth;
+  titleRole?: "page" | "agent";
   className?: string;
   headerClassName?: string;
   contentClassName?: string;
@@ -74,23 +147,50 @@ export function RiaPageShell({
     errorMessage?: string | null;
   };
 }) {
+  const isInsidePrimaryWorkspace = useContext(RiaPrimaryWorkspaceContext);
+
+  if (isInsidePrimaryWorkspace) {
+    return (
+      <>
+        {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
+        <AppPageContentRegion className={cn("mt-[var(--page-header-section-gap)]", contentClassName)}>
+          <SurfaceStack className={stackClassName}>
+            {statusPanel ? <div>{statusPanel}</div> : null}
+            {children}
+          </SurfaceStack>
+        </AppPageContentRegion>
+      </>
+    );
+  }
+
   return (
     <AppPageShell
       as="main"
       fitContent
       width={width}
-      className={cn("pb-24 sm:pb-28", className)}
+      headerContentSpacing={titleRole === "agent" ? "compact" : "standard"}
+      className={className}
       nativeTest={nativeTest}
     >
-      <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
+      <AppPageHeaderRegion className={cn(titleRole === "agent" ? "space-y-[var(--page-header-section-gap)]" : "pt-2 sm:pt-3", headerClassName)}>
         <PageHeader
           eyebrow={eyebrow}
           title={title}
           description={description}
           actions={actions}
-          icon={icon}
+          actionsInlineMobile={titleRole === "agent"}
+          icon={icon ?? undefined}
           accent="ria"
+          titleRole={titleRole}
+          className={
+            titleRole === "agent"
+              ? RIA_AGENT_HEADER_CLASSNAME
+              : undefined
+          }
         />
+        {showRouteSelector ? (
+          <RiaRouteSelector className={titleRole === "agent" ? undefined : "mt-4 sm:mt-5"} />
+        ) : null}
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className={contentClassName}>
@@ -182,9 +282,9 @@ type RiaStatusItem = {
 
 const STATUS_TONE_STYLES: Record<RiaStatusTone, string> = {
   neutral: "border-border/60 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  warning: "border-amber-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  success: "border-emerald-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  critical: "border-red-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
+  warning: "border-[color:var(--ria-warning-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
+  success: "border-[color:var(--ria-success-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
+  critical: "border-[color:var(--ria-danger-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
 };
 
 export function RiaStatusPanel({
@@ -255,33 +355,55 @@ export function RiaStatusPanel({
   );
 }
 
-const _VERIFIED_STATUSES = new Set(["active", "verified", "finra_verified"]);
-
-export function isRiaVerified(status?: string | null): boolean {
-  return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
-}
+export { isRiaVerified };
 
 export function RiaVerificationGate({ children }: { children: ReactNode }) {
-  const { riaOnboardingStatus, loading } = usePersonaState();
-  const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
+  const router = useRouter();
+  const { riaOnboardingStatus, loading, refreshing } = usePersonaState();
+  const status = riaVerificationStatusOf(riaOnboardingStatus);
 
-  if (loading) return null;
+  // A cached persona ends `loading` before the advisor status arrives; while it
+  // is still being fetched the status is unknown, not unverified.
+  if (loading || (refreshing && !riaOnboardingStatus)) return null;
 
   if (!isRiaVerified(status)) {
     return (
-      <section className="space-y-3">
-        <SectionHeader
-          eyebrow={RIA_COPY.clients.verifyGate.eyebrow}
-          title={RIA_COPY.clients.verifyGate.title}
-          description={RIA_COPY.clients.verifyGate.description}
-          icon={ShieldAlert}
-        />
-        <RiaSurface tone="warning" className="border-dashed">
-          <p className="text-sm leading-6 text-muted-foreground">
-            {RIA_COPY.clients.verifyGate.body}
-          </p>
-        </RiaSurface>
-      </section>
+      <div className="mx-auto my-12 flex w-full max-w-xl flex-col items-center px-4 text-center sm:px-6">
+        {/* Header Icon */}
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--ria-gold,var(--app-accent))]">
+          <ShieldAlert className="h-7 w-7" />
+        </div>
+
+        {/* Eyebrow */}
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ria-gold,var(--app-accent))]">
+          {RIA_COPY.clients.verifyGate.eyebrow}
+        </p>
+
+        {/* Title */}
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          {RIA_COPY.clients.verifyGate.title}
+        </h2>
+
+        {/* Description */}
+        <p className="mt-3 max-w-md text-base leading-relaxed text-muted-foreground">
+          {RIA_COPY.clients.verifyGate.description}
+        </p>
+
+        {/* Status Note */}
+        <p className="mt-3 text-xs font-medium text-muted-foreground/70">
+          {RIA_COPY.clients.verifyGate.body}
+        </p>
+
+        {/* Action CTA Button */}
+        <Button
+          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg transition-[background-color,color,transform,box-shadow] duration-150 hover:bg-[color:var(--app-accent-hover)] cursor-pointer"
+          onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
+          data-testid="ria-clients-verify-gate-cta"
+        >
+          {RIA_COPY.clients.verifyGate.cta}
+          <ShieldCheck className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
     );
   }
 

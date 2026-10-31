@@ -1,0 +1,259 @@
+name: "Verify Protected Configuration"
+
+# A list stored in a secret can be destroyed by one careless write, because
+# `gcloud secrets versions add` REPLACES the whole value. On 2026-09-03 the UAT
+# phone allowlist went from 59 entries to 1 and it took FIVE DAYS to notice --
+# it surfaced as "phone verification is broken", not as "configuration was
+# deleted".
+#
+# A flat team cannot solve this by taking write access away. So this does not
+# try to prevent the write. It shortens the time-to-notice from days to an hour,
+# names the exact secret, and prints the one command that restores it.
+#
+# Deploy-time checks are not enough on their own: production deploys are rare,
+# so a production wipe could sit undetected for weeks. This runs on a clock.
+
+on:
+  schedule:
+    # Hourly. The cost of a run is four secret reads; the cost of missing a wipe
+    # is an engineer losing a day to a symptom three layers away from the cause.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      health_build_operation:
+        description: "UAT health operation ID (empty runs checks)"
+        required: false
+        default: ""
+        type: string
+      health_action:
+        description: "Manual UAT monitoring operation; never deploys the application"
+        type: choice
+        options: [build-image, runtime-access, install-job, activate-timer]
+        default: build-image
+      health_checker_unique_id:
+        description: "Recorded checker unique ID, required for runtime access, job installation and timer activation"
+        type: string
+        required: false
+        default: ""
+      health_clock_unique_id:
+        description: "Recorded clock unique ID, required for health job installation or timer activation"
+        type: string
+        required: false
+        default: ""
+      health_build_id:
+        description: "Successful immutable Cloud Build ID, required for job installation or timer activation"
+        type: string
+        required: false
+        default: ""
+      health_execution_name:
+        description: "Full healthy UAT Cloud Run execution name, required only for timer activation"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: verify-protected-lists-${{ inputs.health_build_operation != '' && 'image-build' || 'checks' }}
+  cancel-in-progress: false
+
+jobs:
+  uat:
+    if: inputs.health_build_operation == ''
+    name: "UAT lists"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: uat
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Verify UAT protected lists are intact
+        run: |
+          set --
+          case "$AUTH_PHONE_RUNTIME_HEALTH_ENABLED" in
+            true) set -- --check-phone-runtime ;;
+            false) ;;
+            *) echo "Invalid phone runtime health rollout setting" >&2; exit 1 ;;
+          esac
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
+
+  production:
+    if: inputs.health_build_operation == ''
+    name: "Production lists"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda
+      AUTH_PHONE_RUNTIME_HEALTH_ENABLED: ${{ vars.AUTH_PHONE_RUNTIME_HEALTH_ENABLED || 'false' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Verify production protected lists are intact
+        run: |
+          set --
+          case "$AUTH_PHONE_RUNTIME_HEALTH_ENABLED" in
+            true) set -- --check-phone-runtime ;;
+            false) ;;
+            *) echo "Invalid phone runtime health rollout setting" >&2; exit 1 ;;
+          esac
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --emit-health-log "$@"
+
+  health-image:
+    name: "Prepare UAT health monitoring (manual)"
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.health_build_operation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify governed operator before obtaining cloud credentials
+        env:
+          OPERATOR: ${{ github.actor }}
+          HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+          HEALTH_ACTION: ${{ inputs.health_action }}
+          CHECKER_ID: ${{ inputs.health_checker_unique_id }}
+          CLOCK_ID: ${{ inputs.health_clock_unique_id }}
+          BUILD_ID: ${{ inputs.health_build_id }}
+          EXECUTION_NAME: ${{ inputs.health_execution_name }}
+        run: |
+          set -euo pipefail
+          [[ "$HEALTH_OPERATION" =~ ^[0-9a-f]{32}$ ]]
+          case "$HEALTH_ACTION" in
+            build-image)
+              test -z "$CHECKER_ID" && test -z "$CLOCK_ID" \
+                && test -z "$BUILD_ID" && test -z "$EXECUTION_NAME" ;;
+            runtime-access)
+              [[ "$CHECKER_ID" =~ ^[0-9]{15,24}$ ]] && test -z "$CLOCK_ID" \
+                && test -z "$BUILD_ID" && test -z "$EXECUTION_NAME" ;;
+            install-job)
+              [[ "$CHECKER_ID" =~ ^[0-9]{15,24}$ ]] \
+                && [[ "$CLOCK_ID" =~ ^[0-9]{15,24}$ ]] \
+                && [[ "$BUILD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+                && test -z "$EXECUTION_NAME" ;;
+            activate-timer)
+              [[ "$CHECKER_ID" =~ ^[0-9]{15,24}$ ]] \
+                && [[ "$CLOCK_ID" =~ ^[0-9]{15,24}$ ]] \
+                && [[ "$BUILD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+                && [[ "$EXECUTION_NAME" == projects/hushh-pda-uat/locations/us-central1/jobs/protected-configuration-health/executions/protected-configuration-health-* ]] ;;
+            *) exit 1 ;;
+          esac
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$OPERATOR"
+      - name: Persist exact monitoring mutation intent before cloud access
+        if: inputs.health_action == 'install-job' || inputs.health_action == 'activate-timer'
+        env:
+          HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+          HEALTH_ACTION: ${{ inputs.health_action }}
+          CHECKER_ID: ${{ inputs.health_checker_unique_id }}
+          CLOCK_ID: ${{ inputs.health_clock_unique_id }}
+          BUILD_ID: ${{ inputs.health_build_id }}
+          EXECUTION_NAME: ${{ inputs.health_execution_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$HEALTH_ACTION" == activate-timer ]]; then
+            python3 deploy/observability/auth_health_uat_installer.py \
+              --record-intent --health-action "$HEALTH_ACTION" \
+              --operation "$HEALTH_OPERATION" --checker-unique-id "$CHECKER_ID" \
+              --clock-unique-id "$CLOCK_ID" --build-id "$BUILD_ID" \
+              --execution-name "$EXECUTION_NAME" --receipt health-operation-intent.json
+          else
+            python3 deploy/observability/auth_health_uat_installer.py \
+              --record-intent --health-action "$HEALTH_ACTION" \
+              --operation "$HEALTH_OPERATION" --checker-unique-id "$CHECKER_ID" \
+              --clock-unique-id "$CLOCK_ID" --build-id "$BUILD_ID" \
+              --receipt health-operation-intent.json
+          fi
+      - uses: actions/upload-artifact@v6
+        if: inputs.health_action == 'install-job' || inputs.health_action == 'activate-timer'
+        with:
+          name: auth-health-intent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: health-operation-intent.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Execute reviewed monitoring operation without application deployment
+        env:
+          HEALTH_OPERATION: ${{ inputs.health_build_operation }}
+          HEALTH_ACTION: ${{ inputs.health_action }}
+          CHECKER_ID: ${{ inputs.health_checker_unique_id }}
+          CLOCK_ID: ${{ inputs.health_clock_unique_id }}
+          BUILD_ID: ${{ inputs.health_build_id }}
+          EXECUTION_NAME: ${{ inputs.health_execution_name }}
+        run: |
+          set -euo pipefail
+          case "$HEALTH_ACTION" in
+            build-image) set -- --build-image ;;
+            runtime-access) set -- --grant-runtime-observation --checker-unique-id "$CHECKER_ID" ;;
+            install-job)
+              consent-protocol/.venv/bin/python deploy/observability/auth_health_uat_installer.py \
+                --install-job --operation "$HEALTH_OPERATION" --checker-unique-id "$CHECKER_ID" \
+                --clock-unique-id "$CLOCK_ID" --build-id "$BUILD_ID" \
+                --receipt health-operation.json
+              exit 0
+              ;;
+            activate-timer)
+              consent-protocol/.venv/bin/python deploy/observability/auth_health_uat_installer.py \
+                --activate-timer --operation "$HEALTH_OPERATION" --checker-unique-id "$CHECKER_ID" \
+                --clock-unique-id "$CLOCK_ID" --build-id "$BUILD_ID" \
+                --execution-name "$EXECUTION_NAME" --receipt health-operation.json
+              exit 0
+              ;;
+            *) exit 1 ;;
+          esac
+          consent-protocol/.venv/bin/python deploy/observability/setup_auth_health.py --project hushh-pda-uat \
+            "$@" --operation "$HEALTH_OPERATION" --receipt health-operation.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: auth-health-operation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: health-operation.json
+          if-no-files-found: ignore
+          retention-days: 14

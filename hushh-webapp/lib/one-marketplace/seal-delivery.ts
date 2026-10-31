@@ -23,6 +23,11 @@ import {
   encryptSliceForRecipient,
   type MarketplaceEncryptedEnvelope,
 } from "@/lib/one-marketplace/encryption";
+import {
+  buildPacketDeliveryPayload,
+  PacketPartNoDataError,
+  packetIdFromRequest,
+} from "@/lib/one-marketplace/packet-delivery";
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
 import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -32,8 +37,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
  * scope is `attr.<domain>.<topLevelScopePath>.*` (see
  * `consentScopeForPermission`). The request row carries `domain` +
  * `scope_handle` but not the top-level path, so the seller resolves it from
- * their own DomainManifest scope_registry. Falls back to the domain-wide
- * `attr.<domain>` scope when the handle can't be resolved.
+ * their own DomainManifest scope_registry. An unresolved handle fails closed.
  */
 export async function resolveExportScope(params: {
   userId: string;
@@ -43,12 +47,7 @@ export async function resolveExportScope(params: {
 }): Promise<string | null> {
   const domain = params.domain.trim();
   const scopeHandle = params.scopeHandle.trim();
-  // A scope_handle that is already a full attr scope can be used as-is.
-  if (scopeHandle.startsWith("attr.")) return scopeHandle;
-  if (!domain) return scopeHandle || null;
-
-  const fallback = `attr.${domain}`;
-  if (!scopeHandle) return fallback;
+  if (!domain || !scopeHandle) return null;
 
   try {
     const manifest = await PersonalKnowledgeModelService.getDomainManifest(
@@ -68,7 +67,7 @@ export async function resolveExportScope(params: {
   } catch (error) {
     console.warn("[MarketplaceSeal] scope resolution failed:", error);
   }
-  return fallback;
+  return null;
 }
 
 /**
@@ -107,12 +106,57 @@ export interface SealSliceForRequestParams {
 export async function sealSliceForRequest(
   params: SealSliceForRequestParams,
 ): Promise<MarketplaceEncryptedEnvelope> {
-  const { recipientKey } = await OneMarketplaceService.getRequestRecipientKey({
+  const { recipientKey, request } = await OneMarketplaceService.getRequestRecipientKey({
     vaultOwnerToken: params.vaultOwnerToken,
     requestId: params.requestId,
   });
+  if (request.metadata?.commercial_required === true) throw new Error("Paid information requires verified encrypted preparation.");
   if (!recipientKey?.keyId || !recipientKey.publicKeyJwk) {
     throw new RecipientKeyUnavailableError();
+  }
+
+  // A bought packet: seal every detail it lists into one envelope.
+  const packetId = packetIdFromRequest(params.domain, params.scopeHandle);
+  if (packetId) {
+    const payload = await buildPacketDeliveryPayload(packetId, {
+      getPacket: async (id) => {
+        const { packets } = await OneMarketplaceService.listPackets({
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+        return packets.find((packet) => packet.id === id) ?? null;
+      },
+      resolveScope: (domain, scopeHandle) =>
+        resolveExportScope({
+          userId: params.userId,
+          domain,
+          scopeHandle,
+          vaultOwnerToken: params.vaultOwnerToken,
+        }),
+      buildExport: async (scope) => {
+        try {
+          const built = await buildConsentExportForScope({
+            userId: params.userId,
+            scope,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+          return built.payload;
+        } catch (error) {
+          if (error instanceof ConsentExportNoDataError) throw new PacketPartNoDataError();
+          throw error;
+        }
+      },
+    });
+    return encryptSliceForRecipient({
+      payload,
+      recipientPublicKeyJwk: recipientKey.publicKeyJwk,
+      recipientKeyId: recipientKey.keyId,
+      metadata: {
+        request_id: params.requestId,
+        scope: params.scopeHandle,
+        slice_name: params.sliceName || payload.title,
+      },
+    });
   }
 
   const scope = await resolveExportScope({

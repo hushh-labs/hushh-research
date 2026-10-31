@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { XIcon } from "@/components/icons"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 function Dialog({
   modal = false,
@@ -35,18 +36,22 @@ function DialogClose({
 
 function DialogOverlay({
   className,
+  ref,
+  nativeLayer,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+}: React.ComponentProps<typeof DialogPrimitive.Overlay> & { nativeLayer?: string }) {
+  const overlayRef = useNativeNavigationOverlayRef(ref, true, nativeLayer)
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
         // The blur/scrim lives on the Radix overlay itself so it shares the
         // open/close lifecycle and fades OUT on close instead of snapping.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
@@ -55,18 +60,29 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  srDescription = "Dialog content",
   overlayClassName,
   overlayStyle,
+  ref,
+  isolateNativeNavigation = true,
+  nativeLayer,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Accessible context for dialogs whose explanatory copy is intentionally hidden. */
+  srDescription?: React.ReactNode
   overlayClassName?: string
   overlayStyle?: React.CSSProperties
+  /** Opt out only for an intentionally interactive non-modal surface. */
+  isolateNativeNavigation?: boolean
+  nativeLayer?: string
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref, isolateNativeNavigation, nativeLayer)
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={overlayClassName} style={overlayStyle} />
+      <DialogOverlay className={overlayClassName} style={overlayStyle} nativeLayer={nativeLayer} />
       <DialogPrimitive.Content
+        ref={contentRef}
         data-slot="dialog-content"
         className={cn(
           // Keyboard avoidance for this centered dialog is handled in globals.css
@@ -81,13 +97,13 @@ function DialogContent({
           // clipped the title and close button). `--app-safe-area-top-effective`
           // is the probe-backed inset (min 44px on iOS native, 0 on desktop),
           // so this is inert on the web where both insets resolve to 0.
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[500] flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] outline-none sm:max-w-lg",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-(--z-dialog) flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none sm:max-w-lg",
           className
         )}
         {...props}
       >
         <DialogDescription className="sr-only">
-          Dialog content
+          {srDescription}
         </DialogDescription>
 
         {children}
@@ -95,10 +111,10 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:opacity-100 active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus-visible:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-[color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
-            <MaterialRipple variant="none" effect="fade" className="z-10" />
+            <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}

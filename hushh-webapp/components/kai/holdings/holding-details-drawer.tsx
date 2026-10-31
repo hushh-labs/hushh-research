@@ -1,10 +1,15 @@
 "use client";
 
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { SectionLabel } from "@/components/app-ui/typography";
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { XIcon } from "@/components/icons";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
+import { HoldingEntryList } from "./holding-entry-list";
 
 function formatCurrency(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
@@ -25,20 +30,30 @@ function formatShares(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
+function formatObservationDate(value: string | null | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return "Not supplied by source";
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: value.length === 10 ? "UTC" : undefined }).format(new Date(value));
+}
+
 interface HoldingDetailsDrawerProps {
   open: boolean;
   holding: HoldingMobileCardViewModel | null;
   canManageHoldings?: boolean;
   onOpenChange: (open: boolean) => void;
-  onEdit: () => void;
-  onToggleDelete: () => void;
+  onEdit?: () => void;
+  onToggleDelete?: () => void;
+  loadHistory?: StockHistoryLoader;
+  entries?: HoldingMobileCardViewModel[];
+  onEditEntry?: (id: string) => void;
+  onToggleDeleteEntry?: (id: string) => void;
+  onAddEntry?: () => void;
 }
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5">
-      <SectionLabel as="p">{label}</SectionLabel>
-      <p className={cn("app-body-text mt-1 font-semibold text-foreground", valueClassName)}>{value}</p>
+    <div className={financeStyles.fact}>
+      <dt>{label}</dt>
+      <dd className={valueClassName}>{value}</dd>
     </div>
   );
 }
@@ -50,6 +65,11 @@ export function HoldingDetailsDrawer({
   onOpenChange,
   onEdit,
   onToggleDelete,
+  loadHistory,
+  entries,
+  onEditEntry,
+  onToggleDeleteEntry,
+  onAddEntry,
 }: HoldingDetailsDrawerProps) {
   const gainLossPct = holding?.gainLossPct ?? null;
   const gainLossTone =
@@ -64,60 +84,90 @@ export function HoldingDetailsDrawer({
   const gainLossValue = holding
     ? `${formatCurrency(holding.gainLossValue)} (${formatSignedPercent(holding.gainLossPct)})`
     : "—";
+  const hasHistory = Boolean(holding && !holding.isCash && holding.identifierType !== "cusip"
+    && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="border-border/70 bg-background/95 backdrop-blur-lg">
-        <DrawerHeader className="px-5 pb-2 text-left">
-          <DrawerTitle className="app-card-title text-left text-foreground">
-            {holding?.symbol || "Holding Details"}
-          </DrawerTitle>
-          <DrawerDescription className="app-body-text app-title-subtitle-gap text-left text-muted-foreground">
-            {holding?.name || "Select a holding"}
-          </DrawerDescription>
-        </DrawerHeader>
+      <DrawerContent className={cn(financeStyles.detail, financeStyles.holdingSheet, "border-border/70 bg-background")}>
+        <div className="min-h-0 overflow-y-auto overscroll-contain">
+          <DrawerHeader className="flex-row items-center gap-3 px-5 pb-2 text-left">
+            {holding ? <SymbolAvatar symbol={holding.symbol} name={holding.name} isCash={holding.isCash} size="lg" /> : null}
+            <div className="min-w-0 flex-1">
+            <DrawerTitle className="ui-text-navigation-title text-left text-foreground">
+              {holding?.symbol || "Holding Details"}
+            </DrawerTitle>
+            <DrawerDescription className="app-body-text app-title-subtitle-gap text-left text-muted-foreground">
+              {holding?.name || "Select a holding"}
+            </DrawerDescription>
+            </div>
+            <DrawerClose asChild>
+              <ShellActionSurface variant="icon" className="h-11 w-11" aria-label="Close">
+                <XIcon className="size-4" aria-hidden="true" />
+              </ShellActionSurface>
+            </DrawerClose>
+          </DrawerHeader>
 
-        <div className="grid max-h-[60svh] gap-2 overflow-y-auto px-5 pb-3 sm:grid-cols-2">
-          <DetailRow label="Ticker" value={holding?.symbol || "—"} />
-          <DetailRow label="Company Name" value={holding?.name || "—"} />
-          <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
-          <DetailRow label="Average Price" value={formatCurrency(holding?.averagePrice ?? null)} />
-          <DetailRow label="Current Price" value={formatCurrency(holding?.currentPrice ?? null)} />
-          <DetailRow label="Market Value" value={formatCurrency(holding?.marketValue ?? null)} />
-          <DetailRow label="Gain / Loss" value={gainLossValue} valueClassName={gainLossTone} />
-          <DetailRow
-            label="Portfolio Weight"
-            value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
-          />
-          <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
+          <div className={cn(financeStyles.holdingLayout, hasHistory && financeStyles.holdingWithHistory)}>
+            <div className="min-w-0">
+              <div className="px-5 py-4">
+                <p className={financeStyles.description}>Market value</p>
+                <p className={financeStyles.value}>{formatCurrency(holding?.marketValue ?? null)}</p>
+                <p className={cn("mt-2 text-sm tabular-nums", gainLossTone)}>{gainLossValue} · Unrealized gain / loss</p>
+              </div>
+
+              {hasHistory && holding ? <div className="px-5 pb-4">
+                <StockHistoryPanel symbol={holding.symbol} loadHistory={loadHistory} active={open} />
+              </div> : null}
+            </div>
+            <div className={financeStyles.holdingDetails}>
+              <dl aria-label="Holding details" className={cn(financeStyles.facts, "px-5 pb-3")}>
+                <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
+                <DetailRow label="Average Price" value={formatCurrency(holding?.averagePrice ?? null)} />
+                <DetailRow label={holding?.valuationKind === "statement" ? "Statement price" : "Reported price"} value={formatCurrency(holding?.currentPrice ?? null)} />
+                <DetailRow label="Cost basis" value={formatCurrency(holding?.costBasis ?? null)} />
+                <DetailRow
+                  label="Portfolio Weight"
+                  value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
+                />
+                <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
+                <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
+                <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
+              </dl>
+              {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
+                onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
+            </div>
+          </div>
         </div>
 
-        <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">
-          <div className="grid grid-cols-2 gap-2">
-            <MorphyButton
-              variant="none"
-              effect="fade"
-              size="sm"
-              fullWidth
-              className="app-button-text app-button-black"
-              disabled={!canManageHoldings || !holding || holding.pendingDelete}
-              onClick={onEdit}
-            >
-              Edit Holding
-            </MorphyButton>
-            <MorphyButton
-              variant="none"
-              effect="fade"
-              size="sm"
-              fullWidth
-              className="app-button-text app-button-black"
-              disabled={!canManageHoldings || !holding}
-              onClick={onToggleDelete}
-            >
-              {holding?.pendingDelete ? "Restore" : "Delete"}
-            </MorphyButton>
-          </div>
-        </DrawerFooter>
+        {canManageHoldings && onEdit && onToggleDelete ? (
+          <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">
+            <div className="grid grid-cols-2 gap-2">
+              <MorphyButton
+                variant="none"
+                effect="fade"
+                size="sm"
+                fullWidth
+                className="app-button-text app-button-black"
+                disabled={!holding || holding.pendingDelete}
+                onClick={onEdit}
+              >
+                Edit Holding
+              </MorphyButton>
+              <MorphyButton
+                variant="none"
+                effect="fade"
+                size="sm"
+                fullWidth
+                className="app-button-text app-button-black"
+                disabled={!holding}
+                onClick={onToggleDelete}
+              >
+                {holding?.pendingDelete ? "Restore" : "Delete"}
+              </MorphyButton>
+            </div>
+          </DrawerFooter>
+        ) : null}
       </DrawerContent>
     </Drawer>
   );

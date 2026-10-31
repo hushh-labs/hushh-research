@@ -19,6 +19,8 @@ These are the non-negotiable reporting rules for the current system:
 7. Looker Studio is the presentation layer for approved BigQuery results, not the source of truth.
 8. GA UI cards are for configuration spot checks, DebugView, and Realtime validation only.
 9. `HushhVoice` remains on the production property for now, but is explicitly excluded from Kai growth models and from the production BigQuery export link.
+10. Authenticated web, iOS, and Android sessions bind only the same salted 32-character analytics User-ID; email, display name, phone number, and raw Firebase UID must never enter GA4 or `dataLayer`.
+11. Analytics transports are mutually exclusive: browser sessions use direct `gtag`/`dataLayer`, while Capacitor iOS and Android sessions use only the native Firebase Analytics adapter.
 
 ## Scope
 
@@ -223,6 +225,13 @@ Shared observability surfaces:
 - `lib/observability/adapters/native-firebase.ts`
 - `lib/observability/request-id.ts`
 
+Cross-surface identity:
+
+- `hushh-webapp/lib/observability/identity.ts` derives the same salted analytics User-ID from the Firebase UID on web, iOS, and Android.
+- web binds it through `gtag('set', { user_id })`; native binds it through `FirebaseAnalytics.setUserId`.
+- identity changes are serialized and stale web retries are cancelled so a prior account cannot overwrite a later sign-out or account switch on a shared device.
+- profile PII is not an analytics identity input and is never copied into event payloads or user properties.
+
 Web transport:
 
 - root layout injects `gtag` whenever a valid measurement ID exists:
@@ -231,6 +240,8 @@ Web transport:
   - `hushh-webapp/lib/observability/env.ts`
 - web uses direct GA tagging as the primary path and keeps `dataLayer` pushes for optional GTM compatibility:
   - `hushh-webapp/lib/observability/adapters/web-gtm.ts`
+- the web adapter rejects Capacitor native runtimes even though their WebView exposes `window`; this prevents one native event from being emitted to both the web stream and the native Firebase stream
+- Capacitor static builds also omit the gtag and GTM loader scripts entirely, preventing automatic web-stream sessions or page events from being created inside the native WebView
 
 Growth emitters:
 
@@ -269,6 +280,14 @@ Operational emitters:
   - `hushh-webapp/lib/services/gmail-receipts-service.ts`
   - `hushh-webapp/lib/services/account-service.ts`
   - `hushh-webapp/lib/services/vault-method-service.ts`
+
+One feature-outcome policy:
+
+1. Gmail web and native OAuth emit the same start and completion stages.
+2. A Gmail sync request, an accepted queue job, and a terminal sync outcome are separate facts and must not be added as one KPI.
+3. Memory, Wallet, Calendar, and KYC action events emit `success`, `expected_error`, or `error` without content or identifiers.
+4. CRM mutation events are development-only and remain excluded from public production KPIs.
+5. Runtime schema validation rejects undeclared action/result values even if a dynamic caller bypasses TypeScript.
 
 ### Backend (`consent-protocol`)
 
@@ -337,6 +356,7 @@ Route and smoke policy:
 3. UAT smoke never fabricates GA4 events and never creates Firebase users, reviewer users, app environments, or one-off analytics fixtures.
 4. After the cold `/login` boot, protected-route smoke navigation must use Next client navigation so the in-memory vault key is not lost by full page reloads.
 5. Missing credentials, missing seeded portfolio state, or absent recommendation events are gate failures; fix or reseed the existing reviewer test fixture instead of minting another account.
+6. Shared reviewer automation blocks external telemetry by default. The canonical analytics smoke opts in through an in-memory bridge flag that is honored only on `uat.one.hushh.ai`; the same flag remains blocked on production and local hosts.
 
 Sandbox audit policy:
 

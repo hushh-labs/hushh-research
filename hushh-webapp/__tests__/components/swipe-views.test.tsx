@@ -1,13 +1,17 @@
 /** @vitest-environment jsdom */
 
 import { useEffect } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
 
-import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
-import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import {
+  SwipeViews,
+  clampSwipePosition,
+  measureFillViewportMinHeight,
+} from "@/lib/morphy-ux/ui/swipe-views";
+import { setTopShellTabSwipeState, topShellTabSwipePositionVariable, requestTopShellTabSelection, useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
@@ -15,30 +19,37 @@ const embla = vi.hoisted(() => ({
   scrollTo: vi.fn<(index: number) => void>(),
   reInit: vi.fn(),
   listeners: new Map<string, () => void>(),
+  registrations: new Map<string, Set<() => void>>(),
+  api: null as Record<string, unknown> | null,
   ref: vi.fn(),
   rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
+  engine: undefined as ReturnType<EmblaCarouselType["internalEngine"]> | undefined,
 }));
 
 vi.mock("embla-carousel-react", () => ({
   default: (options: Record<string, unknown>) => {
     embla.options = options;
-    return [
-      embla.ref,
-      {
+    embla.api ??= {
         selectedScrollSnap: () => embla.selectedIndex,
         scrollProgress: () => embla.scrollProgress,
         scrollTo: embla.scrollTo,
         reInit: embla.reInit,
         rootNode: () => embla.rootNode ?? document.body,
+        get internalEngine() { return embla.engine ? () => embla.engine : undefined; },
         on: (event: string, listener: () => void) => {
-          embla.listeners.set(event, listener);
+          const handlers = embla.registrations.get(event) ?? new Set<() => void>();
+          handlers.add(listener);
+          embla.registrations.set(event, handlers);
+          embla.listeners.set(event, () => handlers.forEach((handler) => handler()));
         },
-        off: (event: string) => {
-          embla.listeners.delete(event);
+        off: (event: string, listener: () => void) => {
+          const handlers = embla.registrations.get(event);
+          handlers?.delete(listener);
+          if (!handlers?.size) embla.listeners.delete(event);
         },
-      },
-    ];
+      };
+    return [embla.ref, embla.api];
   },
 }));
 
@@ -48,14 +59,151 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it.each(["prop", "shell"] as const)("does not report a %s-owned tab choice back as another selection", source => {
+    const changed = vi.fn();
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="route-choice" activeValue="first" onSelectionChange={changed}><div>First</div><div>Second</div></SwipeViews>);
+    // Real Embla emits select synchronously from scrollTo. A prop update runs
+    // before the old subscription's effect cleanup, so closures can be stale.
+    embla.scrollTo.mockImplementation(index => {
+      embla.selectedIndex = index;
+      embla.listeners.get("select")?.();
+    });
+    act(() => {
+      if (source === "shell") requestTopShellTabSelection("route-choice", "second");
+      else view.rerender(<SwipeViews options={OPTIONS} tabSetId="route-choice" activeValue="second" onSelectionChange={changed}><div>First</div><div>Second</div></SwipeViews>);
+    });
+    act(() => embla.listeners.get("settle")?.());
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("retargets a click to a pane already passing the viewport", () => {
+    const options = [...OPTIONS, { value: "third", label: "Third" }];
+    const target = { get: () => -800, set: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800], limit: { min: -800, max: 0 },
+      offsetLocation: { get: () => -400 }, target, animation: { start: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={options} tabSetId="retarget" activeValue="third"><div>First</div><div>Second</div><div>Third</div></SwipeViews>);
+    view.rerender(<SwipeViews options={options} tabSetId="retarget" activeValue="second"><div>First</div><div>Second</div><div>Third</div></SwipeViews>);
+    expect(embla.scrollTo).toHaveBeenCalledExactlyOnceWith(1);
+    expect(target.set).toHaveBeenCalledWith(-400);
+  });
+
+  it("does not restart a swipe when the active value follows its destination", () => {
+    let destination = 0;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }],
+      target: { get: () => destination }, offsetLocation: { get: () => -100 },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="swipe-echo" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    destination = -400;
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="swipe-echo" activeValue="second"><div>First</div><div>Second</div></SwipeViews>);
+    expect(embla.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("restores drag physics after a programmatic tab snap", () => {
+    const scrollBody = {
+      useDuration: vi.fn(), useFriction: vi.fn(),
+      useBaseDuration: vi.fn(), useBaseFriction: vi.fn(),
+    };
+    for (const method of Object.values(scrollBody)) method.mockReturnValue(scrollBody);
+    embla.engine = { scrollBody } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="snap-physics" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="snap-physics" activeValue="second"><div>First</div><div>Second</div></SwipeViews>);
+    expect(scrollBody.useFriction).toHaveBeenCalled();
+    expect(scrollBody.useBaseFriction).not.toHaveBeenCalled();
+    embla.selectedIndex = 1;
+    embla.listeners.get("settle")?.();
+    expect(scrollBody.useBaseDuration).toHaveBeenCalled();
+    expect(scrollBody.useBaseFriction).toHaveBeenCalledOnce();
+  });
+
+  it("updates a retained drag guard when a loading workspace becomes ready", () => {
+    const view = render(<SwipeViews disabled options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    const watchDrag = embla.options!.watchDrag as (api: unknown, event: Event) => boolean;
+    const api = { rootNode: () => document.body };
+    const event = new MouseEvent("mousedown");
+    expect(watchDrag(api, event)).toBe(false);
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    expect(watchDrag(api, event)).toBe(true);
+  });
+  it("clamps shared tab progress at the first and last workspace pane", () => {
+    expect(clampSwipePosition(-0.24, 3)).toBe(0);
+    expect(clampSwipePosition(0.65, 3)).toBe(0.65);
+    expect(clampSwipePosition(2.31, 3)).toBe(2);
+  });
+
+  it("lets form controls own pointer presses while keeping body swipes enabled", () => {
+    render(<SwipeViews options={OPTIONS} tabSetId="controls" activeValue="first">
+      <div><button><span>Show PIN</span></button><input aria-label="Card number" /><div>Swipe body</div></div>
+      <div>Sharing</div>
+    </SwipeViews>);
+    const watchDrag = embla.options!.watchDrag as (api: unknown, event: { target: Element }) => boolean;
+    const api = { rootNode: () => screen.getByText("Swipe body").closest<HTMLElement>("[data-swipe-views-root='true']")! };
+    expect(watchDrag(api, { target: screen.getByText("Show PIN") })).toBe(false);
+    expect(watchDrag(api, { target: screen.getByRole("textbox") })).toBe(false);
+    expect(watchDrag(api, { target: screen.getByText("Swipe body") })).toBe(true);
+  });
+
   beforeEach(() => {
     embla.selectedIndex = 0;
     embla.scrollProgress = 0;
     embla.scrollTo.mockClear();
     embla.reInit.mockClear();
     embla.listeners.clear();
+    embla.registrations.clear();
+    embla.api = null;
     embla.rootNode = document.createElement("div");
     embla.options = null;
+    embla.engine = undefined;
+  });
+
+  it("does not restore stale scroll bounds after repairing snap points", () => {
+    const toggleActive = vi.fn();
+    const target = { get: () => 0, set: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -168],
+      limit: { min: -168, max: 0 },
+      target,
+      offsetLocation: { get: () => 0 },
+      scrollBounds: { toggleActive },
+      animation: { start: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const options = [...OPTIONS, { value: "third", label: "Third" }];
+    const panels = [<div key="1">Saved</div>, <div key="2">Add</div>, <div key="3">Sharing</div>];
+    const view = render(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(embla.engine.scrollSnaps).toEqual([-0, -400, -800]);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="third">{panels}</SwipeViews>);
+    expect(target.set).toHaveBeenLastCalledWith(-800);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    embla.engine.limit.min = -800;
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(toggleActive).toHaveBeenLastCalledWith(true);
+  });
+
+  it("tracks the rendered pane despite stale total bounds and stays fractional during a drag", () => {
+    let rendered = -400;
+    embla.selectedIndex = 1;
+    embla.scrollProgress = 0.6;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -667, max: 0 },
+      target: { get: () => rendered, set: vi.fn() },
+      offsetLocation: { get: () => rendered },
+      scrollBounds: { toggleActive: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews options={[...OPTIONS, { value: "third", label: "Third" }]} tabSetId="actual" activeValue="second">
+      <div>Cards</div><div>Add</div><div>Sharing</div>
+    </SwipeViews>);
+    embla.listeners.get("pointerDown")?.();
+    expect(document.documentElement.style.getPropertyValue("--top-shell-tab-swipe-actual-position")).toBe("1");
+    rendered = -480;
+    embla.listeners.get("scroll")?.();
+    expect(document.documentElement.style.getPropertyValue("--top-shell-tab-swipe-actual-position")).toBe("1.2");
   });
 
   it("keeps pane identity mounted while route selection changes", () => {
@@ -150,19 +298,118 @@ describe("SwipeViews", () => {
       dragThreshold: 6,
     });
 
-    // Resize watching stays ON so a stale container measurement can correct
-    // itself, but is scoped to the container: per-slide entries (streaming
-    // content changing height) must not re-trigger the horizontal engine.
-    const watchResize = embla.options?.watchResize as (
-      api: { containerNode: () => Element },
-      entries: { target: Element }[],
-    ) => boolean;
-    expect(typeof watchResize).toBe("function");
-    const containerNode = document.createElement("div");
-    const slideNode = document.createElement("div");
-    const apiStub = { containerNode: () => containerNode };
-    expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
-    expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
+    // The shared geometry reconciler is the sole resize owner; its real width
+    // and drag behavior is covered below, not a duplicate Embla observer.
+    expect(embla.options?.watchResize).toBe(false);
+  });
+
+  it("reports the incoming target before compositor travel when captured bounds are stale", () => {
+    let target = -400;
+    embla.selectedIndex = 1;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -784, max: 0 },
+      target: { get: () => target },
+      offsetLocation: { get: () => -400 },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const onSelectionChange = vi.fn();
+    render(
+      <SwipeViews
+        tabSetId="stale-release"
+        activeValue="second"
+        options={[...OPTIONS, { value: "third", label: "Third" }]}
+        onSelectionChange={onSelectionChange}
+      >
+        <div>First</div>
+        <div>Second</div>
+        <div>Third</div>
+      </SwipeViews>,
+    );
+    target = 0;
+    embla.selectedIndex = 0;
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("first");
+    target = -800;
+    embla.selectedIndex = 1; // A stale Counter cannot represent the third snap.
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("third");
+  });
+
+  it("repairs a terminal WebKit snap residual without changing a live in-range drag", () => {
+    const vector = () => {
+      let value = 0;
+      return { get: () => value, set: vi.fn((next: number) => { value = next; }) };
+    };
+    const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
+    const translate = { to: vi.fn() };
+    const scrollBody = { useDuration: vi.fn(), seek: vi.fn(), useBaseDuration: vi.fn(), useBaseFriction: vi.fn() };
+    scrollBody.useDuration.mockReturnValue(scrollBody);
+    scrollBody.seek.mockReturnValue(scrollBody);
+    scrollBody.useBaseDuration.mockReturnValue(scrollBody);
+    scrollBody.useBaseFriction.mockReturnValue(scrollBody);
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }], scrollSnaps: [0, -400],
+      target, location, previousLocation, offsetLocation, translate, scrollBody,
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews tabSetId="terminal-snap" activeValue="first" options={OPTIONS}><div>First pane</div><div>Second pane</div></SwipeViews>);
+    offsetLocation.set(-200);
+    embla.listeners.get("pointerDown")?.();
+    embla.listeners.get("scroll")?.();
+    expect(offsetLocation.get()).toBe(-200);
+    expect(translate.to).not.toHaveBeenCalled(); // Negative control: finger owns it.
+    offsetLocation.set(3.36);
+    embla.listeners.get("settle")?.();
+    expect(offsetLocation.get()).toBe(0);
+    expect(location.get()).toBe(0);
+    expect(previousLocation.get()).toBe(0);
+    expect(target.get()).toBe(0);
+    expect(translate.to).toHaveBeenCalledWith(0);
+    expect(scrollBody.useDuration).toHaveBeenCalledWith(0);
+    expect(scrollBody.seek).toHaveBeenCalledOnce();
+    // WebKit left the full-width Sharing pane 0.27px beyond the viewport.
+    offsetLocation.set(-0.27001953125);
+    embla.listeners.get("settle")?.();
+    expect(offsetLocation.get()).toBe(0);
+    expect(translate.to).toHaveBeenLastCalledWith(0);
+    expect(scrollBody.seek).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { rendered: -802, destination: 0, boundary: -800 },
+    { rendered: 2, destination: -800, boundary: 0 },
+  ])("preserves an inward tab destination while clamping residual edge motion at $boundary", ({ rendered, destination, boundary }) => {
+    const vector = () => {
+      let value = 0;
+      return { get: () => value, set: (next: number) => { value = next; } };
+    };
+    const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
+    const translate = { to: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800], limit: { min: -800, max: 0 },
+      target, location, previousLocation, offsetLocation, translate,
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews tabSetId="edge-retarget" activeValue="first" options={[...OPTIONS, { value: "third", label: "Third" }]}>
+      <div>Saved</div><div>Add</div><div>Sharing</div>
+    </SwipeViews>);
+    // A new tab target is legal even while the previous motion overshoots.
+    target.set(destination);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(destination);
+    expect(offsetLocation.get()).toBe(boundary);
+    expect(location.get()).toBe(boundary);
+    expect(previousLocation.get()).toBe(boundary);
+    expect(translate.to).toHaveBeenLastCalledWith(boundary);
+
+    // Outward targets still clamp; preserving a destination must not remove
+    // the empty-space protection at either end of the workspace.
+    target.set(rendered);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(boundary);
+    expect(offsetLocation.get()).toBe(boundary);
   });
 
   it("starts pane motion immediately when the shared top tab is pressed", () => {
@@ -177,6 +424,53 @@ describe("SwipeViews", () => {
 
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
   });
+
+  it.each(["tap", "route"] as const)(
+    "retargets an early outgoing animation when the %s selects its still-visible pane",
+    (selectionSource) => {
+      let target = 0;
+      let rendered = 0;
+      embla.engine = {
+        slideRects: [{ width: 400 }, { width: 400 }],
+        scrollSnaps: [0, -400],
+        limit: { min: -400, max: 0 },
+        target: { get: () => target, set: (next: number) => { target = next; } },
+        offsetLocation: { get: () => rendered },
+        animation: { start: vi.fn() },
+      } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+      const onSelectionChange = vi.fn();
+      const onSelectionCommit = vi.fn();
+      const panels = [<div key="first">Cards</div>, <div key="second">Add</div>];
+      const view = render(
+        <SwipeViews tabSetId="reverse-early" activeValue={selectionSource === "tap" ? "first" : "second"}
+          options={OPTIONS} onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+          {panels}
+        </SwipeViews>,
+      );
+      // Cards is still the rounded visual pane, but the compositor is heading
+      // toward Add. A return to Cards must cancel that pending destination.
+      target = -400;
+      rendered = -40;
+      embla.selectedIndex = 1;
+      embla.scrollTo.mockClear();
+      if (selectionSource === "tap") {
+        act(() => requestTopShellTabSelection("reverse-early", "first"));
+      } else {
+        view.rerender(
+          <SwipeViews tabSetId="reverse-early" activeValue="first" options={OPTIONS}
+            onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+            {panels}
+          </SwipeViews>,
+        );
+      }
+      expect(embla.scrollTo).toHaveBeenCalledWith(0);
+      expect(Math.abs(target)).toBe(0);
+      rendered = target;
+      act(() => embla.listeners.get("settle")?.());
+      expect(onSelectionChange).not.toHaveBeenCalled();
+      expect(onSelectionCommit).toHaveBeenLastCalledWith("first");
+    },
+  );
 
   it("keeps the shared tab progress attached to the pane through snap settle", () => {
     const view = render(
@@ -207,24 +501,34 @@ describe("SwipeViews", () => {
   });
 
   it("does not reset underline progress when optimistic selection updates mid-drag", () => {
+    function OwnershipProbe() {
+      const state = useTopShellTabSwipeState("optimistic");
+      return <span data-testid="pager-owner">{String(state.pagerOwned)}</span>;
+    }
     const view = render(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="first" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
-    embla.listeners.get("pointerDown")?.();
+    act(() => embla.listeners.get("pointerDown")?.());
     embla.scrollProgress = 0.48;
     embla.listeners.get("scroll")?.();
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
 
     view.rerender(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="second" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
     expect(
@@ -232,6 +536,9 @@ describe("SwipeViews", () => {
         "--top-shell-tab-swipe-optimistic-position",
       ),
     ).toBe("0.48");
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("true");
+    act(() => embla.listeners.get("settle")?.());
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("false");
   });
 
   it("keeps inset panel content and shadows inside the page gutter", () => {
@@ -256,10 +563,20 @@ describe("SwipeViews", () => {
   });
 
   it("lets a nested pager own its horizontal drag", () => {
+    const nestedOptions = [
+      ...OPTIONS,
+      { value: "third", label: "Third" },
+    ] as const;
+    embla.selectedIndex = 1;
     render(
-      <SwipeViews tabSetId="nested" activeValue="first" options={OPTIONS}>
+      <SwipeViews
+        tabSetId="nested"
+        activeValue="second"
+        options={nestedOptions}
+      >
         <div>first panel content</div>
         <div>second panel content</div>
+        <div>third panel content</div>
       </SwipeViews>,
     );
 
@@ -267,21 +584,50 @@ describe("SwipeViews", () => {
     outerRoot.dataset.swipeViewsRoot = "true";
     const nestedRoot = document.createElement("div");
     nestedRoot.dataset.swipeViewsRoot = "true";
-    const nestedTarget = document.createElement("button");
+    const nestedTarget = document.createElement("div");
     nestedRoot.append(nestedTarget);
     outerRoot.append(nestedRoot);
 
     const watchDrag = embla.options?.watchDrag as (
-      api: Pick<EmblaCarouselType, "rootNode">,
+      api: Pick<EmblaCarouselType, "rootNode" | "selectedScrollSnap">,
       event: Event,
     ) => boolean;
 
-    expect(
-      watchDrag({ rootNode: () => outerRoot }, { target: nestedTarget } as Event),
-    ).toBe(false);
-    expect(
-      watchDrag({ rootNode: () => nestedRoot }, { target: nestedTarget } as Event),
-    ).toBe(true);
+    const outerApi = {
+      rootNode: () => outerRoot,
+      selectedScrollSnap: () => 1,
+    };
+    const nestedApi = {
+      rootNode: () => nestedRoot,
+      selectedScrollSnap: () => 1,
+    };
+
+    expect(watchDrag(outerApi, { target: nestedTarget } as Event)).toBe(false);
+    expect(watchDrag(nestedApi, { target: nestedTarget } as Event)).toBe(true);
+  });
+
+  it("reports Add at snap selection rather than waiting for the pane to render there", () => {
+    const onSelectionChange = vi.fn();
+    const options = [...OPTIONS, { value: "third", label: "Sharing" }];
+    const rendered = { get: () => 0 };
+    let target = 0;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -800, max: 0 },
+      offsetLocation: rendered,
+      target: { get: () => target, set: (next: number) => { target = next; } },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(
+      <SwipeViews tabSetId="memory-select" activeValue="first" options={options} onSelectionChange={onSelectionChange}>
+        <div>Saved</div><div>Add</div><div>Sharing</div>
+      </SwipeViews>,
+    );
+
+    target = -400;
+    embla.selectedIndex = 1;
+    embla.listeners.get("select")?.();
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith("second");
   });
 
   describe("viewport resize", () => {
@@ -290,25 +636,25 @@ describe("SwipeViews", () => {
     // in — a window-only listener never fires, Embla keeps a stale width, and
     // it translates by the wrong distance, leaving the previous pane clipped
     // beside the selected one (the Memory /one/pkm report).
-    let observerCallback: ResizeObserverCallback | null = null;
+    const viewportCallbacks = new Set<ResizeObserverCallback>();
     let observed: Element | null = null;
     let disconnected = false;
     const originalResizeObserver = globalThis.ResizeObserver;
     const originalRaf = globalThis.requestAnimationFrame;
 
     beforeEach(() => {
-      observerCallback = null;
+      viewportCallbacks.clear();
       observed = null;
       disconnected = false;
       globalThis.ResizeObserver = class {
-        constructor(callback: ResizeObserverCallback) {
-          observerCallback = callback;
-        }
+        constructor(private callback: ResizeObserverCallback) {}
         observe(element: Element) {
           observed = element;
+          if (element === embla.rootNode) viewportCallbacks.add(this.callback);
         }
         disconnect() {
           disconnected = true;
+          viewportCallbacks.delete(this.callback);
         }
         unobserve() {}
       } as unknown as typeof ResizeObserver;
@@ -325,7 +671,7 @@ describe("SwipeViews", () => {
     });
 
     const emitWidth = (width: number) => {
-      observerCallback?.(
+      for (const callback of viewportCallbacks) callback(
         [{ contentRect: { width } } as unknown as ResizeObserverEntry],
         {} as ResizeObserver,
       );
@@ -345,13 +691,13 @@ describe("SwipeViews", () => {
     });
 
     it("re-initialises when the container width changes with no window resize", () => {
-      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({
-        width: 800,
-      } as DOMRect);
+      let width = 800;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
       renderPager();
       embla.reInit.mockClear();
 
-      emitWidth(785); // scrollbar appears; window.innerWidth never changes
+      width = 785;
+      emitWidth(width); // scrollbar appears; window.innerWidth never changes
 
       expect(embla.reInit).toHaveBeenCalledTimes(1);
     });
@@ -368,10 +714,314 @@ describe("SwipeViews", () => {
       expect(embla.reInit).not.toHaveBeenCalled();
     });
 
+    it("defers changed width during a drag and reconciles it once after settlement", () => {
+      let width = 800;
+      const frames = new Map<number, FrameRequestCallback>();
+      let sequence = 0;
+      globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      renderPager();
+      const flush = () => {
+        const pending = [...frames.values()]; frames.clear();
+        pending.forEach((callback) => callback(0));
+      };
+      flush();
+      embla.reInit.mockClear();
+      embla.listeners.get("pointerDown")?.();
+      width = 785;
+      emitWidth(width); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.scrollProgress = 0.4;
+      embla.listeners.get("scroll")?.();
+      embla.listeners.get("pointerUp")?.(); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.selectedIndex = 1;
+      embla.listeners.get("select")?.();
+      embla.listeners.get("settle")?.(); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
+      emitWidth(width); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not snap a tapped tab back while route state catches up, but still repairs changed geometry", () => {
+      let width = 800;
+      let target = 0;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      embla.engine = {
+        containerRect: { width: 800 }, scrollSnaps: [0, -800],
+        target: { get: () => target },
+      } as ReturnType<EmblaCarouselType["internalEngine"]>;
+      renderPager();
+      embla.scrollTo.mockClear();
+      requestTopShellTabSelection("resize", "second");
+      target = -800;
+      embla.scrollTo.mockClear();
+      emitWidth(800);
+      expect(embla.scrollTo).not.toHaveBeenCalled();
+      width = 785;
+      emitWidth(785);
+      expect(embla.reInit).toHaveBeenCalled();
+      expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
+    });
+
+    it("realigns the indicator when geometry repair jumps without a scroll event", () => {
+      let target = 0;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({ width: 800 } as DOMRect);
+      embla.engine = {
+        containerRect: { width: 800 }, scrollSnaps: [0, -800],
+        target: { get: () => target },
+      } as ReturnType<EmblaCarouselType["internalEngine"]>;
+      renderPager();
+      setTopShellTabSwipeState("resize", 1, true);
+      target = -800;
+      emitWidth(800);
+      expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
+      expect(document.documentElement.style.getPropertyValue(topShellTabSwipePositionVariable("resize"))).toBe("0");
+    });
+
     it("disconnects the observer on unmount", () => {
       const view = renderPager();
       view.unmount();
       expect(disconnected).toBe(true);
+    });
+  });
+
+  describe("heightMode='active'", () => {
+    it("keeps pager ownership and the outgoing height through a swipe selection echo", () => {
+      const heights = vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+        return this.id.endsWith("-first") ? 1200 : 400;
+      });
+      try {
+        const ownership = renderHook(() => useTopShellTabSwipeState("height-echo"));
+        let destination = 0, rendered = 0;
+        embla.engine = {
+          slideRects: [{ width: 400 }, { width: 400 }],
+          target: { get: () => destination }, offsetLocation: { get: () => rendered },
+        } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+        const view = render(<SwipeViews options={OPTIONS} tabSetId="height-echo" activeValue="first" heightMode="active"><div>First</div><div>Second</div></SwipeViews>);
+        act(() => { embla.listeners.get("pointerDown")?.(); });
+        destination = -400; rendered = -100;
+        act(() => { embla.listeners.get("scroll")?.(); });
+        view.rerender(<SwipeViews options={OPTIONS} tabSetId="height-echo" activeValue="second" heightMode="active"><div>First</div><div>Second</div></SwipeViews>);
+        const viewport = view.container.querySelector('[data-swipe-views-root="true"]');
+        expect(ownership.result.current.pagerOwned).toBe(true);
+        expect(viewport).toHaveStyle({ height: "1200px" });
+        rendered = -400;
+        act(() => { embla.listeners.get("scroll")?.(); });
+        expect(viewport).toHaveStyle({ height: "400px" });
+      } finally {
+        heights.mockRestore();
+      }
+    });
+
+    // Regression for the Analysis workspace (Debate / Summary / Detailed
+    // View) rendering two panes partially overlapped: the outgoing pane was
+    // immediately clamped to the incoming pane's (often shorter) height while
+    // still visibly sliding off-screen, because the Analysis page opted out
+    // of the default height hold with `holdHeightDuringTransition={false}`.
+    // `holdHeightDuringTransition` defaults to `true` precisely so an
+    // outgoing pane keeps its own height for the length of the transition;
+    // only an explicit opt-out should clip it early.
+    const originalRaf = globalThis.requestAnimationFrame;
+
+    beforeEach(() => {
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      }) as typeof globalThis.requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = originalRaf;
+    });
+
+    it("does not clip the outgoing pane's height mid-transition by default", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="height-default"
+          activeValue="first"
+          options={OPTIONS}
+          heightMode="active"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      view.rerender(
+        <SwipeViews
+          tabSetId="height-default"
+          activeValue="second"
+          options={OPTIONS}
+          heightMode="active"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      const outgoingPanel = view.container.querySelector(
+        "#top-shell-height-default-panel-first",
+      );
+      expect(outgoingPanel).not.toHaveStyle({ overflow: "hidden" });
+    });
+
+    it("clips the outgoing pane's height when holdHeightDuringTransition is explicitly disabled", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="height-nohold"
+          activeValue="first"
+          options={OPTIONS}
+          heightMode="active"
+          holdHeightDuringTransition={false}
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      view.rerender(
+        <SwipeViews
+          tabSetId="height-nohold"
+          activeValue="second"
+          options={OPTIONS}
+          heightMode="active"
+          holdHeightDuringTransition={false}
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      const outgoingPanel = view.container.querySelector(
+        "#top-shell-height-nohold-panel-first",
+      );
+      expect(outgoingPanel).toHaveStyle({ overflow: "hidden" });
+    });
+  });
+  describe("viewportMinHeight fill", () => {
+    // A hub's pager sits below the hub's own header, so the 100dvh default
+    // adds a scroll tail and 0px leaves everything under a short list dead to
+    // the swipe (the Consent centre report). Fill measures the remaining body
+    // once per resize: root visible height, minus the pager's layout offset,
+    // minus what the root and every ancestor reserve below the pager.
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let observed: Element[] = [];
+
+    function layout(element: HTMLElement, values: Record<string, unknown>) {
+      for (const [key, value] of Object.entries(values)) {
+        Object.defineProperty(element, key, { configurable: true, value });
+      }
+    }
+
+    beforeEach(() => {
+      observed = [];
+      globalThis.ResizeObserver = class {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe(element: Element) {
+          observed.push(element);
+        }
+        disconnect() {}
+        unobserve() {}
+      } as unknown as typeof ResizeObserver;
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      }) as typeof globalThis.requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.ResizeObserver = originalResizeObserver;
+      document.body.innerHTML = "";
+    });
+
+    function mountScrollRoot() {
+      const root = document.createElement("div");
+      root.setAttribute("data-app-scroll-root", "true");
+      root.style.paddingBottom = "140px";
+      root.style.position = "relative";
+      const main = document.createElement("main");
+      main.style.paddingBottom = "24px";
+      const wrapper = document.createElement("div");
+      root.appendChild(main);
+      main.appendChild(wrapper);
+      document.body.appendChild(root);
+      layout(root, { clientHeight: 664 });
+      return { root, main, wrapper };
+    }
+
+    it("measures the remaining body below the pager, minus reserved bottom space", () => {
+      const { root, wrapper } = mountScrollRoot();
+      const viewport = document.createElement("div");
+      wrapper.appendChild(viewport);
+      layout(viewport, { offsetTop: 239, offsetParent: root });
+      // 664 visible - 239 above the pager - 140 root clearance - 24 page shell
+      expect(measureFillViewportMinHeight(viewport)).toBe(261);
+    });
+
+    it("sums layout offsets through positioned ancestors and never goes negative", () => {
+      const { root, main, wrapper } = mountScrollRoot();
+      const viewport = document.createElement("div");
+      wrapper.appendChild(viewport);
+      layout(main, { offsetTop: 178, offsetParent: root });
+      layout(viewport, { offsetTop: 61, offsetParent: main });
+      expect(measureFillViewportMinHeight(viewport)).toBe(261);
+      layout(root, { clientHeight: 200 });
+      expect(measureFillViewportMinHeight(viewport)).toBe(0);
+    });
+
+    it("returns null outside an app scroll root", () => {
+      const viewport = document.createElement("div");
+      document.body.appendChild(viewport);
+      expect(measureFillViewportMinHeight(viewport)).toBeNull();
+    });
+
+    it("applies the measured height as the pager's min-height and watches the root", () => {
+      const { root, main, wrapper } = mountScrollRoot();
+      embla.ref.mockImplementation((node: HTMLElement | null) => {
+        if (node) {
+          embla.rootNode = node;
+          layout(node, { offsetTop: 239, offsetParent: root });
+        }
+      });
+      const view = render(
+        <SwipeViews
+          tabSetId="fill"
+          activeValue="first"
+          options={OPTIONS}
+          viewportMinHeight="fill"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+        { container: wrapper },
+      );
+      const pager = view.container.querySelector<HTMLElement>(
+        '[data-swipe-views-root="true"]',
+      );
+      expect(pager?.style.minHeight).toBe("261px");
+      expect(observed).toEqual(expect.arrayContaining([root, main, wrapper]));
+      embla.ref.mockReset();
+    });
+
+    it("leaves an explicit min-height alone", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="explicit"
+          activeValue="first"
+          options={OPTIONS}
+          viewportMinHeight="0px"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+      const pager = view.container.querySelector<HTMLElement>(
+        '[data-swipe-views-root="true"]',
+      );
+      expect(pager?.style.minHeight).toBe("0px");
     });
   });
 });

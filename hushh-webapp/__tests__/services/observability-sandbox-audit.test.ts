@@ -14,6 +14,7 @@ import {
   resolveGtmContainerId,
 } from "@/lib/observability/env";
 import { trackPageView, trackApiRequestCompleted, trackEvent } from "@/lib/observability/client";
+import { resetWebGtmHitBudgetForTests } from "@/lib/observability/adapters/web-gtm";
 import {
   captureGrowthAttribution,
   trackGrowthFunnelStepCompleted,
@@ -164,13 +165,39 @@ function expectGrowthPayloadContract(
   }
 }
 
+function expectScenarioSdkCommands(
+  calls: unknown[][],
+  events: TransportEntry[],
+  context: { page_location: string; page_referrer: string }
+): void {
+  expect(calls).toEqual(events.flatMap(({ eventName, payload }) => [
+    ["set", context],
+    ["config", resolveAnalyticsMeasurementId(), { update: true, send_page_view: false, ...context }],
+    ["event", eventName, payload],
+  ]));
+}
+
+function expectSdkAuditCounts(): void {
+  const calls = window.gtag!.mock.calls;
+  expect(calls).toHaveLength(66);
+  expect(calls.filter(([command]) => command === "event")).toHaveLength(22);
+  expect(calls.filter(([command]) => command === "set")).toHaveLength(22);
+  expect(calls.filter(([command]) => command === "config")).toHaveLength(22);
+}
+
 async function recordScenario(
   scenario: string,
   expectedEventNames: string[],
   invoke: () => void
 ): Promise<void> {
+  // Each scenario is an independent journey; the 22 of them in one tick would
+  // otherwise exhaust gtag's per-page event budget, which this audit does not
+  // cover (observability-web-transport.test.ts does).
+  resetWebGtmHitBudgetForTests();
   const beforeDataLayerCount = dataLayerTransport.length;
   const beforeGtagCount = gtagTransport.length;
+  const beforeSdkCount = window.gtag!.mock.calls.length;
+  const sdkContext = { page_location: window.location.href, page_referrer: document.referrer };
   const startedAtMs = performance.now();
   invoke();
   const callReturnedAtMs = performance.now();
@@ -178,6 +205,9 @@ async function recordScenario(
 
   const newDataLayerEntries = dataLayerTransport.slice(beforeDataLayerCount);
   const newGtagEntries = gtagTransport.slice(beforeGtagCount);
+  expectScenarioSdkCommands(
+    window.gtag!.mock.calls.slice(beforeSdkCount), newGtagEntries, sdkContext
+  );
 
   expect(newDataLayerEntries.map((entry) => entry.eventName)).toEqual(expectedEventNames);
   expect(newGtagEntries.map((entry) => entry.eventName)).toEqual(expectedEventNames);
@@ -190,7 +220,9 @@ async function recordScenario(
     expect(dataLayerEntry.eventName).toBe(gtagEntry.eventName);
     const { event: dataLayerEvent, ...sharedDataLayerPayload } = dataLayerEntry.payload;
     expect(dataLayerEvent).toBe(eventName);
-    expect(gtagEntry.payload).toMatchObject({
+    expect(dataLayerEntry.payload).not.toHaveProperty("page_location");
+    expect(dataLayerEntry.payload).not.toHaveProperty("page_referrer");
+    expect(gtagEntry.payload).toEqual({
       ...sharedDataLayerPayload,
       send_to: resolveAnalyticsMeasurementId(),
     });
@@ -441,7 +473,7 @@ describe("observability sandbox audit", () => {
 
     expect(resolveGtmContainerId()).toBe("");
     expect(resolveAnalyticsMeasurementId()).toBe("G-2PCECPSKCR");
-    expect(window.gtag).toHaveBeenCalledTimes(auditRecords.length);
+    expectSdkAuditCounts();
     expect(global.fetch).not.toHaveBeenCalled();
     expect(auditRecords).toHaveLength(22);
 

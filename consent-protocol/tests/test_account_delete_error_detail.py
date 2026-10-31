@@ -22,11 +22,14 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import api.routes.account as account_module
 from api.middleware import require_vault_owner_token
+
+pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
 
 
 def _stub_vault_owner():
@@ -82,6 +85,122 @@ class TestAccountDeleteErrorDetail:
         assert resp.status_code == 500
         detail = resp.json().get("detail", "")
         assert detail == "Account deletion failed"
+
+    def test_500_carries_rolled_back_failure_code(self):
+        """Clients need a machine code to keep the session after a rolled-back delete."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={"success": False, "error": self._SENTINEL},
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 500
+        assert resp.json() == {
+            "detail": "Account deletion failed",
+            "code": "ACCOUNT_DELETION_FAILED",
+        }
+
+    def test_exception_before_erasure_still_carries_failure_code(self):
+        """A pre-erasure crash must not look like a lost response to the client."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError(self._SENTINEL),
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 500
+        assert resp.json() == {
+            "detail": "Account deletion failed",
+            "code": "ACCOUNT_DELETION_FAILED",
+        }
+        assert self._SENTINEL not in resp.text
+
+    def test_release_fence_refusal_returns_paused(self):
+        """A deploy's release fence is temporary; the client shows a distinct message."""
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={
+                "success": False,
+                "error": self._SENTINEL,
+                "error_code": "ACCOUNT_DELETION_PAUSED",
+            },
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 503
+        assert resp.json() == {
+            "detail": "Account deletion paused",
+            "code": "ACCOUNT_DELETION_PAUSED",
+        }
+        assert self._SENTINEL not in resp.text
+
+    @pytest.mark.parametrize(
+        "provider,expected",
+        [("user_azure", "azure"), ("user_gcp", "gcp"), ("managed", None), ("gcp", None)],
+    )
+    def test_cloud_blocker_exposes_only_supported_reviewed_removal_provider(
+        self, provider, expected
+    ):
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={
+                "success": False,
+                "error_code": account_module.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "cleanup_provider": provider,
+            },
+        ):
+            response = _client().delete(self._URL)
+        assert response.status_code == 409
+        assert response.json()["detail"].get("cleanupProvider") == expected
+
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (
+                "FILES_ERASURE_IN_PROGRESS",
+                "Files cleanup is still in progress. Account not deleted. Try again to continue.",
+            ),
+            (
+                "FILES_ERASURE_WAITING_FOR_WRITES",
+                "An upload outcome is unverified. Account not deleted. Contact support before retrying.",
+            ),
+        ],
+    )
+    def test_bounded_files_cleanup_preserves_pending_without_deleting_identity(self, code, message):
+        with (
+            patch.object(
+                account_module.AccountService,
+                "delete_account",
+                new_callable=AsyncMock,
+                return_value={
+                    "success": False,
+                    "account_deleted": False,
+                    "error_code": code,
+                    "message": self._SENTINEL,
+                },
+            ) as delete,
+            patch.object(
+                account_module, "_delete_firebase_auth_user", new_callable=AsyncMock
+            ) as firebase,
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 409
+        assert resp.json() == {
+            "detail": message,
+            "code": code,
+        }
+        assert self._SENTINEL not in resp.text
+        delete.assert_awaited_once_with("test-uid", target="both")
+        firebase.assert_not_awaited()
 
     def test_successful_deletion_returns_200(self):
         """A successful deletion must return 200 (not 422 or 500)."""

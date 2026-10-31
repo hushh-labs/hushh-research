@@ -3,5 +3,5 @@ export {
   SettingsGroup,
   SettingsPresentationProvider,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";

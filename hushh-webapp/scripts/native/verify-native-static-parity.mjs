@@ -6,7 +6,9 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const iosInfoPlistPath = path.join(repoRoot, "ios/App/App/Info.plist");
 const androidManifestPath = path.join(repoRoot, "android/app/src/main/AndroidManifest.xml");
+const androidContactsPluginPath = path.join(repoRoot, "android/app/src/main/java/com/hussh/app/plugins/HushhContacts/HushhContactsPlugin.kt");
 const routesPath = path.join(repoRoot, "lib/navigation/routes.ts");
+const routeLayoutPath = path.join(repoRoot, "lib/navigation/app-route-layout.contract.json");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 
 function fail(message) {
@@ -43,6 +45,8 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Profile picture: choose from library / take a photo.
   "NSPhotoLibraryUsageDescription",
   "NSCameraUsageDescription",
+  // SMS recipients explicitly authorize persistent iOS 26+ system alarms.
+  "NSAlarmKitUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
   (key) => !allowedIosUsageDescriptionKeys.has(key)
@@ -70,6 +74,46 @@ const contactsUsageMatch = infoPlist.match(
 if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
 }
+const alarmUsageMatch = infoPlist.match(
+  /<key>NSAlarmKitUsageDescription<\/key>\s*<string>([^<]*)<\/string>/
+);
+if (!alarmUsageMatch?.[1]?.trim()) {
+  fail("SMS alarms require a non-empty NSAlarmKitUsageDescription.");
+}
+
+// Keep the distributed bundle identity at the unique, previously accepted
+// "Hussh One" while the visible and spoken system name remains the intentional
+// Siri-facing "Agent One". These fields are separate contracts and must not collapse
+// back to the globally generic bundle name that App Store Connect rejected.
+//
+// Scoped to visible/spoken copy on purpose. The `hushh` CFBundleURLScheme and
+// com.hushh.app bundle identifier remain load-bearing for deep links/signing.
+const expectedIosNames = new Map([
+  ["CFBundleDisplayName", "Agent One"],
+  ["CFBundleName", "Hussh One"],
+  ["CFBundleSpokenName", "Agent One"],
+]);
+for (const [key, expected] of expectedIosNames) {
+  const match = infoPlist.match(
+    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
+  );
+  if (match?.[1] !== expected) {
+    fail(
+      `iOS Info.plist ${key} must be "${expected}" (found "${match?.[1] ?? "missing"}").`
+    );
+  }
+}
+for (const key of iosUsageDescriptionKeys) {
+  const match = infoPlist.match(
+    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
+  );
+  const copy = match?.[1] ?? "";
+  if (/\bhushh\b/i.test(copy)) {
+    fail(
+      `iOS Info.plist ${key} spells the brand "hushh"; user-facing copy must read "Hussh".`
+    );
+  }
+}
 
 const androidManifest = read(androidManifestPath);
 const androidPermissions = [
@@ -77,10 +121,19 @@ const androidPermissions = [
 ].map((match) => match[1]);
 const allowedAndroidPermissions = new Set([
   "android.permission.INTERNET",
+  // Ordinary chat notification vibration; normal permission, no runtime prompt.
+  "android.permission.VIBRATE",
   "android.permission.RECORD_AUDIO",
   "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
   "android.permission.ACCESS_COARSE_LOCATION",
+  "android.permission.ACCESS_BACKGROUND_LOCATION",
+  "android.permission.FOREGROUND_SERVICE",
+  "android.permission.FOREGROUND_SERVICE_LOCATION",
+  // One SMS alarm service owns audible playback and CPU wakefulness until ACK.
+  "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+  "android.permission.WAKE_LOCK",
+  "android.permission.POST_NOTIFICATIONS",
   "android.permission.READ_CONTACTS",
 ]);
 const unexpectedAndroidPermissions = androidPermissions.filter(
@@ -90,6 +143,9 @@ if (unexpectedAndroidPermissions.length > 0) {
   fail(
     `AndroidManifest.xml has unexpected permissions: ${unexpectedAndroidPermissions.join(", ")}.`
   );
+}
+if (!androidPermissions.includes("android.permission.VIBRATE")) {
+  fail("AndroidManifest.xml must include android.permission.VIBRATE for chat alerts.");
 }
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");
@@ -106,8 +162,43 @@ if (!androidManifest.includes('android.permission.ACCESS_COARSE_LOCATION')) {
 if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
   fail("AndroidManifest.xml must include android.permission.READ_CONTACTS.");
 }
-if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
-  fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+for (const permission of ["ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`Background location sharing requires android.permission.${permission}.`);
+  }
+}
+const backgroundService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhLocation\.BackgroundLocationService"[^>]*\/>/s)?.[0];
+if (!backgroundService?.includes('android:exported="false"') || !backgroundService.includes('android:foregroundServiceType="location"')) {
+  fail("Background location sharing requires a non-exported location foreground service.");
+}
+for (const permission of ["FOREGROUND_SERVICE_MEDIA_PLAYBACK", "WAKE_LOCK"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`SMS alarms require android.permission.${permission}.`);
+  }
+}
+const smsAlarmService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhNotifications\.EmergencySmsAlarmService"[^>]*\/>/s)?.[0];
+if (!smsAlarmService?.includes('android:exported="false"') || !smsAlarmService.includes('android:foregroundServiceType="mediaPlayback"')) {
+  fail("SMS alarms require a non-exported mediaPlayback foreground service.");
+}
+// One Voice's privacy contract forbids background audio. iOS SMS alarms ring
+// through AlarmKit on iOS 26+ and through notification sound otherwise.
+if (infoPlist.includes("<string>audio</string>")) {
+  fail("UIBackgroundModes must not include audio; SMS alarms use AlarmKit or notification sound.");
+}
+const androidContactsPlugin = read(androidContactsPluginPath);
+const androidDeviceRegion = androidContactsPlugin.match(
+  /private fun deviceRegion\(\): String\?[\s\S]*?\n    private fun resolveContacts/,
+)?.[0];
+if (!androidDeviceRegion?.includes("simCountryIso")) {
+  fail("Android contact matching must derive its strongest region from the SIM.");
+}
+if (
+  androidDeviceRegion.includes("networkCountryIso") ||
+  androidDeviceRegion.includes("Locale.getDefault().country")
+) {
+  fail(
+    "Android must not label roaming-network or UI-locale fallbacks as home number-plan evidence; the shared resolver owns fallback after the verified account phone.",
+  );
 }
 const androidMainActivity = androidManifest.match(
   /<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*>/,
@@ -122,11 +213,23 @@ if (!infoPlist.includes("<string>location</string>")) {
 }
 
 const routeValues = routeValuesFromRoutesTs(read(routesPath));
+const routeLayout = JSON.parse(read(routeLayoutPath));
+const redirectOnlyRoutes = new Set(
+  routeLayout
+    .filter((route) => route?.mode === "redirect")
+    .map((route) => route.route),
+);
 const inventory = JSON.parse(read(inventoryPath));
 const inventoryRoutes = inventory.routes || [];
 const inventoryRouteSet = new Set(inventoryRoutes.map((route) => route.route));
 
-const missingRoutes = routeValues.filter((route) => !inventoryRouteSet.has(route));
+// Compatibility routes are web redirects, not native destinations. They remain
+// in ROUTES so inbound links and the web proxy stay typed, but must not force a
+// native inventory entry or native smoke surface of their own.
+const missingRoutes = routeValues.filter(
+  (route) =>
+    !inventoryRouteSet.has(route) && !redirectOnlyRoutes.has(route),
+);
 if (missingRoutes.length > 0) {
   fail(`native-route-inventory.json is missing ROUTES entries: ${missingRoutes.join(", ")}`);
 }
@@ -164,6 +267,25 @@ const markerlessRequiredRoutes = inventoryRoutes
   .map((route) => route.route);
 if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
+}
+
+// An `excluded-*` classification drops a route out of every parity check above.
+// That is the one place tri-flow can be lost silently: marking a route excluded
+// costs nothing and no reviewer sees why. The PR template already demands the
+// layer be "explicitly marked as not applicable with the reason" -- this makes
+// the inventory hold that reason, so the claim is reviewable instead of implied.
+const EXCLUSION_REASON_MIN_LENGTH = 40;
+const unjustifiedExclusions = inventoryRoutes
+  .filter((route) => String(route.classification || "").startsWith("excluded"))
+  .filter(
+    (route) => String(route.reason || "").trim().length < EXCLUSION_REASON_MIN_LENGTH
+  )
+  .map((route) => route.route);
+if (unjustifiedExclusions.length > 0) {
+  fail(
+    "excluded routes need a `reason` explaining why the native layer does not apply " +
+      `(min ${EXCLUSION_REASON_MIN_LENGTH} chars): ${unjustifiedExclusions.join(", ")}`
+  );
 }
 
 const nonCanonicalProfileLaunches = inventoryRoutes

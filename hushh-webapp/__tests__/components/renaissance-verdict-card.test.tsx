@@ -29,38 +29,30 @@ function makeRow(
 }
 
 describe("RenaissanceVerdictCard", () => {
-  it("frames constructive bias as a market signal instead of a buy instruction", () => {
-    const { container } = render(<RenaissanceVerdictCard row={makeRow()} />);
-
-    expect(screen.getByText("Constructive signal")).toBeTruthy();
-    expect(container.textContent).toContain(
-      "Constructive bias on the active advisor list.",
-    );
-    expect(container.textContent).toContain(
-      "Kai presents this as market context, not a personalized instruction.",
-    );
-    expect(container.textContent).not.toContain("Investment thesis");
-    expect(container.textContent).not.toContain("Key signals");
-    expect(container.textContent).not.toMatch(
-      /\bBuy\b|Do not buy|before adding/i,
-    );
+  it("shows the provider summary without manufacturing a conviction signal", () => {
+    render(<RenaissanceVerdictCard row={makeRow({ company_facts: {
+      symbol: "NVDA", summary: "Nvidia designs graphics processors.",
+    } })} />);
+    expect(screen.getByRole("heading", { name: "Company summary", level: 3 })).toBeTruthy();
+    expect(screen.getByRole("listitem").textContent).toBe("Nvidia designs graphics processors.");
+    expect(screen.queryByText(/Constructive signal|Caution signal/)).toBeNull();
   });
 
-  it("uses caution language for reduce or sell bias without telling the user what to trade", () => {
-    const { container } = render(
-      <RenaissanceVerdictCard
-        row={makeRow({
-          recommendation_bias: "SELL",
-          degraded: true,
-        })}
-      />,
-    );
+  it("bounds verbatim excerpts while retaining the full provider profile", () => {
+    const first = "A".repeat(300) + ".";
+    const summary = `${first} The company supplies processors. Its full profile remains accessible.`;
+    const { container } = render(<RenaissanceVerdictCard row={makeRow({ company_facts: { symbol: "NVDA", summary } })} />);
+    const excerpts = container.querySelectorAll("li");
+    expect(excerpts).toHaveLength(2);
+    expect(excerpts[0].textContent).toBe(`${"A".repeat(220)}…`);
+    expect(excerpts[1].textContent).toBe("The company supplies processors.");
+    expect(container.querySelector("details p")?.textContent).toBe(summary);
+  });
 
-    expect(screen.getByText("Caution signal")).toBeTruthy();
-    expect(container.textContent).toContain("lower-confidence context");
-    expect(container.textContent).toContain(
-      "Review the thesis and information quality before acting on the signal.",
-    );
-    expect(container.textContent).not.toMatch(/Do not buy|before adding/i);
+  it("uses the authored list summary when the provider summary is unavailable", () => {
+    render(<RenaissanceVerdictCard row={makeRow({ recommendation_bias: "SELL" })} />);
+    expect(screen.getByText("Accelerated compute demand remains durable.")).toBeTruthy();
+    expect(screen.getByText("Summary from the selected list.")).toBeTruthy();
+    expect(screen.queryByText(/Caution signal/)).toBeNull();
   });
 });

@@ -111,4 +111,5 @@ describe("acknowledgeOneSetupExit", () => {
     expect(syncKaiSetupStateMock).toHaveBeenCalledTimes(3);
     vi.useRealTimers();
   });
+
 });

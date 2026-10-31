@@ -2,6 +2,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
   buildKaiAnalysisPreviewRoute,
+  buildKaiImportRoute,
   buildKaiMarketRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -14,7 +15,7 @@ import type {
 import {
   getInvestorKaiActionByKaiCommand,
   resolveInvestorKaiActionWiring,
-} from "@/lib/voice/investor-kai-action-registry";
+} from "@/lib/kai/actions/investor-kai-action-registry";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -285,15 +286,16 @@ export function executeKaiCommand(
   }
 
   if (command === "import") {
-    router.push(ROUTES.KAI_IMPORT);
+    const routeAfter = buildKaiImportRoute(currentRoute || ROUTES.KAI_PORTFOLIO);
+    router.push(routeAfter);
     return buildCommandResult({
       status: "executed",
       actionId,
       routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_IMPORT,
+      routeAfter,
       screenBefore: currentScreen,
       screenAfter: "import",
-      resultSummary: "Opened the Kai portfolio import flow.",
+      resultSummary: "Opened the Finance portfolio import flow.",
       data: { command },
     });
   }
@@ -308,7 +310,7 @@ export function executeKaiCommand(
       routeAfter,
       screenBefore: currentScreen,
       screenAfter: "kai_analysis",
-      resultSummary: "Opened the Kai analysis history view.",
+      resultSummary: "Opened the Finance analysis history view.",
       data: { command },
     });
   }
@@ -322,7 +324,7 @@ export function executeKaiCommand(
       routeAfter: ROUTES.KAI_DASHBOARD,
       screenBefore: currentScreen,
       screenAfter: "dashboard",
-      resultSummary: "Opened the Kai dashboard.",
+      resultSummary: "Opened the Finance dashboard.",
       data: { command },
     });
   }
@@ -336,7 +338,7 @@ export function executeKaiCommand(
       routeAfter: ROUTES.KAI_HOME,
       screenBefore: currentScreen,
       screenAfter: "home",
-      resultSummary: "Opened the Kai home screen.",
+      resultSummary: "Opened the Finance home screen.",
       data: { command },
     });
   }
@@ -380,7 +382,7 @@ export function executeKaiCommand(
     actionId,
     routeBefore: currentRoute,
     screenBefore: currentScreen,
-    resultSummary: "That Kai command is not supported.",
+    resultSummary: "That Finance command is not supported.",
     data: { command },
   });
 }

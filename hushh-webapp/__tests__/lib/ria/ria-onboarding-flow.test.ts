@@ -10,6 +10,7 @@ import {
   isRiaOnboardingStepId,
   normalizeRiaCapabilities,
   normalizeRiaOnboardingDraft,
+  resolveRestorableRiaOnboardingStepId,
   resolveRiaOnboardingStepId,
   type RiaOnboardingDraft,
 } from "@/lib/ria/ria-onboarding-flow";
@@ -336,6 +337,50 @@ describe("ria-onboarding-flow", () => {
     it("returns first incomplete when no preference", () => {
       const draft = createEmptyRiaOnboardingDraft();
       expect(resolveRiaOnboardingStepId(draft)).toBe("license_number");
+    });
+  });
+
+  describe("resolveRestorableRiaOnboardingStepId", () => {
+    it("restores the persisted in-progress step when prerequisites are satisfied", () => {
+      const draft: RiaOnboardingDraft = {
+        ...createEmptyRiaOnboardingDraft(),
+        currentStepId: "services",
+        licenseNumber: "123456",
+        licenseVerificationStatus: "found",
+        advisorName: "Jane Doe",
+      };
+
+      expect(
+        resolveRestorableRiaOnboardingStepId(draft, draft.currentStepId, {
+          licenseVerificationSatisfied: true,
+        })
+      ).toBe("services");
+    });
+
+    it("clamps a persisted later step to the first unmet prerequisite", () => {
+      const draft: RiaOnboardingDraft = {
+        ...createEmptyRiaOnboardingDraft(),
+        currentStepId: "review",
+        licenseNumber: "123456",
+        licenseVerificationStatus: "found",
+        advisorName: "Jane Doe",
+        servicesOffered: [],
+        feeStructure: [],
+      };
+
+      expect(
+        resolveRestorableRiaOnboardingStepId(draft, draft.currentStepId, {
+          licenseVerificationSatisfied: true,
+        })
+      ).toBe("services");
+    });
+
+    it("falls back to the first incomplete step for invalid persisted values", () => {
+      const draft = createEmptyRiaOnboardingDraft();
+
+      expect(
+        resolveRestorableRiaOnboardingStepId(draft, "bogus" as any)
+      ).toBe("license_number");
     });
   });
 

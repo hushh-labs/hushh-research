@@ -1,0 +1,333 @@
+.content {
+  width: 100%;
+  max-width: 410px;
+  min-width: 0;
+  color: #1d1d1f;
+  font-family: var(--font-app-body);
+}
+
+:global(html.dark) .content {
+  color: #f5f5f7;
+}
+
+.heading {
+  --foundation-title1-size: 30px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -0.04em;
+  margin: 0;
+  color: inherit;
+  font-family: var(--font-app-heading);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.04em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.subtitle {
+  margin: 9px 0 0;
+  color: #6e6e73;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 21px;
+  text-align: center;
+}
+
+:global(html.dark) .subtitle {
+  color: #a8abb6;
+}
+
+.available {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 24px;
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.available > svg {
+  width: 23px;
+  height: 23px;
+  flex: none;
+}
+
+.available strong {
+  flex: 1;
+  font-weight: 600;
+}
+
+.available span {
+  flex: none;
+  border-radius: 999px;
+  background: #eaf6ef;
+  padding: 4px 9px;
+  color: #207154;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+:global(html.dark) .available span {
+  background: #193a2c;
+  color: #8ae2b6;
+}
+
+.runtimeCard {
+  /* Global foundation rules lock headings/row text with !important inside a
+     cascade layer. Give those rules the setup artifact's scoped values. */
+  --type-row-label-size: 15px;
+  --type-row-label-line: 19px;
+  --type-row-label-weight: 600;
+  --type-row-description-size: 12px;
+  --type-row-description-line: 17px;
+  --type-row-description-weight: 400;
+  --type-input-value-size: 16px;
+  margin-top: 12px;
+  font-family: var(--font-app-body);
+}
+
+/* SettingsGroup keeps the authoritative radio, validation and vault behavior.
+   Its generic settings chrome is only reskinned inside this setup route. */
+.runtimeCard :global([data-testid="profile-gemini-runtime"] > div:first-child) {
+  display: none;
+}
+
+.runtimeCard :global([data-testid="profile-gemini-runtime"] [data-slot="settings-group-shell"]) {
+  overflow: hidden;
+  border: 1px solid #e1e4ea;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: none;
+}
+
+:global(html.dark) .runtimeCard :global([data-testid="profile-gemini-runtime"] [data-slot="settings-group-shell"]) {
+  border-color: #3a3c46;
+  background: #1a1b20;
+}
+
+.runtimeCard :global([data-testid="profile-managed-runtime"]),
+.runtimeCard :global([data-testid="profile-byok-runtime"]) {
+  min-height: 65px;
+  padding: 0;
+  background: transparent;
+  --settings-row-px: 15px;
+  --settings-row-py: 8px;
+  --settings-row-gap: 10px;
+}
+
+.runtimeCard :global([data-testid="profile-managed-runtime"]::after),
+.runtimeCard :global([data-testid="profile-byok-runtime"]::after) {
+  display: none;
+}
+
+.runtimeCard :global([data-testid="profile-managed-runtime"]) {
+  border-bottom: 1px solid #eaecef;
+}
+
+:global(html.dark) .runtimeCard :global([data-testid="profile-managed-runtime"]) {
+  border-bottom-color: #353742;
+}
+
+.runtimeCard :global([data-testid="profile-managed-runtime"] svg[role="img"]),
+.runtimeCard :global([data-testid="profile-byok-runtime"] svg[role="img"]) {
+  width: 28px;
+  height: 28px;
+}
+
+.runtimeCard :global([data-slot="settings-row-title"]) {
+  color: #1d1d1f;
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 19px;
+  letter-spacing: -0.01em;
+}
+
+.runtimeCard :global([data-slot="settings-row-description"]) {
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+:global(html.dark) .runtimeCard :global([data-slot="settings-row-title"]) {
+  color: #f5f5f7;
+}
+
+:global(html.dark) .runtimeCard :global([data-slot="settings-row-description"]) {
+  color: #a8abb6;
+}
+
+.runtimeCard :global([data-slot="settings-row-trailing"] > span) {
+  width: 20px;
+  height: 20px;
+  border-color: #a8abb6;
+}
+
+.runtimeCard :global([data-testid="profile-gemini-runtime"] input),
+.runtimeCard :global([data-testid="profile-gemini-runtime"] select) {
+  font-family: var(--font-app-body);
+  font-size: 16px;
+  scroll-margin-block: 24px 84px;
+}
+
+.runtimeCard :global([data-testid="profile-gemini-runtime"] > [data-slot="settings-group-shell"] > div > div:last-child) {
+  scroll-margin-bottom: 84px;
+}
+
+.runtimeCard :global([data-testid="setup-coming-soon-runtime"]) {
+  --foundation-title2-size: 12px;
+  --foundation-title2-line: 17px;
+  --foundation-title2-weight: 600;
+  margin-top: 19px;
+}
+
+.runtimeCard :global([data-testid="setup-coming-soon-runtime"] h2) {
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 17px !important;
+  letter-spacing: 0;
+}
+
+.runtimeCard :global([data-testid="setup-coming-soon-runtime"] ul) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.runtimeCard :global([data-testid="setup-coming-soon-runtime"] li) {
+  display: block;
+  border-radius: 8px;
+  background: #f5f5f7;
+  padding: 6px 10px;
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+:global(html.dark) .runtimeCard :global([data-testid="setup-coming-soon-runtime"] li) {
+  background: #22232a;
+  color: #a8abb6;
+}
+
+.runtimeCard :global([data-testid="setup-coming-soon-runtime"] [role="img"]) {
+  display: none;
+}
+
+.footer {
+  margin-top: 25px;
+  width: 100%;
+}
+
+.disclosure {
+  margin: 0 0 12px;
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.continue {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  font-family: var(--font-app-body);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.continue:disabled {
+  background: #cfe3fa;
+  color: #7897b9;
+  opacity: 1;
+}
+
+:global(html.dark) .continue:disabled {
+  background: #1c416b;
+  color: #819cb9;
+}
+
+:global(html.dark) .disclosure {
+  color: #a8abb6;
+}
+
+.error {
+  margin-top: 12px;
+  color: #bb3149;
+  font-size: 13px;
+  line-height: 19px;
+}
+
+:global(html.dark) .error {
+  color: #ff9eab;
+}
+
+@media (min-width: 900px) {
+  .heading {
+    --foundation-title1-size: clamp(34px, 3.4vw, 43px);
+    --foundation-title1-line: 1.1;
+    --foundation-title1-tracking: -0.045em;
+    font-size: clamp(34px, 3.4vw, 43px);
+    line-height: 1.1;
+    letter-spacing: -0.045em;
+    text-align: left;
+  }
+
+  .subtitle {
+    margin-top: 12px;
+    font-size: 16px;
+    line-height: 24px;
+    text-align: left;
+  }
+
+  .available {
+    margin-top: 27px;
+  }
+
+  .footer {
+    margin-top: 22px;
+  }
+
+  .disclosure {
+    text-align: left;
+  }
+}
+
+@media (max-height: 700px) and (max-width: 899px) {
+  .heading {
+    --foundation-title1-size: 27px;
+    --foundation-title1-line: 33px;
+    font-size: 27px;
+    line-height: 33px;
+  }
+
+  .subtitle {
+    margin-top: 6px;
+  }
+
+  .available {
+    margin-top: 16px;
+  }
+
+  .runtimeCard :global([data-testid="setup-coming-soon-runtime"]) {
+    margin-top: 12px;
+  }
+
+  .footer {
+    margin-top: 17px;
+  }
+}

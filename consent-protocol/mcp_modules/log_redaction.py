@@ -13,11 +13,19 @@ MAX_LOG_STRING_LENGTH = 160
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
 _UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
-_TOKEN_PREFIXES = ("HCT:", "Bearer ")
-_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
+# `pst1.` is the owner-pod session bearer (pod_session_authority); it opens a turn
+# without a hub token and must never reach a retained log any more than an HCT.
+_TOKEN_PREFIXES = ("HCT:", "Bearer ", "pst1.")
+_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
+# Per-request owner chat key.
+_CHAT_KEY_VALUE_RE = re.compile(r"hck1\.[0-9A-Fa-f]{64}")
 _QUERY_SECRET_RE = re.compile(
-    r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token|"
+    # An optional dotted prefix covers nested names such as the Weather API's
+    # ``location.latitude``.
+    r"([?&](?:[A-Za-z_]+\.)*(?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
+    r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|pageToken|"
+    # Drive carries an optional share note, written by a person, in the URL.
+    r"emailMessage|"
     # A person's position is as sensitive as a credential and leaks the same
     # way. httpx logs every outbound request URL at INFO, so any provider call
     # that carries coordinates in its query string — the advisor directory, the
@@ -25,6 +33,19 @@ _QUERY_SECRET_RE = re.compile(
     r"lat|latitude|latlng|lng|lon|longitude|coords|coordinates|postal_?code|zip)=)"
     r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
+)
+_DRIVE_PERMISSION_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+"
+    r"(/permissions/)[^/?\s\"'<>]+",
+    re.IGNORECASE,
+)
+_DRIVE_FILE_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+", re.IGNORECASE
+)
+_GMAIL_RESOURCE_PATH_RE = re.compile(
+    r"(https://(?:gmail|www)\.googleapis\.com/gmail/v1/users/)[^/?\s\"'<>]+"
+    r"(/(?:messages|threads|drafts)/)[^/?\s\"'<>]+(?:/attachments/[^/?\s\"'<>]+)?",
+    re.IGNORECASE,
 )
 
 _SQL_PARAMS_MARKER = "[parameters:"
@@ -43,13 +64,24 @@ _SENSITIVE_EXACT_KEYS = {
     "encrypted_data",
     "export_key",
     "id_token",
+    "nonce",
     "phone",
     "private_key",
+    "proof",
     "public_key",
     "refresh_token",
+    "relay_ticket",
+    "session",
+    "signing_payload",
+    "ticket",
     "user_id",
     "user_identifier",
     "wrapped_export_key",
+    "query",
+    "gmail_message_id",
+    "gmail_thread_id",
+    "thread_id",
+    "attachment_id",
 }
 
 _SENSITIVE_KEY_TERMS = (
@@ -57,6 +89,7 @@ _SENSITIVE_KEY_TERMS = (
     "api_key",
     "auth_header",
     "bearer",
+    "chat_key",
     "ciphertext",
     "connector_key",
     "credential",
@@ -64,10 +97,16 @@ _SENSITIVE_KEY_TERMS = (
     "encrypted_data",
     "export_key",
     "firebase_uid",
+    "nonce",
     "phone",
+    "pod_session",
     "private_key",
+    "proof",
+    "relay_ticket",
     "secret",
+    "session_token",
     "signature",
+    "ticket",
     "token",
     "user_id",
     "user_identifier",
@@ -119,6 +158,14 @@ def _redact_sql_bound_parameters(value: str) -> str:
 
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
+    redacted = _CHAT_KEY_VALUE_RE.sub(REDACTED, redacted)
+    redacted = _DRIVE_PERMISSION_PATH_RE.sub(
+        lambda match: f"{match.group(1)}{REDACTED}{match.group(2)}{REDACTED}", redacted
+    )
+    redacted = _DRIVE_FILE_PATH_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
+    redacted = _GMAIL_RESOURCE_PATH_RE.sub(
+        lambda match: f"{match.group(1)}me{match.group(2)}{REDACTED}", redacted
+    )
     redacted = _QUERY_SECRET_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     return _redact_sql_bound_parameters(redacted)
 
@@ -189,10 +236,66 @@ def redact_mcp_arguments(value: Any) -> Any:
     return redact_log_value(value)
 
 
+_PROVIDER_STATUS_NAME = re.compile(r"^[A-Z][A-Z_]{1,39}$")
+
+
+def _sdk_failure_status(error: BaseException | None) -> str:
+    """Return a provider error's HTTP status fields, never its message.
+
+    ``google.genai`` errors carry an integer HTTP ``code`` and a fixed status
+    enum (``INVALID_ARGUMENT``, ``NOT_FOUND``, ``RESOURCE_EXHAUSTED``). Both are
+    content-free and are the only way to tell a 400 from a 429 in hosted logs.
+    """
+    code = getattr(error, "code", None)
+    if isinstance(code, bool) or not isinstance(code, int) or not 100 <= code <= 599:
+        return ""
+    suffix = f" status_code={code}"
+    status = getattr(error, "status", None)
+    if isinstance(status, str) and _PROVIDER_STATUS_NAME.fullmatch(status):
+        suffix += f" status={status}"
+    return suffix
+
+
 class SensitiveLogFilter(logging.Filter):
     """Redact secrets from runtime log records before handler formatting."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        sdk_record = record.name.startswith(("google_adk.", "google.adk.", "ag_ui_adk."))
+        if sdk_record and record.exc_info:
+            record.msg = (
+                "SDK failure type="
+                + getattr(record.exc_info[0], "__name__", "Exception")
+                + _sdk_failure_status(record.exc_info[1])
+            )
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+        elif sdk_record and record.levelno <= logging.DEBUG:
+            # SDK debug payload formats are not a stable privacy contract.
+            record.msg = "SDK debug content=" + REDACTED
+            record.args = ()
+        # SDK content logs occur before public-output projection, sometimes at
+        # INFO. Preserve operational messages but never record model prompts,
+        # thoughts, external content, or full AG-UI response bodies.
+        if isinstance(record.msg, str):
+            message = record.msg.lstrip()
+            if record.name == "ag_ui_adk.adk_agent" and message.startswith("[ADK_EVENT] "):
+                record.msg = "[ADK_EVENT] content=" + REDACTED
+                record.args = ()
+            elif (
+                record.name == "google_adk.google.adk.models.google_llm"
+                and message.startswith(("LLM Request:", "LLM Response:"))
+            ) or (record.name == "ag_ui_adk.endpoint" and message.startswith("HTTP Response:")):
+                record.msg = "SDK content=" + REDACTED
+                record.args = ()
+            elif record.name == "ag_ui_adk.adk_agent" and message.startswith(
+                (
+                    "Will wrap callable InstructionProvider and append SystemMessage:",
+                    "Will append SystemMessage to string instructions:",
+                )
+            ):
+                record.msg = "SDK instructions=" + REDACTED
+                record.args = ()
         if isinstance(record.msg, str):
             record.msg = _redact_sensitive_substrings(record.msg)
         else:

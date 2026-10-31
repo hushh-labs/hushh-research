@@ -32,8 +32,8 @@ export function HushhWordmark({ className }: { className?: string }) {
         x="300"
         y="135"
         textAnchor="middle"
-        fontFamily='"SF Pro Display", "SF Pro", "Helvetica Neue", Inter, system-ui, sans-serif'
-        fontWeight={700}
+        fontFamily='"Plus Jakarta Sans", system-ui, sans-serif'
+        fontWeight={600}
         fontSize={160}
         letterSpacing={-5.6}
       >

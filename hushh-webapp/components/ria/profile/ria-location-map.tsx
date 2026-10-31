@@ -15,7 +15,7 @@
  * useCurrentLocation()'s auto pass reads an existing grant without prompting.
  */
 
-import { MapPin } from "lucide-react";
+import { MapPin } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";

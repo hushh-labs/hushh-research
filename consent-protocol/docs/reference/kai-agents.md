@@ -17,6 +17,21 @@ Kai implements the AlphaAgents framework -- three specialist agents debate acros
 
 Kai intro personalization is optional and managed in encrypted PKM path `financial.profile`. Legacy `/api/kai/preferences/*` routes are removed.
 
+### UAT model provider
+
+UAT's checked-in managed policy selects Azure for Fundamental, Sentiment and
+Valuation, plus their debate and synthesis stages. The manifest's `gemini-default`
+identifier is a compatibility alias resolved by the existing managed factory;
+it does not force these stages onto Vertex. The compatibility streaming operon
+uses the same UAT Azure selection. Dev and production policy are unchanged.
+
+The focused Kai runtime tests exercise the real policy, factory, ADK runner and
+Azure serializer with synthetic provider responses. They guard against Vertex
+construction, preserve dynamic sentiment/valuation maps, and refuse invalid
+output or transport failure without a hidden provider fallback. Consent,
+deadlines, stage schemas and terminal stream behavior retain their existing
+owners. This source qualification does not establish live analysis acceptance.
+
 ---
 
 ## Three Specialists
@@ -224,14 +239,14 @@ The `RenaissanceService` provides lookup methods used by the losers analysis end
 
 | Parameter          | Value                      |
 | ------------------ | -------------------------- |
-| Model              | `gemini-3.6-flash`          |
+| Model              | `gemini-3.7-flash`          |
 | SDK                | `google.genai` (new SDK)   |
 | Thinking Mode      | MEDIUM                     |
 | Hosted auth        | Vertex workload ADC through the Cloud Run service identity |
 | Streaming          | Token-by-token via `stream_gemini_response` |
 
 The text client uses the global Vertex endpoint, omits legacy sampling controls
-for Gemini 3.6, and records response-chunk count, first-visible-response
+for Gemini 3.7, and records response-chunk count, first-visible-response
 latency, total latency, and attempt count in sanitized logs. The canonical SSE
 envelope remains unchanged.
 

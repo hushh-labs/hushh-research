@@ -1,0 +1,229 @@
+"use client";
+
+/**
+ * The "How One writes to you" rows and footer, with no loading or storage of
+ * their own (the container is communication-preferences-section.tsx).
+ *
+ * Layout contract, checked by e2e/style-settings.layout.spec.ts: the rows are
+ * the shared SettingsRow geometry, every text control is 44 px tall with one
+ * shared right edge, the note block and the footer keep the row's 16 px side
+ * inset, and the surfaces are flat.
+ */
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  LanguageRowIcon,
+  PreferredNameRowIcon,
+  PunctuationRowIcon,
+  ReplyLengthRowIcon,
+  ToneRowIcon,
+} from "@/components/icons/agents";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  OWNER_STYLE_LANGUAGES,
+  OWNER_STYLE_LANGUAGE_LABEL,
+  OWNER_STYLE_LENGTHS,
+  OWNER_STYLE_LENGTH_LABEL,
+  OWNER_STYLE_TONES,
+  OWNER_STYLE_TONE_LABEL,
+  PREFERRED_NAME_MAX,
+  STYLE_NOTE_MAX,
+  type OwnerStyleSettings,
+} from "@/lib/agent/owner-style-settings";
+import paneStyles from "./communication-preferences-pane.module.css";
+
+const NO_PREFERENCE = "none";
+const CONTROL_WIDTH = "w-full min-w-0";
+// The select matches the text field beside it: one height, fill, corner and
+// value type (the pairing e2e/gemini-endpoint-fields.layout.spec.ts guards).
+const SELECT_CLASSNAME = `${CONTROL_WIDTH} data-[size=default]:h-11 gap-0.5 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-1.5 ui-text-input-value shadow-none dark:bg-[color:var(--app-secondary-surface)] dark:hover:bg-[color:var(--app-secondary-surface)] [&>svg]:!size-3`;
+// Keep the field beside its label, sized against the pane rather than viewport.
+const ROW_CLASSNAME = "profile-preferences-control-row";
+
+function ChoiceSelect<T extends string>({
+  value,
+  options,
+  labels,
+  label,
+  disabled,
+  onChange,
+}: {
+  value: T | undefined;
+  options: readonly T[];
+  labels: Record<T, string>;
+  label: string;
+  disabled: boolean;
+  onChange: (value: T | undefined) => void;
+}) {
+  return (
+    <Select
+      value={value ?? NO_PREFERENCE}
+      disabled={disabled}
+      onValueChange={(next) => onChange(next === NO_PREFERENCE ? undefined : (next as T))}
+    >
+      <SelectTrigger className={SELECT_CLASSNAME} aria-label={label}>
+        <SelectValue placeholder="No preference" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem className={paneStyles.choiceOption} value={NO_PREFERENCE}>No preference</SelectItem>
+        {options.map((option) => (
+          <SelectItem className={paneStyles.choiceOption} key={option} value={option}>
+            {labels[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** The editable rows and footer, with no loading or storage of their own. */
+export function CommunicationPreferencesGroup({
+  value,
+  onChange,
+  onSave,
+  dirty,
+  saving,
+  loading = false,
+  unavailable = false,
+  suggested,
+}: {
+  value: OwnerStyleSettings;
+  onChange: (next: OwnerStyleSettings) => void;
+  onSave: () => void;
+  dirty: boolean;
+  saving: boolean;
+  loading?: boolean;
+  /** The stored values could not be read, so saving is held back. */
+  unavailable?: boolean;
+  /** True when the values came from a chat offer and are not saved yet. */
+  suggested: boolean;
+}) {
+  const set = <K extends keyof OwnerStyleSettings>(key: K, next: OwnerStyleSettings[K]) => {
+    const updated: OwnerStyleSettings = { ...value };
+    if (next === undefined || next === "") delete updated[key];
+    else updated[key] = next;
+    onChange(updated);
+  };
+  const note = value.owner_style_note ?? "";
+  const disabled = saving || loading;
+  return (
+    <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings" aria-busy={loading}>
+      <SettingsGroup
+        title="How One writes to you"
+        description="Writing only. Access and permissions stay unchanged."
+        testId="style-settings-group"
+        titleAction={
+          <MorphyButton type="button" size="sm" disabled={!dirty || disabled || unavailable} onClick={onSave}
+            className="min-h-11 shrink-0 px-6" data-testid="style-settings-save">
+            {saving ? "Saving" : "Save"}
+          </MorphyButton>
+        }
+      >
+        <SettingsRow
+          icon={PreferredNameRowIcon}
+          iconTone="capability"
+          title="Call me"
+          trailing={
+            <Input
+              value={value.preferred_name ?? ""}
+              maxLength={PREFERRED_NAME_MAX}
+              placeholder="Your name"
+              aria-label="Name One calls you"
+              disabled={disabled}
+              className={`${CONTROL_WIDTH} px-1.5`}
+              onChange={(event) => set("preferred_name", event.target.value)}
+            />
+          }
+          className={ROW_CLASSNAME}
+          testId="style-settings-row"
+        />
+        <SettingsRow
+          icon={ToneRowIcon}
+          iconTone="capability"
+          title="Tone"
+          trailing={
+            <ChoiceSelect value={value.tone} options={OWNER_STYLE_TONES} labels={OWNER_STYLE_TONE_LABEL}
+              label="Tone" disabled={disabled} onChange={(next) => set("tone", next)} />
+          }
+          className={ROW_CLASSNAME}
+          testId="style-settings-row"
+        />
+        <SettingsRow
+          icon={ReplyLengthRowIcon}
+          iconTone="capability"
+          title="Length"
+          trailing={
+            <ChoiceSelect value={value.length} options={OWNER_STYLE_LENGTHS} labels={OWNER_STYLE_LENGTH_LABEL}
+              label="Length" disabled={disabled} onChange={(next) => set("length", next)} />
+          }
+          className={ROW_CLASSNAME}
+          testId="style-settings-row"
+        />
+        <SettingsRow
+          icon={LanguageRowIcon}
+          iconTone="capability"
+          title="Language"
+          trailing={
+            <ChoiceSelect value={value.language} options={OWNER_STYLE_LANGUAGES} labels={OWNER_STYLE_LANGUAGE_LABEL}
+              label="Language" disabled={disabled} onChange={(next) => set("language", next)} />
+          }
+          className={ROW_CLASSNAME}
+          testId="style-settings-row"
+        />
+        <SettingsRow
+          icon={PunctuationRowIcon}
+          iconTone="capability"
+          title="Avoid em dashes"
+          trailing={
+            // A 44 px tall target, so this row sits on the same 60 px rhythm.
+            <span className="inline-flex h-11 items-center">
+              <Switch
+                checked={value.avoid_em_dashes === true}
+                disabled={disabled}
+                aria-label="Avoid em dashes"
+                onCheckedChange={(checked) => set("avoid_em_dashes", checked)}
+              />
+            </span>
+          }
+          testId="style-settings-row"
+        />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Style note"
+        description="Optional writing guidance. Permissions stay unchanged."
+        testId="style-settings-note-group"
+      >
+        <div className="flex flex-col gap-2 p-4" data-testid="style-settings-note-block">
+          <textarea
+            value={note}
+            maxLength={STYLE_NOTE_MAX}
+            rows={3}
+            disabled={disabled}
+            aria-label="Style note"
+            placeholder="For example: write Hussh with two s's, and lead with numbers."
+            className="ui-text-input-value block h-28 w-full resize-none rounded-[var(--app-radius-md,14px)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 py-3 outline-none placeholder:text-muted-foreground focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:opacity-50"
+            onChange={(event) => set("owner_style_note", event.target.value.replace(/[\r\n]+/g, " "))}
+          />
+          <p className="flex h-4 items-center justify-end text-xs tabular-nums text-muted-foreground" data-testid="style-settings-note-count">
+            {note.length}/{STYLE_NOTE_MAX}
+          </p>
+        </div>
+      </SettingsGroup>
+      <div className="flex min-h-11 items-center justify-between gap-4 px-4" data-testid="style-settings-footer">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground" role="status" data-testid="style-settings-status">
+          {unavailable
+            ? "Couldn't load your writing style. Reopen to try again."
+            : suggested ? "Suggested in chat. Check it, then save." : dirty ? "Unsaved changes." : "Saved in your vault."}
+        </p>
+      </div>
+    </div>
+  );
+}

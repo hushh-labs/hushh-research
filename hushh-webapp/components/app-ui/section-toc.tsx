@@ -7,7 +7,7 @@
 // long-form pages (Developers, the PCHP spec, long blog posts) share one
 // TOC implementation instead of each hand-rolling its own sidebar/nav.
 
-import { Menu } from "lucide-react";
+import { Menu } from "@/components/icons";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -21,6 +21,9 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { SECTION_TOC_RAIL_CLASSNAME } from "./section-toc-constants";
+
+export { SECTION_TOC_RAIL_CLASSNAME };
 
 export type SectionTocEntry = {
   id: string;
@@ -62,6 +65,18 @@ function SectionTocRows({
   );
 }
 
+/**
+ * Where the desktop rail pins itself.
+ *
+ * Measured against `--top-shell-mask-visible-height`, not
+ * `--top-shell-reserved-height`: the shell is solid to the reserved height and
+ * keeps a `--top-fade-active` clearance band below it (a painted fade until
+ * 2026-09-27), so pinning to the reserved height plus 1rem parked the rail's
+ * first row inside that band, under the header.
+ * Exported so `e2e/app-shell-top-clearance.layout.spec.ts` measures the string
+ * that actually ships. See safe-changes R21.
+ */
+
 /** Desktop-only sticky rail, hidden below the lg breakpoint. */
 export function SectionTocRail({
   entries,
@@ -75,7 +90,7 @@ export function SectionTocRail({
   description?: string;
 }) {
   return (
-    <aside className="hidden lg:sticky lg:top-[calc(var(--top-shell-reserved-height)+1rem)] lg:block lg:self-start">
+    <aside className={SECTION_TOC_RAIL_CLASSNAME}>
       <nav
         aria-label={title}
         className="overflow-hidden border-y border-border/60 bg-background/45"
@@ -84,7 +99,7 @@ export function SectionTocRail({
           <p className="text-sm font-semibold text-foreground">{title}</p>
           <RowDescription>{description}</RowDescription>
         </header>
-        <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-reserved-height)-9rem)] border-t border-border/60">
+        <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-mask-visible-height)-9rem)] border-t border-border/60">
           <div className="divide-y divide-border/60">
             <SectionTocRows
               entries={entries}
@@ -120,7 +135,7 @@ export function SectionTocMobileFab({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div
-        className="fixed right-4 z-[160] md:hidden transition-all duration-300"
+        className="fixed right-4 z-[160] md:hidden transition-[opacity,transform] duration-120 ease-out"
         style={{ 
           bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + var(--app-scroll-bottom-pad, 0px) + 0.5rem)" 
         }}

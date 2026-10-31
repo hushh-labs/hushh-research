@@ -1,45 +1,94 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { hasExplicitIncompleteSetup } from "@/lib/onboarding/onboarding-journey-phase";
+
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { Button } from "@/lib/morphy-ux/button";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
+  isOneSetupCapabilityRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupNavigationRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
+  normalizeInvitationReturnTo,
+  resolveOneSetupCompletionTarget,
   ROUTES,
+  buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
+import { safeWorldModelInvitationReturnPath } from "@/lib/world-model/invitation-handoff";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
 const SETUP_BOOTSTRAP_RETRY_MS = 300;
 
-function waitForBootstrapRetry(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS));
-}
+/**
+ * The upper bound on the admission check.
+ *
+ * The catch below handles a bootstrap read that REJECTS. It cannot help with one
+ * that simply never returns, and that is the case a first-run person actually
+ * hits: the first paint fans out fourteen database-backed routes against a pool
+ * of four, so calls queue behind an acquire timeout rather than failing. Measured
+ * 2026-08-28, one load produced ten pool-acquire timeouts and a single call that
+ * took 125 seconds. Without a bound here the person sits on "Checking setup..."
+ * with no error and no way forward, which is how this shipped unnoticed: nothing
+ * crashed.
+ *
+ * Slightly longer than the server's own 60s acquire deadline, so a request that
+ * is merely slow still wins and only a genuine hang trips this.
+ */
+const SETUP_ADMISSION_TIMEOUT_MS = 70_000;
 
-function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
-  if (PreVaultUserStateService.isSetupResolved(state)) return false;
-  if (state.setupCompleted === false) return true;
-  return (
-    state.onboardingJourneyVersion === 1 &&
-    state.onboardingPhase !== null &&
-    state.onboardingPhase !== "root_completion"
+function waitForBootstrapRetry(): Promise<void> {
+  return new Promise((resolve) =>
+    setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS),
   );
 }
+
+class SetupAdmissionTimeout extends Error {
+  constructor() {
+    super("Setup admission check timed out");
+    this.name = "SetupAdmissionTimeout";
+  }
+}
+
+/**
+ * Resolve with the work, or reject once the bound elapses. Rejecting routes a
+ * hang into the existing catch, which already clears the loader and offers a
+ * retry, so a stall becomes a visible, recoverable state instead of a forever
+ * spinner.
+ */
+function withAdmissionTimeout<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SetupAdmissionTimeout()), SETUP_ADMISSION_TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 
 function admissionAllowsCurrentRoute(params: {
   state: PreVaultUserState;
@@ -74,13 +123,20 @@ export function OnboardingJourneyGuard({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() || "/";
+  const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const userId = user?.uid ?? null;
+  const {
+    userId,
+    loading: authLoading,
+    sessionVerificationRequired,
+    retrySessionVerification,
+    signOut,
+  } = useAuth();
+  const initialContacts = useSyncExternalStore(InitialContacts.subscribe, InitialContacts.getSnapshot, InitialContacts.getServerSnapshot);
   const exempt = isOnboardingAdmissionExemptRoute(pathname);
   const setupSurface = isOneSetupSurfaceRoute(pathname);
   const [checking, setChecking] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
   const redirectTargetRef = useRef<string | null>(null);
@@ -97,7 +153,7 @@ export function OnboardingJourneyGuard({
     return `${pathname}${window.location.search}${window.location.hash}`;
   }, [pathname]);
   const cachedState = userId
-    ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
+    ? (PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null)
     : null;
   // Honor the durable positive latch even when a session cache exists. The
   // latch is positive-only and is cleared in lockstep with any authoritative
@@ -108,21 +164,23 @@ export function OnboardingJourneyGuard({
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
-    persistentSetupResolved ||
-      (cachedState &&
-        admissionAllowsCurrentRoute({
-          state: cachedState,
-          pathname,
-          setupSurface,
-        })),
+    (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
+      Boolean(userId && InitialContacts.wasDismissed(userId)) ||
+      cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
+    (persistentSetupResolved ||
+    (cachedState &&
+      admissionAllowsCurrentRoute({
+        state: cachedState,
+        pathname,
+        setupSurface,
+      }))),
   );
-  // "Dismissed" = the user finished/skipped onboarding at least once. The root
-  // setup funnel is one-time, so every post-completion setup arrival is ejected
-  // to home. Account reset/delete clears this durable state and re-enables the
-  // canonical setup route through the existing recovery flow.
+  // Completion is a durable admission fact. Completed owners can revisit cloud
+  // configuration; an explicit invitation continuation resumes its destination.
+  // Account reset/delete clears this state through the existing recovery flow.
   const setupDismissed = Boolean(
     persistentSetupResolved ||
-      (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
+    (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
   );
   // Finance setup remains a valid, bounded capability entry after the one-time
   // root journey is dismissed. Root completion (including Skip) is not the
@@ -131,12 +189,32 @@ export function OnboardingJourneyGuard({
   // questionnaire redirects to `/one/setup/finance/import`, and without that
   // route in the allowlist a root-resolved user was ejected to ONE_HOME
   // ("Opening One…" → main dashboard) instead of reaching the import step.
-  const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
   const isPostRootFinanceSetup =
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
+  // The pod-provisioning surfaces (the cloud step and the AI-access step, i.e.
+  // SETUP_NAVIGATION_ROUTES) configure the root private agent but are not one-time
+  // onboarding capabilities: their own definition is that they "must be admitted by
+  // the root journey." A setup-complete owner whose private agent is still reserved
+  // must be able to reach /one/setup/cloud to provision their pod, exactly as Finance
+  // stays a valid bounded entry after root completion. Without this a root-resolved
+  // owner is ejected to ONE_HOME and can never provision — the 0-to-1 blocker.
+  const isPodProvisioningSurface = isOneSetupNavigationRoute(pathname);
+  // Resume only at completed journey terminals. Cloud setup and its OAuth
+  // callback retain their own continuation authority, even with return_to set.
+  const resumesInvitation = Boolean(
+    (normalizedGuardPathname === ROUTES.ONE_SETUP ||
+      normalizedGuardPathname === ROUTES.ONE_SETUP_CONNECTIONS) &&
+      normalizeInvitationReturnTo(
+        new URL(currentHref, "https://one.local").searchParams.get("return_to"),
+      ),
+  );
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed && !isPostRootFinanceSetup,
+    setupSurface &&
+      setupDismissed &&
+      !isPostRootFinanceSetup &&
+      (!isPodProvisioningSurface || resumesInvitation) &&
+      !isOneSetupCapabilityRoute(pathname),
   );
 
   useEffect(() => {
@@ -152,40 +230,61 @@ export function OnboardingJourneyGuard({
     setRedirecting(false);
 
     async function verifyAdmission() {
-      if (authLoading) return;
+      if (authLoading || sessionVerificationRequired) return;
       if (!userId || exempt) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
       if (setupSurface) {
-        // First onboarding is admitted. A dismissed user who reaches a setup
-        // surface (browser/OS back, history, direct URL, or stale navigation)
-        // is ejected to home — this is the one place that catches every arrival
-        // path after the one-time gate resolves.
+        // First onboarding and known capability handoffs are admitted. A
+        // dismissed user who reaches the setup hub (browser/OS back, history,
+        // direct URL, or stale navigation) continues to its safe return target;
+        // capability routes must remain reachable so their own coordinators can
+        // resolve completed entries to the capability workspace.
         if (shouldEjectSetupSurface) {
-          if (redirectTargetRef.current !== ROUTES.ONE_HOME) {
-            redirectTargetRef.current = ROUTES.ONE_HOME;
+          const completionTarget = resolveOneSetupCompletionTarget(
+            new URL(currentHref, "https://one.local").searchParams.get("return_to"),
+            PreVaultSensitiveDraftService.hasFinanceIntent(userId),
+          );
+          if (redirectTargetRef.current !== completionTarget) {
+            redirectTargetRef.current = completionTarget;
             setRedirecting(true);
-            router.replace(ROUTES.ONE_HOME);
+            router.replace(completionTarget);
           }
           return;
         }
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
+
+      const verifyWelcome = !InitialContacts.wasDismissed(userId);
+      const needsWelcomeBootstrap = verifyWelcome && !cachedState;
+      function redirectPendingWelcome(state: PreVaultUserState): boolean {
+        if (verifyWelcome && state.setupCompleted === true && state.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
+          const target = buildInitialContactsWelcomeRoute(safeWorldModelInvitationReturnPath(currentHref, userId));
+          if (redirectTargetRef.current !== target) {
+            redirectTargetRef.current = target;
+            setRedirecting(true);
+            router.replace(target);
+          }
+          return true;
+        }
+        return false;
+      }
+      if (cachedState && redirectPendingWelcome(cachedState)) return;
 
       // Setup completion is a one-time, non-sensitive admission fact. Hydrate
       // it synchronously from the user-scoped positive latch so a returning
       // user does not wait on the same bootstrap request after every WebView or
       // browser restart. Explicit backend-incomplete responses and sign-out
       // clear this latch; vault keys and owner tokens remain memory-only.
-      if (persistentSetupResolved) {
+      if (persistentSetupResolved && !needsWelcomeBootstrap) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -203,7 +302,7 @@ export function OnboardingJourneyGuard({
         })
       ) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -218,40 +317,43 @@ export function OnboardingJourneyGuard({
         const restored =
           await OneSetupCompletionHintService.hydrateFromNative(userId);
         if (cancelled) return;
-        if (restored) {
+        if (restored && !needsWelcomeBootstrap) {
           redirectTargetRef.current = null;
-          setError(null);
+          setError(false);
           setChecking(false);
           return;
         }
       }
 
       setChecking(true);
-      setError(null);
+      setError(false);
       try {
         let state = cachedState;
         if (!state) {
           try {
-            state = await PreVaultUserStateService.bootstrapState(userId);
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId),
+            );
           } catch {
             // Native auth restoration and cross-tab web auth can publish the
             // user before the token provider or proxy is ready. Retry once
             // with a forced read; never create an unbounded setup loop.
             await waitForBootstrapRetry();
             if (cancelled) return;
-            state = await PreVaultUserStateService.bootstrapState(userId, {
-              force: true,
-            });
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId, { force: true }),
+            );
           }
         }
         if (cancelled) return;
+        // A cold welcome read uses the same bounded retry and recovery as
+        // setup admission. Failure never acknowledges the optional welcome.
+        if (redirectPendingWelcome(state)) return;
 
         // A missing legacy mirror is not evidence that an established account
         // is incomplete. New journeys write setupCompleted=false and a versioned
         // phase, so only explicit durable state activates the hard gate.
-        if (
-          admissionAllowsCurrentRoute({ state, pathname, setupSurface })
-        ) {
+        if (admissionAllowsCurrentRoute({ state, pathname, setupSurface })) {
           redirectTargetRef.current = null;
           setChecking(false);
 
@@ -262,7 +364,9 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        const redirectTarget = buildOneSetupRoute({ returnTo: currentHref });
+        const redirectTarget = buildOneSetupRoute({
+          returnTo: safeWorldModelInvitationReturnPath(currentHref, userId),
+        });
         if (redirectTargetRef.current === redirectTarget) {
           return;
         }
@@ -290,7 +394,7 @@ export function OnboardingJourneyGuard({
             redirectTargetRef.current = null;
             setRedirecting(false);
             setChecking(false);
-            setError("Unable to open setup. Please retry.");
+            setError(true);
           }, SETUP_REDIRECT_FAILURE_MS);
         }, SETUP_REDIRECT_RETRY_MS);
       } catch (cause) {
@@ -299,7 +403,7 @@ export function OnboardingJourneyGuard({
           cause,
         );
         if (!cancelled) {
-          setError("Unable to verify setup progress. Please retry.");
+          setError(!persistentSetupResolved);
           setChecking(false);
         }
       }
@@ -312,19 +416,25 @@ export function OnboardingJourneyGuard({
     };
   }, [
     authLoading,
+    initialContacts,
     cachedState,
     currentHref,
     exempt,
     pathname,
+    normalizedGuardPathname,
     persistentSetupResolved,
     retryNonce,
     router,
+    sessionVerificationRequired,
     setupSurface,
     shouldEjectSetupSurface,
     userId,
   ]);
 
-  const passThrough = exempt || (!authLoading && !userId);
+  const sessionRecoveryActive = Boolean(
+    !exempt && sessionVerificationRequired,
+  );
+  const passThrough = exempt || (!authLoading && !userId && !sessionVerificationRequired);
   const loaderActive =
     !passThrough &&
     (shouldEjectSetupSurface ||
@@ -333,48 +443,51 @@ export function OnboardingJourneyGuard({
       redirecting);
   // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
   // admission check paints its loader, so the loader never leaks the page frame.
-  useSessionChromeSuppression(loaderActive);
+  useSessionChromeSuppression(loaderActive || sessionRecoveryActive);
 
+  if (sessionRecoveryActive) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={retrySessionVerification}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
+    );
+  }
   if (passThrough) return <>{children}</>;
   if (loaderActive) {
     return (
       <HushhLoader
+        holdThroughNavigation={shouldEjectSetupSurface || redirecting}
+        stage={
+          shouldEjectSetupSurface
+            ? "workspace"
+            : redirecting
+              ? "setup"
+              : authLoading
+                ? "session"
+                : "setup"
+        }
         label={
           shouldEjectSetupSurface
             ? "Opening One..."
             : redirecting
               ? "Returning to setup..."
-              : "Checking setup..."
+              : authLoading
+                ? "Checking secure session..."
+                : "Checking setup..."
         }
       />
     );
   }
   if (error) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center px-4">
-        <div className="w-full max-w-sm rounded-xl border border-border bg-card/70 p-4 text-center">
-          <p className="text-sm text-foreground">{error}</p>
-          <Button
-            size="sm"
-            className="mt-3"
-            onClick={() => {
-              setChecking(true);
-              setRetryNonce((value) => value + 1);
-            }}
-          >
-            Retry
-          </Button>
-          <Button
-            size="sm"
-            variant="muted"
-            effect="fade"
-            className="mt-3"
-            onClick={() => router.push(ROUTES.PROFILE)}
-          >
-            Open profile
-          </Button>
-        </div>
-      </div>
+      <SessionVerificationRecovery
+        onRetry={() => {
+          setChecking(true);
+          setRetryNonce((value) => value + 1);
+        }}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
     );
   }
   return <>{children}</>;

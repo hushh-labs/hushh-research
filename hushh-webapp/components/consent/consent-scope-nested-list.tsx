@@ -1,0 +1,353 @@
+"use client";
+
+/**
+ * Browsing what can be asked of you, the way you browse what you know.
+ *
+ * The Memory route settled this interaction a while ago: one screen per level,
+ * a single back control named after the parent, an ancestors-only breadcrumb,
+ * and rows that are either somewhere to go or something to read. Every consent
+ * surface then went and rendered a flat list instead, so the same information
+ * looked like two different products depending on which side of the request you
+ * were standing on.
+ *
+ * This is that interaction, pointed at a scope catalogue. It is deliberately a
+ * near-copy of `PkmMemoryLevel` rather than a new idea: the whole complaint was
+ * that these two screens diverged, and a third design would not fix that.
+ *
+ * Selection is the one thing Memory has no equivalent for. Memory is a place
+ * you read; a catalogue is a place you choose. So a group row carries BOTH a
+ * way in and a way to take the whole branch at once, because "share my
+ * financial information" is a sentence people mean, and making them open four
+ * folders to say it would be its own kind of dark pattern.
+ */
+
+import { useMemo, useState } from "react";
+import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { Button } from "@/lib/morphy-ux/button";
+
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { Input } from "@/components/ui/input";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
+import {
+  SCOPE_SEARCH_THRESHOLD,
+  filterScopeItems,
+  type ConsentScopeItem,
+} from "@/lib/consent/consent-scope-items";
+import {
+  consentScopeItemsUnder,
+  resolveConsentScopeLevel,
+} from "@/lib/consent/consent-scope-level";
+import { cn } from "@/lib/utils";
+
+export type ConsentScopeNestedListProps = {
+  items: readonly ConsentScopeItem[];
+  /** What the back control says at the top, e.g. "All" or a person's name. */
+  rootLabel?: string;
+  /** Selection is owned by the caller, so the request payload stays its business. */
+  selection?: {
+    selectedIds: ReadonlySet<string>;
+    /** Scopes that are already active/granted; rendered preselected, locked, and badged. */
+    grantedIds?: ReadonlySet<string>;
+    /** Called with a whole branch at once, so a group row can be taken in one tap. */
+    onToggleMany: (ids: readonly string[], select: boolean) => void;
+  };
+  /** A surface's own trailing control on a leaf row, when selection is not it. */
+  renderTrailing?: (item: ConsentScopeItem) => React.ReactNode;
+  onOpenItem?: (item: ConsentScopeItem) => void;
+  searchThreshold?: number;
+  emptyText?: string;
+  /** Kept so an adopting surface does not lose the test ids it already had. */
+  testIdPrefix?: string;
+  className?: string;
+  /** Optional domain decoration; selection and navigation remain owned here. */
+  renderDomainLeading?: (domainKey: string) => React.ReactNode;
+  searchPlaceholder?: string;
+  showDomainFilter?: boolean;
+  /** Keep overview rows quiet while retaining bulk selection inside the category. */
+  categorySelectionInDetail?: boolean;
+};
+
+export function ConsentScopeNestedList({
+  items,
+  rootLabel = "All",
+  selection,
+  renderTrailing,
+  onOpenItem,
+  searchThreshold = SCOPE_SEARCH_THRESHOLD,
+  emptyText = "Nothing here yet.",
+  testIdPrefix = "consent-scope",
+  className,
+  renderDomainLeading,
+  searchPlaceholder = "Search",
+  showDomainFilter = false,
+  categorySelectionInDetail = false,
+}: ConsentScopeNestedListProps) {
+  const [pathStack, setPathStack] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [domainFilter, setDomainFilter] = useState("__all");
+  const domains = useMemo(() => [...new Map(items.map((item) => [item.domainKey, item.domainLabel])).entries()], [items]);
+  const visibleItems = useMemo(() => showDomainFilter && domainFilter !== "__all" ? items.filter((item) => item.domainKey === domainFilter) : items, [items, domainFilter, showDomainFilter]);
+
+  const searching = query.trim().length > 0;
+
+  /**
+   * Search deliberately flattens.
+   *
+   * Someone typing has already told you they do not know where the thing lives,
+   * so making them navigate to it is answering a question they did not ask. The
+   * Memory route reached the same conclusion: it searches a flat card list and
+   * orients the person with a breadcrumb on the row instead.
+   */
+  const matches = useMemo(
+    () => (searching ? filterScopeItems(visibleItems, query) : []),
+    [visibleItems, query, searching],
+  );
+
+  const level = useMemo(
+    () => resolveConsentScopeLevel({ items: visibleItems, pathStack, rootLabel }),
+    [visibleItems, pathStack, rootLabel],
+  );
+
+  const atRoot = pathStack.length === 0;
+  const showSearch = items.length > searchThreshold;
+
+  const branchIds = (segment: string) =>
+    consentScopeItemsUnder(items, [...pathStack, segment]).map((item) => item.id);
+
+  const isSelected = (id: string) =>
+    Boolean(selection?.grantedIds?.has(id) || selection?.selectedIds.has(id));
+
+  const allSelected = (ids: readonly string[]) =>
+    ids.length > 0 && ids.every((id) => isSelected(id));
+
+  const selectedCountIn = (ids: readonly string[]) =>
+    ids.filter((id) => isSelected(id)).length;
+  const currentBranchIds = consentScopeItemsUnder(items, pathStack).map((item) => item.id);
+
+  const renderLeafRow = (item: ConsentScopeItem, key: string) => {
+    const isGranted = Boolean(selection?.grantedIds?.has(item.id));
+    const selected = isGranted || Boolean(selection?.selectedIds.has(item.id));
+    const disabled = item.disabled || isGranted;
+    // Selecting an authored wildcard marks its visible descendants. A later
+    // child removal can then retire the broad selection safely.
+    const toggleIds = item.wildcard
+      ? consentScopeItemsUnder(items, [item.domainKey, ...item.pathSegments]).map((child) => child.id)
+      : [item.id];
+    return (
+      <SettingsRow
+        key={key}
+        title={item.label}
+        leading={renderDomainLeading?.(item.domainKey)}
+        density="compact"
+        description={item.description || undefined}
+        disabled={disabled}
+        chevron={Boolean(onOpenItem)}
+        onClick={
+          isGranted
+            ? undefined
+            : onOpenItem
+              ? () => onOpenItem(item)
+              : selection
+                ? () => selection.onToggleMany(toggleIds, !selected)
+                : undefined
+        }
+        ariaLabel={item.label}
+        trailing={
+          renderTrailing ? (
+            renderTrailing(item)
+          ) : selection ? (
+            <span className="flex items-center gap-2">
+              {isGranted ? (
+                <span data-consent-role="row-title"
+                  className="rounded-full bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                  data-testid={`${testIdPrefix}-badge-granted-${item.id}`}
+                >
+                  Granted
+                </span>
+              ) : null}
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={() => !disabled && selection.onToggleMany(toggleIds, !selected)}
+                disabled={disabled}
+                aria-label={item.label}
+                className={cn(
+                  "h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]",
+                  isGranted && "cursor-not-allowed opacity-60",
+                )}
+                data-testid={`${testIdPrefix}-toggle-${item.id}`}
+              />
+            </span>
+          ) : item.badge ? (
+            <span data-consent-role="helper" className="text-xs text-muted-foreground">{item.badge}</span>
+          ) : undefined
+        }
+        testId={`${testIdPrefix}-row-${item.id}`}
+      />
+    );
+  };
+
+  return (
+    <div
+      className={cn("consent-presentation-surface space-y-3", className)}
+      data-testid={testIdPrefix}
+      data-consent-scope-level="true"
+    >
+      {!atRoot ? (
+        <button
+          type="button"
+          onClick={() => setPathStack((stack) => stack.slice(0, -1))}
+          className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+          data-consent-role="utility"
+          data-testid={`${testIdPrefix}-back`}
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+          {level.parentLabel}
+        </button>
+      ) : null}
+
+      {!atRoot ? (
+        <div className="space-y-1">
+          <p
+            className="text-[13px] font-medium uppercase tracking-wide text-muted-foreground"
+            data-consent-scope-breadcrumb="true"
+            data-consent-role="helper"
+          >
+            {level.crumbs.slice(0, -1).join(" › ")}
+          </p>
+          <h2 data-consent-role="task-title" className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+            {level.title}
+          </h2>
+          {categorySelectionInDetail && pathStack.length === 1 && selection ? (
+            <label data-consent-role="form-label" className="inline-flex min-h-11 items-center gap-3 text-sm">
+              <input type="checkbox" checked={allSelected(currentBranchIds)}
+                ref={(node) => { if (node) node.indeterminate = selectedCountIn(currentBranchIds) > 0 && !allSelected(currentBranchIds); }}
+                onChange={() => selection.onToggleMany(currentBranchIds, !allSelected(currentBranchIds))}
+                className="h-5 w-5 accent-[color:var(--app-accent)]"
+                data-testid={`${testIdPrefix}-group-toggle-${pathStack[0]}`} />
+              Select all in {level.title}
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {showSearch ? (
+        <div className="flex items-start gap-3">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchPlaceholder}
+            aria-label="Search this list"
+            className="pl-9"
+            data-consent-input="true"
+            data-testid={`${testIdPrefix}-search`}
+          />
+        </div>
+        {showDomainFilter ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button data-consent-role="compact-action" type="button" variant="none" effect="fade" aria-label="Filter categories" className="h-11 w-11 shrink-0 border border-border p-0">
+                <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
+                {domainFilter !== "__all" ? <span className="sr-only">Filter active</span> : null}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="consent-presentation-surface">
+              <DropdownMenuRadioGroup value={domainFilter} onValueChange={(value) => { setDomainFilter(value); setPathStack([]); }}>
+                <DropdownMenuRadioItem value="__all">All categories</DropdownMenuRadioItem>
+                {domains.map(([key, label]) => <DropdownMenuRadioItem key={key} value={key}>{label}</DropdownMenuRadioItem>)}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        </div>
+      ) : null}
+
+      {searching ? (
+        matches.length ? (
+          <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-results`}>
+            {matches.map((item) => renderLeafRow(item, `match-${item.id}`))}
+          </SettingsGroup>
+        ) : (
+          <p data-consent-role="body"
+            className="px-1 py-3 text-sm text-muted-foreground"
+            data-testid={`${testIdPrefix}-no-match`}
+          >
+            Nothing matches that.
+          </p>
+        )
+      ) : level.notFound ? (
+        <SurfaceInset className="space-y-1 p-4 text-sm text-muted-foreground">
+          <p data-consent-role="row-title" className="font-semibold text-foreground">This is no longer here</p>
+          <p data-consent-role="body">Go back and open it again.</p>
+        </SurfaceInset>
+      ) : level.entries.length ? (
+        <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-level`}>
+          {level.entries.map((entry) => {
+            if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key);
+
+            const ids = branchIds(entry.segment);
+            const everything = allSelected(ids);
+            const chosen = selectedCountIn(ids);
+            const branchFullyGranted =
+              ids.length > 0 && ids.every((id) => selection?.grantedIds?.has(id));
+            const ungrantedIds = ids.filter((id) => !selection?.grantedIds?.has(id));
+
+            return (
+              <SettingsRow
+                key={entry.key}
+                title={entry.label}
+                leading={renderDomainLeading?.(pathStack[0] ?? entry.segment)}
+                density="compact"
+                onClick={() => setPathStack((stack) => [...stack, entry.segment])}
+                chevron
+                ariaLabel={`Open ${entry.label}`}
+                testId={`${testIdPrefix}-group-${entry.key}`}
+                trailing={
+                  <span className="flex items-center gap-3">
+                    <span data-consent-role="body" className="text-[15px] tabular-nums text-muted-foreground">
+                      {selection && chosen ? `${chosen}/${entry.childCount}` : entry.childCount}
+                    </span>
+                    {selection && !(categorySelectionInDetail && atRoot) ? (
+                      <input
+                        type="checkbox"
+                        checked={everything}
+                        disabled={branchFullyGranted}
+                        // A partly-chosen branch is neither on nor off, and
+                        // showing it as off would quietly misreport what the
+                        // person has already agreed to.
+                        ref={(node) => {
+                          if (node) node.indeterminate = chosen > 0 && !everything;
+                        }}
+                        onChange={() => {
+                          if (branchFullyGranted) return;
+                          selection.onToggleMany(ungrantedIds, !everything);
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`Everything in ${entry.label}`}
+                        className={cn(
+                          "h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]",
+                          branchFullyGranted && "cursor-not-allowed opacity-60",
+                        )}
+                        data-testid={`${testIdPrefix}-group-toggle-${entry.key}`}
+                      />
+                    ) : null}
+                  </span>
+                }
+              />
+            );
+          })}
+        </SettingsGroup>
+      ) : (
+        <p data-consent-role="body" className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
+          {emptyText}
+        </p>
+      )}
+    </div>
+  );
+}

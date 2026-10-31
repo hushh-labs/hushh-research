@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Camera as CameraIcon,
-  ImagePlus,
-  Loader2,
-  Trash2,
-  User as UserIcon,
-} from "lucide-react";
+  CameraIcon as CameraIcon,
+  ImageSquareIcon as ImagePlus,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+  UserIcon as UserIcon,
+} from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -19,10 +21,11 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { pickAvatarDataUrl } from "@/lib/profile/avatar-capture";
+import { pickAvatar } from "@/lib/profile/avatar-capture";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { isNative } from "@/lib/capacitor/platform";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { recordLiveActivity, snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name?: string | null): string | null {
@@ -42,10 +45,18 @@ function initialsOf(name?: string | null): string | null {
  * sheet to upload a new one (native camera/library or web file picker) or
  * revert to the default. Write-through updates every avatar surface at once.
  */
-export function ProfileAvatarEditor() {
+export function ProfileAvatarEditor({ openOnMount = false, optionsOnMount = false, onPresentationClose }: {
+  openOnMount?: boolean; optionsOnMount?: boolean; onPresentationClose?: () => void;
+} = {}) {
   const { user } = useAuth();
-  const photo = useEffectiveAvatarUrl();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const photo = useEffectiveAvatarUrl(768);
+  const [sheetOpen, setSheetOpen] = useState(openOnMount && (optionsOnMount || !photo));
+  const [photoOpen, setPhotoOpen] = useState(openOnMount && !optionsOnMount && !!photo);
+  const wasPresented = useRef(openOnMount);
+  useEffect(() => {
+    if (sheetOpen || photoOpen) { wasPresented.current = true; return; }
+    if (wasPresented.current) { wasPresented.current = false; onPresentationClose?.(); }
+  }, [sheetOpen, photoOpen, onPresentationClose]);
   const [busy, setBusy] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
@@ -56,21 +67,34 @@ export function ProfileAvatarEditor() {
   const handleChange = async () => {
     setSheetOpen(false);
     if (!user || busy) return;
-    let dataUrl: string | null = null;
-    try {
-      dataUrl = await pickAvatarDataUrl();
-    } catch (error) {
-      toast.error("Could not update photo", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      });
+    const picked = await pickAvatar().catch(
+      () => ({ kind: "failed", reason: "plugin" }) as const,
+    );
+    if (picked.kind === "cancelled") return; // the person changed their mind
+    if (picked.kind === "failed") {
+      // Name only what is known: the picker did not produce a photo. Do not
+      // diagnose a permission problem the platform did not report.
+      toast.error(
+        picked.reason === "plugin"
+          ? "Couldn't open your photos. Try again."
+          : "That photo couldn't be read. Try another one.",
+      );
       return;
     }
-    if (!dataUrl) return; // user cancelled
+    const dataUrl = picked.dataUrl;
 
     setPreviewPhoto(dataUrl);
     setBusy(true);
-    const upload = AccountIdentityService.uploadAvatar(user, dataUrl);
+    // "Updated" only on persisted identity evidence. The service resolves
+    // null when there was no session or the server returned no identity;
+    // a resolved promise is not a stored photo.
+    const activityOwner = snapshotLiveActivityOwner();
+    const upload = AccountIdentityService.uploadAvatar(user, dataUrl).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't saved. Try again.");
+        return identity;
+      },
+    );
     toast.promise(upload, {
       loading: "Updating photo...",
       success: "Profile photo updated.",
@@ -79,6 +103,7 @@ export function ProfileAvatarEditor() {
     });
     try {
       await upload;
+      recordLiveActivity({ kind: "profile_updated" }, activityOwner);
     } catch {
       setPreviewPhoto(null);
     } finally {
@@ -91,7 +116,15 @@ export function ProfileAvatarEditor() {
     setSheetOpen(false);
     if (!user || busy) return;
     setBusy(true);
-    const removal = AccountIdentityService.removeAvatar(user);
+    // Removal clears the custom override only; the provider photo may
+    // reappear, and that is the returned identity, not an error.
+    const activityOwner = snapshotLiveActivityOwner();
+    const removal = AccountIdentityService.removeAvatar(user).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't removed. Try again.");
+        return identity;
+      },
+    );
     toast.promise(removal, {
       loading: "Removing photo...",
       success: "Profile photo removed.",
@@ -100,6 +133,7 @@ export function ProfileAvatarEditor() {
     });
     try {
       await removal;
+      recordLiveActivity({ kind: "profile_updated" }, activityOwner);
     } catch {
       // The morphing toast owns the user-facing error state.
     } finally {
@@ -120,10 +154,10 @@ export function ProfileAvatarEditor() {
         <button
           type="button"
           data-profile-avatar-display="true"
-          onClick={() => setSheetOpen(true)}
+          onClick={() => shownPhoto ? setPhotoOpen(true) : setSheetOpen(true)}
           disabled={busy}
-          aria-label="Profile photo options"
-          className="group flex h-full w-full items-center justify-center rounded-full outline-none transition duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+          aria-label={shownPhoto ? "View profile photo" : "Profile photo options"}
+          className="group flex h-full w-full items-center justify-center rounded-full outline-none transition duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
         >
           {shownPhoto ? (
             <Avatar className="h-full w-full">
@@ -159,7 +193,7 @@ export function ProfileAvatarEditor() {
           disabled={busy}
           aria-label="Change profile photo"
           className={cn(
-            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-95 disabled:cursor-default",
+            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
           )}
         >
           {busy ? (
@@ -170,12 +204,30 @@ export function ProfileAvatarEditor() {
         </button>
       </div>
 
+      <Dialog modal open={photoOpen && Boolean(shownPhoto)} onOpenChange={setPhotoOpen}>
+        <DialogContent className="w-[min(90vw,32rem)] gap-3 p-4 pt-12" srDescription="Full profile photo">
+          <DialogTitle className="sr-only">Profile photo</DialogTitle>
+          {shownPhoto ? (
+            <Image src={shownPhoto} alt={displayName || "Profile"} width={800} height={800}
+              sizes="(max-width: 640px) 90vw, 480px" unoptimized
+              className="max-h-[60dvh] w-full rounded-xl object-contain" />
+          ) : null}
+          <Button variant="ghost" onClick={() => { setPhotoOpen(false); setSheetOpen(true); }}>
+            Photo options
+          </Button>
+        </DialogContent>
+      </Dialog>
+
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent side="bottom" showCloseButton={false}>
           <SheetHeader>
             <SheetTitle>Profile photo</SheetTitle>
           </SheetHeader>
           <div className="flex flex-col gap-1 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {shownPhoto ? <button type="button" className={rowClass}
+              onClick={() => { setSheetOpen(false); setPhotoOpen(true); }}>
+              <UserIcon className="h-5 w-5 text-primary" />View photo
+            </button> : null}
             <button type="button" onClick={handleChange} className={rowClass}>
               <ImagePlus className="h-5 w-5 text-primary" />
               {isNative() ? "Take photo or choose from library" : "Upload a photo"}

@@ -1,0 +1,421 @@
+name: "Maintain Cloud Capacity"
+# A scoped tick names its environment in the run title. The checkpoint guard
+# (assert_checkpoint_publication in scripts/ci/uat-retention-maintenance.py)
+# reads that title to skip, without fetching jobs, passes that could not have
+# touched its environment; the verify steps below enforce the same scope.
+run-name: >-
+  ${{ github.event.action == 'capacity-maintenance-tick-uat' && 'Capacity Maintenance tick (uat)'
+  || github.event.action == 'capacity-maintenance-tick-production' && 'Capacity Maintenance tick (production)'
+  || 'Capacity Maintenance' }}
+
+on:
+  # No cron here: capacity-maintenance-clock.yml is the schedule. GitHub
+  # delivered only 3-6 of the 24 daily runs of this workflow's former hourly
+  # cron (and of verify-protected-lists.yml's identical one) on 2026-10-12..14,
+  # with median gaps of 5-6 h and up to 10.6 h. The clock checks every hour
+  # without cloud credentials and sends a tick only when maintenance is due,
+  # scoped to the due environments, so quiet hours and one environment's work
+  # add no run that the other environment's checkpoint guard must walk. A tick
+  # carries no inputs and grants exactly the scheduled pass's authority within
+  # its scope.
+  repository_dispatch:
+    types: [capacity-maintenance-tick, capacity-maintenance-tick-uat, capacity-maintenance-tick-production]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment requiring an exceptional inspection
+        required: true
+        type: choice
+        options: [uat, production]
+      healthy_release_run_id:
+        description: Verified release matching live traffic
+        required: true
+        type: string
+      qualified_cold_checkpoint_run_id:
+        description: Explicit production checkpoint reference; runtime-only qualification cannot advance rollback
+        required: false
+        default: ""
+        type: string
+      operational_backend_proof_run_id:
+        description: Qualified production operational backend proof run; preserve historical release health
+        required: false
+        default: ""
+        type: string
+      operational_backend_proof_attempt:
+        description: Exact operational proof attempt, paired with its run
+        required: false
+        default: ""
+        type: string
+      staged_worker_run_id:
+        description: Qualified staged worker run protecting the canonical worker rollback
+        required: false
+        default: ""
+        type: string
+      apply:
+        description: Apply eligible cleanup without waiting for drainage
+        required: true
+        default: false
+        type: boolean
+      production_capacity_bridge:
+        description: Create/reconcile the fixed zero-traffic healthy-source production capacity bridge
+        required: true
+        default: false
+        type: boolean
+
+# Coalesce only scheduled work (cron and clock ticks); manual requests have
+# independent identities. Keep the default one-pending queue here, never
+# cancel an active mutation.
+concurrency:
+  group: capacity-maintenance-${{ (github.event_name == 'schedule' || github.event_name == 'repository_dispatch') && 'scheduled' || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  select-release:
+    name: Verify due cleanup without cloud credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      uat_ready: ${{ steps.uat.outputs.cleanup_ready }}
+      production_ready: ${{ steps.production.outputs.cleanup_ready }}
+    steps:
+      - name: Checkout authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Require main and governed manual actor
+        id: authority
+        shell: bash
+        env:
+          RELEASE_ENV: ${{ inputs.environment }}
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
+          OPERATIONAL_RUN_ID: ${{ inputs.operational_backend_proof_run_id }}
+          OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
+          STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
+          CLOCK_EVENT_TYPE: ${{ github.event.action }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main || exit 1
+          if [[ -n "${COLD_CHECKPOINT_RUN_ID:-}" ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$CAPACITY_BRIDGE" != true && "$COLD_CHECKPOINT_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          fi
+          if [[ -n "${OPERATIONAL_RUN_ID:-}${OPERATIONAL_ATTEMPT:-}" ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$CAPACITY_BRIDGE" != true && -z "$COLD_CHECKPOINT_RUN_ID" && "$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || exit 1
+          fi
+          if [[ -n "${STAGED_WORKER_RUN_ID:-}" ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$STAGED_WORKER_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          fi
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1
+          fi
+          case "$GITHUB_EVENT_NAME" in
+            schedule) ;;
+            repository_dispatch)
+              # A tick is the scheduled pass for its scope, sent by the clock
+              # workflow's GITHUB_TOKEN; a governed operator may also send one.
+              case "$CLOCK_EVENT_TYPE" in
+                capacity-maintenance-tick|capacity-maintenance-tick-uat|capacity-maintenance-tick-production) ;;
+                *) exit 1 ;;
+              esac
+              if [[ "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
+                python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+                python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+              fi
+              ;;
+            workflow_dispatch)
+              [[ "$RELEASE_ENV" = uat || "$RELEASE_ENV" = production ]] || exit 1
+              [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+              python3 scripts/ci/assert-governed-actor.py --surface "$RELEASE_ENV" --actor "$GITHUB_ACTOR"
+              ;;
+            *) echo "Unsupported maintenance trigger" >&2; exit 1 ;;
+          esac
+
+      - name: Verify due uat source
+        id: uat
+        if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-uat' || inputs.environment == 'uat'
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/uat-retention-source" "${flags[@]}"
+      - name: Verify due production source
+        id: production
+        if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'
+        env:
+          HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
+          OPERATIONAL_RUN_ID: ${{ inputs.operational_backend_proof_run_id }}
+          OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
+          STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
+            --operational-backend-proof-run-id "$OPERATIONAL_RUN_ID" \
+            --operational-backend-proof-attempt "$OPERATIONAL_ATTEMPT" \
+            --staged-worker-run-id "$STAGED_WORKER_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/production-retention-source" "${flags[@]}"
+
+      - name: Prepare operational reference intent
+        if: inputs.operational_backend_proof_run_id != ''
+        env:
+          HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
+          OPERATIONAL_RUN_ID: ${{ inputs.operational_backend_proof_run_id }}
+          OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 scripts/ci/production_backend_successor_control.py prepare \
+            --run-id "$OPERATIONAL_RUN_ID" --attempt "$OPERATIONAL_ATTEMPT" \
+            --output "$RUNNER_TEMP/operational-reference-intent.json"
+      - name: Publish operational reference intent
+        if: inputs.operational_backend_proof_run_id != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-operational-reference-intent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/operational-reference-intent.json
+          retention-days: 30
+          if-no-files-found: error
+
+  uat-maintenance:
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'UAT revision inspection' || 'UAT bounded revision cleanup' }}
+    needs: select-release
+    if: needs.select-release.outputs.uat_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GCP_REGION: us-central1
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout mutation tooling and rollback history
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Start the five-minute cleanup budget
+        run: |
+          python3 - <<'PYCODE'
+          import os, time
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"HUSSH_RETENTION_DEADLINE_MONOTONIC={time.monotonic() + 295}\n")
+          PYCODE
+      - name: Recheck due source under the deployment lock
+        id: locked-source
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
+      - name: Authenticate to uat
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Prepare or finish eligible uat revision cleanup
+        id: retention
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$APPLY" = true ]; then flags=(--apply); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags+=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
+      - name: Save uat cleanup checkpoint
+        if: always() && steps.locked-source.outputs.cleanup_ready == 'true' && steps.retention.outputs.checkpoint_ready == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: uat-retention-state
+          path: ${{ runner.temp }}/uat-retention-state/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Report cleanup independently of release health
+        if: always() && steps.locked-source.outputs.cleanup_ready == 'true'
+        env:
+          CLEANUP_OUTCOME: ${{ steps.retention.outputs.cleanup_outcome }}
+        run: |
+          echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CLEANUP_OUTCOME" = unresolved ]; then
+            echo "Provider outcome requires operator reconciliation." >&2
+            exit 1
+          fi
+
+  cleanup:
+    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'Production revision inspection' || 'Production bounded revision cleanup' }}
+    needs: select-release
+    if: needs.select-release.outputs.production_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: production
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda
+      GCP_REGION: us-central1
+      HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout mutation tooling and rollback history
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Prepare operational database verification runtime
+        if: inputs.operational_backend_proof_run_id != ''
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+      - name: Select maintenance Python runtime
+        if: inputs.operational_backend_proof_run_id != ''
+        run: echo "$GITHUB_WORKSPACE/consent-protocol/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install operational Cloud SQL Auth Proxy
+        if: inputs.operational_backend_proof_run_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+      - name: Start the five-minute cleanup budget
+        run: |
+          python3 - <<'PYCODE'
+          import os, time
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"HUSSH_RETENTION_DEADLINE_MONOTONIC={time.monotonic() + 295}\n")
+          PYCODE
+      - name: Recheck due source under the deployment lock
+        id: locked-source
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
+          OPERATIONAL_RUN_ID: ${{ inputs.operational_backend_proof_run_id }}
+          OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
+          STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
+            --operational-backend-proof-run-id "$OPERATIONAL_RUN_ID" \
+            --operational-backend-proof-attempt "$OPERATIONAL_ATTEMPT" \
+            --staged-worker-run-id "$STAGED_WORKER_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
+      - name: Authenticate to production
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Publish operational backend reference under deployment lock
+        if: steps.locked-source.outputs.cleanup_ready == 'true' && inputs.operational_backend_proof_run_id != '' && inputs.apply
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/production_backend_successor_control.py apply \
+            --output "$RUNNER_TEMP/production-retention-state/operational-reference-result.json"
+      - name: Prepare or finish eligible production revision cleanup
+        id: retention
+        if: steps.locked-source.outputs.cleanup_ready == 'true' && !(inputs.operational_backend_proof_run_id != '' && !inputs.apply)
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
+          OPERATIONAL_RUN_ID: ${{ inputs.operational_backend_proof_run_id }}
+          OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
+          STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
+          APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$APPLY" = true ]; then flags=(--apply); fi
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then flags+=(--production-capacity-bridge); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags+=(--force-inspection); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
+            --operational-backend-proof-run-id "$OPERATIONAL_RUN_ID" \
+            --operational-backend-proof-attempt "$OPERATIONAL_ATTEMPT" \
+            --staged-worker-run-id "$STAGED_WORKER_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
+      - name: Save production cleanup checkpoint
+        if: always() && steps.locked-source.outputs.cleanup_ready == 'true' && steps.retention.outputs.checkpoint_ready == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-retention-state
+          path: ${{ runner.temp }}/production-retention-state/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Report cleanup independently of release health
+        if: always() && steps.locked-source.outputs.cleanup_ready == 'true'
+        env:
+          CLEANUP_OUTCOME: ${{ steps.retention.outputs.cleanup_outcome }}
+        run: |
+          echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CLEANUP_OUTCOME" = unresolved ]; then
+            echo "Provider outcome requires operator reconciliation." >&2
+            exit 1
+          fi

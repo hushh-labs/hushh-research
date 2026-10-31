@@ -5,14 +5,13 @@ Agent Kai API Routes - Modular Package
 This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
 - portfolio.py: Portfolio import and analysis
-- plaid.py: Brokerage connectivity, funding link/transfer APIs, OAuth resume, refresh, and source selection
+- plaid_vault.py: Zero-knowledge Plaid passthrough (device holds the access token; no server storage)
 - analyze.py: Non-streaming analysis endpoint
 - stream.py: SSE streaming analysis endpoint
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
 - agent_chat.py: Gemini-backed Agent text chat with encrypted durable history
-- agent_intro.py: Pre-vault informational/navigation-only One chat (no PKM, no persistence)
 - location.py: legacy prototype only; not mounted for product traffic
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
@@ -20,18 +19,18 @@ All sub-routers are aggregated into `kai_router` for backward compatibility.
 
 from fastapi import APIRouter
 
-from .agent_chat import router as agent_chat_router
-from .agent_intro import router as agent_intro_router
 from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
+from .local_runtime import router as local_runtime_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
-from .plaid import router as plaid_router
+from .plaid_vault import router as plaid_vault_router
 from .portfolio import router as portfolio_router
+from .price_history import router as price_history_router
 from .stream import router as stream_router
 from .support import router as support_router
 
@@ -42,13 +41,11 @@ kai_router = APIRouter(prefix="/api/kai", tags=["kai"])
 # The verify-route-contracts script checks for literal strings in this file.
 KAI_ROUTE_CONTRACT_PATHS = [
     "/health",
+    "/local-runtime/capability",
     "/chat",
     "/chat/history/{conversation_id}",
     "/chat/conversations/{user_id}",
     "/chat/initial-state/{user_id}",
-    "/agent/chat/stream",
-    "/agent/chat/conversations/{user_id}",
-    "/agent/chat/history/{conversation_id}",
     "/consent/grant",
     "/analyze",
     "/analyze/stream",
@@ -63,34 +60,10 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/portfolio/import/run/{run_id}/stream",
     "/portfolio/import/run/{run_id}/cancel",
     "/portfolio/summary/{user_id}",
-    "/plaid/status/{user_id}",
-    "/plaid/link-token",
-    "/plaid/link-token/update",
-    "/plaid/oauth/resume",
-    "/plaid/exchange-public-token",
-    "/plaid/funding/link-token",
-    "/plaid/funding/exchange-public-token",
-    "/plaid/funding/status/{user_id}",
-    "/plaid/funding/transactions/sync",
-    "/plaid/funding/default-account",
-    "/plaid/funding/admin/search",
-    "/plaid/funding/admin/transfers/{transfer_id}/refresh",
-    "/plaid/funding/admin/escalations",
-    "/plaid/funding/reconcile",
-    "/alpaca/connect/start",
-    "/alpaca/connect/complete",
-    "/plaid/transfers/create",
-    "/plaid/trades/funded/create",
-    "/plaid/trades/funded",
-    "/plaid/trades/funded/{intent_id}",
-    "/plaid/trades/funded/{intent_id}/refresh",
-    "/plaid/transfers/{transfer_id}",
-    "/plaid/transfers/{transfer_id}/cancel",
-    "/plaid/refresh",
-    "/plaid/refresh/{run_id}",
-    "/plaid/refresh/{run_id}/cancel",
-    "/plaid/source",
-    "/plaid/webhook",
+    "/plaid/vault/link-token",
+    "/plaid/vault/exchange",
+    "/plaid/vault/snapshot",
+    "/plaid/vault/remove",
     "/gmail/connect/start",
     "/gmail/connect/complete",
     "/gmail/status/{user_id}",
@@ -99,6 +72,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/gmail/reconcile",
     "/gmail/sync/{run_id}",
     "/gmail/receipts/{user_id}",
+    "/gmail/receipts/scan",
+    "/gmail/receipts/detail",
     "/gmail/receipts-memory/preview",
     "/gmail/receipts-memory/artifacts/{artifact_id}",
     "/gmail/webhook",
@@ -110,23 +85,24 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/{user_id}",
     "/market/news/baseline/{user_id}",
     "/market/news/{user_id}",
+    "/market/history/{user_id}",
     "/stock-preview/{user_id}",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
 kai_router.include_router(health_router)
-kai_router.include_router(agent_chat_router)
-kai_router.include_router(agent_intro_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
-kai_router.include_router(plaid_router)
+kai_router.include_router(plaid_vault_router)
 kai_router.include_router(gmail_router)
 kai_router.include_router(consent_router)
 kai_router.include_router(analyze_router)
 kai_router.include_router(stream_router)
 kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
+kai_router.include_router(local_runtime_router)
 kai_router.include_router(market_insights_router)
+kai_router.include_router(price_history_router)
 kai_router.include_router(support_router)
 
 # Export for server.py

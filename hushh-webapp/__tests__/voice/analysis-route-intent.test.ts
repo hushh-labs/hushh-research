@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
+import {
+  deriveAnalysisRouteIntent,
+  pickCancelledAnalysisReturnEntry,
+  shouldShowAnalysisPreview,
+  type AnalysisPreviewGate,
+} from "@/lib/kai/analysis-route-intent";
 
 function params(raw: string): URLSearchParams {
   const normalized = raw.startsWith("?") ? raw.slice(1) : raw;
@@ -77,5 +82,41 @@ describe("deriveAnalysisRouteIntent", () => {
 
   it("still defaults to the debate view when focus names no tab", () => {
     expect(deriveAnalysisRouteIntent(params("focus=active&ticker=NVDA")).workspaceTab).toBeNull();
+  });
+});
+
+// Founder report (UAT): cancelling a running debate opened the stock preview
+// and its research-source picker instead of returning to the analysis page.
+describe("cancelling a live debate", () => {
+  // The render right after Cancel: the confirmed launch intent and the run are
+  // gone, but the URL still reads `focus=active&ticker=NVDA`.
+  const afterCancel: AnalysisPreviewGate = {
+    previewTicker: "NVDA",
+    hasRunRouteIntent: false,
+    hasActiveRouteIntent: true,
+    hasConfirmedAnalysisIntent: false,
+    showHistoryWhileActive: false,
+    hasDebateId: false,
+    hasActiveRun: false,
+    hasFocusedRun: false,
+    hasOpenEntry: false,
+    closingLiveDebate: true,
+  };
+
+  it("never opens the stock preview while the cancelled run's URL is still current", () => {
+    expect(shouldShowAnalysisPreview(afterCancel)).toBe(false);
+    // Negative control: the same state without the closing gate is exactly the
+    // unconfirmed deep link that reopened the picker.
+    expect(shouldShowAnalysisPreview({ ...afterCancel, closingLiveDebate: false })).toBe(true);
+  });
+
+  it("returns to the newest saved analysis for the same ticker", () => {
+    const entries = [
+      { ticker: "NVDA", timestamp: "2026-09-01T10:00:00Z", id: "old" },
+      { ticker: "AAPL", timestamp: "2026-09-26T10:00:00Z", id: "other-ticker" },
+      { ticker: "nvda", timestamp: "2026-09-20T10:00:00Z", id: "newest" },
+    ];
+    expect(pickCancelledAnalysisReturnEntry("NVDA", entries)?.id).toBe("newest");
+    expect(pickCancelledAnalysisReturnEntry("MSFT", entries)).toBeNull();
   });
 });

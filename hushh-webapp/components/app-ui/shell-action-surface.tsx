@@ -1,103 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { NativeChatChrome } from "./native-chat-chrome";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { ShellActionSurfaceBase, type ShellActionSurfaceProps } from "./shell-action-surface-base";
+export { SHELL_ICON_BUTTON_CLASSNAME, SHELL_PILL_TRIGGER_CLASSNAME } from "./shell-action-surface-base";
 
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { cn } from "@/lib/utils";
+type NativeMapAction = { kind: "map-close" | "map-locate" | "map-check-in"; owner: string | null; context: string; label: string; value?: "idle" | "active"; onActivate: () => void };
 
-// Lean top-bar control surface. Mirrors the ThemeToggleLean pill exactly:
-// a soft translucent track (no sky border, no heavy shadow, no blur) so every
-// top-app-bar control (back button, theme toggle, title pill, future actions)
-// shares one minimal, symmetric aesthetic. h-9 / rounded-full / px to match.
-// Every top-bar control shares one lean translucent track that matches the
-// bottom nav pill and the back button exactly: soft fill (bg-black/[0.05]
-// light, bg-white/[0.07] dark), no border, no shadow, no blur. Icon controls
-// carry the muted eyebrow tone on the stroke and warm to full foreground on
-// hover; pill controls add horizontal padding + label text.
-const shellActionSurfaceVariants = cva(
-  // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
-  // top-bar back/close controls feel like they needed a second tap. Kept on the
-  // base so every shell control (back, close, theme, profile) gets it.
-  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-200 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
-  {
-    variants: {
-      variant: {
-        icon:
-          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
-        pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
-      },
-    },
-    defaultVariants: {
-      variant: "icon",
-    },
-  }
-);
-
-export const SHELL_ICON_BUTTON_CLASSNAME = shellActionSurfaceVariants({ variant: "icon" });
-export const SHELL_PILL_TRIGGER_CLASSNAME = shellActionSurfaceVariants({ variant: "pill" });
-
-interface ShellActionSurfaceProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof shellActionSurfaceVariants> {
-  badge?: React.ReactNode;
-  badgeClassName?: string;
-  contentClassName?: string;
-  rippleClassName?: string;
-  wrapperClassName?: string;
-}
-
-export const ShellActionSurface = React.forwardRef<
-  HTMLButtonElement,
-  ShellActionSurfaceProps
->(function ShellActionSurface(
-  {
-    variant = "icon",
-    className,
-    wrapperClassName,
-    contentClassName,
-    rippleClassName,
-    badge,
-    badgeClassName,
-    children,
-    type = "button",
-    ...props
+/** Semantic platform adapter. Moving controls and ordinary callers keep the
+ * renderer-neutral primitive; native operations always use an authored port. */
+export const ShellActionSurface = React.forwardRef<HTMLButtonElement, ShellActionSurfaceProps & { nativeAction?: NativeMapAction }>(
+  function ShellActionSurface({ nativeAction, ...props }, ref) {
+    const button = React.useRef<HTMLButtonElement>(null);
+    React.useImperativeHandle(ref, () => button.current!, []);
+    const [native] = React.useState(() => customNativePresentationEnabled());
+    const surface = <ShellActionSurfaceBase {...props} ref={button} />;
+    if (!native || !nativeAction) return surface;
+    const shared = { owner: nativeAction.owner, context: nativeAction.context, eligible: true, enabled: !props.disabled, focusRef: button,
+      label: nativeAction.label, onActivate: nativeAction.onActivate, className: "relative inline-flex shrink-0 pointer-events-auto" };
+    const bounded = <span className={nativeAction.kind === "map-check-in" ? "inline-flex h-11 w-[112px] items-center justify-center" : "inline-flex size-14 items-center justify-center"}>{surface}</span>;
+    if (nativeAction.kind === "map-check-in") return <NativeChatChrome {...shared} kind="map-check-in" value={nativeAction.value ?? "idle"}>{bounded}</NativeChatChrome>;
+    if (nativeAction.kind === "map-close") return <NativeChatChrome {...shared} kind="map-close">{bounded}</NativeChatChrome>;
+    return <NativeChatChrome {...shared} kind="map-locate">{bounded}</NativeChatChrome>;
   },
-  ref
-) {
-  return (
-    <span className={cn("relative inline-flex shrink-0 overflow-visible align-middle", wrapperClassName)}>
-      <button
-        ref={ref}
-        type={type}
-        className={cn(shellActionSurfaceVariants({ variant }), className)}
-        {...props}
-      >
-        <span
-          className={cn(
-            "pointer-events-none relative z-10 inline-flex min-w-0 max-w-full items-center justify-center",
-            variant === "pill" && "gap-1.5 sm:gap-2",
-            contentClassName
-          )}
-        >
-          {children}
-        </span>
-        <MaterialRipple variant="blue" effect="glass" className={cn("z-10", rippleClassName)} />
-      </button>
-      {badge ? (
-        <span
-          className={cn(
-            // A fixed corner overlay on the icon's own box, not the wrapper:
-            // the trigger's footprint never changes size when a badge
-            // appears or disappears, so sibling shell actions never shift.
-            "pointer-events-none absolute -right-1 -top-1 z-20",
-            badgeClassName
-          )}
-        >
-          {badge}
-        </span>
-      ) : null}
-    </span>
-  );
-});
+);

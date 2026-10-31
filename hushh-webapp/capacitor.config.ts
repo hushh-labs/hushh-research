@@ -2,9 +2,21 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 import type { CapacitorConfig } from "@capacitor/cli";
 import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
+import { SANDBOX_IOS_APP_ID, SANDBOX_ANDROID_APP_ID, sandboxNativeFrontendOrigin } from "./lib/capacitor/scope-commerce-sandbox-links.mjs";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
 const WEB_DIR = process.env.NEXT_DIST_DIR?.trim() || "out";
+const SANDBOX_FRONTEND_ORIGIN = sandboxNativeFrontendOrigin({
+  sandboxOrigin: process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN,
+  frontendOrigin: process.env.NEXT_PUBLIC_APP_URL,
+  iosAppId: process.env.NEXT_PUBLIC_IOS_BUNDLE_ID,
+  androidAppId: process.env.NEXT_PUBLIC_ANDROID_APP_ID,
+});
+if ((process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN ||
+    process.env.NEXT_PUBLIC_IOS_BUNDLE_ID === SANDBOX_IOS_APP_ID ||
+    process.env.NEXT_PUBLIC_ANDROID_APP_ID === SANDBOX_ANDROID_APP_ID) && !SANDBOX_FRONTEND_ORIGIN) {
+  throw new Error("Sandbox native identities and frontend origin must match the explicit pin.");
+}
 
 function hostFromUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -41,13 +53,21 @@ const NORMALIZED_BACKEND_URL = (() => {
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
   appName: "Hussh One",
-  // Next writes static exports into `distDir` when it is overridden. Native
-  // release builds use that override to avoid colliding with a live web dev
-  // server, so Capacitor must consume the same directory.
+  // Native Capacitor/plugin logs can include request metadata supplied by the
+  // WebView bridge. Keep bearer tokens, vault-owner tokens, and decrypted
+  // context out of Android logcat and iOS device logs in every build. Native
+  // test evidence uses the sanitized status bridge instead of console output.
+  loggingBehavior: "none",
+  // Next writes static exports into the overridden `distDir`, so Capacitor
+  // must consume that destination. The compiler still uses `.next`: this does
+  // not isolate concurrent native/web builds; serialize them in one worktree.
   webDir: WEB_DIR,
 
   // iOS-specific configuration
   ios: {
+    // Capacitor's notification router must remain the sole UNUserNotificationCenter
+    // delegate so Firebase Messaging can emit receipt and action events to JS.
+    handleApplicationNotifications: true,
     // SystemBars immersive mode: let app/CSS safe-area handling own spacing.
     contentInset: "never",
     allowsLinkPreview: true,
@@ -58,7 +78,9 @@ const config: CapacitorConfig = {
     // the fixed chat overlay (header rises under the status bar, composer slides
     // under the keyboard). Turning it off removes that drift at its root.
     scrollEnabled: false,
-    backgroundColor: "#0a0a0a",
+    // Use Capacitor's semantic system background before React commits. The
+    // shared status-bar owner then projects the actual app CSS canvas; never
+    // pin light-mode safe areas to a dark native backing color.
     scheme: "App",
   },
 
@@ -72,6 +94,13 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    ...(SANDBOX_FRONTEND_ORIGIN ? { HushhOAuthReturn: { sandboxFrontendOrigin: SANDBOX_FRONTEND_ORIGIN } } : {}),
+    HushhRuntime: {
+      androidLocalBackendMode:
+        process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
+          ? "adb_reverse"
+          : "emulator",
+    },
     // Keyboard handling — resize:"none" is intentional and load-bearing.
     // "native" shrinks the whole WKWebView frame on every keyboard-animation
     // frame, which recomputes every dvh/svh unit ~60x/sec → severe layout
@@ -92,7 +121,9 @@ const config: CapacitorConfig = {
       providers: ["google.com", "phone"],
     },
     FirebaseMessaging: {
-      presentationOptions: ["alert", "badge", "sound"],
+      // Foreground notification content belongs in Feed or the shared emergency
+      // UI. Keep only the badge so iOS does not duplicate banners or sounds.
+      presentationOptions: ["badge"],
     },
     HushhVault: {
       backendUrl: NORMALIZED_BACKEND_URL,

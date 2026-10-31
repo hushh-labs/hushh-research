@@ -16,7 +16,7 @@ describe("Morphy expressive content-enter contract", () => {
     expect(source).toContain("semantic layout/component mount");
     expect(source).toContain("{ opacity: 0, y: 8 }");
     expect(source).toContain("duration: pageEnterDurationMs / 1000");
-    expect(source).toContain("stagger: 0.014");
+    expect(source).toContain("stagger: { amount: 0.16 }");
     expect(source).not.toContain("pageEnterDurationMs / 1400");
   });
 

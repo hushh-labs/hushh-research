@@ -1,4 +1,5 @@
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import gmailSetupContract from "@/app/one/setup/gmail/page.voice-action-contract.json";
 import calendarSetupContract from "@/app/one/setup/calendar/page.voice-action-contract.json";
 import hubContract from "@/components/onboarding/setup/one-setup-hub.voice-action-contract.json";
@@ -29,32 +30,47 @@ describe("setup catalog voice parity", () => {
       "ria",
       "connected-systems",
     ]);
-    expect(ONE_SETUP_CAPABILITIES).toHaveLength(7);
+    expect(ONE_SETUP_CAPABILITIES).toHaveLength(6);
     expect(ROUTE_SETUP_CAPABILITY_IDS).toBe(ONE_SETUP_CAPABILITY_IDS);
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
-      "Connect Gmail",
+      "Connect Mail",
       "Connect your calendar",
       "Set up location",
-      "KYC",
-      "Set up your finances",
-      "Set up RIA",
-      "CRM",
+      "Identity checks",
+      "Set up your money",
+      "Set up your advisor profile",
+    ]);
+    const visibleSetupActionIds = new Set([
+      "setup.open_cloud",
+      ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
     expect(
       hubContract.actions
-        .filter((action) => action.action_id.startsWith("setup.open_"))
-        .map((action) => action.label),
+        .filter((action) => visibleSetupActionIds.has(action.action_id))
+        .map((action) => mailDisplayLabel(action.label)),
     ).toEqual([
-      "Set up AI access",
+      "Set up Agent One",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
-    expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({
+    expect(
+      hubContract.actions.some(
+        (action) => action.action_id === "setup.open_connected_systems",
+      ),
+    ).toBe(true);
+    expect(
+      actions.get("setup.open_connections")?.execution_target,
+    ).toMatchObject({
       status: "wired",
       path: "route",
       target: "/one/setup/connections",
     });
+    const compatibilityAction = hubContract.actions.find(
+      (action) => action.action_id === "setup.open_connections",
+    );
+    expect(compatibilityAction?.reachability.hidden_navigable).toBe(true);
+    expect(compatibilityAction?.control_ids).toEqual([]);
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();
@@ -72,19 +88,21 @@ describe("setup catalog voice parity", () => {
       (capability) => capability.setupActionId,
     );
     const orderedHubActionIds = [
-      "setup.open_connections",
+      "setup.open_cloud",
       ...orderedActionIds,
     ];
     expect(
       hubContract.actions
         .map((action) => action.action_id)
-        .filter((actionId) => actionId.startsWith("setup.open_")),
+        .filter((actionId) => orderedHubActionIds.includes(actionId)),
     ).toEqual(orderedHubActionIds);
 
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_connections");
+    // The hub's primary action leads with the cloud, because that is the first step
+    // a person must take. Broken on purpose: point it back at AI access and this fails.
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_cloud");
     expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
       ...orderedHubActionIds,
       "setup.hub_master_ack",
@@ -93,7 +111,9 @@ describe("setup catalog voice parity", () => {
     const gmailConnectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );
-    expect(gmailConnectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
+    expect(gmailConnectAction?.reachability.routes).toEqual([
+      "/one/setup/gmail",
+    ]);
     expect(gmailConnectAction?.execution_target).toMatchObject({
       status: "wired",
       path: "local_handler",

@@ -1,7 +1,4 @@
-"""Kai market insights route for /kai home revamp.
-
-Provides cached, provider-backed market overview data with graceful degradation.
-"""
+"""Kai market insights routes: cached, provider-backed market overview, degrading gracefully."""
 
 from __future__ import annotations
 
@@ -16,25 +13,52 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from time import time
 from typing import Annotated, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data.movers import (
+    MIN_MOVERS,
+    assemble_movers,
+    complete_movers,
+    select_movers,
+    stale_movers,
+)
 from hushh_mcp.operons.kai.fetchers import (
+    fetch_market_company_facts,
     fetch_market_data,
     fetch_market_data_batch,
     fetch_market_news,
+    fetch_market_session_history,
 )
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
+from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.market_provider_telemetry import record_provider_request
+from hushh_mcp.services.market_refresh_policy import (
+    seconds_until_us_market_open,
+    us_market_is_open,
+)
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
+
+from . import _shared_last_close as shared_last_close
+from ._market_presentation import (
+    market_home_response,
+    quote_observation_fields,
+    recommendation_from_target,
+    resolve_public_module,
+    stock_preview_quote,
+)
+from ._public_market_cache import PublicModuleCache
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +95,7 @@ QUOTE_SYMBOL_ALIASES: dict[str, str] = {
 WATCHLIST_MAX = 8
 NEWS_SYMBOL_MAX = 3
 NEWS_ROWS_MAX = 12
+NEWS_ROWS_PER_SYMBOL_MAX = 2
 NEWS_FEED_ROWS_MAX = 75
 NEWS_FEED_PAGE_DEFAULT = 12
 NEWS_FEED_PAGE_MAX = 20
@@ -182,6 +207,8 @@ MARKET_STATUS_STALE_TTL_SECONDS = 1800
 # graceful degradation behavior is unaffected; only the fresh window moves.
 MARKET_PRICE_SENSITIVE_PREFIXES = (
     "quotes:",
+    "indices:",
+    "picks:",
     "home:",
     "movers:",
     "sectors:",
@@ -190,6 +217,8 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
     "market_status:",
     "market-status:",
 )
+# Home also contains news/filings, so only its price submodules are cache-only.
+MARKET_PRICE_REFRESH_PREFIXES = ("quotes:", "movers:", "sectors:", "macro:", "sparklines:")
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
     "news:",
@@ -206,25 +235,8 @@ MARKET_CLOSED_LOW_VOLATILITY_FRESH_TTL_SECONDS = 3600
 
 
 def _us_market_is_open(now: datetime | None = None) -> bool:
-    """Best-effort check for US regular trading hours (Mon-Fri 09:30-16:00 ET).
-
-    Intentionally conservative and schedule-based (no holiday calendar): it only
-    governs cache-refresh cadence, never displayed market status, so a holiday
-    treated as "open" just means a slightly tighter (harmless) refresh window.
-    """
-    schedule = EXCHANGE_SCHEDULE[DEFAULT_EXCHANGE]
-    try:
-        local_now = (
-            now.astimezone(ZoneInfo(str(schedule["tz"])))
-            if now
-            else datetime.now(ZoneInfo(str(schedule["tz"])))
-        )
-    except Exception:
-        return False
-    if local_now.weekday() >= 5:
-        return False
-    minutes_now = local_now.hour * 60 + local_now.minute
-    return int(schedule["open"]) <= minutes_now < int(schedule["close"])
+    """Offline XNYS regular session, including holidays and early closes."""
+    return us_market_is_open(now)
 
 
 def _market_aware_fresh_ttl(key: str, base_fresh_ttl_seconds: int) -> int:
@@ -416,11 +428,11 @@ def _market_home_cache_key(
     exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
         return (
-            f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"home:v6:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
             f"{exchange_suffix}"
         )
     return (
-        f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"home:v6:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
         f"{roster_signature}{exchange_suffix}"
     )
 
@@ -440,7 +452,11 @@ async def _resolve_pick_source_rows(
         try:
             ria_sources = await ria_iam.list_investor_pick_sources(user_id)
         except Exception as exc:
-            logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
+            logger.debug(
+                "[Kai Market] investor pick sources unavailable for %s: %s",
+                user_id,
+                type(exc).__name__,
+            )
             ria_sources = []
 
     if ria_sources:
@@ -469,7 +485,7 @@ async def _resolve_pick_source_rows(
                 "[Kai Market] pick source %s unavailable for %s: %s",
                 active_pick_source,
                 user_id,
-                exc,
+                type(exc).__name__,
             )
 
     return default_rows, sources, DEFAULT_PICK_SOURCE_ID
@@ -692,7 +708,15 @@ def _scheduled_market_status_fallback(exchange: str = DEFAULT_EXCHANGE) -> dict[
         open_minutes = int(schedule["open"])
         close_minutes = int(schedule["close"])
 
-        if weekday >= 5:
+        if code == "US":
+            from hushh_mcp.services.market_refresh_policy import us_market_is_open
+
+            value = (
+                "Open (regular hours)"
+                if us_market_is_open(local_now)
+                else "Closed (exchange calendar)"
+            )
+        elif weekday >= 5:
             value = "Closed (weekend)"
         elif minutes_now < open_minutes:
             value = "Closed (pre-market)"
@@ -756,9 +780,17 @@ def _select_news_symbols(raw_symbols: str | None) -> list[str]:
     return selected or DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX]
 
 
+def _market_news_image_url(article: dict[str, Any]) -> str | None:
+    for key in ("image_url", "urlToImage", "image"):
+        image = article_image_url(article.get(key))
+        if image:
+            return image
+    return None
+
+
 def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
     canonical_symbols = ",".join(sorted(set(symbols)))
-    return f"news_feed:v1:{canonical_symbols}:{days_back}"
+    return f"news_feed:v5:{canonical_symbols}:{days_back}"
 
 
 def _market_news_snapshot_id(rows: list[dict[str, Any]]) -> str:
@@ -835,11 +867,90 @@ def _normalize_market_news_rows(
                 "published_at": str(article.get("publishedAt") or _now_iso()),
                 "source_name": source_name or "Market news",
                 "provider": str(article.get("provider") or "unknown"),
+                "image_url": _market_news_image_url(article),
+                "image_thumbnail_url": _market_news_image_url(
+                    {"image_url": article.get("image_thumbnail_url")}
+                ),
                 "sentiment_hint": None,
                 "degraded": False,
             }
         )
     return normalized
+
+
+def _canonical_market_news_url(raw_url: str) -> str:
+    """Normalize only tracking noise; preserve the publisher and article path."""
+    try:
+        parts = urlsplit(raw_url.strip())
+    except ValueError:
+        return raw_url.strip()
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in {"fbclid", "gclid"}
+        )
+    )
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+    )
+
+
+def _round_robin_market_news_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbols: list[str],
+    limit: int,
+    per_symbol_cap: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Deduplicate public stories and fairly interleave the requested symbols."""
+    buckets: dict[str, list[dict[str, Any]]] = {symbol: [] for symbol in symbols}
+    seen_urls: set[str] = set()
+    seen_headlines: set[str] = set()
+    duplicate_count = 0
+    for row in sorted(
+        rows,
+        key=lambda item: str(item.get("published_at") or ""),
+        reverse=True,
+    ):
+        symbol = str(row.get("symbol") or "").strip().upper()
+        title = " ".join(str(row.get("title") or "").lower().split())
+        url = _canonical_market_news_url(str(row.get("url") or ""))
+        if not symbol or symbol not in buckets or not title or not url:
+            continue
+        if title in seen_headlines or url in seen_urls:
+            duplicate_count += 1
+            continue
+        seen_headlines.add(title)
+        seen_urls.add(url)
+        buckets[symbol].append({**row, "url": url})
+
+    # The visible viewport may show only three cards. Ordering buckets by each
+    # symbol's newest valid story prevents the first holdings in a portfolio
+    # from permanently owning those slots while preserving round-robin caps.
+    ordered_symbols = sorted(
+        symbols,
+        key=lambda symbol: str((buckets.get(symbol) or [{}])[0].get("published_at") or ""),
+        reverse=True,
+    )
+    selected: list[dict[str, Any]] = []
+    depth = 0
+    while len(selected) < limit:
+        added = False
+        for symbol in ordered_symbols:
+            bucket = buckets.get(symbol) or []
+            if per_symbol_cap is not None and depth >= per_symbol_cap:
+                continue
+            if depth >= len(bucket):
+                continue
+            selected.append(bucket[depth])
+            added = True
+            if len(selected) >= limit:
+                break
+        if not added:
+            break
+        depth += 1
+    return selected, duplicate_count
 
 
 async def _get_market_news_feed_page(
@@ -870,12 +981,13 @@ async def _get_market_news_feed_page(
                         consent_token,
                         days_back=days_back,
                     )
+                    articles = await enrich_market_news_images(symbol, articles or [])
                     return symbol, articles or [], ("ok" if articles else "partial")
                 except Exception as exc:
                     logger.debug(
                         "[Kai Market] paginated news failed for %s: %s",
                         symbol,
-                        exc,
+                        type(exc).__name__,
                     )
                     return symbol, [], _provider_status_from_exception(exc)
 
@@ -885,19 +997,20 @@ async def _get_market_news_feed_page(
             statuses[f"news:{symbol}"] = status_value
             rows.extend(_normalize_market_news_rows(articles, symbol=symbol))
 
-        deduped: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            key = f"{str(row.get('title') or '').lower()}::{row.get('url')}"
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-        deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+        deduped, duplicate_count = _round_robin_market_news_rows(
+            rows,
+            symbols=symbols,
+            limit=NEWS_FEED_ROWS_MAX,
+        )
         return {
-            "rows": deduped[:NEWS_FEED_ROWS_MAX],
+            "rows": deduped,
             "provider_status": statuses,
             "generated_at": _now_iso(),
+            "coverage": {
+                "requested_symbol_count": len(symbols),
+                "represented_symbol_count": len({str(row.get("symbol") or "") for row in deduped}),
+                "duplicate_count": duplicate_count,
+            },
         }
 
     news_value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
@@ -1005,126 +1118,91 @@ async def _get_or_refresh_public_module(
     warm_source: str = "request",
     serve_stale_while_revalidate: bool = True,
 ) -> tuple[Any, bool, int, str, bool]:
-    """
-    Read order:
-    1) L1 memory cache (MarketInsightsCache)
-    2) L2 Postgres cache (kai_market_cache_entries)
-    3) Live fetch (external providers) + write-through to L1 + L2
-    """
-    now_ts = time()
-    # Tighten the fresh window during US market hours and relax it when closed,
-    # for price-sensitive modules. Stale TTL is preserved so degradation and
-    # serve-stale-while-revalidate behavior are unchanged.
-    fresh_ttl_seconds = _market_aware_fresh_ttl(key, fresh_ttl_seconds)
-
-    def has_recoverable_degradation(payload: Any) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        provider_status = payload.get("provider_status")
-        applies_to_key = (
-            key.startswith("quotes:")
-            or key.startswith("home:")
-            or key.startswith("home:baseline:")
-            or key.startswith("home:personalized:")
-        )
-        if not applies_to_key:
-            return False
-        if isinstance(provider_status, dict) and any(
-            str(value or "partial") != "ok" for value in provider_status.values()
-        ):
-            return True
-        if key.startswith("home:"):
-            for row_key in ("pick_rows", "watchlist", "spotlights"):
-                rows = payload.get(row_key)
-                if not isinstance(rows, list):
-                    continue
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    if str(row.get("filtered_out_reason") or "").strip():
-                        continue
-                    if str(row.get("quote_status") or "").strip().lower() == "unsupported":
-                        continue
-                    if row.get("degraded") and _safe_float(row.get("price")) is None:
-                        return True
-        return False
-
-    existing_l1 = market_insights_cache.peek(key)
-    if (
-        existing_l1
-        and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds
-        and not has_recoverable_degradation(existing_l1.value)
-    ):
-        return (
-            existing_l1.value,
-            False,
-            max(0, int(now_ts - existing_l1.fetched_at)),
-            "memory",
-            True,
-        )
-
-    store = None
-    l2_entry = None
-    try:
-        store = get_market_cache_store_service()
-        l2_entry = await store.get_entry(key)
-    except Exception as exc:
-        # L2 is optional. Never fail the request path when Postgres cache is unavailable.
-        logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, exc)
-        store = None
-        l2_entry = None
-    if l2_entry and l2_entry.is_fresh(now_ts) and not has_recoverable_degradation(l2_entry.payload):
-        market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
-        return (l2_entry.payload, False, l2_entry.age_seconds(now_ts), "postgres", True)
-
-    # Seed stale L2 into L1 so L1 stale-on-error can serve fallback.
-    if l2_entry and l2_entry.is_stale_servable(now_ts):
-        market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
-
-    async def wrapped_fetcher() -> Any:
-        value = await fetcher()
-        provider_status = {}
-        if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
-            provider_status = value.get("provider_status") or {}
-        if store is not None:
-            try:
-                await store.set_entry(
-                    cache_key=key,
-                    payload=value,
-                    fresh_ttl_seconds=fresh_ttl_seconds,
-                    stale_ttl_seconds=stale_ttl_seconds,
-                    provider_status=provider_status,
-                )
-            except Exception as exc:
-                logger.warning("[Kai Market] L2 cache write skipped for %s: %s", key, exc)
-        return value
-
-    result = await market_insights_cache.get_or_refresh(
-        key,
+    return await PublicModuleCache(
+        cache=market_insights_cache,
+        get_store=get_market_cache_store_service,
+        clock=time,
+        is_open=_us_market_is_open,
+        fresh_ttl=_market_aware_fresh_ttl,
+        safe_float=_safe_float,
+        refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
+        sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
+        last_close_prefixes=(*shared_last_close.LAST_CLOSE_PREFIXES, "movers:"),
+    ).read(
+        key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
         stale_ttl_seconds=stale_ttl_seconds,
-        fetcher=wrapped_fetcher,
+        fetcher=fetcher,
+        warm_source=warm_source,
         serve_stale_while_revalidate=serve_stale_while_revalidate,
     )
-    tier = "live"
-    cache_hit = False
-    if result.stale:
-        if l2_entry and l2_entry.is_stale_servable(now_ts):
-            tier = "postgres"
-            cache_hit = True
-        else:
-            tier = "memory"
-            cache_hit = True
-    logger.debug(
-        "[Kai Market] module=%s warm_source=%s tier=%s hit=%s stale=%s age=%ss",
-        key,
-        warm_source,
-        tier,
-        cache_hit,
-        result.stale,
-        result.age_seconds,
+
+
+def _visible_pick_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split pick rows into quotable rows and the symbols the symbol master rejects."""
+    symbol_master = get_symbol_master_service()
+    visible: list[dict[str, Any]] = []
+    hidden: list[dict[str, Any]] = []
+    for stock in rows:
+        input_symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
+        if not input_symbol:
+            continue
+        quote_symbol, alias_repaired = _repair_quote_symbol(input_symbol)
+        classification = symbol_master.classify(quote_symbol)
+        if not classification.tradable:
+            hidden.append(
+                {
+                    "input_symbol": input_symbol,
+                    "normalized_symbol": classification.symbol,
+                    "reason": classification.reason,
+                    "trust_tier": classification.trust_tier,
+                    "filtered_out_reason": "unsupported_quote_symbol",
+                }
+            )
+            continue
+        visible.append(
+            {
+                "row": stock,
+                "input_symbol": input_symbol,
+                "quote_symbol": classification.symbol,
+                "alias_repaired": alias_repaired or classification.symbol != input_symbol,
+            }
+        )
+    return visible, hidden
+
+
+def _pick_quote_symbols(visible: list[dict[str, Any]]) -> list[str]:
+    """The pick list's own quote symbols: one stable list per pick list, indices excluded."""
+    symbols = {str(item.get("quote_symbol") or "").strip() for item in visible}
+    return sorted(symbols - {""} - set(shared_last_close.INDEX_SYMBOLS))
+
+
+async def _default_pick_symbols() -> list[str]:
+    """Quote symbols of the default pick list, the public list the warmer keeps fresh."""
+    rows, _sources, _resolved = await _resolve_pick_source_rows(
+        "startup", DEFAULT_PICK_SOURCE_ID, ria_sources=[]
     )
-    return (result.value, result.stale, result.age_seconds, tier, cache_hit)
+    return _pick_quote_symbols(_visible_pick_rows(rows)[0])
+
+
+def _shared_quotes() -> shared_last_close.SharedLastClose:
+    # Built per call so the cache and provider functions below stay late-bound.
+    return shared_last_close.SharedLastClose(
+        read_module=_get_or_refresh_public_module,
+        fetch_batch=fetch_market_data_batch,
+        fetch_one=fetch_market_data,
+        safe_float=_safe_float,
+        now_iso=_now_iso,
+        status_from_exception=_provider_status_from_exception,
+        is_open=_us_market_is_open,
+        pick_symbols=_default_pick_symbols,
+        fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+        fanout=QUOTE_FANOUT_CONCURRENCY,
+        logger=logger,
+    )
 
 
 def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
@@ -1138,7 +1216,7 @@ def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
     return "HOLD", "Analyst distribution is mixed to neutral."
 
 
-async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
+async def _legacy_fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
     code = _normalize_exchange(exchange)
     api_key = _finnhub_api_key()
     if not api_key:
@@ -1146,7 +1224,9 @@ async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, An
 
     url = "https://finnhub.io/api/v1/stock/market-status"
     timeout = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         res = await client.get(url, params={"exchange": code, "token": api_key})
         res.raise_for_status()
         payload = res.json() or {}
@@ -1195,7 +1275,7 @@ async def _fetch_market_status_for_exchange(exchange: str) -> dict[str, Any]:
             status_payload = await _fetch_market_status(code)
             provider = "partial" if status_payload.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] market status (%s) failed: %s", code, exc)
+            logger.warning("[Kai Market] market status (%s) failed: %s", code, type(exc).__name__)
             status_payload = _scheduled_market_status_fallback(code)
             provider = _provider_status_from_exception(exc)
         return {
@@ -1215,44 +1295,24 @@ async def _fetch_market_status_for_exchange(exchange: str) -> dict[str, Any]:
 
 
 async def _fetch_vix_signal() -> dict[str, Any]:
-    pmp_key = _pmp_api_key()
-    if market_insights_cache.is_provider_in_cooldown(FMP_GLOBAL_COOLDOWN_KEY):
-        pmp_key = ""
-    if pmp_key:
-        timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            res = await client.get(
-                "https://financialmodelingprep.com/stable/quote",
-                params={"symbol": "^VIX", "apikey": pmp_key},
-            )
-            record_fmp_call(endpoint="/stable/quote:^VIX", status_code=res.status_code)
-            if not res.is_success:
-                cooldown_seconds = _provider_cooldown_seconds(res.status_code)
-                if cooldown_seconds > 0:
-                    market_insights_cache.mark_provider_cooldown(
-                        "fmp:quote:^VIX",
-                        cooldown_seconds,
-                    )
-                    if res.status_code in {401, 402, 403, 429}:
-                        market_insights_cache.mark_provider_cooldown(
-                            FMP_GLOBAL_COOLDOWN_KEY,
-                            cooldown_seconds,
-                        )
-            if res.is_success:
-                payload = res.json() or []
-                if isinstance(payload, list) and payload:
-                    row = payload[0] or {}
-                    price = _safe_float(row.get("price"))
-                    if price is not None:
-                        market_insights_cache.append_series_point(VIX_SERIES_KEY, price)
-                    return {
-                        "label": "Volatility",
-                        "value": price,
-                        "delta_pct": _safe_float(row.get("changePercentage")),
-                        "as_of": None,
-                        "source": "PMP/FMP",
-                        "degraded": False,
-                    }
+    # Use the same public index adapter as the benchmark strip, never the
+    # equity-only FMP plan whose rejection would cool down all stock quotes.
+    quotes = await fetch_market_data_batch(["^VIX"], "market-public")
+    quote = quotes.get("^VIX") or {}
+    price = _safe_float(quote.get("price"))
+    if price is not None and price > 0:
+        market_insights_cache.append_series_point(VIX_SERIES_KEY, price)
+        return {
+            "label": "Volatility",
+            "symbol": "^VIX",
+            "value": price,
+            "delta_pct": _safe_float(quote.get("change_percent")),
+            "as_of": quote.get("quoted_at"),
+            "source": quote.get("source") or "Yahoo Chart (Batch)",
+            "degraded": bool(quote.get("is_stale")),
+            "is_delayed": bool(quote.get("is_delayed")),
+            "market_state": quote.get("market_state"),
+        }
 
     cached_vix_points = market_insights_cache.get_series_points(
         VIX_SERIES_KEY,
@@ -1287,7 +1347,7 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
             vix = await _fetch_vix_signal()
             return vix, "partial" if vix.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] volatility failed: %s", exc)
+            logger.warning("[Kai Market] volatility failed: %s", type(exc).__name__)
             fallback = {
                 "label": "Volatility",
                 "value": None,
@@ -1303,7 +1363,7 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
             market_status = await _fetch_market_status()
             return market_status, "partial" if market_status.get("degraded") else "ok"
         except Exception as exc:
-            logger.warning("[Kai Market] market status failed: %s", exc)
+            logger.warning("[Kai Market] market status failed: %s", type(exc).__name__)
             return _scheduled_market_status_fallback(), _provider_status_from_exception(exc)
 
     (vix, vix_status), (market_status, ms_status) = await asyncio.gather(
@@ -1319,7 +1379,22 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
     }
 
 
-async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+    result = await _finnhub_recommendation(symbol)
+    if result is not None:
+        return result
+    result = await _fmp_recommendation(symbol, quote_price)
+    if result is not None:
+        return result
+    return {
+        "signal": "HOLD",
+        "detail": "Using a neutral stance while analyst consensus refreshes.",
+        "source": "Fallback",
+        "degraded": True,
+    }
+
+
+async def _finnhub_recommendation(symbol):
     finnhub_key = _finnhub_api_key()
     if finnhub_key:
         finnhub_cooldown_key = f"finnhub:recommendation:{symbol.upper()}"
@@ -1328,7 +1403,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
     if finnhub_key:
         try:
             timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                event_hooks={"request": [record_provider_request]}, timeout=timeout
+            ) as client:
                 res = await client.get(
                     "https://finnhub.io/api/v1/stock/recommendation",
                     params={"symbol": symbol, "token": finnhub_key},
@@ -1352,7 +1429,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                             "degraded": False,
                         }
         except Exception as exc:
-            logger.warning("[Kai Market] recommendation(Finnhub) failed for %s: %r", symbol, exc)
+            logger.warning(
+                "[Kai Market] recommendation(Finnhub) failed for %s: %r", symbol, type(exc).__name__
+            )
             if isinstance(exc, httpx.HTTPStatusError):
                 cooldown_seconds = _provider_cooldown_seconds(
                     exc.response.status_code if exc.response is not None else None
@@ -1363,6 +1442,8 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                         cooldown_seconds,
                     )
 
+
+async def _fmp_recommendation(symbol, quote_price):
     pmp_key = _pmp_api_key()
     if market_insights_cache.is_provider_in_cooldown(FMP_GLOBAL_COOLDOWN_KEY):
         pmp_key = ""
@@ -1373,7 +1454,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
     if pmp_key and quote_price and quote_price > 0:
         try:
             timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                event_hooks={"request": [record_provider_request]}, timeout=timeout
+            ) as client:
                 res = await client.get(
                     "https://financialmodelingprep.com/stable/price-target-consensus",
                     params={"symbol": symbol, "apikey": pmp_key},
@@ -1396,36 +1479,11 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                 if res.is_success:
                     rows = res.json() or []
                     if isinstance(rows, list) and rows:
-                        target = _safe_float((rows[0] or {}).get("targetConsensus"))
-                        if target is None:
-                            return {
-                                "signal": "NEUTRAL",
-                                "detail": "Target consensus unavailable.",
-                                "source": "PMP/FMP",
-                                "degraded": True,
-                            }
-                        if target >= quote_price * 1.08:
-                            return {
-                                "signal": "BUY",
-                                "detail": "Target consensus is above current price range.",
-                                "source": "PMP/FMP",
-                                "degraded": False,
-                            }
-                        if target <= quote_price * 0.92:
-                            return {
-                                "signal": "REDUCE",
-                                "detail": "Target consensus is below current price range.",
-                                "source": "PMP/FMP",
-                                "degraded": False,
-                            }
-                        return {
-                            "signal": "HOLD",
-                            "detail": "Target consensus is near the current price range.",
-                            "source": "PMP/FMP",
-                            "degraded": False,
-                        }
+                        return recommendation_from_target(rows, quote_price, _safe_float)
         except Exception as exc:
-            logger.warning("[Kai Market] recommendation(PMP/FMP) failed for %s: %r", symbol, exc)
+            logger.warning(
+                "[Kai Market] recommendation(PMP/FMP) failed for %s: %r", symbol, type(exc).__name__
+            )
             if isinstance(exc, httpx.HTTPStatusError):
                 cooldown_seconds = _provider_cooldown_seconds(
                     exc.response.status_code if exc.response is not None else None
@@ -1446,13 +1504,6 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                             cooldown_seconds,
                         )
 
-    return {
-        "signal": "HOLD",
-        "detail": "Using a neutral stance while analyst consensus refreshes.",
-        "source": "Fallback",
-        "degraded": True,
-    }
-
 
 async def _fetch_finnhub_candles(symbol: str) -> list[dict[str, float]]:
     api_key = _finnhub_api_key()
@@ -1465,7 +1516,9 @@ async def _fetch_finnhub_candles(symbol: str) -> list[dict[str, float]]:
     now_ts = int(time())
     since = now_ts - (5 * 24 * 60 * 60)
     timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         try:
             res = await client.get(
                 "https://finnhub.io/api/v1/stock/candle",
@@ -1520,7 +1573,9 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
         return []
 
     timeout = httpx.Timeout(connect=3.0, read=6.0, write=6.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         for path in paths:
             cooldown_key = f"fmp:{path}"
             if market_insights_cache.is_provider_in_cooldown(cooldown_key):
@@ -1547,7 +1602,9 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
                     if rows:
                         return rows
             except Exception as exc:
-                logger.warning("[Kai Market] FMP endpoint failed: %s (%s)", path, exc)
+                logger.warning(
+                    "[Kai Market] FMP endpoint failed: %s (%s)", path, type(exc).__name__
+                )
                 if isinstance(exc, httpx.HTTPStatusError):
                     cooldown_seconds = _provider_cooldown_seconds(
                         exc.response.status_code if exc.response is not None else None
@@ -1570,6 +1627,8 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
 
 
 def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | None:
+    if row.get("isEtf") is True or row.get("isFund") is True:
+        return None
     symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
     if not symbol:
         return None
@@ -1600,7 +1659,7 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
     }
 
 
-async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
+async def _legacy_fetch_symbol_price_series(symbol: str) -> list[float] | None:
     """Short recent daily close series for a single symbol via FMP's light
     EOD chart endpoint. Returns None (never a fabricated shape) when the
     provider has no data, is in cooldown, or the key is unavailable."""
@@ -1623,7 +1682,7 @@ async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
     return [price for _, price in closes[-20:]]
 
 
-async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
+async def _legacy_fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
     """Bounded-concurrency fan-out of `_fetch_symbol_price_series` across a
     small symbol set (index benchmarks + current mover rows). Never issues
     one request per row sequentially; capped in-flight requests instead."""
@@ -1641,7 +1700,9 @@ async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float
             try:
                 series = await _fetch_symbol_price_series(symbol)
             except Exception as exc:
-                logger.debug("[Kai Market] price series unavailable for %s: %r", symbol, exc)
+                logger.debug(
+                    "[Kai Market] price series unavailable for %s: %r", symbol, type(exc).__name__
+                )
                 series = None
             if series:
                 results[symbol] = series
@@ -1650,9 +1711,7 @@ async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float
     return results
 
 
-async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
-    status_map: dict[str, str] = {}
-
+async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
     gainers_task = _fetch_pmp_json(
         ["/stable/biggest-gainers", "/stable/market-gainers", "/stable/market/gainers"], {}
     )
@@ -1666,25 +1725,31 @@ async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
         gainers_task, losers_task, active_task
     )
 
-    gainers = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in gainers_rows) if row]
-    losers = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in losers_rows) if row]
-    active = [row for row in (_normalize_mover_row(r, "PMP/FMP") for r in active_rows) if row]
+    primary = {
+        bucket: select_movers(
+            [normalized for row in rows if (normalized := _normalize_mover_row(row, "PMP/FMP"))],
+            bucket,
+        )
+        for bucket, rows in (
+            ("gainers", gainers_rows),
+            ("losers", losers_rows),
+            ("active", active_rows),
+        )
+    }
+    missing = [
+        bucket
+        for bucket, rows in primary.items()
+        if len(rows) < (1 if bucket == "active" else MIN_MOVERS)
+    ]
+    fallback = {}
+    if missing:
+        from hushh_mcp.services.market_movers import fetch_mover_recovery
 
-    status_map["movers:gainers"] = "ok" if gainers else "partial"
-    status_map["movers:losers"] = "ok" if losers else "partial"
-    status_map["movers:active"] = "ok" if active else "partial"
-
-    return {
-        "gainers": gainers[:8],
-        "losers": losers[:8],
-        "active": active[:8],
-        "as_of": _now_iso(),
-        "source_tags": ["PMP/FMP"] if (gainers or losers or active) else ["Fallback"],
-        "degraded": not (gainers and losers and active),
-    }, status_map
+        fallback = await fetch_mover_recovery(missing)
+    return assemble_movers(primary, fallback, _now_iso())
 
 
-async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
+async def _legacy_fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
     # FMP's /stable/sector-performance-snapshot requires a `date` query param
     # (confirmed against the official docs); the endpoint returns an empty/
     # error payload without it. The snapshot lags real time (no data yet for
@@ -1750,7 +1815,7 @@ async def _fetch_sector_rotation_from_etf_quotes(
                     "[Kai Market] sector ETF quote unavailable for %s (%s): %r",
                     sector_name,
                     etf_symbol,
-                    exc,
+                    type(exc).__name__,
                 )
                 return sector_name, None
 
@@ -1789,66 +1854,48 @@ async def _fetch_sector_rotation_from_etf_quotes(
 async def _fetch_sector_rotation_snapshot(
     user_id: str, consent_token: str | None
 ) -> tuple[list[dict[str, Any]], str]:
+    # Both periods use the same sector ETF basis. A week is five trading-session
+    # returns, rather than an arbitrary seven-day news/history window.
+    try:
+        histories = await fetch_market_session_history(list(SECTOR_ETF_MAP.values()))
+    except Exception as exc:
+        logger.debug("[Kai Market] sector history unavailable: %s", type(exc).__name__)
+        histories = {}
+    rows = []
+    for sector, symbol in SECTOR_ETF_MAP.items():
+        points = histories.get(symbol) or []
+        if len(points) < 2:
+            continue
+        last = points[-1]
+
+        def to_date(point: dict[str, float]) -> str:
+            return datetime.fromtimestamp(point["t"], tz=timezone.utc).date().isoformat()
+
+        rows.append(
+            {
+                "sector": sector,
+                "symbol": symbol,
+                "change_pct": (last["p"] / points[-2]["p"] - 1) * 100,
+                "change_1w_pct": (last["p"] / points[-6]["p"] - 1) * 100
+                if len(points) >= 6
+                else None,
+                "period_start_1d": to_date(points[-2]),
+                "period_start_1w": to_date(points[-6]) if len(points) >= 6 else None,
+                "period_end": to_date(last),
+                "basis": "Sector ETF price return",
+                "as_of": datetime.fromtimestamp(last["t"], tz=timezone.utc).isoformat(),
+                "source_tags": ["Yahoo Finance", symbol],
+                "degraded": False,
+            }
+        )
+    if rows:
+        return rows, "ok" if len(rows) == len(SECTOR_ETF_MAP) else "partial"
     rows, status = await _fetch_sector_rotation_from_etf_quotes(user_id, consent_token)
     if rows:
+        for row in rows:
+            row["basis"] = "Sector ETF daily return"
         return rows, status
     return await _fetch_sector_rotation_from_fmp()
-
-
-def _fallback_movers_from_watchlist(watchlist: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = [row for row in watchlist if row.get("symbol")]
-
-    by_change = [row for row in rows if isinstance(row.get("change_pct"), (int, float))]
-    by_volume = [row for row in rows if isinstance(row.get("volume"), int)]
-
-    gainers = sorted(by_change, key=lambda item: float(item.get("change_pct") or 0), reverse=True)
-    losers = sorted(by_change, key=lambda item: float(item.get("change_pct") or 0))
-    active = sorted(by_volume, key=lambda item: int(item.get("volume") or 0), reverse=True)
-
-    return {
-        "gainers": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in gainers[:6]
-        ],
-        "losers": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in losers[:6]
-        ],
-        "active": [
-            {
-                "symbol": item.get("symbol"),
-                "company_name": item.get("company_name") or item.get("symbol"),
-                "price": item.get("price"),
-                "change_pct": item.get("change_pct"),
-                "volume": item.get("volume"),
-                "source_tags": ["Watchlist Fallback"],
-                "degraded": True,
-                "as_of": item.get("as_of"),
-            }
-            for item in active[:6]
-        ],
-        "as_of": _now_iso(),
-        "source_tags": ["Watchlist Fallback"],
-        "degraded": True,
-    }
 
 
 def _fallback_sector_rotation_from_watchlist(
@@ -1882,10 +1929,10 @@ def _fallback_sector_rotation_from_watchlist(
 
 
 def _build_market_overview(
-    spy_quote: dict[str, Any] | None,
-    qqq_quote: dict[str, Any] | None,
-    dia_quote: dict[str, Any] | None,
-    iwm_quote: dict[str, Any] | None,
+    sp500_quote: dict[str, Any] | None,
+    nasdaq_quote: dict[str, Any] | None,
+    dow_quote: dict[str, Any] | None,
+    russell_quote: dict[str, Any] | None,
     vix_payload: dict[str, Any],
     status_payload: dict[str, Any],
     sparklines: dict[str, list[float]] | None = None,
@@ -1902,25 +1949,34 @@ def _build_market_overview(
             "symbol": symbol,
             "value": _safe_float(quote.get("price")),
             "delta_pct": _safe_float(quote.get("change_percent")),
-            "as_of": quote.get("fetched_at") if isinstance(quote.get("fetched_at"), str) else None,
+            "as_of": quote.get("quoted_at"),
+            "retrieved_at": quote.get("fetched_at"),
+            "is_delayed": bool(quote.get("is_delayed")),
+            "quote_delay_minutes": quote.get("quote_delay_minutes"),
+            "market_state": quote.get("market_state"),
             "source": str(quote.get("source") or "Unavailable"),
-            "degraded": degraded,
-            "sparkline": sparklines.get(symbol) or None,
+            "degraded": degraded or bool(quote.get("is_stale")),
+            "sparkline": quote.get("sparkline") or sparklines.get(symbol) or None,
         }
 
     out = [
-        metric_from_quote("S&P 500", "SPY", spy_quote, degraded=not bool(spy_quote)),
-        metric_from_quote("NASDAQ 100", "QQQ", qqq_quote, degraded=not bool(qqq_quote)),
-        metric_from_quote("DOW 30", "DIA", dia_quote, degraded=not bool(dia_quote)),
-        metric_from_quote("Russell 2000", "IWM", iwm_quote, degraded=not bool(iwm_quote)),
+        metric_from_quote("S&P 500", "^GSPC", sp500_quote, degraded=not bool(sp500_quote)),
+        metric_from_quote(
+            "NASDAQ Composite", "^IXIC", nasdaq_quote, degraded=not bool(nasdaq_quote)
+        ),
+        metric_from_quote("Dow Jones", "^DJI", dow_quote, degraded=not bool(dow_quote)),
+        metric_from_quote("Russell 2000", "^RUT", russell_quote, degraded=not bool(russell_quote)),
         {
             "id": "volatility",
+            "symbol": "^VIX",
             "label": vix_payload["label"],
             "value": vix_payload["value"],
             "delta_pct": vix_payload["delta_pct"],
             "as_of": vix_payload["as_of"],
             "source": vix_payload["source"],
             "degraded": bool(vix_payload.get("degraded")),
+            "is_delayed": bool(vix_payload.get("is_delayed")),
+            "market_state": vix_payload.get("market_state"),
         },
         {
             "id": "market_status",
@@ -2041,34 +2097,14 @@ def _build_signals(
 
 
 async def _build_sparkline_points(
-    spy_quote: dict[str, Any] | None,
+    sp500_quote: dict[str, Any] | None,
 ) -> tuple[list[dict[str, float]], bool, list[str]]:
-    try:
-        candles = await _fetch_finnhub_candles("SPY")
-        if candles:
-            for point in candles[-12:]:
-                market_insights_cache.append_series_point(
-                    "sparkline:SPY", point["p"], timestamp=point["t"]
-                )
-            return candles, False, ["Finnhub"]
-    except Exception as exc:
-        logger.warning("[Kai Market] sparkline candles failed: %s", exc)
-
-    history = market_insights_cache.get_series_points(
-        "sparkline:SPY", max_age_seconds=5 * 24 * 60 * 60
-    )
-    if history:
-        points = [{"t": ts, "p": price} for ts, price in history[-60:]]
-        return points, True, ["Cache"]
-
-    price = _safe_float((spy_quote or {}).get("price"))
-    delta = _safe_float((spy_quote or {}).get("change_percent"))
-    if price is not None and delta is not None:
-        prev = price / (1 + (delta / 100.0)) if delta != -100 else price
-        ts_now = time()
-        points = [{"t": ts_now - 86400, "p": prev}, {"t": ts_now, "p": price}]
-        return points, True, ["Derived from Quote"]
-
+    # The same index response supplies actual intraday candles; no ETF history
+    # or two-point interpolation may masquerade as index price history.
+    quote = sp500_quote or {}
+    points = quote.get("sparkline_points")
+    if isinstance(points, list) and len(points) >= 2:
+        return points, bool(quote.get("is_stale")), [str(quote.get("source") or "Yahoo Chart")]
     return [], True, ["Unavailable"]
 
 
@@ -2080,7 +2116,9 @@ async def _get_financial_summary(user_id: str) -> dict[str, Any]:
             return {}
         return dict((index.domain_summaries or {}).get("financial") or {})
     except Exception as exc:
-        logger.warning("[Kai Market] financial summary unavailable for %s: %s", user_id, exc)
+        logger.warning(
+            "[Kai Market] financial summary unavailable for %s: %s", user_id, type(exc).__name__
+        )
         return {}
 
 
@@ -2122,6 +2160,15 @@ def _market_startup_warm_timeout_seconds() -> float:
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
 
+    if not _us_market_is_open():
+        return
+
+    # First and outside the FMP budget: the indices and the default pick list refresh
+    # through one keyless batch each and are the last close served while closed, so a
+    # slow or throttled module below must not cost the snapshots their refresh.
+    if summary := await _shared_quotes().warm():
+        refresh_summary.append(summary)
+
     if is_budget_critical():
         # Preserve remaining daily FMP quota for real user requests: skip this
         # proactive background warm cycle entirely once we are down to the
@@ -2134,7 +2181,7 @@ async def _refresh_public_market_modules_once() -> None:
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="macro:us",
+            key="macro:v2:us",
             fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
             stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
             fetcher=_fetch_macro_bundle,
@@ -2145,7 +2192,7 @@ async def _refresh_public_market_modules_once() -> None:
             f"macro:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background macro refresh failed: %s", exc)
+        logger.warning("[Kai Market] background macro refresh failed: %s", type(exc).__name__)
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -2162,14 +2209,14 @@ async def _refresh_public_market_modules_once() -> None:
             f"movers:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background movers refresh failed: %s", exc)
+        logger.warning("[Kai Market] background movers refresh failed: %s", type(exc).__name__)
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="sectors:us",
+            key="sectors:v2:us",
             fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_sector_rotation_from_fmp(),
+            fetcher=lambda: _fetch_sector_rotation_snapshot("market-public", None),
             warm_source="startup",
             serve_stale_while_revalidate=False,
         )
@@ -2177,12 +2224,12 @@ async def _refresh_public_market_modules_once() -> None:
             f"sectors:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
         )
     except Exception as exc:
-        logger.warning("[Kai Market] background sectors refresh failed: %s", exc)
+        logger.warning("[Kai Market] background sectors refresh failed: %s", type(exc).__name__)
     finally:
         try:
             await get_market_cache_store_service().delete_expired(max_rows=250)
         except Exception as exc:
-            logger.debug("[Kai Market] L2 cleanup skipped: %s", exc)
+            logger.debug("[Kai Market] L2 cleanup skipped: %s", type(exc).__name__)
 
     if refresh_summary:
         logger.debug("[Kai Market] warm refresh %s", " | ".join(refresh_summary))
@@ -2197,7 +2244,9 @@ async def _run_refresh_with_advisory_lock() -> None:
         if not acquired:
             return
     except Exception as exc:
-        logger.warning("[Kai Market] advisory lock unavailable; falling back: %s", exc)
+        logger.warning(
+            "[Kai Market] advisory lock unavailable; falling back: %s", type(exc).__name__
+        )
         await _refresh_public_market_modules_once()
 
 
@@ -2223,19 +2272,25 @@ async def _warm_shared_baseline_market_home_once() -> None:
 
 
 async def _market_refresh_loop() -> None:
-    interval = _market_refresh_interval_seconds()
-    logger.info("[Kai Market] background refresh loop started (interval=%ss)", interval)
+    logger.info("[Kai Market] background refresh loop started")
     while True:
         try:
-            await _run_refresh_with_advisory_lock()
+            if _us_market_is_open():
+                await _run_refresh_with_advisory_lock()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("[Kai Market] background refresh cycle failed, will retry: %s", exc)
+            logger.warning(
+                "[Kai Market] background refresh cycle failed, will retry: %s", type(exc).__name__
+            )
+        interval = _market_refresh_interval_seconds()
         jitter_max = max(5.0, interval * 0.12)
         jitter_ms = int(jitter_max * 1000)
         cycle_jitter = (secrets.randbelow(jitter_ms + 1) / 1000.0) if jitter_ms > 0 else 0.0
-        await asyncio.sleep(interval + cycle_jitter)
+        until_open = seconds_until_us_market_open()
+        await asyncio.sleep(
+            min(interval + cycle_jitter, until_open) if _us_market_is_open() else until_open
+        )
 
 
 def start_market_insights_background_refresh() -> None:
@@ -2260,7 +2315,7 @@ async def warm_market_insights_startup_once() -> None:
             "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
         )
     except Exception as exc:
-        logger.warning("[Kai Market] startup public module warm failed: %s", exc)
+        logger.warning("[Kai Market] startup public module warm failed: %s", type(exc).__name__)
 
     try:
         await asyncio.wait_for(_warm_shared_baseline_market_home_once(), timeout=timeout_seconds)
@@ -2269,7 +2324,7 @@ async def warm_market_insights_startup_once() -> None:
             "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
         )
     except Exception as exc:
-        logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
+        logger.warning("[Kai Market] startup baseline home warm failed: %s", type(exc).__name__)
 
 
 async def _get_market_insights_payload(
@@ -2292,7 +2347,9 @@ async def _get_market_insights_payload(
         try:
             ria_source_roster = await RIAIAMService().list_investor_pick_sources(user_id)
         except Exception as exc:
-            logger.debug("[Kai Market] source roster unavailable for %s: %s", user_id, exc)
+            logger.debug(
+                "[Kai Market] source roster unavailable for %s: %s", user_id, type(exc).__name__
+            )
             ria_source_roster = []
     else:
         ria_source_roster = []
@@ -2322,150 +2379,29 @@ async def _get_market_insights_payload(
             effective_pick_source,
             ria_sources=ria_source_roster if personalized else [],
         )
-        symbol_master = get_symbol_master_service()
-        visible_pick_rows_source: list[dict[str, Any]] = []
-        hidden_pick_symbols: list[dict[str, Any]] = []
-        for stock in renaissance_rows_source:
-            input_symbol = str(_pick_row_value(stock, "ticker", "") or "").strip().upper()
-            if not input_symbol:
-                continue
-            quote_symbol, alias_repaired = _repair_quote_symbol(input_symbol)
-            classification = symbol_master.classify(quote_symbol)
-            if not classification.tradable:
-                hidden_pick_symbols.append(
-                    {
-                        "input_symbol": input_symbol,
-                        "normalized_symbol": classification.symbol,
-                        "reason": classification.reason,
-                        "trust_tier": classification.trust_tier,
-                        "filtered_out_reason": "unsupported_quote_symbol",
-                    }
-                )
-                continue
-            visible_pick_rows_source.append(
-                {
-                    "row": stock,
-                    "input_symbol": input_symbol,
-                    "quote_symbol": classification.symbol,
-                    "alias_repaired": alias_repaired or classification.symbol != input_symbol,
-                }
-            )
-
-        renaissance_symbols = [
-            item["quote_symbol"]
-            for item in visible_pick_rows_source
-            if str(item.get("quote_symbol") or "").strip()
-        ]
-
-        # ETFs provide the available, liquid quote proxies for these benchmark
-        # indices through the same provider contract as the existing SPY/QQQ
-        # tiles. Keeping them in this cached bundle avoids per-tile fetches.
-        core_symbols = ["SPY", "QQQ", "DIA", "IWM"]
-        symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
+        visible_pick_rows_source, hidden_pick_symbols = _visible_pick_rows(renaissance_rows_source)
+        # Index levels and the pick list come from shared last-close entries, never from
+        # similarly named ETFs or this viewer's own bundle, so a cold viewer entry cannot
+        # blank them. The viewer's own bundle keeps only the holdings outside both.
+        shared = _shared_quotes()
+        pick_symbols = _pick_quote_symbols(visible_pick_rows_source)
+        symbol_set = sorted(
+            set(watchlist_symbols) - set(pick_symbols) - set(shared_last_close.INDEX_SYMBOLS)
+        )
         quotes_key = f"quotes:{','.join(symbol_set)}"
 
-        async def fetch_quotes_bundle() -> dict[str, Any]:
-            quotes_by_symbol: dict[str, dict[str, Any]] = {}
-            statuses: dict[str, str] = {}
-            unresolved_symbols = list(symbol_set)
-
-            try:
-                batch_quotes = await fetch_market_data_batch(symbol_set, user_id, consent_token)
-            except Exception as exc:
-                logger.debug("[Kai Market] quote batch failed: %s", exc)
-                batch_quotes = {}
-
-            if batch_quotes:
-                next_unresolved: list[str] = []
-                for symbol in unresolved_symbols:
-                    payload = batch_quotes.get(symbol) if isinstance(batch_quotes, dict) else None
-                    price = _safe_float((payload or {}).get("price"))
-                    if price is None:
-                        next_unresolved.append(symbol)
-                        continue
-                    quotes_by_symbol[symbol] = payload or {}
-                    statuses[f"quote:{symbol}"] = "ok"
-                    market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                    if symbol == "SPY":
-                        market_insights_cache.append_series_point("sparkline:SPY", price)
-                unresolved_symbols = next_unresolved
-
-            semaphore = asyncio.Semaphore(QUOTE_FANOUT_CONCURRENCY)
-
-            async def fetch_symbol_quote(symbol: str) -> tuple[str, dict[str, Any], str]:
-                async with semaphore:
-                    last_exc: Exception | None = None
-                    for allow_slow_fallbacks in (False, True):
-                        try:
-                            quote = await fetch_market_data(
-                                symbol,
-                                user_id,
-                                consent_token,
-                                allow_slow_fallbacks=allow_slow_fallbacks,
-                            )
-                            payload = quote or {}
-                            price = _safe_float(payload.get("price"))
-                            if price is None:
-                                continue
-                            market_insights_cache.append_series_point(f"quote:{symbol}", price)
-                            if symbol == "SPY":
-                                market_insights_cache.append_series_point("sparkline:SPY", price)
-                            return symbol, payload, "ok"
-                        except Exception as exc:
-                            last_exc = exc
-                            logger.debug(
-                                "[Kai Market] quote failed for %s (allow_slow=%s): %s",
-                                symbol,
-                                allow_slow_fallbacks,
-                                exc,
-                            )
-                    return symbol, {}, _provider_status_from_exception(last_exc or RuntimeError())
-
-            results = await asyncio.gather(
-                *(fetch_symbol_quote(symbol) for symbol in unresolved_symbols)
+        async def safe_public_module(name, task, fallback_factory):
+            return await resolve_public_module(
+                name, task, fallback_factory, _provider_status_from_exception, logger
             )
-            degraded_quotes: list[str] = []
-            for symbol, payload, status_value in results:
-                quotes_by_symbol[symbol] = payload
-                statuses[f"quote:{symbol}"] = status_value
-                if status_value != "ok":
-                    degraded_quotes.append(f"{symbol}:{status_value}")
-            if degraded_quotes:
-                logger.warning(
-                    "[Kai Market] quote bundle degraded for %s symbols: %s",
-                    len(degraded_quotes),
-                    ", ".join(degraded_quotes[:6]),
-                )
-            return {
-                "quotes": quotes_by_symbol,
-                "provider_status": statuses,
-                "generated_at": _now_iso(),
-            }
-
-        def failed_module(value: Any) -> tuple[Any, bool, int, str, bool]:
-            return (value, True, 0, "live", False)
-
-        async def safe_public_module(
-            name: str,
-            task: Any,
-            fallback_factory: Any,
-        ) -> tuple[Any, bool, int, str, bool]:
-            try:
-                return await task
-            except Exception as exc:
-                status_value = _provider_status_from_exception(exc)
-                logger.warning(
-                    "[Kai Market] %s module failed during concurrent refresh: %s",
-                    name,
-                    exc,
-                )
-                return failed_module(fallback_factory(status_value))
 
         (
-            (quotes_value, quotes_stale, _quotes_age, quotes_cache_tier, quotes_cache_hit),
+            quotes_read,
             (macro_value, macro_stale, _macro_age, macro_cache_tier, macro_cache_hit),
             (movers_value, movers_stale, _movers_age, movers_cache_tier, movers_cache_hit),
             (sectors_value, sectors_stale, _sectors_age, sectors_cache_tier, sectors_cache_hit),
+            index_read,
+            picks_read,
         ) = await asyncio.gather(
             safe_public_module(
                 "quotes",
@@ -2473,7 +2409,7 @@ async def _get_market_insights_payload(
                     key=quotes_key,
                     fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-                    fetcher=fetch_quotes_bundle,
+                    fetcher=lambda: shared.fetch_bundle(symbol_set, user_id, consent_token),
                     warm_source=warm_source,
                 ),
                 lambda status_value: {
@@ -2481,11 +2417,13 @@ async def _get_market_insights_payload(
                     "provider_status": {f"quote:{symbol}": status_value for symbol in symbol_set},
                     "generated_at": _now_iso(),
                 },
-            ),
+            )
+            if symbol_set
+            else shared.nothing_to_read(),
             safe_public_module(
                 "macro",
                 _get_or_refresh_public_module(
-                    key="macro:us",
+                    key="macro:v2:us",
                     fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
                     fetcher=_fetch_macro_bundle,
@@ -2530,7 +2468,7 @@ async def _get_market_insights_payload(
             safe_public_module(
                 "sectors",
                 _get_or_refresh_public_module(
-                    key="sectors:us",
+                    key="sectors:v2:us",
                     fresh_ttl_seconds=SECTORS_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=SECTORS_STALE_TTL_SECONDS,
                     fetcher=lambda: _fetch_sector_rotation_snapshot(user_id, consent_token),
@@ -2538,21 +2476,22 @@ async def _get_market_insights_payload(
                 ),
                 lambda status_value: ([], status_value),
             ),
+            shared.load_indices(warm_source),
+            shared.load_picks(pick_symbols, warm_source),
         )
-        quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
-        quote_map = (
-            quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}
+        quote_bundle = shared_last_close.merge_quote_bundles(
+            quotes_read[0], index_read[0], picks_read[0]
         )
-        provider_status.update(
-            {str(k): str(v) for k, v in (quote_bundle.get("provider_status") or {}).items()}
-        )
-        stale = stale or quotes_stale
-        aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
-        aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
-        spy_quote = quote_map.get("SPY") if isinstance(quote_map, dict) else None
-        qqq_quote = quote_map.get("QQQ") if isinstance(quote_map, dict) else None
-        dia_quote = quote_map.get("DIA") if isinstance(quote_map, dict) else None
-        iwm_quote = quote_map.get("IWM") if isinstance(quote_map, dict) else None
+        quote_map = quote_bundle["quotes"]
+        provider_status.update({str(k): str(v) for k, v in quote_bundle["provider_status"].items()})
+        for _value, read_stale, _age, read_tier, read_hit in (quotes_read, index_read, picks_read):
+            stale = stale or read_stale
+            aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, read_tier)
+            aggregated_cache_hit = aggregated_cache_hit and read_hit
+        sp500_quote = quote_map.get("^GSPC") if isinstance(quote_map, dict) else None
+        nasdaq_quote = quote_map.get("^IXIC") if isinstance(quote_map, dict) else None
+        dow_quote = quote_map.get("^DJI") if isinstance(quote_map, dict) else None
+        russell_quote = quote_map.get("^RUT") if isinstance(quote_map, dict) else None
         quoted_watchlist_symbols = [
             s
             for s in watchlist_symbols
@@ -2603,7 +2542,7 @@ async def _get_market_insights_payload(
                 logger.warning(
                     "[Kai Market] region status override failed for %s: %s",
                     effective_exchange,
-                    exc,
+                    type(exc).__name__,
                 )
         stale = stale or macro_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, macro_cache_tier)
@@ -2749,14 +2688,10 @@ async def _get_market_insights_payload(
                     "volume": _safe_int((quote or {}).get("volume")),
                     "market_cap": _safe_float((quote or {}).get("market_cap")),
                     "source_tags": sorted(set(["Renaissance", quote_source])),
-                    "degraded": bool(not quote),
+                    **quote_observation_fields(quote, quote_status),
                     "alias_repaired": alias_repaired,
                     "quote_provider": quote_source,
-                    "quote_status": "ok" if quote else quote_status,
                     "filtered_out_reason": None,
-                    "as_of": (quote or {}).get("fetched_at")
-                    if isinstance((quote or {}).get("fetched_at"), str)
-                    else None,
                 }
             )
 
@@ -2767,13 +2702,12 @@ async def _get_market_insights_payload(
         movers_status = (
             movers_pair[1] if len(movers_pair) > 1 and isinstance(movers_pair[1], dict) else {}
         )
-        if not movers_payload.get("gainers") and not movers_payload.get("losers"):
-            movers_payload = _fallback_movers_from_watchlist(watchlist_rows)
-            movers_status = {
-                "movers:gainers": "partial",
-                "movers:losers": "partial",
-                "movers:active": "partial",
-            }
+        movers_payload = {
+            **movers_payload,
+            "degraded": bool(movers_payload.get("degraded")) or not complete_movers(movers_payload),
+        }
+        if movers_stale:
+            movers_payload = stale_movers(movers_payload)
         provider_status.update({str(k): str(v) for k, v in movers_status.items()})
 
         stale = stale or movers_stale
@@ -2808,7 +2742,7 @@ async def _get_market_insights_payload(
         ][:NEWS_SYMBOL_MAX]
         if not news_symbols:
             news_symbols = watchlist_symbols_for_cards[:NEWS_SYMBOL_MAX]
-        news_key = f"news:{','.join(news_symbols)}:{days_back}"
+        news_key = f"news:v5:{','.join(news_symbols)}:{days_back}"
 
         async def fetch_news_bundle() -> dict[str, Any]:
             rows: list[dict[str, Any]] = []
@@ -2821,9 +2755,12 @@ async def _get_market_insights_payload(
                         articles = await fetch_market_news(
                             symbol, user_id, consent_token, days_back=days_back
                         )
+                        articles = await enrich_market_news_images(symbol, articles or [])
                         return symbol, (articles or []), ("ok" if articles else "partial")
                     except Exception as exc:
-                        logger.debug("[Kai Market] news failed for %s: %s", symbol, exc)
+                        logger.debug(
+                            "[Kai Market] news failed for %s: %s", symbol, type(exc).__name__
+                        )
                         return symbol, [], _provider_status_from_exception(exc)
 
             news_results = await asyncio.gather(
@@ -2850,6 +2787,10 @@ async def _get_market_insights_payload(
                                 or "Unknown"
                             ),
                             "provider": str(article.get("provider") or "unknown"),
+                            "image_url": _market_news_image_url(article),
+                            "image_thumbnail_url": _market_news_image_url(
+                                {"image_url": article.get("image_thumbnail_url")}
+                            ),
                             "sentiment_hint": None,
                             "degraded": False,
                         }
@@ -2861,17 +2802,23 @@ async def _get_market_insights_payload(
                     ", ".join(degraded_news[:6]),
                 )
 
-            deduped: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for row in rows:
-                key = f"{row.get('title')}::{row.get('url')}"
-                if not row.get("title") or not row.get("url") or key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(row)
-
-            deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-            return {"rows": deduped[:NEWS_ROWS_MAX], "provider_status": statuses}
+            deduped, duplicate_count = _round_robin_market_news_rows(
+                rows,
+                symbols=news_symbols,
+                limit=NEWS_ROWS_MAX,
+                per_symbol_cap=NEWS_ROWS_PER_SYMBOL_MAX,
+            )
+            return {
+                "rows": deduped,
+                "provider_status": statuses,
+                "coverage": {
+                    "requested_symbol_count": len(news_symbols),
+                    "represented_symbol_count": len(
+                        {str(row.get("symbol") or "") for row in deduped}
+                    ),
+                    "duplicate_count": duplicate_count,
+                },
+            }
 
         (
             news_value,
@@ -2888,6 +2835,9 @@ async def _get_market_insights_payload(
         )
         news_bundle = news_value if isinstance(news_value, dict) else {}
         news_tape = news_bundle.get("rows") if isinstance(news_bundle.get("rows"), list) else []
+        news_coverage = (
+            news_bundle.get("coverage") if isinstance(news_bundle.get("coverage"), dict) else {}
+        )
         provider_status.update(
             {str(k): str(v) for k, v in (news_bundle.get("provider_status") or {}).items()}
         )
@@ -2911,28 +2861,20 @@ async def _get_market_insights_payload(
             for row in (movers_payload.get(bucket) or [])
             if isinstance(row, dict) and str(row.get("symbol") or "").strip()
         ]
-        sparkline_symbol_set = sorted({"SPY", "QQQ", "DIA", "IWM", *mover_symbols})
-        # Movers itself is cached (key "movers:v2:us"), so this symbol set is
-        # stable for the lifetime of that cache entry. Cache the batch series
-        # fetch the same way instead of hitting FMP on every request - this is
-        # the single highest-volume call site on this page (up to ~26 symbols)
-        # and must not bypass the shared L1/L2 cache like the rest of the file.
-        sparkline_cache_key = f"sparklines:{','.join(sparkline_symbol_set)}"
+        sparkline_symbol_set = sorted(
+            {symbol for symbol in mover_symbols if not symbol.startswith("^")}
+        )
         (
             symbol_series_raw,
-            _sparklines_stale,
+            sparklines_stale,
             _sparklines_age,
             sparklines_tier,
             sparklines_cache_hit,
-        ) = await _get_or_refresh_public_module(
-            key=sparkline_cache_key,
-            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_symbol_series_batch(sparkline_symbol_set),
-            warm_source=warm_source,
-            serve_stale_while_revalidate=True,
-        )
+        ) = await _load_mover_sparklines(sparkline_symbol_set, warm_source=warm_source)
         symbol_series = symbol_series_raw if isinstance(symbol_series_raw, dict) else {}
+        if sparkline_symbol_set:
+            provider_status["sparklines"] = "ok" if symbol_series else "unavailable"
+        stale = stale or sparklines_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, sparklines_tier)
         aggregated_cache_hit = aggregated_cache_hit and sparklines_cache_hit
         if symbol_series:
@@ -2944,17 +2886,17 @@ async def _get_market_insights_payload(
                     row["sparkline"] = series or None
 
         market_overview = _build_market_overview(
-            spy_quote,
-            qqq_quote,
-            dia_quote,
-            iwm_quote,
+            sp500_quote,
+            nasdaq_quote,
+            dow_quote,
+            russell_quote,
             vix_payload,
             status_payload,
             sparklines=symbol_series,
         )
 
         sparkline_points, sparkline_degraded, sparkline_sources = await _build_sparkline_points(
-            spy_quote
+            sp500_quote
         )
 
         financial_summary: dict[str, Any] = {}
@@ -2989,8 +2931,8 @@ async def _get_market_insights_payload(
             "day_change_value": None,
             "day_change_pct": None,
             "sparkline_points": sparkline_points,
-            "as_of": (spy_quote or {}).get("fetched_at")
-            if isinstance((spy_quote or {}).get("fetched_at"), str)
+            "as_of": (sp500_quote or {}).get("quoted_at")
+            if isinstance((sp500_quote or {}).get("quoted_at"), str)
             else _now_iso(),
             "source_tags": sorted(
                 set([*(sparkline_sources or []), *(["PKM"] if personalized else [])])
@@ -3095,6 +3037,7 @@ async def _get_market_insights_payload(
                     "accepted_count": len(watchlist_symbols),
                     "filtered_count": len(filtered_symbols) + len(hidden_pick_symbols),
                 },
+                "news_coverage": news_coverage,
                 "filtered_symbols": [*filtered_symbols, *hidden_pick_symbols],
             },
             # Backward compatibility fields.
@@ -3120,8 +3063,10 @@ async def _get_market_insights_payload(
             serve_stale_while_revalidate=True,
         )
     except Exception as exc:
-        logger.exception("[Kai Market] home payload build failed for %s: %s", user_id, exc)
-        return _empty_market_home_payload(
+        logger.exception(
+            "[Kai Market] home payload build failed for %s: %s", user_id, type(exc).__name__
+        )
+        empty = _empty_market_home_payload(
             user_id=user_id,
             requested_watchlist_symbols=requested_watchlist_symbols,
             filtered_symbols=filtered_symbols,
@@ -3129,51 +3074,69 @@ async def _get_market_insights_payload(
             provider_status={"home": _provider_status_from_exception(exc)},
             market_mode="personalized" if personalized else "baseline",
         )
+        if effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open():
+            empty["market_overview"] = [_scheduled_market_status_fallback(DEFAULT_EXCHANGE)]
+        return empty
 
-    payload = home_value if isinstance(home_value, dict) else {}
-    payload["stale"] = bool(payload.get("stale")) or home_stale
-    if home_stale:
-        payload["stale_reason"] = "served_stale_cache"
-    payload["cache_age_seconds"] = home_age_seconds
-
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-    meta["stale"] = bool(payload.get("stale"))
-    meta["cache_age_seconds"] = home_age_seconds
-    meta["cache_tier"] = str(meta.get("cache_tier") or home_cache_tier)
-    meta["cache_hit"] = bool(meta.get("cache_hit")) or home_cache_hit
-    meta["warm_source"] = str(meta.get("warm_source") or warm_source)
-    meta["market_mode"] = str(
-        meta.get("market_mode") or ("personalized" if personalized else "baseline")
-    )
-    meta["baseline_cache_tier"] = (
-        home_cache_tier if meta["market_mode"] == "baseline" else meta.get("baseline_cache_tier")
-    )
-    meta["personalized_cache_tier"] = (
-        home_cache_tier
-        if meta["market_mode"] == "personalized"
-        else meta.get("personalized_cache_tier")
-    )
-    cooldown_snapshot = market_insights_cache.provider_cooldown_snapshot()
-    if cooldown_snapshot:
-        meta["provider_cooldowns"] = cooldown_snapshot
-    if payload.get("stale_reason"):
-        meta["stale_reason"] = payload.get("stale_reason")
-    if payload.get("provider_status"):
-        meta["provider_status"] = payload.get("provider_status")
-    payload["meta"] = meta
-
-    logger.debug(
-        "[Kai Market] home tier=%s stale=%s age=%ss watchlist=%s picks=%s headlines=%s source=%s",
-        meta["cache_tier"],
-        meta["stale"],
+    return market_home_response(
+        home_value,
+        home_stale,
         home_age_seconds,
-        len(payload.get("watchlist") or []),
-        len(payload.get("pick_rows") or []),
-        len(payload.get("news_tape") or []),
-        payload.get("active_pick_source") or "default",
+        home_cache_tier,
+        home_cache_hit,
+        warm_source,
+        personalized,
+        effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open(),
+        lambda: _scheduled_market_status_fallback(DEFAULT_EXCHANGE),
+        market_insights_cache.provider_cooldown_snapshot,
+        logger,
     )
 
-    return payload
+
+@router.get("/market/company-facts/{user_id}")
+async def get_market_company_facts(
+    user_id: _UserId,
+    symbols: str = Query(min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Authenticated public company information, never derived from a person's vault."""
+    verify_user_id_match(firebase_uid, user_id)
+    requested = list(
+        dict.fromkeys(part.strip().upper() for part in symbols.split(",") if part.strip())
+    )
+    if (
+        not requested
+        or len(requested) > 8
+        or any(
+            len(symbol) > 16
+            or not symbol[0].isalnum()
+            or not all(char.isalnum() or char in ".-" for char in symbol)
+            for symbol in requested
+        )
+    ):
+        raise HTTPException(status_code=400, detail="Provide up to eight valid stock symbols.")
+    semaphore = asyncio.Semaphore(4)
+
+    async def load(symbol: str) -> tuple[str, dict[str, Any]]:
+        async def fetch_facts() -> dict[str, Any]:
+            # Hold the permit during provider work, including background stale refreshes.
+            async with semaphore:
+                return await fetch_market_company_facts(symbol)
+
+        try:
+            value, stale, *_ = await _get_or_refresh_public_module(
+                key=f"company_facts:v1:{symbol}",
+                fresh_ttl_seconds=6 * 60 * 60,
+                stale_ttl_seconds=24 * 60 * 60,
+                fetcher=fetch_facts,
+                warm_source="market_company_facts",
+            )
+            return symbol, {**value, "stale": stale}
+        except Exception:
+            logger.debug("[Kai Market] company facts unavailable for %s", symbol)
+            return symbol, {"symbol": symbol, "unavailable": True}
+
+    return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
 
 
 @router.get("/market/insights/baseline/{user_id}")
@@ -3222,7 +3185,7 @@ async def get_market_insights(
         max_length=8,
         description="Explicit Finnhub exchange code override (e.g. US, L, T). Falls back to tz/US.",
     ),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3319,7 +3282,7 @@ async def get_market_news(
         ge=1,
         le=NEWS_FEED_PAGE_MAX,
     ),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     """Read one cursor page from a vault-owner's bounded market-news snapshot."""
     if token_data["user_id"] != user_id:
@@ -3348,7 +3311,7 @@ async def get_stock_preview(
     user_id: _UserId,
     symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol"),
     pick_source: str | None = Query(default=None, max_length=256),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3384,7 +3347,11 @@ async def get_stock_preview(
     try:
         quote_payload = await fetch_market_data(normalized_symbol, user_id, consent_token) or {}
     except Exception as exc:
-        logger.warning("[Kai Market] stock preview quote failed for %s: %s", normalized_symbol, exc)
+        logger.warning(
+            "[Kai Market] stock preview quote failed for %s: %s",
+            normalized_symbol,
+            type(exc).__name__,
+        )
         quote_payload = {}
 
     matched_row: dict[str, Any] | None = None
@@ -3470,29 +3437,13 @@ async def get_stock_preview(
             "resolved_with_fallback": resolved_pick_source != active_pick_source,
         }
 
-    quote_price = _safe_float(quote_payload.get("price"))
-    quote_change_pct = _safe_float(quote_payload.get("change_percent"))
-    quote_as_of = (
-        quote_payload.get("fetched_at")
-        if isinstance(quote_payload.get("fetched_at"), str)
-        else _now_iso()
-    )
-
     return {
         "symbol": normalized_symbol,
         "active_pick_source": resolved_pick_source,
         "pick_sources": pick_sources,
-        "quote": {
-            "price": quote_price,
-            "change_pct": quote_change_pct,
-            "as_of": quote_as_of,
-            "company_name": str(quote_payload.get("company_name") or normalized_symbol),
-            "sector": str(quote_payload.get("sector") or "").strip() or None,
-            "market_cap": _safe_float(quote_payload.get("market_cap")),
-            "volume": _safe_int(quote_payload.get("volume")),
-            "source_tags": [str(quote_payload.get("source") or "Unknown")],
-            "degraded": quote_price is None,
-        },
+        "quote": stock_preview_quote(
+            quote_payload, normalized_symbol, _safe_float, _safe_int, _now_iso
+        ),
         "list_match": {
             "in_list": bool(matched_row),
             "source_id": resolved_pick_source,
@@ -3508,3 +3459,98 @@ async def get_stock_preview(
         },
         "advisor_summary": advisor_summary,
     }
+
+
+async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    if _normalize_exchange(exchange) == DEFAULT_EXCHANGE and not _us_market_is_open():
+        return _scheduled_market_status_fallback(DEFAULT_EXCHANGE)
+    return await fetch_with_market_provider(
+        MarketDataRequest("market_status", exchange=exchange),
+        lambda: _legacy_fetch_market_status(exchange=exchange),
+    )
+
+
+async def _fetch_movers_from_fmp():
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("movers"), lambda: _legacy_fetch_movers_from_fmp()
+    )
+
+
+async def _fetch_sector_rotation_from_fmp():
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("sector_rotation"), lambda: _legacy_fetch_sector_rotation_from_fmp()
+    )
+
+
+async def _fetch_symbol_price_series(symbol: str):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("intraday", (symbol,)), lambda: _legacy_fetch_symbol_price_series(symbol)
+    )
+
+
+async def _load_mover_sparklines(
+    symbols: list[str], *, warm_source: str
+) -> tuple[Any, bool, int, str, bool]:
+    if not symbols:
+        # No optional module participates in the aggregate cache result.
+        return {}, False, 0, "memory", True
+    # Optional history must not discard usable quotes, movers or news when
+    # a closed session has no saved series (or its provider fails while open).
+    return await resolve_public_module(
+        "sparklines",
+        _get_or_refresh_public_module(
+            key=f"sparklines:{','.join(symbols)}",
+            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
+            fetcher=lambda: _fetch_symbol_series_batch(symbols),
+            warm_source=warm_source,
+            serve_stale_while_revalidate=True,
+        ),
+        lambda _status: {},
+        _provider_status_from_exception,
+        logger,
+    )
+
+
+async def _fetch_symbol_series_batch(symbols: list[str]):
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("intraday", tuple(symbols)),
+        lambda: _legacy_fetch_symbol_series_batch(symbols),
+    )
+
+
+async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+    from hushh_mcp.services.market_data_provider import (
+        MarketDataRequest,
+        fetch_with_market_provider,
+    )
+
+    return await fetch_with_market_provider(
+        MarketDataRequest("recommendations", (symbol,)),
+        lambda: _legacy_fetch_recommendation(symbol, quote_price),
+    )

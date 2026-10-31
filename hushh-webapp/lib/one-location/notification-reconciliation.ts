@@ -1,8 +1,10 @@
 import type {
+  OneLocationAccessRequest,
   OneLocationNetworkConnection,
   OneLocationRecipient,
   OneLocationState,
 } from "@/lib/one-location/types";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   buildOneLocationWorkflowHref,
   ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
@@ -26,6 +28,54 @@ function addValue(
 ): void {
   const normalized = String(value ?? "").trim();
   if (normalized) payload[key] = normalized;
+}
+
+/**
+ * Copy the ask — how much time, whether it is extra time on a live share, and
+ * how much of that share is left — onto a notification payload.
+ *
+ * `notification_revision` is what makes a raised ask a NEW notification. The
+ * provider de-duplicates by (type, id), so a person who asked for an hour and
+ * then for four would otherwise have their second ask silently swallowed and
+ * the owner would sit looking at the first number.
+ */
+function addAskValues(
+  payload: OneLocationNotificationPayload,
+  request: OneLocationAccessRequest,
+): void {
+  addValue(payload, "requested_duration_hours", request.requestedDurationHours);
+  addValue(payload, "requested_duration_mode", request.requestedDurationMode);
+  addValue(payload, "extends_grant_id", request.extendsGrantId);
+  addValue(payload, "extends_grant_expires_at", request.extendsGrantExpiresAt);
+  if (request.isExtension || request.extendsGrantId) {
+    addValue(payload, "is_extension", "true");
+  }
+  if (Number(request.requestRevision) > 1) {
+    addValue(payload, "notification_revision", request.requestRevision);
+  }
+}
+
+/**
+ * The hours an approval added to a share that was already running.
+ *
+ * `undefined` whenever the answer is not knowable from these two timestamps --
+ * an open-ended share on either end, an unparseable value, or a result that is
+ * not positive. Callers must render amount-free copy in that case; inventing a
+ * number here is the defect this exists to prevent.
+ */
+function extensionAddedHours(
+  extendedExpiresAt: string | null | undefined,
+  approvedExpiresAt: string | null | undefined,
+): number | undefined {
+  if (!extendedExpiresAt || !approvedExpiresAt) return undefined;
+  const before = Date.parse(extendedExpiresAt);
+  const after = Date.parse(approvedExpiresAt);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return undefined;
+  const hours = (after - before) / 3_600_000;
+  if (!(hours > 0)) return undefined;
+  // Two decimals, matching `normalize_duration_hours` server-side, so the two
+  // delivery paths cannot word the same approval differently.
+  return Math.round(hours * 100) / 100;
 }
 
 function recipientLabel(
@@ -102,6 +152,7 @@ export function buildOneLocationNotificationPayloads(
     );
     addValue(payload, "expires_at", grant.expiresAt);
     addValue(payload, "duration_hours", grant.durationHours);
+    addValue(payload, "duration_mode", grant.durationMode);
     addValue(payload, "share_kind", grant.shareKind);
     addValue(payload, "share_message", grant.shareMessage);
     if (grant.shareKind === "sos") {
@@ -119,10 +170,11 @@ export function buildOneLocationNotificationPayloads(
     payloads.push(payload);
   }
 
+  const requestNowMs = Date.now();
   for (const request of state.requests ?? []) {
     if (
       request.ownerUserId === normalizedUserId &&
-      request.status === "pending"
+      isLocationRequestPending(request, requestNowMs)
     ) {
       const payload: OneLocationNotificationPayload = {
         type: "location_access_request",
@@ -135,6 +187,9 @@ export function buildOneLocationNotificationPayloads(
         request.requesterDisplayName ||
           recipientLabel(recipients, request.requesterUserId, "Someone"),
       );
+      // The ask itself. Without these the owner's popup says only that somebody
+      // wants location, whether they asked for fifteen minutes or a day.
+      addAskValues(payload, request);
       payloads.push(payload);
       continue;
     }
@@ -159,6 +214,38 @@ export function buildOneLocationNotificationPayloads(
       addValue(payload, "grant_id", request.approvedGrantId);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
+      // What was actually granted, read off the grant the approval produced —
+      // which is the only number that is true. The requested amount is what was
+      // asked for, and an owner is free to give less.
+      const approvedGrant = (state.receivedGrants ?? []).find(
+        (grant) => grant.id === request.approvedGrantId,
+      );
+      if (approvedGrant) {
+        addValue(payload, "duration_hours", approvedGrant.durationHours);
+        addValue(payload, "duration_mode", approvedGrant.durationMode);
+        addValue(payload, "expires_at", approvedGrant.expiresAt);
+        // How much an extension ADDED, which is a different number from the
+        // total above now that approving "30 min more" tops up the running
+        // share instead of replacing it (#6256). The push carries this from
+        // the server; this path rebuilds the notification from local state
+        // when the push never arrived, and without it the bell would put the
+        // new total next to the word "more" -- announcing a thirty-minute
+        // top-up of a two-hour share as "2 hours 30 min more".
+        //
+        // Measured as the distance between the two expiries the payload
+        // already carries, so no new server field is needed. Undefined when
+        // either end is open-ended or unreadable, and the copy then drops the
+        // amount rather than guessing one.
+        addValue(
+          payload,
+          "added_duration_hours",
+          extensionAddedHours(
+            request.extendsGrantExpiresAt,
+            approvedGrant.expiresAt,
+          ),
+        );
+      }
       payloads.push(payload);
     } else if (request.status === "denied") {
       const payload: OneLocationNotificationPayload = {
@@ -167,6 +254,7 @@ export function buildOneLocationNotificationPayloads(
       addValue(payload, "request_id", request.id);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
       payloads.push(payload);
     }
   }

@@ -1,18 +1,18 @@
 "use client";
 
+import { requestPkmMemoryPreparation, enrichPrivateMemorySharingImpact, type AgentPkmPreparationInput } from "@/lib/agent/agent-pkm-memory-preparation";
+import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
+import type { AgentPkmReservedOffer } from "@/lib/pkm/reserved-offer";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
-import { ApiService } from "@/lib/services/api-service";
-import {
-  PersonalKnowledgeModelService,
-  type PersonalKnowledgeModelMetadata,
-} from "@/lib/services/personal-knowledge-model-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import {
-  isOwnerAutoSaveAuthorization,
+  isAutomaticPkmWriteAuthorization,
   type PkmUserConfirmation,
   type PkmWriteAuthorization,
 } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -20,6 +20,35 @@ import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
+import { OWNER_STYLE_DOMAIN, OWNER_STYLE_BRANCH, ownerStyleFromBranch, ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
+import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
+import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
+import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
+import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, assertProfileSelectionCreateTarget, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import {
+  clearMarkdownMemory,
+  loadMarkdownMemory,
+  recoverMarkdownMemorySync,
+  isMarkdownMemoryGenerationCurrent,
+  markdownMemoryToAgentContext,
+  peekMarkdownMemory,
+  snapshotMarkdownMemoryGeneration,
+} from "@/lib/pkm/markdown-memory";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
+import { peekLiveMirror } from "@/lib/pkm/memory-refresh";
+import {
+  appendLiveMirrorPacket,
+  buildLiveMirrorFactsPacket,
+  liveMirrorPacketBudget,
+  type LiveMirrorFactsPacket,
+} from "@/lib/pkm/live-mirror-agent-facts";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -40,6 +69,13 @@ export type AgentPkmIntentFrame = {
 export type AgentPkmPreviewCard = {
   card_id: string;
   source_text: string;
+  /**
+   * The segment's exact quote of the text that was sent, before the Markdown
+   * cleanup applied to `source_text`. Coverage maps it back to source offsets.
+   */
+  source_quote?: string;
+  /** Exact supporting quotes the segment relied on (added by later agents; optional). */
+  context_quotes?: string[];
   save_class?: string;
   intent_class?: string;
   mutation_intent?: string;
@@ -53,11 +89,27 @@ export type AgentPkmPreviewCard = {
   confirmation_reason?: string;
   candidate_domain_choices?: AgentPkmDomainChoice[];
   validation_hints?: string[];
+  /** A degraded preview is diagnostic output, never write authority. */
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  } | null;
+  /** Local preparation coverage, not a model semantic decision or persisted field. */
+  preparation_requires_review?: boolean;
   intent_frame?: AgentPkmIntentFrame;
   merge_decision?: Record<string, unknown>;
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  canonical_field_id?: string;
+  confidence?: number;
+  source_disposition?: string;
+  retrieval_hints?: {
+    domain?: string;
+    path?: string;
+    aliases?: string[];
+    segment_ids?: string[];
+  };
   sharing_impact?: {
     active_recipient_count: number;
     recipient_labels: string[];
@@ -66,6 +118,8 @@ export type AgentPkmPreviewCard = {
     affected_grant_ids: string[];
     affected_export_ids: string[];
   };
+  /** Set when this fact belongs to an app-owned branch and was kept in its sibling. */
+  reserved_offer?: AgentPkmReservedOffer | null;
 };
 
 export type AgentPkmPreviewResponse = {
@@ -73,7 +127,6 @@ export type AgentPkmPreviewResponse = {
   agent_name: string;
   model: string;
   used_fallback: boolean;
-  routing_decision?: string;
   error?: string | null;
   intent_frame?: AgentPkmIntentFrame;
   merge_decision?: Record<string, unknown>;
@@ -96,8 +149,12 @@ export type AgentPkmContext = {
   updatedAt: string | null;
   detailCount?: number;
   source?: "metadata" | "decrypted_session_pkm";
-  mode?: "summary" | "relevant" | "broad";
+  mode?: "summary" | "full";
   coverage?: AgentPkmContextCoverage;
+  /** Settings style choices for the separate `communicationPreferences` field. */
+  communicationPreferences?: OwnerStyleSettings;
+  /** Live Mirror packet counts for debug and telemetry. Never its text. */
+  liveMirror?: { shownFacts: number; omittedFacts: number };
 };
 
 export type AgentPkmSaveResult = {
@@ -113,8 +170,15 @@ export type AgentPkmSaveResult = {
     success: boolean;
     message?: string;
     result?: PkmWriteCoordinatorResult;
+    /**
+     * What this write did, classified against the same stored state the
+     * coordinator merged into. Present only for prepared memory cards.
+     */
+    outcome?: PkmMergeOutcome;
   }>;
 };
+
+export { isCommittedPkmSave } from "@/lib/agent/pkm-save-receipt";
 
 export class AgentPkmContextNotReadyError extends Error {
   readonly code = "AGENT_PKM_CONTEXT_NOT_READY";
@@ -154,9 +218,35 @@ function titleize(value: string | null | undefined): string {
     .trim();
 }
 
-function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
+/**
+ * Pasted notes carry Markdown layout (headings, bullets, bold labels). Remove
+ * that markup here, the one client step every preview passes through, so the
+ * review title and the value that is encrypted into Memory are both plain.
+ */
+function withPlainMemoryText(card: AgentPkmPreviewCard, preserveValues = false): AgentPkmPreviewCard {
+  return {
+    ...card,
+    source_quote: card.source_quote ?? String(card.source_text || ""),
+    source_text: toPlainMemoryText(String(card.source_text || "")),
+    ...(card.candidate_payload
+      ? { candidate_payload: preserveValues ? card.candidate_payload : toPlainMemoryValue(card.candidate_payload) }
+      : {}),
+  };
+}
+
+function normalizePreviewCards(response: AgentPkmPreviewResponse, preserveValues = false): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(card => withPlainMemoryText(card, preserveValues));
+}
+
+function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
   if (Array.isArray(response.preview_cards)) {
-    return response.preview_cards;
+    return response.preview_cards.map((card) => ({
+      ...card,
+      preview_degraded:
+        card.preview_degraded === true ||
+        response.used_fallback === true ||
+        Boolean(response.error),
+    }));
   }
   if (!response.candidate_payload || !response.structure_decision) {
     return [];
@@ -176,6 +266,7 @@ function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPrevi
       confirmation_reason: response.intent_frame?.confirmation_reason,
       candidate_domain_choices: response.intent_frame?.candidate_domain_choices,
       validation_hints: response.validation_hints,
+      preview_degraded: response.used_fallback === true || Boolean(response.error),
       intent_frame: response.intent_frame,
       merge_decision: response.merge_decision,
       candidate_payload: response.candidate_payload,
@@ -203,7 +294,11 @@ export function getPkmAutoSaveCards(
   return cards.filter(
     (card) =>
       !isReservedPkmCard(card) &&
+      !isDegradedPreviewCard(card) &&
+      card.preparation_requires_review !== true &&
       card.write_mode === "can_save" &&
+      card.requires_confirmation !== true &&
+      card.intent_frame?.requires_confirmation !== true &&
       (card.sharing_impact?.active_recipient_count || 0) === 0
   );
 }
@@ -222,7 +317,7 @@ export function isReservedPkmCard(card: AgentPkmPreviewCard): boolean {
     action === "reject_reserved_target" ||
     action === "reserved_target" ||
     action === "reserved" ||
-    hints.some((hint) => hint.includes("reserved"))
+    hints.some(isReservedRefusalHint)
   );
 }
 
@@ -243,42 +338,26 @@ export function isAgentPkmDependentRequest(message: string): boolean {
   );
 }
 
-export async function previewAgentPkmMemory(params: {
-  userId: string;
-  message: string;
-  currentDomains: string[];
-  vaultOwnerToken: string;
-}): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
-  const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.vaultOwnerToken}`,
-    },
-    body: JSON.stringify({
-      user_id: params.userId,
-      message: params.message,
-      current_domains: params.currentDomains,
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `Memory preview failed with ${response.status}`);
-  }
-
-  const payload = (await response.json()) as AgentPkmPreviewResponse;
-  return {
-    ...payload,
-    cards: normalizePreviewCards(payload).map((card, index) => ({
-      ...card,
-      card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
-      source_text: card.source_text || params.message,
-    })),
-  };
+export async function previewAgentPkmMemory(
+  params: AgentPkmPreparationInput,
+): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  const { payload, privateOwner } = await requestPkmMemoryPreparation(params);
+  const cards = normalizePreviewCards(payload, params.memoryProfile === "business_directory_v1").map((card, index) => ({
+    ...card,
+    card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
+    source_text: card.source_text || toPlainMemoryText(params.message),
+  }));
+  if (privateOwner) await enrichPrivateMemorySharingImpact(params, cards);
+  return { ...payload, cards, ...(privateOwner ? { preview_summary: {
+    ...payload.preview_summary,
+    can_save_count: cards.filter((card) => card.write_mode === "can_save").length,
+    confirm_first_count: cards.filter((card) => card.write_mode === "confirm_first").length,
+    primary_write_mode: (cards.find((card) => card.write_mode !== "do_not_save") || cards[0])?.write_mode,
+  } } : {}) };
 }
 
-function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
+/** The domain `addToPKM` writes a card to; the commit id is derived from it. */
+export function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
   const structureDecision = toRecord(card.structure_decision);
   const manifestDraft = card.manifest_draft && typeof card.manifest_draft === "object"
     ? card.manifest_draft
@@ -295,11 +374,43 @@ function resolveCardScope(card: AgentPkmPreviewCard): string | null {
   return value || null;
 }
 
+/**
+ * Where a reviewed card would be saved, in the person's own words.
+ *
+ * Reads the same domain and scope `addToPKM` writes to, so the preview and the
+ * save can never name different places. A card the save path would refuse (a
+ * degraded preview) or one whose domain the structure agent left unresolved is
+ * reported as `undetermined` rather than given a guessed location.
+ */
+export type AgentPkmCardDestination =
+  | { kind: "location"; label: string }
+  | { kind: "not_saved" }
+  | { kind: "undetermined" };
+
+export function describeAgentPkmCardDestination(
+  card: AgentPkmPreviewCard,
+  domainTitles: ReadonlyMap<string, string> = new Map(),
+): AgentPkmCardDestination {
+  if (card.write_mode === "do_not_save") return { kind: "not_saved" };
+  if (isDegradedPreviewCard(card)) return { kind: "undetermined" };
+  const domain = resolveCardTargetDomain(card);
+  if (!domain || domain.toLowerCase() === "unresolved") return { kind: "undetermined" };
+  const domainTitle = domainTitles.get(domain)?.trim() || humanizeMemorySegment(domain);
+  return { kind: "location", label: pkmScopeBreadcrumb(domainTitle, resolveCardScope(card)) };
+}
+
+/** The one sentence every review surface (chat and Profile) shows for a destination. */
+export function formatAgentPkmCardDestination(destination: AgentPkmCardDestination): string {
+  if (destination.kind === "location") return `Saves to ${destination.label}`;
+  if (destination.kind === "not_saved") return "This part won’t be saved.";
+  return "Where this would be saved couldn’t be worked out yet.";
+}
+
 function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {
   if ((card.sharing_impact?.active_recipient_count || 0) > 0) {
     return "Approved for sharing with the recipients shown above.";
   }
-  return "Private to your private agent. Consent is required before external sharing.";
+  return "Private to Agent One. Consent is required before external sharing.";
 }
 
 function formatPkmLocation(domain: string, scope: string | null): string {
@@ -317,10 +428,37 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
+  /** Stable operation identity for safe retries of a reviewed import. */
+  idempotencyScope?: string;
   confirmation: PkmWriteAuthorization;
+  beforeEffect?: () => Promise<void>;
+  mayPublish?: () => boolean;
+  /**
+   * Opt-in for constrained imports whose cards are simple, independent field
+   * extensions. A single encrypted write per domain avoids serially loading
+   * and rewriting the same domain for every field.
+   */
+  batchSimpleDomainExtensions?: boolean;
+  /**
+   * One stable scope per card (same order as `cards`). The commit id is derived
+   * from it, so replaying the same card after an interruption cannot write it twice.
+   */
+  idempotencyScopes?: readonly (string | undefined)[];
+  businessOrigin?: BusinessMemoryOrigin;
 }): Promise<AgentPkmSaveResult> {
-  const results: AgentPkmSaveResult["results"] = [];
-  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  if (params.source === "profile_research_review") params.cards.forEach(assertProfileReviewTargetPath);
+  if (params.source === "business_profile_review" && !params.businessOrigin)
+    throw new Error("Business identity is required for this review.");
+  if (params.source === "profile_research_review" && params.cards.some(card => touchesBusinessRecord(card)) && !params.businessOrigin)
+    throw new Error("An existing business identity is required for these company details.");
+  // Writes to a single domain must stay ordered: each write reads and merges
+  // the result of the preceding one. Independent domains have no such
+  // dependency, so a small bounded fan-out keeps large imports responsive
+  // without risking same-domain lost updates.
+  const maxParallelDomainWrites = 3;
+  const results: Array<AgentPkmSaveResult["results"][number] | undefined> =
+    new Array(params.cards.length);
+  const automatic = isAutomaticPkmWriteAuthorization(params.confirmation);
   if (!params.confirmation || (!automatic && params.confirmation.confirmedByUser !== true)) {
     return {
       attempted: params.cards.length,
@@ -338,42 +476,56 @@ export async function addToPKM(params: {
     };
   }
 
-  for (const card of params.cards) {
+  const saveCard = async (card: AgentPkmPreviewCard, index: number): Promise<void> => {
+    if (isDegradedPreviewCard(card)) {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This memory preview needs to be prepared again before it can be saved.",
+      };
+      return;
+    }
     if (isReservedPkmCard(card)) {
-      results.push({
+      results[index] = {
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
         scope: resolveCardScope(card),
         sharingPosture: "Reserved, never shareable.",
         success: false,
         message: "This memory is reserved and cannot be saved from Agent chat.",
-      });
-      continue;
+      };
+      return;
     }
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
-      results.push({
+      results[index] = {
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "This memory preview is not eligible for confirmation and saving.",
-      });
-      continue;
+      };
+      return;
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" || (card.sharing_impact?.active_recipient_count || 0) > 0)
+      (card.preparation_requires_review === true ||
+        card.write_mode !== "can_save" || card.requires_confirmation === true ||
+        card.intent_frame?.requires_confirmation === true ||
+        (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
-      results.push({
+      results[index] = {
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "This memory needs review before it can be saved.",
-      });
-      continue;
+      };
+      return;
     }
     const candidatePayload = toRecord(card.candidate_payload);
     const structureDecision = toRecord(card.structure_decision);
@@ -385,15 +537,15 @@ export async function addToPKM(params: {
     const cardId = card.card_id || "agent_pkm_card";
 
     if (Object.keys(candidatePayload).length === 0 || !targetDomain) {
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain || "unknown",
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: "Memory preview did not produce a valid place to save this detail.",
-      });
-      continue;
+      };
+      return;
     }
 
     const summaryProjection = toRecord(structureDecision.summary_projection);
@@ -433,6 +585,8 @@ export async function addToPKM(params: {
           } as DomainManifest)
         : null;
 
+    let outcome: PkmMergeOutcome | undefined;
+    const mergeMode = readString(card.merge_mode) || readString(card.merge_decision?.merge_mode);
     try {
       const sharingImpact = card.sharing_impact;
       const ownerConfirmation = automatic
@@ -443,6 +597,8 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        beforeEffect: params.beforeEffect,
+        mayPublish: params.mayPublish,
         confirmation: automatic
           ? params.confirmation
           : {
@@ -461,19 +617,48 @@ export async function addToPKM(params: {
                     affectedExportIds: sharingImpact.affected_export_ids,
                   }
                 : undefined,
+        },
+        // Both callers' shapes: a per-card scope (the save job) wins; otherwise one
+        // operation scope is made unique per card (profile review, location finalize).
+        idempotencyScope:
+          params.idempotencyScopes?.[index] ??
+          (params.idempotencyScope ? `${params.idempotencyScope}:${cardId}` : undefined),
+        build: async (context) => {
+          if (params.source === "profile_research_review") {
+            assertProfileReviewTargetPath(card);
+            assertProfileSelectionCreateTarget(card, context.currentDomainData);
+          }
+          if (params.source === "profile_research_review" &&
+            touchesBusinessRecord(card, context.currentDomainData) && !params.businessOrigin)
+            throw new Error("The saved business needs a fresh identity review. Nothing was changed.");
+          if (params.businessOrigin) {
+            if (automatic || !["business_profile_review", "profile_research_review"].includes(params.source || ""))
+              throw new Error("Business information requires its explicit review writer.");
+            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin, {
+              requireExistingTarget: params.source === "profile_research_review",
+            });
+          }
+          // Re-run on a conflict retry, so the outcome follows the state that
+          // was finally merged into.
+          outcome = classifyMergeOutcome({
+            existing: context?.currentDomainData ?? {},
+            incoming: candidatePayload,
+            mergeMode,
+          });
+          return {
+            domainData: candidatePayload,
+            summary: {
+              ...nextSummaryProjection,
+              source: params.source || "agent_chat",
             },
-        build: async () => ({
-          domainData: candidatePayload,
-          summary: {
-            ...nextSummaryProjection,
-            source: params.source || "agent_chat",
-          },
-          mergeDecision: card.merge_decision,
-          structureDecision: nextStructureDecision,
-          manifest: nextManifest || undefined,
-        }),
+            mergeDecision: card.merge_decision,
+            structureDecision: nextStructureDecision,
+            manifest: nextManifest || undefined,
+            scopePath: resolveCardScope(card) || undefined,
+          };
+        },
       });
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain,
         scope: resolveCardScope(card),
@@ -481,29 +666,193 @@ export async function addToPKM(params: {
         success: result.success,
         message: result.message,
         result,
-      });
+        ...(result.success && outcome ? { outcome } : {}),
+      };
     } catch (error) {
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain,
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
         message: error instanceof Error ? error.message : "Failed to save this memory.",
-      });
+      };
     }
+  };
+
+  const isSimpleDomainExtension = (card: AgentPkmPreviewCard): boolean => {
+    // Business-origin checks must run inside each conflict-aware entity write.
+    if (params.businessOrigin) return false;
+    if (isDegradedPreviewCard(card)) return false;
+    if (isReservedPkmCard(card)) return false;
+    if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
+      return false;
+    }
+    if (
+      automatic &&
+      (card.preparation_requires_review === true || card.write_mode !== "can_save" ||
+        (card.sharing_impact?.active_recipient_count || 0) > 0)
+    ) {
+      return false;
+    }
+    const mergeMode = readString(card.merge_mode || card.merge_decision?.merge_mode)
+      .toLowerCase();
+    if (mergeMode !== "create_entity" && mergeMode !== "extend_entity") {
+      return false;
+    }
+    const payload = toRecord(card.candidate_payload);
+    if (!resolveCardTargetDomain(card) || Object.keys(payload).length === 0) {
+      return false;
+    }
+    const containsEntityCollection = (value: unknown): boolean => {
+      if (!value || typeof value !== "object") return false;
+      if (Array.isArray(value)) return value.some(containsEntityCollection);
+      return Object.entries(value as Record<string, unknown>).some(
+        ([key, nested]) => key === "entities" || containsEntityCollection(nested),
+      );
+    };
+    return !containsEntityCollection(payload);
+  };
+
+  const mergeRecords = (
+    base: Record<string, unknown>,
+    incoming: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const next = { ...base };
+    for (const [key, value] of Object.entries(incoming)) {
+      const current = next[key];
+      if (
+        current &&
+        value &&
+        typeof current === "object" &&
+        !Array.isArray(current) &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        next[key] = mergeRecords(
+          current as Record<string, unknown>,
+          value as Record<string, unknown>,
+        );
+      } else {
+        next[key] = value;
+      }
+    }
+    return next;
+  };
+
+  const saveSimpleDomainBatch = async (
+    domain: string,
+    entries: Array<[number, AgentPkmPreviewCard]>,
+  ): Promise<void> => {
+    const payload = entries.reduce(
+      (merged, [, card]) => mergeRecords(merged, toRecord(card.candidate_payload)),
+      {} as Record<string, unknown>,
+    );
+    const result = await PkmWriteCoordinator.saveMergedDomain({
+      userId: params.userId,
+      domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
+      // Batching is restricted below to an explicit owner confirmation. The
+      // merged-domain coordinator intentionally does not accept auto-save
+      // authority because one commit can contain multiple reviewed facts.
+      confirmation: params.confirmation as PkmUserConfirmation,
+      build: () => ({
+        domainData: payload,
+        // This is non-sensitive operational metadata. The source text and
+        // individual PKM paths deliberately stay out of the summary.
+        summary: {
+          source: params.source || "agent_chat",
+          batched_card_count: entries.length,
+        },
+      }),
+    });
+    for (const [index, card] of entries) {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain,
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: result.success,
+        message: result.message,
+        result,
+      };
+    }
+  };
+
+  const domainQueues = new Map<string, Array<[number, AgentPkmPreviewCard]>>();
+  params.cards.forEach((card, index) => {
+    // Invalid domains receive their own queue so a malformed card never
+    // blocks valid data from a different domain.
+    const domain = resolveCardTargetDomain(card) || `__invalid_${index}`;
+    const queue = domainQueues.get(domain) || [];
+    queue.push([index, card]);
+    domainQueues.set(domain, queue);
+  });
+
+  const batchedIndexes = new Set<number>();
+  if (params.batchSimpleDomainExtensions && !automatic) {
+    const batches = [...domainQueues.entries()].filter(
+      ([domain, queue]) =>
+        !domain.startsWith("__invalid_") &&
+        queue.length > 1 &&
+        queue.every(([, card]) => isSimpleDomainExtension(card)),
+    );
+    let nextBatchIndex = 0;
+    const batchWorker = async (): Promise<void> => {
+      while (nextBatchIndex < batches.length) {
+        const batch = batches[nextBatchIndex++];
+        if (!batch) return;
+        const [domain, queue] = batch;
+        await saveSimpleDomainBatch(domain, queue);
+        queue.forEach(([index]) => batchedIndexes.add(index));
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(maxParallelDomainWrites, batches.length) }, () =>
+        batchWorker(),
+      ),
+    );
   }
 
-  const savedResults = results.filter((result) => result.success);
-  if (savedResults.length > 0) {
+  const queues = Array.from(domainQueues.values())
+    .map((queue) => queue.filter(([index]) => !batchedIndexes.has(index)))
+    .filter((queue) => queue.length > 0);
+  let nextQueueIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (nextQueueIndex < queues.length) {
+      const queue = queues[nextQueueIndex++];
+      if (!queue) return;
+      for (const [index, card] of queue) {
+        await saveCard(card, index);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxParallelDomainWrites, queues.length) },
+      () => worker(),
+    ),
+  );
+
+  const completedResults = results.filter(
+    (result): result is AgentPkmSaveResult["results"][number] => Boolean(result),
+  );
+
+  const savedResults = completedResults.filter((result) => result.success);
+  if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
+    // Structured specialist writes invalidate their working set. The canonical
+    // Soul document, including uncommitted local facts, keeps its own lifecycle.
+    if (!peekMarkdownMemory(params.userId)) clearMarkdownMemory(params.userId);
     AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
-    attempted: results.length,
+    attempted: completedResults.length,
     saved: savedResults.length,
-    failed: results.length - savedResults.length,
+    failed: completedResults.length - savedResults.length,
     domains: Array.from(new Set(savedResults.map((result) => result.domain))).filter(Boolean),
-    results,
+    results: completedResults,
   };
 }
 
@@ -570,6 +919,32 @@ export function buildAgentPkmContextFromMetadata(
   };
 }
 
+/**
+ * Soul.md first and never shortened, then the owner's bounded Live Mirror
+ * facts for the same owner and vault epoch. The packet is omitted, never
+ * clipped, when Soul leaves too little room, and a mirror fault only omits
+ * the packet: it never costs the turn its Soul.
+ */
+function withLiveMirrorFacts(userId: string, vaultEpoch: number, context: AgentPkmContext): AgentPkmContext {
+  let packet: LiveMirrorFactsPacket;
+  try {
+    packet = buildLiveMirrorFactsPacket({
+      expectedOwnerId: userId,
+      currentVaultEpoch: vaultEpoch,
+      view: peekLiveMirror(userId),
+      budgetChars: liveMirrorPacketBudget(context.text.length),
+      now: Date.now(),
+    });
+  } catch {
+    return context;
+  }
+  return {
+    ...context,
+    text: appendLiveMirrorPacket(context.text, packet.text),
+    liveMirror: { shownFacts: packet.shownFacts, omittedFacts: packet.omittedFacts },
+  };
+}
+
 export async function loadAgentPkmContext(params: {
   userId: string;
   vaultOwnerToken: string;
@@ -577,16 +952,10 @@ export async function loadAgentPkmContext(params: {
   message?: string;
   forceRefresh?: boolean;
   maxChars?: number;
-  /**
-   * Interactive first turns may use redacted metadata while the decrypted
-   * session working set warms in the background. This never writes or changes
-   * PKM relevance/save policy; it only avoids blocking a new conversation on
-   * a full encrypted blob.
-   */
+  /** Deprecated compatibility flag. It yields no memory, never metadata. */
   metadataOnly?: boolean;
   /**
-   * Personal-memory requests must fail closed until the decrypted, typed
-   * session inventory is available. Metadata is intentionally insufficient.
+   * Personal-memory requests fail closed until the decrypted Soul is available.
    */
   requireDecrypted?: boolean;
 }): Promise<AgentPkmContext> {
@@ -597,18 +966,46 @@ export async function loadAgentPkmContext(params: {
   }
 
   if (params.vaultKey && !params.metadataOnly) {
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const memoryGeneration = snapshotMarkdownMemoryGeneration();
     try {
-      const workingContext = await AgentPkmContextStore.load({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        message: params.message,
-        forceRefresh: params.forceRefresh,
-        maxChars: params.maxChars,
-      });
-      if (workingContext) {
-        return workingContext;
+      const cachedMarkdown = peekMarkdownMemory(params.userId);
+      const markdownMemory = cachedMarkdown && !params.forceRefresh
+        ? cachedMarkdown
+        : (await loadMarkdownMemory({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              forceRefresh: params.forceRefresh,
+            }));
+      if (
+        !isVaultSessionEpochCurrent(vaultEpoch) ||
+        !isMarkdownMemoryGenerationCurrent(memoryGeneration)
+      ) {
+        return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
       }
+      if (markdownMemory) {
+        if (!shouldSkipReviewerBackgroundWritesForAutomation()) await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+          beforeEffect: async () => { if (shouldSkipReviewerBackgroundWritesForAutomation()) throw new DOMException("Background memory recovery cancelled", "AbortError"); } });
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        // Settings ride in the closed style field, never as recalled identity.
+        const style = await PkmDomainResourceService.getStaleFirst({
+          userId: params.userId, domain: OWNER_STYLE_DOMAIN,
+          vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+          forceRefresh: params.forceRefresh, backgroundRefresh: false,
+        }).catch(() => null);
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        const context = withLiveMirrorFacts(params.userId, vaultEpoch, {
+          ...markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
+          communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(style?.data?.[OWNER_STYLE_BRANCH])),
+        });
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        return context;
+      }
+
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory is still preparing. Please try again in a moment."
@@ -624,7 +1021,6 @@ export async function loadAgentPkmContext(params: {
       if (error instanceof AgentPkmContextNotReadyError) {
         throw error;
       }
-      AgentPkmContextStore.invalidateUser(params.userId);
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory could not be loaded. Please try again in a moment."
@@ -643,16 +1039,16 @@ export async function loadAgentPkmContext(params: {
       "Unlock your vault before asking Agent about your private memory."
     );
   }
-  const metadata = await PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    params.forceRefresh === true,
-    params.vaultOwnerToken
-  );
-  return {
-    ...buildAgentPkmContextFromMetadata(metadata),
-    source: "metadata",
-    mode: "summary",
-  };
+  // Metadata and structured specialist records are not One's memory. Locked
+  // callers get no personal context; only the unlocked Soul.md may supply it.
+  return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+}
+
+/** Legacy specialist compatibility. One chat does not read this index. */
+export function peekReceiptMemoryIndex(params: {
+  userId: string;
+}): ReceiptCanonicalIndex | null {
+  return AgentPkmContextStore.peekReceiptIndex(params.userId);
 }
 
 export function peekAgentPkmContext(params: {
@@ -660,7 +1056,16 @@ export function peekAgentPkmContext(params: {
   message?: string;
   maxChars?: number;
 }): AgentPkmContext | null {
-  return AgentPkmContextStore.peek(params);
+  const markdownMemory = peekMarkdownMemory(params.userId);
+  if (!markdownMemory) return null;
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const context = withLiveMirrorFacts(params.userId, vaultEpoch, {
+    ...markdownMemoryToAgentContext(markdownMemory),
+    communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(
+      PkmDomainResourceService.peek({ userId: params.userId, domain: OWNER_STYLE_DOMAIN })?.data?.data?.[OWNER_STYLE_BRANCH],
+    )),
+  });
+  return isVaultSessionEpochCurrent(vaultEpoch) ? context : null;
 }
 
 export function warmAgentPkmContext(params: {
@@ -673,10 +1078,12 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
+  // Soul.md is deliberately loaded once at unlock and stays only
+  // in browser RAM. Every subsequent One turn reads this same working set.
   const warmup = loadAgentPkmContext({
-    ...params,
-    message: "",
-    requireDecrypted: true,
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
   })
     .then(() => undefined)
     .finally(() => {
@@ -688,12 +1095,13 @@ export function warmAgentPkmContext(params: {
   return warmup;
 }
 
-export function clearAgentPkmContext(userId?: string): void {
+export function clearAgentPkmContext(userId?: string, options: { preserveMarkdown?: boolean } = {}): void {
   if (userId) {
     agentPkmWarmups.delete(userId);
   } else {
     agentPkmWarmups.clear();
   }
+  if (!options.preserveMarkdown) clearMarkdownMemory(userId);
   AgentPkmContextStore.clear(userId);
 }
 

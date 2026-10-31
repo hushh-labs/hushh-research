@@ -25,6 +25,7 @@ import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
+import { PortfolioDashboardEmpty } from "./views/portfolio-dashboard-empty";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
 import {
   PortfolioReviewView,
@@ -45,7 +46,13 @@ import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildKaiImportRoute,
+  buildOneSetupRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
@@ -65,11 +72,15 @@ import {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import {
-  clearPlaidOAuthResumeSession,
-  savePlaidOAuthResumeSession,
-} from "@/lib/kai/brokerage/plaid-oauth-session";
-import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+  createVaultLink,
+  rememberVaultOAuthReturn,
+  sealVaultPlaidConnection,
+} from "@/lib/kai/plaid-vault/vault-sync";
+import { clearPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -87,7 +98,8 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
   type VoiceSurfacePublisherRole,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
+import { projectSavedPortfolio } from "@/components/kai/views/portfolio-save-projection";
 import { trackEvent } from "@/lib/observability/client";
 import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
@@ -546,6 +558,7 @@ function normalizePortfolioData(
 ): ReviewPortfolioData {
   const normalized = normalizeStoredPortfolio(
     backendData as Record<string, unknown>,
+    { preserveEntries: true },
   ) as ReviewPortfolioData;
   const rawHoldings = Array.isArray(normalized.holdings)
     ? normalized.holdings
@@ -712,21 +725,33 @@ export function KaiFlow({
   const { getPortfolioData, setPortfolioData, invalidateDomain } = useCache();
   const searchParams = useSearchParams();
   const [internalState, setInternalState] = useState<FlowState>("checking");
-  const state = (searchParams?.get("stage") as FlowState) || internalState;
+  const urlStage = searchParams?.get("stage") as FlowState | null;
+  const state = urlStage || internalState;
 
   const pathname = usePathname();
   const setState = useCallback(
     (newState: FlowState) => {
       setInternalState(newState);
+      const params = new URLSearchParams(searchParams?.toString());
       if (
         newState === "import_required" ||
         newState === "reviewing" ||
         newState === "importing" ||
         newState === "import_complete"
       ) {
-        const params = new URLSearchParams(searchParams?.toString());
+        if (params.get("stage") === newState) return;
         params.set("stage", newState);
         router.push(pathname + "?" + params.toString(), { scroll: true });
+        return;
+      }
+      // The URL stage wins over internal state, so a terminal transition must
+      // drop it or the flow stays pinned to the stage it just left.
+      if (params.has("stage")) {
+        params.delete("stage");
+        const query = params.toString();
+        router.replace(query ? pathname + "?" + query : pathname, {
+          scroll: false,
+        });
       }
     },
     [pathname, router, searchParams],
@@ -744,11 +769,18 @@ export function KaiFlow({
   });
   const [, setError] = useState<string | null>(null);
   const isDashboardMode = mode === "dashboard";
+  const setupReturnTo =
+    mode === "import" && deferSensitiveActionsUntilSetupFinalized
+      ? resolveOneSetupReturnTo(searchParams?.get("return_to"))
+      : null;
+  const hasSetupContinuation = Boolean(setupReturnTo);
+  const setupRecoveryRoute = buildOneSetupRoute({ returnTo: setupReturnTo });
   const stateRef = useRef<FlowState>("checking");
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [resumeImportAfterVault, setResumeImportAfterVault] = useState(false);
   const [pendingPlaidConnection, setPendingPlaidConnection] = useState(false);
+  const [pendingPlaidEnvironment, setPendingPlaidEnvironment] = useState<string | null>(null);
   const [resumePlaidAfterVault, setResumePlaidAfterVault] = useState(false);
   const [pendingSchemaPreload, setPendingSchemaPreload] = useState(false);
   const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
@@ -907,7 +939,7 @@ export function KaiFlow({
                     id: "portfolio_review",
                     title: "Review imported portfolio",
                     purpose:
-                      "Lets you inspect parsed holdings before saving them into Kai.",
+                      "Lets you inspect parsed holdings before saving them into Finance.",
                   },
                 ]
               : [
@@ -1058,9 +1090,19 @@ export function KaiFlow({
     activeImportCursorRef.current = snapshot.latestCursor;
     setStreaming(snapshot.streaming);
 
+    // setState changes identity with every ?stage= navigation, so this
+    // restore re-runs whenever the person opens (or reopens) a review --
+    // including one that has nothing to do with this stale snapshot, e.g.
+    // "Load sample brokerage" after an earlier real import attempt was
+    // abandoned mid-stream or failed without being dismissed. Supplying the
+    // snapshot's own data is idempotent; forcing the stage away from a
+    // review the person is already looking at is not, on every branch here,
+    // not just "completed".
     if (snapshot.status === "running") {
       setError(null);
-      setState("importing");
+      if (stateRef.current !== "reviewing") {
+        setState("importing");
+      }
       return;
     }
 
@@ -1070,14 +1112,18 @@ export function KaiFlow({
         parsedPortfolio: snapshot.parsedPortfolio,
       }));
       setError(null);
-      setState("import_complete");
+      if (stateRef.current !== "reviewing") {
+        setState("import_complete");
+      }
       return;
     }
 
     if (snapshot.status === "failed" && snapshot.errorMessage) {
       setError(snapshot.errorMessage);
-      toast.error(snapshot.errorMessage);
-      setState("import_required");
+      if (stateRef.current !== "reviewing") {
+        toast.error(snapshot.errorMessage);
+        setState("import_required");
+      }
     }
   }, [mode, setState, userId]);
 
@@ -1100,7 +1146,9 @@ export function KaiFlow({
           parsedPortfolio: snapshot.parsedPortfolio,
         }));
         setError(null);
-        setState("import_complete");
+        if (stateRef.current !== "reviewing") {
+          setState("import_complete");
+        }
         return;
       }
 
@@ -1108,12 +1156,14 @@ export function KaiFlow({
         const message =
           snapshot.errorMessage || "Import failed. Please try again.";
         setError(message);
-        toast.error(message);
-        setState("import_required");
+        if (stateRef.current !== "reviewing") {
+          toast.error(message);
+          setState("import_required");
+        }
         return;
       }
 
-      if (snapshot.status === "running") {
+      if (snapshot.status === "running" && stateRef.current !== "reviewing") {
         setState("importing");
       }
     }, 700);
@@ -1608,9 +1658,7 @@ export function KaiFlow({
       const detail = (event as CustomEvent<{ userId?: string; error?: string }>)
         .detail;
       if (!detail || detail.userId !== userId) return;
-      toast.error("Background portfolio save failed.", {
-        description: detail.error || "Reopen import and try saving again.",
-      });
+      toast.error("Background portfolio save failed.");
     };
 
     window.addEventListener("kai:portfolio-saved", handlePortfolioSaved);
@@ -1844,7 +1892,7 @@ export function KaiFlow({
           toast.info(
             "Your statement will import after you finish setting up your private vault.",
           );
-          router.push(ROUTES.ONE_SETUP);
+          router.push(setupRecoveryRoute);
           return;
         }
         setPendingImportFile(file);
@@ -1963,10 +2011,7 @@ export function KaiFlow({
           setStreaming(snapshot.streaming);
           setError(null);
           setState("importing");
-          toast.message("Portfolio import is already running.", {
-            description:
-              "You can continue now or review it later from background tasks.",
-          });
+          toast.message("Portfolio import is already running.");
           return;
         }
         if (snapshot && snapshot.status === "completed") {
@@ -1984,9 +2029,7 @@ export function KaiFlow({
             ...prev,
             parsedPortfolio: undefined,
           }));
-          toast.message("Starting a new portfolio import.", {
-            description: "Previous import snapshot was cleared.",
-          });
+          toast.message("Starting a new portfolio import. Previous import snapshot was cleared.");
         }
         if (snapshot && snapshot.status !== "completed") {
           if (snapshot.taskId) {
@@ -1998,9 +2041,7 @@ export function KaiFlow({
           activeImportTaskIdRef.current = null;
           activeImportRunIdRef.current = null;
           activeImportCursorRef.current = 0;
-          toast.message("Recovered a stale import lock.", {
-            description: "Starting a fresh import now.",
-          });
+          toast.message("Recovered a stale import lock. Starting a fresh import now.");
         }
       } else {
         const snapshot = loadImportBackgroundSnapshot(userId);
@@ -2013,10 +2054,7 @@ export function KaiFlow({
           setStreaming(snapshot.streaming);
           setError(null);
           setState("importing");
-          toast.message("Portfolio import is already running.", {
-            description:
-              "You can continue now or review it later from background tasks.",
-          });
+          toast.message("Portfolio import is already running.");
           return;
         }
         if (snapshot?.status === "completed") {
@@ -2034,9 +2072,7 @@ export function KaiFlow({
             ...prev,
             parsedPortfolio: undefined,
           }));
-          toast.message("Starting a new portfolio import.", {
-            description: "Previous import snapshot was cleared.",
-          });
+          toast.message("Starting a new portfolio import. Previous import snapshot was cleared.");
         }
         if (snapshot?.status === "failed") {
           if (snapshot.taskId) {
@@ -2069,17 +2105,12 @@ export function KaiFlow({
           "portfolio_import_stream",
         )
       ) {
-        toast.message("Another portfolio import is already running.", {
-          description:
-            "Please wait for it to finish before starting a new one.",
-        });
+        toast.message("Another portfolio import is already running.");
         return;
       }
 
       if (importStartInFlightRef.current) {
-        toast.message("Portfolio import is already starting.", {
-          description: "Please wait a moment before starting another import.",
-        });
+        toast.message("Portfolio import is already starting.");
         return;
       }
       importStartInFlightRef.current = true;
@@ -3087,6 +3118,7 @@ export function KaiFlow({
       vaultKey,
       effectiveVaultOwnerToken,
       deferSensitiveActionsUntilSetupFinalized,
+      setupRecoveryRoute,
       mode,
       router,
       tokenExpiresAt,
@@ -3146,6 +3178,7 @@ export function KaiFlow({
     if (!pendingPlaidConnection) return;
     if (vaultKey && effectiveVaultOwnerToken) return;
     setPendingPlaidConnection(false);
+    setPendingPlaidEnvironment(null);
   }, [
     vaultDialogOpen,
     resumePlaidAfterVault,
@@ -3153,6 +3186,29 @@ export function KaiFlow({
     vaultKey,
     effectiveVaultOwnerToken,
   ]);
+
+  // Drop a finished (or abandoned) extraction: the stored snapshot, its
+  // background task, and the parsed result. Without this the snapshot restore
+  // brings the same "import complete" card back on the next render or visit.
+  const discardImportResult = useCallback(() => {
+    const snapshot = loadImportBackgroundSnapshot(userId);
+    if (snapshot?.taskId) {
+      AppBackgroundTaskService.dismissTask(snapshot.taskId);
+    }
+    clearImportBackgroundSnapshot(userId);
+    importResumeAppliedRef.current = false;
+    importSnapshotUpdatedAtRef.current = null;
+    activeImportTaskIdRef.current = null;
+    activeImportRunIdRef.current = null;
+    activeImportCursorRef.current = 0;
+    lastImportFileRef.current = null;
+    setStreaming(createInitialStreamingState());
+    setError(null);
+    setFlowData((prev) => ({
+      ...prev,
+      parsedPortfolio: undefined,
+    }));
+  }, [userId]);
 
   // Handle cancel import
   const handleCancelImport = useCallback(() => {
@@ -3186,13 +3242,14 @@ export function KaiFlow({
     setBusyOperation("portfolio_import_stream", false);
     setState(flowData.portfolioData ? "dashboard" : "import_required");
     setStreaming(createInitialStreamingState());
-    if (mode === "import" && flowData.portfolioData) {
+    if (mode === "import" && flowData.portfolioData && !hasSetupContinuation) {
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
   }, [
     effectiveVaultOwnerToken,
     flowData.portfolioData,
+    hasSetupContinuation,
     mode,
     router,
     setBusyOperation,
@@ -3229,7 +3286,22 @@ export function KaiFlow({
 
   const handleBackToDashboardFromImport = useCallback(async () => {
     if (mode === "import") {
-      if (await finishFinanceSetupIfActive("later")) return;
+      // Cancel on the finished card discards the extraction and shows the
+      // source chooser at once. Finance setup keeps this flow mounted, so a
+      // settled "later" must leave the person there to upload again or finish
+      // setup from the footer; returning with the card still up was the bug.
+      discardImportResult();
+      setState("import_required");
+      const handledBySetup = await finishFinanceSetupIfActive("later").catch(
+        (settleError: unknown) => {
+          console.warn(
+            "[KaiFlow] Could not settle Finance setup after cancel:",
+            settleError,
+          );
+          return true;
+        },
+      );
+      if (handledBySetup) return;
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
@@ -3240,6 +3312,7 @@ export function KaiFlow({
       setState("import_required");
     }
   }, [
+    discardImportResult,
     finishFinanceSetupIfActive,
     flowData.portfolioData,
     mode,
@@ -3255,51 +3328,7 @@ export function KaiFlow({
       // Normalize holdings to ensure unrealized_gain_loss_pct is computed
       const normalizedHoldings = normalizeHoldingsWithPct(savedData.holdings);
 
-      const portfolioData: PortfolioData = {
-        account_info: savedData.account_info
-          ? {
-              account_number: savedData.account_info.account_number,
-              brokerage_name: savedData.account_info.brokerage,
-              account_holder: savedData.account_info.holder_name,
-            }
-          : undefined,
-        account_summary: savedData.account_summary
-          ? {
-              beginning_value: savedData.account_summary.beginning_value,
-              ending_value:
-                savedData.account_summary.ending_value ??
-                savedData.total_value ??
-                0,
-              change_in_value: savedData.account_summary.change_in_value,
-              cash_balance: savedData.account_summary.cash_balance,
-              equities_value: savedData.account_summary.equities_value,
-            }
-          : undefined,
-        holdings: normalizedHoldings,
-        transactions: [],
-        asset_allocation: savedData.asset_allocation
-          ? {
-              cash_percent: savedData.asset_allocation.cash_pct,
-              equities_percent: savedData.asset_allocation.equities_pct,
-              bonds_percent: savedData.asset_allocation.bonds_pct,
-            }
-          : undefined,
-        income_summary: savedData.income_summary
-          ? {
-              dividends: savedData.income_summary.dividends_taxable,
-              interest: savedData.income_summary.interest_income,
-              total: savedData.income_summary.total_income,
-            }
-          : undefined,
-        realized_gain_loss: savedData.realized_gain_loss
-          ? {
-              short_term: savedData.realized_gain_loss.short_term_gain,
-              long_term: savedData.realized_gain_loss.long_term_gain,
-              total: savedData.realized_gain_loss.net_realized,
-            }
-          : undefined,
-        parse_fallback: savedData.parse_fallback,
-      };
+      const portfolioData = projectSavedPortfolio(savedData, normalizedHoldings);
 
       const holdingSymbols = normalizedHoldings?.map((h) => h.symbol) || [];
 
@@ -3328,7 +3357,12 @@ export function KaiFlow({
       });
 
       if (mode === "import") {
-        if (await finishFinanceSetupIfActive("statement")) return;
+        if (await finishFinanceSetupIfActive("statement")) {
+          // The setup route keeps this flow mounted; leave the review stage
+          // or the parsed portfolio we just cleared renders as a loader.
+          setState("dashboard");
+          return;
+        }
         setOnboardingFlowActiveCookie(false);
         router.push(ROUTES.KAI_DASHBOARD);
         return;
@@ -3381,10 +3415,11 @@ export function KaiFlow({
           toast.info(
             "Plaid will open after you finish setting up your private vault.",
           );
-          router.push(ROUTES.ONE_SETUP);
+          router.push(setupRecoveryRoute);
           return;
         }
         setPendingPlaidConnection(true);
+        setPendingPlaidEnvironment(environment ?? null);
         setResumePlaidAfterVault(false);
         setVaultDialogOpen(true);
         toast.info("Set up your private vault to connect your portfolio.");
@@ -3393,15 +3428,14 @@ export function KaiFlow({
       setIsConnectingPlaid(true);
       try {
         let shouldSettleSetupSource = false;
-        const redirectUri = resolvePlaidRedirectUri();
-        const linkToken = await PlaidPortfolioService.createLinkToken({
-          userId,
+        // The connection is sealed in the person's vault: Hussh's server only
+        // relays Plaid calls and stores nothing (founder decision 2026-09-23).
+        const vaultLink = await createVaultLink({
           vaultOwnerToken: effectiveVaultOwnerToken,
-          redirectUri,
-          environment,
-        });
+        }).catch(() => null);
+        const linkToken = { link_token: vaultLink?.linkToken ?? null };
 
-        if (!linkToken.configured || !linkToken.link_token) {
+        if (!vaultLink || !linkToken.link_token) {
           if (mode === "import") {
             toast.info(
               "Bank linking is not available right now. You can link it later.",
@@ -3411,11 +3445,11 @@ export function KaiFlow({
           throw new Error("Plaid is not configured for this environment.");
         }
         if (onSetupSourceSettled) {
-          const journey = await PreVaultUserStateService.bootstrapState(
-            userId,
-            {
+          const journey = await runKaiStepWithTimeout(
+            "Preparing Plaid setup",
+            PreVaultUserStateService.bootstrapState(userId, {
               force: true,
-            },
+            }),
           );
           if (isActiveFinanceSetupJourney(journey)) {
             shouldSettleSetupSource = true;
@@ -3424,14 +3458,17 @@ export function KaiFlow({
               typeof crypto.randomUUID === "function"
                 ? crypto.randomUUID()
                 : `plaid_${Date.now().toString(36)}`;
-            await PreVaultUserStateService.syncOnboardingJourney({
-              userId,
-              phase: "external_connector",
-              activeCapability: "finance",
-              callbackState: "pending",
-              callbackAttemptId: onboardingAttemptId,
-              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-            });
+            await runKaiStepWithTimeout(
+              "Recording Plaid setup attempt",
+              PreVaultUserStateService.syncOnboardingJourney({
+                userId,
+                phase: "external_connector",
+                activeCapability: "finance",
+                callbackState: "pending",
+                callbackAttemptId: onboardingAttemptId,
+                expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+              }),
+            );
           } else if (!PreVaultUserStateService.isSetupResolved(journey)) {
             throw new Error(
               "Finance setup is no longer active. Return to setup and try again.",
@@ -3441,20 +3478,9 @@ export function KaiFlow({
             // workspace. Do not mutate setup journey state, but do allow Plaid.
           }
         }
-        if (linkToken.resume_session_id) {
-          savePlaidOAuthResumeSession({
-            version: 1,
-            userId,
-            resumeSessionId: linkToken.resume_session_id,
-            returnPath: shouldSettleSetupSource
-              ? ROUTES.ONE_SETUP_FINANCE_IMPORT
-              : ROUTES.KAI_DASHBOARD,
-            startedAt: new Date().toISOString(),
-            ...(onboardingAttemptId ? { onboardingAttemptId } : {}),
-          });
-        }
-
         const Plaid = await loadPlaidLink();
+        // Web OAuth banks leave the page; the return page finishes from here.
+        rememberVaultOAuthReturn({ userId, link: vaultLink, onboardingAttemptId });
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           const finish = (callback: () => void) => {
@@ -3465,23 +3491,19 @@ export function KaiFlow({
 
           const handler = Plaid.create({
             token: linkToken.link_token,
-            onSuccess: (
-              publicToken: string,
-              metadata: Record<string, unknown>,
-            ) => {
-              void PlaidPortfolioService.exchangePublicToken({
+            onSuccess: (publicToken: string) => {
+              void sealVaultPlaidConnection({
                 userId,
-                publicToken,
+                vaultKey,
                 vaultOwnerToken: effectiveVaultOwnerToken,
-                metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
-                environment: linkToken.environment || environment || null,
+                publicToken,
+                surface: vaultLink.platform,
               })
-                .then((status) => {
+                .then(({ status }) => {
                   clearPlaidOAuthResumeSession();
                   setPlaidStatus(status);
                   const plaidPortfolio =
-                    status.aggregate?.portfolio_data || null;
+                    status?.aggregate?.portfolio_data || null;
                   setFlowData((current) => ({
                     ...current,
                     hasFinancialData:
@@ -3505,13 +3527,18 @@ export function KaiFlow({
                   toast.success("Brokerage connected with Plaid.");
                   if (!vaultKey || !effectiveVaultOwnerToken) {
                     setPendingPlaidConnection(true);
+                    setPendingPlaidEnvironment(environment ?? null);
                     setResumePlaidAfterVault(false);
                     setVaultDialogOpen(true);
                     toast.info(
                       "Set up or open your private vault to save Plaid details.",
                     );
                   } else if (mode === "import") {
-                    if (onSetupSourceSettled && !shouldSettleSetupSource) {
+                    if (
+                      onSetupSourceSettled &&
+                      !shouldSettleSetupSource &&
+                      !hasSetupContinuation
+                    ) {
                       setOnboardingFlowActiveCookie(false);
                       router.push(ROUTES.KAI_DASHBOARD);
                     } else {
@@ -3546,12 +3573,24 @@ export function KaiFlow({
               handler.destroy?.();
               clearPlaidOAuthResumeSession();
               if (onboardingAttemptId) {
-                void onSetupConnectorAttemptSettled?.(
-                  exitError && typeof exitError === "object"
-                    ? "failed"
-                    : "cancelled",
-                  onboardingAttemptId,
-                );
+                const settledAttemptId = onboardingAttemptId;
+                void runKaiStepWithTimeout(
+                  "Settling Plaid setup attempt",
+                  Promise.resolve().then(() =>
+                    onSetupConnectorAttemptSettled?.(
+                      exitError && typeof exitError === "object"
+                        ? "failed"
+                        : "cancelled",
+                      settledAttemptId,
+                    ),
+                  ),
+                  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+                ).catch((settleError) => {
+                  console.warn(
+                    "[KaiFlow] Could not settle Plaid setup attempt:",
+                    settleError,
+                  );
+                });
               }
               if (exitError && typeof exitError === "object") {
                 const detail =
@@ -3567,25 +3606,33 @@ export function KaiFlow({
 
           handler.open();
         });
-      } catch (plaidError) {
+      } catch {
         clearPlaidOAuthResumeSession();
         if (onboardingAttemptId) {
-          await onSetupConnectorAttemptSettled?.("failed", onboardingAttemptId);
+          const failedAttemptId = onboardingAttemptId;
+          void runKaiStepWithTimeout(
+            "Settling Plaid setup attempt",
+            Promise.resolve().then(() =>
+              onSetupConnectorAttemptSettled?.("failed", failedAttemptId),
+            ),
+            KAI_AUXILIARY_STEP_TIMEOUT_MS,
+          ).catch((settleError) => {
+            console.warn("[KaiFlow] Could not settle Plaid setup attempt:", settleError);
+          });
         }
-        toast.error("Could not connect Plaid.", {
-          description:
-            plaidError instanceof Error
-              ? plaidError.message
-              : "Please try again.",
-        });
+        toast.error("Could not connect Plaid.");
       } finally {
         setIsConnectingPlaid(false);
-        await loadPlaidStatusSnapshot();
+        void loadPlaidStatusSnapshot().catch((statusError) => {
+          console.warn("[KaiFlow] Could not refresh Plaid status after connection:", statusError);
+        });
       }
     },
     [
       effectiveVaultOwnerToken,
       deferSensitiveActionsUntilSetupFinalized,
+      hasSetupContinuation,
+      setupRecoveryRoute,
       finishFinanceSetupIfActive,
       loadPlaidStatusSnapshot,
       mode,
@@ -3603,47 +3650,42 @@ export function KaiFlow({
     if (!vaultKey || !effectiveVaultOwnerToken) return;
     setResumePlaidAfterVault(false);
     setPendingPlaidConnection(false);
+    const environment = pendingPlaidEnvironment;
+    setPendingPlaidEnvironment(null);
     // Vault setup happened before Plaid opened, so restart the exact authored
     // provider action now that its prerequisites are satisfied. Merely loading
     // status here left first-time users stranded before Link ever appeared.
-    void handleConnectPlaid();
+    void handleConnectPlaid(environment);
   }, [
     resumePlaidAfterVault,
     vaultKey,
     effectiveVaultOwnerToken,
+    pendingPlaidEnvironment,
     handleConnectPlaid,
   ]);
 
   // Handle re-import (upload new statement)
   const handleReimport = useCallback(() => {
-    const snapshot = loadImportBackgroundSnapshot(userId);
-    if (snapshot?.taskId) {
-      AppBackgroundTaskService.dismissTask(snapshot.taskId);
-    }
-    clearImportBackgroundSnapshot(userId);
-    importResumeAppliedRef.current = false;
-    importSnapshotUpdatedAtRef.current = null;
-    activeImportTaskIdRef.current = null;
-    activeImportRunIdRef.current = null;
-    activeImportCursorRef.current = 0;
-    lastImportFileRef.current = null;
-    setStreaming(createInitialStreamingState());
-    setError(null);
-    setFlowData((prev) => ({
-      ...prev,
-      parsedPortfolio: undefined,
-    }));
-
+    discardImportResult();
     if (mode === "dashboard") {
-      router.push(ROUTES.KAI_IMPORT);
+      const from = pathname === "/one/kai" ? ROUTES.KAI_PORTFOLIO : pathname;
+      router.push(buildKaiImportRoute(from));
       return;
     }
     setState("import_required");
-  }, [mode, router, setState, userId]);
+  }, [discardImportResult, mode, pathname, router, setState]);
 
   const handlePreloadSchema = useCallback(async () => {
     if (isPreloadingSchema) return;
 
+    // Loading sample data is a deliberate switch away from any earlier real
+    // import attempt. Discard its background snapshot up front so a stale
+    // "running"/"failed" one left over from that attempt can't be restored
+    // over the sample review a moment later (the restore effects guard
+    // against clobbering an open review, but a snapshot with nothing to
+    // clobber yet -- because this hasn't set state to "reviewing" yet --
+    // would otherwise still win the race).
+    discardImportResult();
     setIsPreloadingSchema(true);
     setError(null);
 
@@ -3671,6 +3713,7 @@ export function KaiFlow({
       setIsPreloadingSchema(false);
     }
   }, [
+    discardImportResult,
     effectiveVaultOwnerToken,
     isPreloadingSchema,
     setState,
@@ -3750,6 +3793,18 @@ export function KaiFlow({
   // =============================================================================
   // RENDER
   // =============================================================================
+
+  // A stale ?stage=reviewing (back button, reload) with nothing to review
+  // would otherwise render the "Preparing your review" loader forever.
+  useEffect(() => {
+    if (state !== "reviewing" || flowData.parsedPortfolio || isPreloadingSchema) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setState(mode === "import" ? "import_required" : "dashboard");
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [flowData.parsedPortfolio, isPreloadingSchema, mode, setState, state]);
 
   if (state === "checking") {
     return (
@@ -3857,7 +3912,7 @@ export function KaiFlow({
             deferSensitiveActionsUntilSetupFinalized && mode === "import"
               ? async () => {
                   if (await finishFinanceSetupIfActive("statement")) return;
-                  router.push(ROUTES.ONE_SETUP);
+                  router.push(setupRecoveryRoute);
                 }
               : undefined
           }
@@ -3901,7 +3956,7 @@ export function KaiFlow({
         state === "dashboard" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-          <PortfolioImportView
+          <PortfolioDashboardEmpty onOpenImport={handleReimport}
             onFileSelect={handleFileUpload}
             onSkip={handleSkipImport}
             onPreloadSchema={() => void handlePreloadSchema()}

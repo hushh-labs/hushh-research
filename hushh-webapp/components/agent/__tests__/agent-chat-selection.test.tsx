@@ -1,7 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SelectionChip } from "@/components/agent/selection-chip";
-import { storedMessageToAgentMessage } from "@/components/agent/agent-chat-workspace";
+import {
+  mergePendingConsentMessages,
+  storedMessageToAgentMessage,
+  storedMessagesToAgentMessages,
+  upsertAgentStructuredExperience,
+} from "@/components/agent/agent-chat-workspace";
 import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 
 // History mapping is the load-bearing behavior: on reload a persisted selection
@@ -9,6 +14,13 @@ import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 // the raw `I selected:` seed. These tests exercise the real mapping helper the
 // workspace uses to hydrate history.
 describe("storedMessageToAgentMessage — selection history mapping", () => {
+  it("retains the validated Mail receipt on reload without tool text", () => {
+    const receipt = { type: "one.connector_read.v1" as const, connector: "mail" as const,
+      status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: false };
+    const mapped = storedMessageToAgentMessage({ id: "a", conversation_id: "c", role: "assistant",
+      status: "complete", content: "Saved answer", metadata: { connectorRead: receipt } });
+    expect(mapped?.structuredExperience).toEqual(receipt);
+  });
   const base = {
     id: "m1",
     conversation_id: "c1",
@@ -105,6 +117,262 @@ describe("storedMessageToAgentMessage — selection history mapping", () => {
     const mapped = storedMessageToAgentMessage(stored);
     expect(mapped?.kind).toBeUndefined();
     expect(mapped?.text).toBe("Yes, go ahead.");
+  });
+
+  it("restores a safe structured card from history metadata without replaying the raw text", () => {
+    const stored: AgentChatMessage = {
+      ...base,
+      role: "assistant",
+      content: "I found several things you can request.",
+      metadata: {
+        kind: "structured_experience",
+        structuredExperienceId: "event-discovery-1",
+        structuredExperience: {
+          activityType: "one.scope_discovery.v1",
+          content: {
+            status: "ok",
+            person: {
+              displayName: "Alex Morgan",
+              profilePath: "/people/1234567890abcdef",
+              relationship: "connected",
+            },
+            requestableScopes: [
+              {
+                scopeRef: "attr.professional.employment_status",
+                label: "Employment status",
+                domain: "professional",
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const mapped = storedMessageToAgentMessage(stored);
+    expect(mapped?.structuredExperiences).toHaveLength(1);
+    expect(mapped?.structuredExperiences?.[0]?.id).toBe("event-discovery-1");
+    expect(mapped?.structuredExperiences?.[0]?.experience.type).toBe("one.scope_discovery.v1");
+    expect(mapped?.text).toBe("I found several things you can request.");
+  });
+});
+
+describe("ordered retained cards", () => {
+  const descriptor = {activityType: "one.scope_discovery.v1", content: {
+    status: "ok", person: {displayName: "Alex", profilePath: "/people/1234567890abcdef", relationship: "connected"},
+    requestableScopes: [],
+  }};
+  const message = (id: string, ids: string[], content = ""): AgentChatMessage => ({
+    id, conversation_id: "c1", role: "assistant", status: "complete", created_at: null, completed_at: null,
+    content, metadata: {structuredExperiences: ids.map(id => ({id, ...descriptor}))},
+  });
+
+  it("deduplicates restored IDs within and across messages", () => {
+    const result = storedMessagesToAgentMessages([message("m1", [" card-1 ", "card-1"]), message("m2", ["card-1"])]);
+    expect(result).toHaveLength(1);
+    expect(result[0].structuredExperiences?.map(x => x.id)).toEqual(["card-1"]);
+  });
+  it("preserves distinct card order and assistant prose", () => {
+    const result = storedMessagesToAgentMessages([message("m1", ["c1", "c2"]), message("m2", ["c1", "c3"], "An important warning.")]);
+    expect(result.flatMap(x => x.structuredExperiences?.map(y => y.id) || [])).toEqual(["c1", "c2", "c3"]);
+    expect(result[1].text).toBe("An important warning.");
+  });
+  it("does not resurrect duplicates through legacy fallback", () => {
+    const duplicate = message("m2", ["c1"]);
+    duplicate.metadata = {...duplicate.metadata, structuredExperience: descriptor, structuredExperienceId: "legacy"};
+    expect(storedMessagesToAgentMessages([message("m1", ["c1"]), duplicate])).toHaveLength(1);
+  });
+  it("does not let malformed descriptors reserve an ID", () => {
+    const malformed = message("m1", ["c1"]);
+    malformed.metadata!.structuredExperiences![0].activityType = "unsupported";
+    const result = storedMessagesToAgentMessages([malformed, message("m2", ["c1"])]);
+    expect(result.at(-1)?.structuredExperiences?.[0].id).toBe("c1");
+  });
+
+  it("restores the submitted metadata-only card after Chat remount", () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const restored = storedMessagesToAgentMessages([{ ...message("receipt-event", [], ""), metadata: {
+      structuredExperiences: [{ id: "request_submission_source", activityType: "one.information_request_review.v1", content: {
+        direction: "outgoing", phase: "submitted", status: "pending",
+        personName: "Synthetic Recipient", purpose: "Synthetic professional review",
+        durationLabel: "1 day", subjectRef: "1234567890abcdef", bundleId,
+        fields: [{ requestId: "request_12345678", label: "Professional Domain",
+          domain: "Information", sensitivity: "standard", status: "pending" }],
+      } }],
+    } }]);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].structuredExperiences?.[0].experience).toMatchObject({
+      type: "one.information_request_review.v1", phase: "submitted", bundleId,
+      subjectRef: "1234567890abcdef",
+    });
+    expect(JSON.stringify(restored)).not.toContain("decryptedExport");
+  });
+
+  // Regression (localhost run 2026-09-28): after a reload the sent request
+  // read "Draft request · Not sent yet" and the continuation label rendered
+  // as the person's own "Consent approved" bubble.
+  it("restores a sent ask in place and its continuation label as a chip", () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const subjectRef = "1234567890abcdef";
+    const card = (phase: "draft" | "submitted") => ({
+      direction: "outgoing", phase, status: phase === "draft" ? "awaiting_review" : "pending",
+      personName: "Kushal Trivedi", purpose: "Planning a dinner", durationLabel: "7 days", subjectRef,
+      ...(phase === "submitted" ? { bundleId } : {}),
+      fields: [{ ...(phase === "submitted" ? { requestId: "request_12345678", status: "pending" } : {}),
+        label: "Food preferences", domain: "Information", sensitivity: "standard" }],
+    });
+    const restored = storedMessagesToAgentMessages([
+      { id: "q", conversation_id: "c1", role: "user", status: "complete", created_at: null, completed_at: null,
+        content: "What's Kushal's favorite restaurant?", metadata: null },
+      { ...message("turn", [], "I'll ask Kushal Trivedi."), metadata: { structuredExperiences: [
+        { id: "evt:propose-call", activityType: "one.information_request_review.v1", content: card("draft") }] } },
+      { ...message("receipt", [], ""), metadata: { structuredExperiences: [
+        { id: "request_submission_x", activityType: "one.information_request_review.v1", content: card("submitted") }] } },
+      { id: "label", conversation_id: "c1", role: "user", status: "complete", created_at: null, completed_at: null,
+        content: "Consent approved", metadata: null },
+    ]);
+    expect(restored.map((entry) => entry.id)).toEqual(["q", "turn", "label"]);
+    expect(restored[1]!.structuredExperiences?.[0]).toMatchObject({
+      id: "evt:propose-call", experience: { phase: "submitted", bundleId, status: "pending" } });
+    expect(restored[2]).toMatchObject({ role: "user", kind: "selection", text: "Consent approved" });
+    // Negative control: ordinary words stay the person's own bubble.
+    expect(storedMessageToAgentMessage({ id: "u", conversation_id: "c1", role: "user", status: "complete",
+      created_at: null, completed_at: null, content: "Consent approved, thanks!", metadata: null })?.kind).toBeUndefined();
+  });
+
+  it("retains more than eight distinct live cards while revising by identity", () => {
+    const first = {
+      type: "one.scope_discovery.v1" as const,
+      person: {
+        displayName: "Alex Morgan",
+        profilePath: "/people/profile-1234567890",
+        relationship: "Connected",
+      },
+      domainFilter: null,
+      scopes: [],
+    };
+    const all = Array.from({ length: 9 }, (_, index) =>
+      upsertAgentStructuredExperience(
+        index === 0
+          ? []
+          : Array.from({ length: index }, (_, prior) => ({
+              id: `card-${prior}`,
+              experience: first,
+            })),
+        `card-${index}`,
+        first,
+      ),
+    ).at(-1);
+    expect(all).toHaveLength(9);
+    expect(
+      upsertAgentStructuredExperience(all ?? [], "card-3", {
+        ...first,
+        person: { ...first.person, displayName: "Alex Morgan (updated)" },
+      }).find((entry) => entry.id === "card-3")?.experience.person.displayName,
+    ).toBe("Alex Morgan (updated)");
+  });
+});
+
+describe("owner Drive compilation history", () => {
+  const base = {
+    conversation_id: "owner-chat", status: "complete" as const,
+    created_at: null, completed_at: null,
+  };
+  const listingReceipt = {
+    type: "one.connector_read.v1" as const, connector: "drive" as const,
+    status: "ok" as const, sourceRefs: [], metadataOnly: true,
+    truncated: false, ownerCompileAvailable: true,
+    ownerCompileQuery: "share all last 30 days standup sync notes",
+    ownerCompileWindow: { start_date: "2026-08-27", end_date: "2026-09-25",
+      timezone: "Asia/Kolkata" },
+  };
+
+  it("restores the canonical query and fixed window from the owner receipt", () => {
+    const rawUserQuery = "please get those standups I mentioned";
+    const restored = storedMessagesToAgentMessages([
+      { ...base, id: "user-1", role: "user", content: rawUserQuery },
+      { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
+        metadata: { connectorRead: listingReceipt } },
+    ]);
+    expect(restored[1]?.structuredExperience).toMatchObject({
+      ownerCompileQuery: listingReceipt.ownerCompileQuery,
+      ownerCompileWindow: listingReceipt.ownerCompileWindow,
+    });
+    expect(restored[1]?.structuredExperience).not.toMatchObject({
+      ownerCompileQuery: rawUserQuery,
+    });
+  });
+
+  it("does not infer a compile request from previous user text without a validated hint", () => {
+    const restored = storedMessagesToAgentMessages([
+      { ...base, id: "user-1", role: "user", content: "all my last 30 days standup notes" },
+      { ...base, id: "assistant-1", role: "assistant", content: "30 candidates found.",
+        metadata: { connectorRead: { ...listingReceipt, ownerCompileQuery: undefined } } },
+    ]);
+    expect(restored[1]?.structuredExperience).toMatchObject({ ownerCompileQuery: undefined });
+  });
+});
+
+describe("pending consent cards during history restore", () => {
+  type WorkspaceMessage = Parameters<typeof mergePendingConsentMessages>[0][number];
+
+  const pendingMessage = (
+    id: string,
+    requestId: string,
+    status: "pending" | "approved" = "pending",
+    bundledRequestIds: string[] = [],
+  ): WorkspaceMessage => ({
+    id,
+    role: "assistant",
+    text: "Review this request.",
+    timestamp: "Just now",
+    status: "done",
+    specialistDirective: {
+      delegateAgentId: "agent_nav",
+      directive: {
+        kind: "prompt",
+        payload: {
+          kind: "pending_consent_request",
+          item: {
+            id: requestId,
+            requesterLabel: "Alex Morgan",
+            scope: "professional.employment_status",
+            status,
+            bundledRequestIds,
+          },
+        },
+      },
+      message: "Review the request.",
+      stateChanged: true,
+    },
+  });
+
+  it("keeps a live hydrated card when a later history snapshot omits it", () => {
+    const live = pendingMessage("live-card", "request-1");
+    const merged = mergePendingConsentMessages(
+      [{ id: "history-answer", role: "assistant", text: "Earlier answer.", timestamp: "Earlier", status: "done" }],
+      [live],
+    );
+    expect(merged.map((message) => message.id)).toEqual(["history-answer", "live-card"]);
+  });
+
+  it("keeps a newer local approval over a stale restored pending card", () => {
+    const merged = mergePendingConsentMessages(
+      [pendingMessage("history-card", "request-1")],
+      [pendingMessage("live-card", "request-1", "approved")],
+    );
+    expect(merged).toHaveLength(1);
+    expect(
+      merged[0]?.specialistDirective?.directive.payload.item,
+    ).toMatchObject({ id: "request-1", status: "approved" });
+  });
+
+  it("matches folded cards by every request id, not only the head id", () => {
+    const merged = mergePendingConsentMessages(
+      [pendingMessage("history-card", "request-1", "pending", ["request-2"])],
+      [pendingMessage("live-card", "request-2", "approved")],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("live-card");
   });
 });
 

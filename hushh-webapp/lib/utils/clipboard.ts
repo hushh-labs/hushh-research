@@ -4,7 +4,7 @@ function canUseClipboardApi(): boolean {
   return Boolean(
     typeof navigator !== "undefined" &&
       navigator.clipboard &&
-      typeof navigator.clipboard.writeText === "function"
+      typeof navigator.clipboard.writeText === "function",
   );
 }
 
@@ -12,7 +12,11 @@ function canUseDocument(): boolean {
   return typeof document !== "undefined" && Boolean(document.body);
 }
 
-export async function copyToClipboard(value: string): Promise<boolean> {
+export async function copyToClipboard(
+  value: string,
+  isCurrentSession: () => boolean = () => true,
+): Promise<boolean> {
+  if (!isCurrentSession()) return false;
   if (canUseClipboardApi()) {
     try {
       await navigator.clipboard.writeText(value);
@@ -22,7 +26,8 @@ export async function copyToClipboard(value: string): Promise<boolean> {
     }
   }
 
-  if (!canUseDocument()) {
+  // A rejected asynchronous write may outlive the draft that initiated it.
+  if (!isCurrentSession() || !canUseDocument()) {
     return false;
   }
 

@@ -1,9 +1,11 @@
-"""Control-plane chat orchestration for the One Location agent (v1 + v2).
+"""Chat orchestration for the One Location agent.
 
-Runs a Gemini function-calling loop restricted to the control-plane tools,
-executed INSIDE a HushhContext so each @hushh_tool enforces consent scope
-(DB-backed, via validate_token_with_db). Reuses AgentChatService for durable,
-encrypted conversation persistence.
+Runs a Gemini function-calling loop restricted to this agent's narrow tool set
+(public links, viewing an incoming share, device permission, referral —
+everything else runs directly from One's generated actions and never reaches
+here), executed INSIDE a HushhContext so each @hushh_tool enforces consent
+scope (DB-backed, via validate_token_with_db). Reuses AgentChatService for
+durable, encrypted conversation persistence.
 
 Why not HushhAgent / Google ADK execution: that wrapper (hushh_adk/core.py)
 targets an ADK API incompatible with the pinned google-adk (wrong import path,
@@ -13,31 +15,39 @@ server-side Gemini client (operons.kai.llm) directly. Consent is fully preserved
 because the tool callables themselves validate scope against the active
 HushhContext; this service only opens that context around the tool loop.
 
-Coordinate safety: the control-plane tools never read or return coordinates,
-so neither the prompt, the tool results fed back to Gemini, nor the reply ever
-carries lat/lng.
+Coordinate safety: these tools never read or return coordinates, so neither
+the prompt, the tool results fed back to Gemini, nor the reply ever carries
+lat/lng.
 
-v2 additions:
-- Wider tool set (create_location_share, approve_location_request, propose_public_link,
-  propose_location_view, list_incoming_location_shares, list_public_links,
-  revoke_public_link).
-- Directive translation: successful grant-creating / propose tool calls produce a
-  coordinate-free ``clientAction`` descriptor returned to the browser.
-- Action-result turn: deterministic confirmation (no LLM, no coordinates) for
-  ``action_result`` payloads sent back by the browser after the user acts.
+Directive translation: a successful propose_* tool call produces a
+coordinate-free ``clientAction`` descriptor returned to the browser.
+Action-result turn: deterministic confirmation (no LLM, no coordinates) for
+``action_result`` payloads sent back by the browser after the user acts.
 """
 
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from hushh_mcp.agents.location.agent import get_location_chat_agent_v2
+from hushh_mcp.agents.location.tools import V2_LOCATION_TOOLS
 from hushh_mcp.hushh_adk.context import HushhContext
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _location_instruction() -> str:
+    """Cache project-neutral prompt data, never a project-bound ADK model."""
+    manifest_path = Path(__file__).resolve().parents[1] / "agents" / "location" / "agent.yaml"
+    return ManifestLoader.load(str(manifest_path)).system_instruction
+
 
 _MAX_HISTORY = 12
 
@@ -62,45 +72,24 @@ _HISTORY_CHARS = 2000
 # Tools that only read state — invoking them should NOT trigger a UI refresh.
 # propose_* tools only stage a client action; they mutate nothing server-side.
 _QUERY_TOOL_NAMES = {
-    "list_location_recipients",
-    "list_active_location_shares",
     "list_incoming_location_shares",
     "list_public_links",
     "propose_public_link",
     "propose_location_view",
-    "propose_sos_panic",
-    "propose_check_in",
-    "request_recipient_choice",
-    "request_active_share_choice",
-    "request_duration_choice",
-    "request_request_choice",
     "request_incoming_choice",
     "request_confirmation",
 }
 
-# Tools whose successful result produces a client-action directive.
-_DIRECTIVE_GRANT_TOOLS = {"create_location_share", "approve_location_request"}
-
 # Prompt-builder tools: their result yields a clientPrompt, and they mutate nothing.
 _PROMPT_TOOL_NAMES = {
-    "request_recipient_choice",
-    "request_active_share_choice",
-    "request_duration_choice",
-    "request_request_choice",
     "request_incoming_choice",
     "request_confirmation",
 }
 
 _ACTION_RESULT_TEMPLATES = {
-    ("publish_share", "completed"): "Done — your live location is now shared. ✓",
-    ("publish_share", "cancelled"): "No problem — I didn't share your location.",
     ("view_envelope", "completed"): "Here's the latest location I could open.",
     ("create_public_link", "completed"): "Your public location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
-    ("sos_panic", "completed"): "SMS sent — your selected contacts are being notified.",
-    ("sos_panic", "cancelled"): "Okay — I didn't send SMS.",
-    ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
-    ("check_in", "cancelled"): "Okay — I didn't check you in.",
     (
         "request_device_location_permission",
         "completed",
@@ -128,77 +117,115 @@ _GAVE_UP_MESSAGE = (
 ModelCall = Callable[[Any, Any], Awaitable[Any]]
 
 
+class _PromptStoppingTool:
+    """Wrap a prompt-producing function so ADK stops before a second action."""
+
+    def __init__(self, function: Callable[..., Any]):
+        from google.adk.tools.function_tool import FunctionTool
+
+        class _Tool(FunctionTool):
+            async def run_async(inner, *, args, tool_context):
+                result = await super(_Tool, inner).run_async(args=args, tool_context=tool_context)
+                if isinstance(result, dict) and isinstance(result.get("prompt"), dict):
+                    tool_context.state["hussh:specialist_directive"] = {
+                        "kind": "prompt",
+                        "payload": result["prompt"],
+                    }
+                    tool_context.actions.skip_summarization = True
+                return result
+
+        self.tool = _Tool(function)
+
+
 def _function_declarations(types: Any) -> list:
-    """Function declarations for the 6 v1 control-plane tools (no crypto-handoff)."""
+    """Function declarations for this agent's narrow tool set.
+
+    Kept hand-written (not introspected from the @hushh_tool docstrings in
+    tools.py) so the schema sent to Gemini is explicit and reviewable, but that
+    means a tool's guidance here must be kept in sync with its docstring and
+    with the system_instruction in agent.yaml by hand -- update all three
+    together when a tool's behavior changes.
+    """
     schema = types.Schema
     kind = types.Type
     return [
         types.FunctionDeclaration(
-            name="list_location_recipients",
+            name="list_incoming_location_shares",
             description=(
-                "List the people who can currently see the user's live location and "
-                "the verified people eligible to receive it. Read-only."
-            ),
-            parameters=schema(
-                type=kind.OBJECT,
-                properties={
-                    "limit": schema(type=kind.INTEGER, description="Max recipients to return")
-                },
-                required=[],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="list_active_location_shares",
-            description=(
-                "List the user's active outgoing live-location shares with their grant "
-                "ids and recipient names. Call this FIRST to get a real grant_id before "
-                "revoking or referring — never guess an id. Read-only."
+                "List active shares where the user is the recipient (grant ids + "
+                "owner names). Call FIRST before proposing to view a location, or "
+                "before referring someone into that owner's approval flow. Read-only."
             ),
             parameters=schema(type=kind.OBJECT, properties={}, required=[]),
         ),
         types.FunctionDeclaration(
-            name="revoke_location_share",
+            name="list_public_links",
             description=(
-                "Stop sharing the user's live location for one active share. "
-                "grant_id MUST come from list_active_location_shares — never invent it."
+                "List the user's active public location links (ids + expiry). Call "
+                "FIRST before revoking a public link. Read-only."
+            ),
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+        ),
+        types.FunctionDeclaration(
+            name="propose_public_link",
+            description=(
+                "Propose an owner-confirmed public link valid for duration_hours "
+                "(0.25-1). The browser creates it after explicit confirmation. Do "
+                "NOT call request_confirmation first -- the browser's own card "
+                "would make the user confirm twice."
             ),
             parameters=schema(
                 type=kind.OBJECT,
                 properties={
-                    "grant_id": schema(type=kind.STRING, description="Active grant id to revoke")
+                    "duration_hours": schema(type=kind.NUMBER, description="0.25 <= hours <= 1")
                 },
+                required=["duration_hours"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="propose_location_view",
+            description=(
+                "Propose viewing an incoming share's latest location. grant_id MUST "
+                "come from list_incoming_location_shares. The browser decrypts it."
+            ),
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={"grant_id": schema(type=kind.STRING)},
                 required=["grant_id"],
             ),
         ),
         types.FunctionDeclaration(
-            name="request_location_access",
+            name="revoke_public_link",
             description=(
-                "Ask another user to share their live location with the current user. "
-                "This only sends a request; it never grants access."
+                "Revoke an active public location link. invite_id MUST come from "
+                "list_public_links. Call request_confirmation first -- this ends "
+                "currently-active sharing immediately."
             ),
             parameters=schema(
                 type=kind.OBJECT,
-                properties={
-                    "owner_user_id": schema(type=kind.STRING, description="User to ask"),
-                    "message": schema(type=kind.STRING, description="Optional note"),
-                },
-                required=["owner_user_id"],
+                properties={"invite_id": schema(type=kind.STRING)},
+                required=["invite_id"],
             ),
         ),
         types.FunctionDeclaration(
-            name="deny_location_request",
-            description="Deny a pending incoming location-access request. request_id identifies the request.",
-            parameters=schema(
-                type=kind.OBJECT,
-                properties={
-                    "request_id": schema(type=kind.STRING, description="Pending request id")
-                },
-                required=["request_id"],
+            name="request_device_location_permission",
+            description=(
+                "Ask the device to (re-)prompt the OS location permission dialog. "
+                "Call this whenever the user asks you to (re-)ask for location "
+                "permission. Coordinate-free; the prompt happens on-device."
             ),
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
         ),
         types.FunctionDeclaration(
             name="refer_location_recipient",
-            description="Refer another verified user into an owner approval request.",
+            description=(
+                "Introduce another verified person into an approval request for a "
+                "share the current user already RECEIVES, without granting the new "
+                "person access itself. grant_id MUST come from "
+                "list_incoming_location_shares -- it is the current user's own "
+                "incoming grant from the owner, never a share the current user gave "
+                "out."
+            ),
             parameters=schema(
                 type=kind.OBJECT,
                 properties={
@@ -209,200 +236,29 @@ def _function_declarations(types: Any) -> list:
                 required=["grant_id", "referred_user_id"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="request_incoming_choice",
+            description="Ask the user whose incoming shared location to view.",
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+        ),
+        types.FunctionDeclaration(
+            name="request_confirmation",
+            description=(
+                "Ask the user to confirm an irreversible action before it runs. Use "
+                "before revoke_public_link. Do NOT use before propose_public_link -- "
+                "the browser already shows its own owner-confirmation card, so "
+                "confirming here would make the user confirm twice."
+            ),
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "summary": schema(type=kind.STRING, description="What to confirm"),
+                    "destructive": schema(type=kind.BOOLEAN),
+                },
+                required=["summary"],
+            ),
+        ),
     ]
-
-
-def _function_declarations_v2(types: Any) -> list:
-    """v1 control-plane declarations + v2 prep/intent/read/control declarations."""
-    schema = types.Schema
-    kind = types.Type
-    decls = _function_declarations(types)
-    decls.extend(
-        [
-            types.FunctionDeclaration(
-                name="create_location_share",
-                description=(
-                    "Create a recipient-bound live-location grant (no coordinates). "
-                    "recipient_user_id and recipient_key_id MUST come from "
-                    "list_location_recipients. After this, the browser captures and "
-                    "encrypts the location."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "recipient_user_id": schema(type=kind.STRING),
-                        "recipient_key_id": schema(type=kind.STRING),
-                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
-                        "reason": schema(type=kind.STRING, description="Optional note"),
-                    },
-                    required=["recipient_user_id", "recipient_key_id", "duration_hours"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="approve_location_request",
-                description=(
-                    "Approve a pending incoming request and create a recipient-scoped "
-                    "grant. request_id MUST come from looking up pending requests."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "request_id": schema(type=kind.STRING),
-                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
-                    },
-                    required=["request_id", "duration_hours"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="list_incoming_location_shares",
-                description=(
-                    "List active shares where the user is the recipient (grant ids + "
-                    "owner names). Call FIRST before proposing to view a location. Read-only."
-                ),
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="list_public_links",
-                description=(
-                    "List the user's active public location links (ids + expiry). Call "
-                    "FIRST before revoking a public link. Read-only."
-                ),
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="propose_public_link",
-                description=(
-                    "Propose an owner-confirmed public link valid for duration_hours. "
-                    "The browser creates it after explicit confirmation."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24")
-                    },
-                    required=["duration_hours"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="propose_location_view",
-                description=(
-                    "Propose viewing an incoming share's latest location. grant_id MUST "
-                    "come from list_incoming_location_shares. The browser decrypts it."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={"grant_id": schema(type=kind.STRING)},
-                    required=["grant_id"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="request_device_location_permission",
-                description=(
-                    "Ask the device to (re-)prompt the OS location permission dialog. "
-                    "Call this whenever the user asks you to (re-)ask for location "
-                    "permission, or an action needing the device's location (share, "
-                    "check-in, SMS) failed because permission is missing or was "
-                    "previously denied. Coordinate-free; the prompt happens on-device."
-                ),
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="revoke_public_link",
-                description=(
-                    "Revoke an active public location link. invite_id MUST come from "
-                    "list_public_links."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={"invite_id": schema(type=kind.STRING)},
-                    required=["invite_id"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="request_recipient_choice",
-                description=(
-                    "Ask the user to choose who to share with (returns selectable options). "
-                    "Call when no single recipient was named. When the user DID name a person "
-                    "but more than one contact matches that name (e.g. two 'Neelesh Meena'), "
-                    "pass `name` with the name they gave so the options are limited to just "
-                    "those matches instead of the whole directory."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "name": schema(
-                            type=kind.STRING,
-                            description=(
-                                "The name the user gave, used to limit the choices to matching "
-                                "contacts. Omit only when the user named no one."
-                            ),
-                        )
-                    },
-                    required=[],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="request_active_share_choice",
-                description="Ask the user which active share(s) to stop (selectable options incl. 'Stop all'). Call when stopping a share with no single target.",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="request_duration_choice",
-                description="Ask the user how long a share should last (1/8/24h or custom).",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="request_request_choice",
-                description="Ask the user which pending incoming request to act on.",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="request_incoming_choice",
-                description="Ask the user whose incoming shared location to view.",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="request_confirmation",
-                description="Ask the user to confirm an irreversible or bulk action before it runs.",
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "summary": schema(type=kind.STRING, description="What to confirm"),
-                        "destructive": schema(type=kind.BOOLEAN),
-                    },
-                    required=["summary"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="propose_sos_panic",
-                description=(
-                    "Propose a Save My Soul alert to the user's selected, ready SMS "
-                    "contacts. The browser creates 8h grants per recipient, encrypts, "
-                    "publishes, and records the incident. Coordinate-free. Call "
-                    "request_confirmation first before proposing this."
-                ),
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
-            ),
-            types.FunctionDeclaration(
-                name="propose_check_in",
-                description=(
-                    "Propose a check-in: share live location with the user's ready "
-                    "trusted contacts for duration_hours (0<h<=24) with an optional note. "
-                    "The browser creates grants per recipient, encrypts, and publishes. "
-                    "Coordinate-free. Ask for the duration first (request_duration_choice)."
-                ),
-                parameters=schema(
-                    type=kind.OBJECT,
-                    properties={
-                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
-                        "note": schema(type=kind.STRING, description="Optional short note"),
-                    },
-                    required=["duration_hours"],
-                ),
-            ),
-        ]
-    )
-    return decls
 
 
 def _history_contents(history: list[Any], types: Any) -> list:
@@ -474,12 +330,21 @@ class LocationChatService:
         *,
         chat_store: Any = None,
         model_call: ModelCall | None = None,
+        model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
         tools: list | None = None,
         system_prompt: str | None = None,
+        location_service: Any = None,
+        scope_tokens: dict[str, str] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
+        self._location_service = location_service
+        self._scope_tokens = dict(scope_tokens or {})
+        # Default shared turns use ADK; an injected pod model remains authoritative
+        # even when a legacy callback is supplied for compatibility/auth probes.
+        self._use_adk = model is not None or model_call is None
+        self._adk_model = model
 
         if model_call is not None:
             self._model_call = model_call
@@ -500,15 +365,28 @@ class LocationChatService:
 
             self._model_call = _default_call
 
-        # System prompt + tool set come from the control-plane agent definition.
-        # Default to the v2 agent when neither prompt nor tools are injected.
-        need_agent = system_prompt is None or tools is None
-        agent = get_location_chat_agent_v2() if need_agent else None
+        # Keep only project-neutral metadata on this service. The A2A bridge
+        # retains a service singleton, so a model captured here would keep the
+        # first caller's Vertex project for every later chat or direct turn.
         self._system_prompt = (
-            system_prompt if system_prompt is not None else agent.manifest.system_instruction
+            system_prompt if system_prompt is not None else _location_instruction()
         )
-        tool_list = tools if tools is not None else agent.hushh_tools
+        tool_list = tools if tools is not None else V2_LOCATION_TOOLS
         self._dispatch = {getattr(t, "_name", getattr(t, "__name__", "")): t for t in tool_list}
+        self._adk_tools = self._build_adk_tools(tool_list) if self._use_adk else []
+
+    @staticmethod
+    def _build_adk_tools(tool_list: list[Any]) -> list[Any]:
+        from google.adk.tools.function_tool import FunctionTool
+
+        wrapped: list[Any] = []
+        for function in tool_list:
+            name = getattr(function, "_name", getattr(function, "__name__", ""))
+            if name in _PROMPT_TOOL_NAMES:
+                wrapped.append(_PromptStoppingTool(function).tool)
+            else:
+                wrapped.append(FunctionTool(function))
+        return wrapped
 
     async def handle_turn(
         self,
@@ -549,6 +427,49 @@ class LocationChatService:
             message=message,
             conversation_id=conversation_id,
         )
+
+        if self._use_adk:
+            if not self._ready():
+                return await self._finish(
+                    turn,
+                    _UNAVAILABLE_MESSAGE,
+                    user_id,
+                    errored=True,
+                    state_changed=False,
+                    availability=_RUNTIME_UNAVAILABLE,
+                )
+            try:
+                reply, errored, state_changed, directives, prompts = await self._run_adk_tool_loop(
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    history=turn.history,
+                    message=message,
+                )
+            except Exception:
+                logger.exception("Location ADK turn failed")
+                return await self._finish(
+                    turn,
+                    _UNAVAILABLE_MESSAGE,
+                    user_id,
+                    errored=True,
+                    state_changed=False,
+                    availability=_RUNTIME_UNAVAILABLE,
+                )
+            client_prompt = self._build_client_prompt(prompts)
+            client_action = (
+                None if client_prompt is not None else self._build_client_action(directives)
+            )
+            if client_action is not None or client_prompt is not None:
+                state_changed = False
+            return await self._finish(
+                turn,
+                reply or "Done.",
+                user_id,
+                errored=errored,
+                state_changed=state_changed and not errored,
+                client_action=client_action,
+                client_prompt=client_prompt,
+            )
 
         if self._types is None or not self._ready():
             return await self._finish(
@@ -596,6 +517,63 @@ class LocationChatService:
             client_prompt=client_prompt,
         )
 
+    async def _run_adk_tool_loop(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        history: list[Any],
+        message: str,
+    ) -> tuple[str, bool, bool, list[dict], list[dict]]:
+        """Execute Location through the shared manifest-backed ADK turn."""
+        try:
+            turn = await run_specialist_adk_turn(
+                agent=self._build_adk_agent(),
+                app_name="hushh_location",
+                user_id=user_id,
+                consent_token=consent_token,
+                message=message,
+                history=history,
+                scope_tokens=self._scope_tokens,
+                service_ports={"location": self._location_service}
+                if self._location_service is not None
+                else {},
+                max_llm_calls=_MAX_TOOL_STEPS,
+            )
+            failed = False
+        except SpecialistAdkTurnError as exc:
+            turn = exc.partial_turn
+            failed = True
+
+        directives: list[dict] = []
+        prompts: list[dict] = []
+        state_changed = False
+        for response in turn.tool_results:
+            name = str(response.name or "")
+            result = response.response if isinstance(response.response, dict) else {}
+            if not result.get("error"):
+                state_changed = state_changed or name not in _QUERY_TOOL_NAMES
+                directive = self._directive_from_tool(name, result)
+                prompt = self._prompt_from_tool(name, result)
+                if directive is not None:
+                    directives.append(directive)
+                if prompt is not None:
+                    prompts.append(prompt)
+        if failed and not (state_changed or directives or prompts):
+            raise RuntimeError("Location ADK turn failed")
+        return (
+            turn.final_text,
+            failed and not (state_changed or directives or prompts),
+            state_changed,
+            directives,
+            prompts,
+        )
+
+    def _build_adk_agent(self):
+        from hushh_mcp.agents.location.agent import build_location_agent
+
+        return build_location_agent(tools=self._adk_tools, model=self._adk_model)
+
     async def _run_tool_loop(
         self, *, user_id: str, consent_token: str, contents: list
     ) -> tuple[str, bool, bool, list[dict], list[dict]]:
@@ -609,7 +587,7 @@ class LocationChatService:
         config = build_kai_generation_config(
             types,
             system_instruction=self._system_prompt,
-            tools=[types.Tool(function_declarations=_function_declarations_v2(types))],
+            tools=[types.Tool(function_declarations=_function_declarations(types))],
             temperature=0.2,
         )
         reply = ""
@@ -617,7 +595,15 @@ class LocationChatService:
         state_changed = False
         directives: list[dict] = []
         prompts: list[dict] = []
-        with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
+        with HushhContext(
+            user_id=user_id,
+            consent_token=consent_token,
+            vault_keys={},
+            scope_tokens=self._scope_tokens,
+            service_ports={"location": self._location_service}
+            if self._location_service is not None
+            else {},
+        ):
             for _ in range(_MAX_TOOL_STEPS):
                 try:
                     calls, reply = await self._model_step(contents, config)
@@ -706,31 +692,10 @@ class LocationChatService:
         coordinate-free client-action descriptor."""
         if isinstance(result, dict) and result.get("error"):
             return None
-        if name in _DIRECTIVE_GRANT_TOOLS:
-            grant = result.get("grant") if "grant" in result else result
-            if not isinstance(grant, dict) or not grant.get("id"):
-                return None
-            return {
-                "type": "publish_share",
-                "share": {
-                    "grantId": str(grant.get("id")),
-                    "recipientUserId": str(grant.get("recipientUserId") or ""),
-                    "recipientKeyId": str(grant.get("recipientKeyId") or ""),
-                    "label": grant.get("recipientDisplayName") or "your recipient",
-                },
-            }
         if name == "propose_public_link" and result.get("proposed") == "create_public_link":
             return {"type": "create_public_link", "durationHours": result.get("durationHours")}
         if name == "propose_location_view" and result.get("proposed") == "view_envelope":
             return {"type": "view_envelope", "grantId": result.get("grantId")}
-        if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
-            return {"type": "sos_panic"}
-        if name == "propose_check_in" and result.get("proposed") == "check_in":
-            return {
-                "type": "check_in",
-                "durationHours": result.get("durationHours"),
-                "note": result.get("note"),
-            }
         if (
             name == "request_device_location_permission"
             and result.get("proposed") == "request_device_location_permission"
@@ -755,23 +720,11 @@ class LocationChatService:
     def _build_client_action(self, directives: list[dict]) -> dict | None:
         """Fold collected per-tool directives into one client-action payload.
 
-        Priority: publish_share > view_envelope > create_public_link > sos_panic.
-        Multiple publish_share grants are combined into a single shares[] list.
+        Priority: view_envelope > create_public_link > device permission.
         """
         if not directives:
             return None
         action_id = "act-" + uuid4().hex[:12]
-        shares = [
-            d["share"] for d in directives if d.get("type") == "publish_share" and d.get("share")
-        ]
-        if shares:
-            labels = ", ".join(s["label"] for s in shares)
-            return {
-                "id": action_id,
-                "type": "publish_share",
-                "shares": shares,
-                "summary": f"Share your live location with {labels}",
-            }
         view = next((d for d in directives if d.get("type") == "view_envelope"), None)
         if view:
             return {
@@ -788,25 +741,6 @@ class LocationChatService:
                 "type": "create_public_link",
                 "durationHours": hours,
                 "summary": f"Create a public link (viewable for {hours}h)",
-            }
-        sos = next((d for d in directives if d.get("type") == "sos_panic"), None)
-        if sos:
-            return {
-                "id": action_id,
-                "type": "sos_panic",
-                "summary": "Send SMS to your selected emergency contacts",
-            }
-        check_in = next((d for d in directives if d.get("type") == "check_in"), None)
-        if check_in:
-            hours = check_in.get("durationHours")
-            return {
-                "id": action_id,
-                "type": "check_in",
-                "durationHours": hours,
-                "note": check_in.get("note"),
-                "summary": f"Check in with your trusted contacts for {hours}h"
-                if hours is not None
-                else "Check in with your trusted contacts",
             }
         permission = next(
             (d for d in directives if d.get("type") == "request_device_location_permission"),
@@ -848,12 +782,7 @@ class LocationChatService:
             reply = _ACTION_RESULT_TEMPLATES.get((action_type, status), "Okay, that's handled.")
 
         errored = status == "failed"
-        state_changed = status == "completed" and action_type in (
-            "publish_share",
-            "create_public_link",
-            "sos_panic",
-            "check_in",
-        )
+        state_changed = status == "completed" and action_type == "create_public_link"
         conv_id = conversation_id or ""
         if conv_id:
             await self._chat_store.add_message(
@@ -910,8 +839,9 @@ class LocationChatService:
         seed = _selection_seed_text(selection_result)
         display = _selection_display_text(selection_result)
         # Persist the user's choice so a later turn in a multi-step clarification
-        # chain (e.g. pick recipient -> then pick duration) still sees the earlier
-        # answer. History was fetched above, so the current turn's contents are not
+        # chain (e.g. pick which incoming share -> then confirm viewing it) still
+        # sees the earlier answer. History was fetched above, so the current turn's
+        # contents are not
         # duplicated; future turns' get_recent_messages will include this choice.
         # `content` keeps the raw seed (the LLM needs exact ids — "do not guess");
         # the UI-facing display string rides in encrypted metadata so the transcript

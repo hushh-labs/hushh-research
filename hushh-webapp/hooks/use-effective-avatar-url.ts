@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheService } from "@/lib/services/cache-service";
+import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
+import { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
+export { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
 
 /**
  * The avatar URL to render for the CURRENT user on every surface.
@@ -14,11 +17,13 @@ import { CacheService } from "@/lib/services/cache-service";
  * the live Firebase `photoURL`. Subscribes to identity-cache changes so an
  * upload/remove refreshes every avatar surface at once (top bar, profile, …).
  */
-export function useEffectiveAvatarUrl(): string | null {
-  const { user } = useAuth();
-  const uid = user?.uid ?? null;
+export function useEffectiveAvatarUrl(options?: number | { fetchWhenCold?: boolean }): string | null {
+  const pixels = typeof options === "number" ? options : undefined;
+  const fetchWhenCold = typeof options === "object" ? options.fetchWhenCold ?? true : true;
+  const { user, userId } = useAuth();
+  const uid = userId;
   const firebasePhoto = user?.photoURL ?? null;
-  const [effective, setEffective] = useState<string | null>(null);
+  const [effective, setEffective] = useState<{ owner: string; url: string | null } | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -29,11 +34,22 @@ export function useEffectiveAvatarUrl(): string | null {
     const read = () => {
       if (!active) return;
       const snap = AccountIdentityService.peekCachedIdentity(uid);
-      setEffective(snap?.data?.photo_url ?? null);
+      setEffective({ owner: uid, url: snap?.data?.photo_url ?? null });
     };
     read();
+    if (shouldSkipAmbientIdentityHydrationForAutomation()) {
+      return;
+    }
     // Cold/stale cache → SWR fetch, then re-read the populated snapshot.
-    void AccountIdentityService.getIdentitySwr(user).then(() => read());
+    //
+    // SKIPPED WHILE THE SETUP GATE IS DECIDING. The top bar is suppressed on
+    // every setup surface, so this fetches an image nobody is looking at, out of
+    // a connection pool of four that a first-run person is waiting on.
+    // `PhoneMandateGuard` fetches the same identity BELOW the gate, so the avatar
+    // still populates -- one tick later, on a screen that is showing it.
+    if (fetchWhenCold) {
+      void AccountIdentityService.getIdentitySwr(user).then(() => read());
+    }
     // Re-read on any identity-cache mutation (peek is O(1); setState bails on an
     // unchanged value). Covers upload/remove write-through updates everywhere.
     const unsubscribe = CacheService.getInstance().subscribe(() => read());
@@ -44,7 +60,11 @@ export function useEffectiveAvatarUrl(): string | null {
     // Depend on uid only — the Firebase `user` object changes on every token
     // refresh; the fallback is read from `firebasePhoto` at render time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid]);
+  }, [uid, fetchWhenCold]);
 
-  return effective ?? firebasePhoto;
+  const cached = effective && effective.owner === uid ? effective.url : null;
+  const photo = cached ?? firebasePhoto;
+  // Preserve custom uploads exactly. Request richer provider media only when
+  // the effective image is the actual provider fallback, not an override.
+  return pixels !== undefined && photo === firebasePhoto ? providerAvatarAtSize(photo, pixels) : photo;
 }

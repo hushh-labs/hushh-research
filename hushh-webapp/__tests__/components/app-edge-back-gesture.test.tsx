@@ -1,0 +1,173 @@
+// @vitest-environment jsdom
+
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
+
+const capacitor = vi.hoisted(() => ({ native: true, platform: "ios" }));
+const navigation = vi.hoisted(() => ({ pathname: "/one/kai" }));
+const backAction = vi.hoisted(() => ({
+  resolve: vi.fn(() => ({ href: "/one", mode: "push", transitionMode: "full" })),
+  navigate: vi.fn(),
+}));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => capacitor.native,
+    getPlatform: () => capacitor.platform,
+  },
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("@/lib/navigation/top-shell-back", () => ({
+  resolveTopShellBackAction: (...args: unknown[]) => backAction.resolve(...args),
+  navigateTopShellBack: (...args: unknown[]) => backAction.navigate(...args),
+}));
+
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  requestInternalAppNavigation: vi.fn(),
+}));
+
+function touch(id: number, x: number, y: number) {
+  return { identifier: id, clientX: x, clientY: y } as unknown as Touch;
+}
+
+describe("AppEdgeBackGesture", () => {
+  beforeEach(() => {
+    capacitor.native = true;
+    capacitor.platform = "ios";
+    backAction.navigate.mockClear();
+  });
+
+  afterEach(() => {
+    document.documentElement.removeAttribute("data-app-edge-back-active");
+  });
+
+  it("enables when a local layer mounts and sends the gesture through the real hierarchy", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/navigation/top-shell-back")>("@/lib/navigation/top-shell-back");
+    backAction.resolve.mockImplementation(() => null!);
+    backAction.navigate.mockImplementation(params => actual.navigateTopShellBack(params));
+    const feature = vi.fn(() => true);
+    const view = render(<AppEdgeBackGesture />);
+    let release: () => void = () => {};
+    try {
+      act(() => { release = registerBackLayer({ pathname: navigation.pathname, depth: 1, back: feature }); });
+      fireEvent.touchStart(document, { touches: [touch(99, 12, 300)], timeStamp: 0 });
+      fireEvent.touchMove(document, { touches: [touch(99, 100, 304)], timeStamp: 100 });
+      fireEvent.touchEnd(document, { changedTouches: [touch(99, 110, 304)], timeStamp: 120 });
+      expect(feature).toHaveBeenCalledOnce();
+    } finally {
+      act(() => release());
+      view.unmount();
+      backAction.resolve.mockImplementation(() => ({ href: "/one", mode: "push", transitionMode: "full" }));
+      backAction.navigate.mockReset();
+    }
+  });
+
+  it("commits a rightward edge swipe without cancelling the touch default", () => {
+    const registrations = vi.spyOn(window, "addEventListener");
+    const view = render(<AppEdgeBackGesture />);
+    for (const name of ["pointerdown", "pointermove", "pointerup", "touchstart", "touchmove", "touchend"]) {
+      const listeners = registrations.mock.calls.filter(([type]) => type === name);
+      expect(listeners).toHaveLength(1);
+      expect(listeners[0]).toEqual([name, expect.any(Function),
+        expect.objectContaining({ capture: true, passive: true })]);
+    }
+    for (const [name, , options] of registrations.mock.calls) {
+      if (/^(pointer|touch)/.test(name)) expect(options).not.toEqual(expect.objectContaining({ passive: false }));
+    }
+    registrations.mockRestore();
+
+    fireEvent.touchStart(document, {
+      touches: [touch(1, 12, 300)],
+      timeStamp: 0,
+    });
+
+    // Passive listeners: the move must never be default-prevented, because a
+    // non-passive touchmove on `window` makes WebKit wait for the main thread
+    // on every scroll in the app, not only on edge swipes.
+    const move = new TouchEvent("touchmove", {
+      bubbles: true,
+      cancelable: true,
+      touches: [touch(1, 60, 304)],
+    });
+    const cancellation = vi.spyOn(move, "preventDefault");
+    document.dispatchEvent(move);
+    expect(cancellation).not.toHaveBeenCalled();
+    expect(move.defaultPrevented).toBe(false);
+    expect(document.documentElement.dataset.appEdgeBackActive).toBe("true");
+
+    fireEvent.touchEnd(document, {
+      changedTouches: [touch(1, 96, 306)],
+      timeStamp: 120,
+    });
+
+    expect(backAction.navigate).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it("ignores a touch that starts outside the 28px edge lane", () => {
+    render(<AppEdgeBackGesture />);
+
+    fireEvent.touchStart(document, {
+      touches: [touch(2, 120, 300)],
+      timeStamp: 0,
+    });
+    fireEvent.touchMove(document, {
+      touches: [touch(2, 240, 300)],
+      timeStamp: 80,
+    });
+    fireEvent.touchEnd(document, {
+      changedTouches: [touch(2, 240, 300)],
+      timeStamp: 120,
+    });
+
+    expect(backAction.navigate).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.appEdgeBackActive).not.toBe("true");
+  });
+
+  it("yields to a vertical drag that begins in the edge lane", () => {
+    render(<AppEdgeBackGesture />);
+
+    fireEvent.touchStart(document, {
+      touches: [touch(3, 10, 300)],
+      timeStamp: 0,
+    });
+    fireEvent.touchMove(document, {
+      touches: [touch(3, 14, 340)],
+      timeStamp: 60,
+    });
+    fireEvent.touchEnd(document, {
+      changedTouches: [touch(3, 20, 420)],
+      timeStamp: 140,
+    });
+
+    expect(backAction.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does nothing off native iOS", () => {
+    capacitor.native = false;
+    render(<AppEdgeBackGesture />);
+
+    fireEvent.touchStart(document, {
+      touches: [touch(4, 12, 300)],
+      timeStamp: 0,
+    });
+    fireEvent.touchMove(document, {
+      touches: [touch(4, 90, 302)],
+      timeStamp: 80,
+    });
+    fireEvent.touchEnd(document, {
+      changedTouches: [touch(4, 110, 302)],
+      timeStamp: 120,
+    });
+
+    expect(backAction.navigate).not.toHaveBeenCalled();
+  });
+});

@@ -7,7 +7,10 @@ import {
   useCallback,
   useRef,
   useLayoutEffect,
+  lazy,
+  Suspense,
 } from "react";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { Capacitor } from "@capacitor/core";
 import { Button, Card } from "@/lib/morphy-ux/morphy";
 import {
@@ -15,32 +18,49 @@ import {
   Loader2,
   AlertCircle,
   Key,
+  AccentedKeyIcon,
   Check,
   Copy,
   Download,
+  ArrowRight,
   Fingerprint,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { VaultService } from "@/lib/services/vault-service";
+import {
+  VaultAuthSessionNotReadyError,
+  VaultService,
+} from "@/lib/services/vault-service";
+import { isRetryableVaultReadError, VAULT_READ_RETRY_DELAYS_MS } from "@/lib/vault/vault-read-recovery";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { User } from "firebase/auth";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  ProfilePanePreviewIcon,
+  ProfilePanePreviewOffIcon,
+} from "@/components/profile/profile-pane-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
+import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 import { VaultMethodService, type VaultMethod } from "@/lib/services/vault-method-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
+import {
+  isQuickUnlockTrustRequired,
+  VaultQuickUnlockTrustLocalService,
+} from "@/lib/services/vault-quick-unlock-trust-local-service";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { checkPrfSupport } from "@/lib/vault/prf-auth";
 import { copyToClipboard } from "@/lib/utils/clipboard";
-import { reloadWindow } from "@/lib/utils/browser-navigation";
+import { trackEvent } from "@/lib/observability/client";
 import {
   toInvestorLoading,
   toInvestorMessage,
@@ -63,6 +83,12 @@ type VaultStep =
   | "recovery"
   | "method";
 type VaultMode = "passphrase" | GeneratedVaultKeyMode;
+const LostVaultDeletePanel = lazy(() =>
+  import("@/components/vault/lost-vault-delete-panel").then((module) => ({
+    default: module.LostVaultDeletePanel,
+  })),
+);
+type VaultUnlockAttempt = { controller: AbortController; userId: string; requestId: string; generatedMode?: GeneratedVaultKeyMode };
 
 interface VaultFlowProps {
   user: User;
@@ -74,7 +100,13 @@ interface VaultFlowProps {
    * not dismiss until the user explicitly confirms that they saved it.
    */
   onRecoveryKeyDisclosureChange?: (active: boolean) => void;
+  /** Prevent setup navigation while a newly created vault is being persisted. */
+  onCreateBusyChange?: (busy: boolean) => void;
+  /** Setup-only visual layout; vault creation and recovery remain unchanged. */
+  setupPresentation?: boolean;
   enableGeneratedDefault?: boolean;
+  /** Hard gates own the automatic passkey ceremony when surfaces overlap. */
+  isHardGate?: boolean;
   /**
    * Setup routes may open an existing vault but must never create one before
    * the root "Finish setup" boundary. The post-setup invitation keeps the
@@ -90,19 +122,197 @@ interface VaultFlowProps {
 }
 
 const VAULT_ALTERNATIVE_BUTTON_CLASS =
-  "h-11 rounded-full border border-[color:var(--app-accent-border)] px-3 text-[13px] font-medium sm:text-[14px] !bg-[color:var(--app-accent-tint)] !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]";
+  "min-h-11 h-auto whitespace-normal rounded-full border border-[color:var(--app-accent-border)] px-3 py-2 text-[13px] leading-snug font-medium sm:text-[14px] !bg-[color:var(--app-accent-tint)] !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]";
+const VAULT_ESCAPE_LINK_CLASS =
+  "inline-flex min-h-11 h-11 items-start rounded-none px-0 py-0 text-[13px] font-semibold leading-5 !text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]";
+const VAULT_INPUT_SHELL_CLASS =
+  "flex h-14 items-center gap-3 rounded-[var(--app-input-radius)] border-[1.5px] bg-black/[0.02] px-4 dark:bg-white/[0.04]";
+const VAULT_INPUT_CONTROL_CLASS =
+  "h-full min-h-11 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-foreground/35";
+const VAULT_INPUT_VISIBILITY_CLASS =
+  "inline-flex size-11 shrink-0 items-center justify-center text-foreground/50 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]";
+const VAULT_FIELD_STACK_CLASS = "space-y-[var(--app-form-field-gap)]";
+
+// A passkey cancellation is a normal user decision, not an application
+// failure. Keep it in the credential surface so the user can choose a
+// fallback without a disappearing toast or an automatic second ceremony.
+//
+// A bare "cancel" or "cancelled" substring is too broad — it matches
+// aborted fetches, cancelled analytics, and other non-WebAuthn noise.
+// Require at least one WebAuthn-specific context word alongside the
+// cancellation signal so we only silence real passkey dismissals.
+const WEBAUTHN_CANCEL_CONTEXT = [
+  "passkey",
+  "authentication",
+  "credential",
+  "webauthn",
+  "webauth",
+  "user",
+  "operation",
+  "request",
+  "prompt",
+  "securitykey",
+  "security key",
+];
+function isWebAuthnCancellationError(value: unknown): boolean {
+  const error = value as { name?: unknown; message?: unknown; code?: unknown } | null;
+  const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
+  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
+  const message =
+    typeof value === "string"
+      ? value.toLowerCase()
+      : typeof error?.message === "string"
+        ? error.message.toLowerCase()
+        : "";
+
+  // AbortError / NotAllowedError from navigator.credentials.get are the
+  // two most reliable signals — they are DOMException names, not strings.
+  if (name === "aborterror" || name === "notallowederror") return true;
+
+  // Structured AbortSignal cancellation codes used by some frameworks.
+  if (code.includes("cancel") || code.includes("abort")) return true;
+
+  // For substring matches, require a WebAuthn context word near the cancel
+  // term so we don't misclassify unrelated cancellations. Match both
+  // British "cancelled" and American "canceled" spellings.
+  const hasCancel = (text: string): boolean =>
+    /cancell?ed?/i.test(text) || /timed out or was not allowed/i.test(text);
+
+  if (hasCancel(message)) {
+    return WEBAUTHN_CANCEL_CONTEXT.some((ctx) => message.includes(ctx));
+  }
+
+  // A few platform-specific cancellation strings that carry their own context.
+  const explicitCancelPhrases = [
+    "passkey request cancelled",
+    "passkey request canceled",
+    "passkey authentication cancelled",
+    "passkey authentication canceled",
+    "user cancelled",
+    "user canceled",
+    "cancelled by user",
+    "canceled by user",
+  ];
+  return explicitCancelPhrases.some((phrase) => message.includes(phrase));
+}
+
+function isDuplicateWebAuthnError(value: unknown): boolean {
+  const error = value as { name?: unknown; message?: unknown } | null;
+  const name = typeof error?.name === "string" ? error.name : "";
+  const message = typeof error?.message === "string" ? error.message : "";
+  return (
+    name === "WebAuthnCeremonyInProgressError" ||
+    message.toLowerCase().includes("already in progress")
+  );
+}
+
+const GENERATED_UNLOCK_CANCELLED_EVENT = "vault-generated-unlock-cancelled";
+
+type GeneratedUnlockClaim = {
+  owner: symbol;
+  userId: string;
+  mode: GeneratedVaultKeyMode;
+};
+
+type GeneratedUnlockAttemptSource = "automatic" | "user";
+
+function isGeneratedVaultKeyMode(
+  value: string,
+): value is GeneratedVaultKeyMode {
+  return (
+    value === "generated_default_native_biometric" ||
+    value === "generated_default_web_prf" ||
+    value === "generated_default_native_passkey_prf"
+  );
+}
+
+// A locked session can briefly have more than one mounted VaultFlow while a
+// route gate takes ownership. The browser and the native Credential Manager
+// must see one page-wide ceremony. A settled attempt must also outlive a UI
+// handoff: browser focus can briefly unmount the flow for session verification,
+// but that must not turn a cancellation or provider failure into permission to
+// show another passkey prompt.
+let activeGeneratedUnlockClaim: GeneratedUnlockClaim | null = null;
+let cancelledGeneratedUnlock: Omit<GeneratedUnlockClaim, "owner"> | null = null;
+
+function isGeneratedUnlockCancelled(
+  userId: string,
+  mode: GeneratedVaultKeyMode,
+): boolean {
+  return (
+    cancelledGeneratedUnlock?.userId === userId &&
+    cancelledGeneratedUnlock.mode === mode
+  );
+}
+
+function clearGeneratedUnlockCancellation(
+  userId: string,
+  mode: GeneratedVaultKeyMode,
+): void {
+  if (isGeneratedUnlockCancelled(userId, mode)) {
+    cancelledGeneratedUnlock = null;
+  }
+}
+
+function claimGeneratedUnlock(
+  owner: symbol,
+  userId: string,
+  mode: GeneratedVaultKeyMode,
+  source: GeneratedUnlockAttemptSource,
+): "claimed" | "busy" | "cancelled" {
+  if (source === "automatic" && isGeneratedUnlockCancelled(userId, mode)) {
+    return "cancelled";
+  }
+  if (source === "user") {
+    clearGeneratedUnlockCancellation(userId, mode);
+  }
+  if (
+    activeGeneratedUnlockClaim &&
+    activeGeneratedUnlockClaim.owner !== owner
+  ) {
+    return "busy";
+  }
+  activeGeneratedUnlockClaim = { owner, userId, mode };
+  return "claimed";
+}
+
+function markGeneratedUnlockCancelled(
+  owner: symbol,
+  userId: string,
+  mode: GeneratedVaultKeyMode,
+): void {
+  if (activeGeneratedUnlockClaim?.owner !== owner) return;
+  cancelledGeneratedUnlock = { userId, mode };
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(GENERATED_UNLOCK_CANCELLED_EVENT, {
+        detail: { userId, mode },
+      }),
+    );
+  }
+}
+
+function releaseGeneratedUnlock(owner: symbol): void {
+  if (activeGeneratedUnlockClaim?.owner !== owner) return;
+  activeGeneratedUnlockClaim = null;
+}
 
 function VaultFlowHeader({
+  user,
   icon,
   title,
   description,
-  hint,
+  setupPresentation = false,
 }: {
+  user: User;
   icon: LucideIcon;
   title: string;
   description: string;
-  hint?: string | null;
+  setupPresentation?: boolean;
 }) {
+  // Presentation only: the current authenticated owner supplies the identity.
+  // Email/provider presence never authorizes unlock or infers a vault method.
+  const providerId = user.providerData?.[0]?.providerId;
   return (
     <div data-vault-flow-header className="text-center">
       <div
@@ -123,42 +333,93 @@ function VaultFlowHeader({
         {title}
       </div>
       <p className="mt-1 type-subhead text-muted-foreground">{description}</p>
-      {hint ? (
-        <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[color:var(--app-accent-tint)] px-3.5 py-2.5 type-footnote text-muted-foreground">
-          {hint}
-        </p>
-      ) : null}
+      <div
+        data-vault-account-identity
+        className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-1 type-footnote text-muted-foreground"
+      >
+        <EmailIdentityMark email={user.email} providerId={providerId} size={setupPresentation ? 20 : 17} />
+        <span className="min-w-0 break-all">
+          {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
+        </span>
+      </div>
     </div>
   );
 }
 
-export function VaultFlow({
+export function VaultFlow(props: VaultFlowProps) {
+  const owner = snapshotValidatedAuthSessionPrincipal();
+  if (!owner || owner.firebaseUid !== props.user.uid) {
+    return <p role="status">Verify your account before unlocking.</p>;
+  }
+  return <OwnerVaultFlow key={`${owner.userId}:${owner.generation}`} {...props} owner={owner} />;
+}
+
+function OwnerVaultFlow({
   user,
+  owner,
   onSuccess,
   onStepChange,
   onRecoveryKeyDisclosureChange,
+  onCreateBusyChange,
+  setupPresentation = false,
   enableGeneratedDefault = false,
+  isHardGate = false,
   allowVaultCreation = true,
   onSignOut,
-}: VaultFlowProps) {
+}: VaultFlowProps & { owner: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionPrincipal>> }) {
+  const ownerId = owner.ownerId;
+  const ownerBrowserGeneration = owner.generation;
   const [step, setStep] = useState<VaultStep>("checking");
+  const [showLostVaultDeletion, setShowLostVaultDeletion] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [passphrase, setPassphrase] = useState("");
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState<string>("");
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [vaultMode, setVaultMode] = useState<VaultMode>("passphrase");
-  const [unlockHint, setUnlockHint] = useState<string | null>(null);
   const [availableGeneratedMethod, setAvailableGeneratedMethod] =
     useState<GeneratedVaultKeyMode | null>(null);
   const [unlockWithPassphraseFallback, setUnlockWithPassphraseFallback] =
     useState(() => shouldSkipGeneratedVaultUnlockForAutomation());
+  // True while the quick method has not yet unlocked the vault on this device
+  // (native only): the gate opens on the passphrase form with the quick
+  // method one tap away instead of starting its ceremony.
+  const [quickUnlockUntrusted, setQuickUnlockUntrusted] = useState(false);
   const [pendingUnlockKey, setPendingUnlockKey] = useState<string | null>(null);
+  const pendingUnlockOwnerRef = useRef<string | null>(null);
+  const biometricEnrollmentMissingRef = useRef(false);
   const [recommendedQuickMethod, setRecommendedQuickMethod] =
     useState<VaultMethod | null>(null);
+  /**
+   * The quick-unlock method this device can offer a brand-new vault, probed
+   * while the passphrase is still being typed.
+   *
+   * Creating a vault used to be three screens -- passphrase, recovery key, then
+   * a whole screen asking "Enable quicker unlock?" -- and the third one asked a
+   * yes/no question the first screen had room for. Probing here is what lets
+   * the offer sit next to the passphrase fields: it is a capability check
+   * (`isUserVerifyingPlatformAuthenticatorAvailable` and its native
+   * equivalents), not an authentication, so it shows no prompt of its own.
+   */
+  const [createQuickUnlockMethod, setCreateQuickUnlockMethod] =
+    useState<VaultMethod | null>(null);
+  /**
+   * Whether the new vault should get quick unlock, chosen on the create screen.
+   *
+   * Starts on, because the screen it replaced made "Enable" the primary button
+   * and "Not now" the quiet one -- the recommendation moves with the control.
+   * Nothing is registered from this alone: the choice is applied on the next
+   * deliberate tap, and the operating system's own passkey prompt is still the
+   * gate. Passphrase and recovery-key unlock are both retained either way.
+   */
+  const [createWantsQuickUnlock, setCreateWantsQuickUnlock] = useState(true);
   // Decision about whether a usable platform authenticator exists for the web
   // passkey (PRF) path. It starts "unknown" and resolves asynchronously via
   // PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(). We use
@@ -173,7 +434,77 @@ export function VaultFlow({
     "unknown" | "available" | "unavailable"
   >("unknown");
   const autoGeneratedPromptedRef = useRef(false);
+  const generatedUnlockAttemptRef = useRef(false);
+  const generatedUnlockCancelledRef = useRef(false);
+  const flowInstanceRef = useRef(Symbol("vault-flow"));
   const signOutRequestedRef = useRef(false);
+  const attemptRef = useRef<VaultUnlockAttempt | null>(null);
+  const currentUserIdRef = useRef(ownerId);
+  currentUserIdRef.current = ownerId;
+  const [biometricLabel, setBiometricLabel] = useState("Biometrics");
+
+  const isCurrentAttempt = useCallback((attempt: VaultUnlockAttempt) =>
+    isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) && attemptRef.current === attempt && !attempt.controller.signal.aborted &&
+    attempt.userId === currentUserIdRef.current && !signOutRequestedRef.current, [ownerId, ownerBrowserGeneration]);
+
+  const cancelAttempt = useCallback(() => {
+    const attempt = attemptRef.current;
+    attemptRef.current = null;
+    if (attempt) {
+      attempt.controller.abort();
+      if (attempt.generatedMode) {
+        markGeneratedUnlockCancelled(flowInstanceRef.current, attempt.userId, attempt.generatedMode);
+      }
+      void VaultBootstrapService.cancelAuthentication(attempt.requestId).catch(() => undefined);
+    }
+    generatedUnlockAttemptRef.current = false;
+    releaseGeneratedUnlock(flowInstanceRef.current);
+  }, []);
+
+  const beginAttempt = useCallback((): VaultUnlockAttempt | null => {
+    if (!isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) || attemptRef.current || signOutRequestedRef.current) return null;
+    const attempt = { controller: new AbortController(), userId: ownerId, requestId: crypto.randomUUID() };
+    attemptRef.current = attempt;
+    return attempt;
+  }, [ownerId, ownerBrowserGeneration]);
+
+  const finishAttempt = useCallback((attempt: VaultUnlockAttempt) => {
+    if (!isCurrentAttempt(attempt)) return;
+    attemptRef.current = null;
+    setIsUnlocking(false);
+  }, [isCurrentAttempt]);
+
+  const switchUnlockMethod = useCallback(() => {
+    cancelAttempt();
+    autoGeneratedPromptedRef.current = true;
+    generatedUnlockCancelledRef.current = true;
+    setIsUnlocking(false);
+    setError(null);
+  }, [cancelAttempt]);
+
+  useEffect(() => {
+    signOutRequestedRef.current = false;
+    setPendingUnlockKey(null);
+    pendingUnlockOwnerRef.current = null;
+    biometricEnrollmentMissingRef.current = false;
+    setPassphrase("");
+    setConfirmPassphrase("");
+    setRecoveryKey("");
+    setRecoveryKeyInput("");
+    setStep("checking");
+    autoGeneratedPromptedRef.current = false;
+    return () => { cancelAttempt(); };
+  }, [cancelAttempt, ownerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (Capacitor.isNativePlatform()) {
+      void VaultBootstrapService.getBiometricLabel().then((label) => {
+        if (!cancelled) setBiometricLabel(label);
+      });
+    }
+    return () => { cancelled = true; };
+  }, []);
   // React state updates after an event. These guards make the underlying vault
   // operation idempotent when Enter and a pointer action land in the same turn.
   const createPassphraseAttemptRef = useRef(false);
@@ -189,12 +520,69 @@ export function VaultFlow({
     hostname: hostname,
   });
 
-  const { unlockVault } = useVault();
+  const { isVaultUnlocked, unlockVault } = useVault();
+
+  useEffect(() => {
+    const handleGeneratedUnlockCancelled = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        userId?: unknown;
+        mode?: unknown;
+      }>).detail;
+      if (detail?.userId !== ownerId || detail.mode !== vaultMode) return;
+
+      generatedUnlockCancelledRef.current = true;
+      setUnlockWithPassphraseFallback(true);
+      setError(null);
+    };
+
+    window.addEventListener(
+      GENERATED_UNLOCK_CANCELLED_EVENT,
+      handleGeneratedUnlockCancelled,
+    );
+    return () => {
+      window.removeEventListener(
+        GENERATED_UNLOCK_CANCELLED_EVENT,
+        handleGeneratedUnlockCancelled,
+      );
+    };
+  }, [ownerId, vaultMode]);
 
   // Notify parent of step changes
   useEffect(() => {
     onStepChange?.(step);
   }, [step, onStepChange]);
+
+  // Probe once the create screen is up, so the offer is either there when the
+  // passphrase is submitted or not offered at all. A device with no platform
+  // authenticator never sees the row, which is the same outcome the separate
+  // screen reached by never appearing.
+  useEffect(() => {
+    if (step !== "create" || !enableGeneratedDefault) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const capability = await VaultMethodService.getCapabilityMatrix();
+        if (cancelled) return;
+        setCreateQuickUnlockMethod(
+          capability.recommendedMethod === "passphrase"
+            ? null
+            : capability.recommendedMethod,
+        );
+      } catch {
+        // Unavailable is the safe answer: the vault is still created with a
+        // passphrase, exactly as it is on a device that cannot do this.
+        if (!cancelled) setCreateQuickUnlockMethod(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enableGeneratedDefault, step]);
+
+  const isPasskeyQuickUnlock =
+    createQuickUnlockMethod === "generated_default_web_prf" ||
+    createQuickUnlockMethod === "generated_default_native_passkey_prf";
+  const createQuickUnlockLabel = isPasskeyQuickUnlock ? "Passkey" : biometricLabel;
 
   const recoveryKeyDisclosureActive =
     step === "recovery" && Boolean(recoveryKey);
@@ -225,7 +613,7 @@ export function VaultFlow({
   const createPassphraseHelperText = createPassphraseTooShort
     ? "Minimum 8 characters required."
     : createPassphraseMismatch
-      ? "Passphrases do not match."
+      ? "Passwords do not match."
       : null;
   const canCreatePassphrase =
     !isUnlocking &&
@@ -237,9 +625,9 @@ export function VaultFlow({
     vaultMode === "generated_default_native_passkey_prf"
       ? "Passkey"
       : vaultMode === "generated_default_native_biometric"
-        ? "Device security"
+        ? biometricLabel
         : "Secure unlock";
-  const compactGeneratedUnlockLabel = "Passkey";
+  const compactGeneratedUnlockLabel = availableGeneratedMethod === "generated_default_native_biometric" ? biometricLabel : "Passkey";
   // The web passkey (PRF) path requires a usable platform authenticator. When
   // the browser cannot provide one, the passkey method is unsupported here, so
   // we hide every passkey re-attempt affordance and never invite the user back
@@ -257,46 +645,46 @@ export function VaultFlow({
     hasGeneratedUnlockAlternative &&
     !unlockWithPassphraseFallback &&
     !webPasskeyUnsupported;
-  const showRecoveryAlternative = true;
-  const showUnlockOtherMethods =
-    showVaultKeyAlternative || showPasskeyAlternative || showRecoveryAlternative;
-  const unlockAlternativeCount = [
-    showVaultKeyAlternative,
+  // While the quick method is not yet trusted on this device, its button is
+  // the way in and stays visible past a wrong passphrase.
+  const showPasskeyFallbackAlternative =
     !webPasskeyUnsupported &&
-      ((hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
-        showPasskeyAlternative),
-    showRecoveryAlternative,
-  ].filter(Boolean).length;
-  const generatedUnlockError =
-    hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && error
-      ? error
-      : null;
-
-  const finalizeUnlock = useCallback(async (decryptedKey: string): Promise<boolean> => {
-    if (signOutRequestedRef.current) {
+    (!error || quickUnlockUntrusted) &&
+    ((hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
+      showPasskeyAlternative);
+  const showRecoveryAlternative = true;
+  const hasUnlockFallback =
+    showVaultKeyAlternative ||
+    showPasskeyFallbackAlternative ||
+    (showRecoveryAlternative && !onSignOut);
+  const finalizeUnlock = useCallback(async (decryptedKey: string, attempt: VaultUnlockAttempt): Promise<boolean> => {
+    if (!isCurrentAttempt(attempt)) {
       return false;
     }
     try {
-      const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(user.uid);
-      if (signOutRequestedRef.current) {
+      const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(ownerId);
+      if (!isCurrentAttempt(attempt)) {
         return false;
       }
-      VaultService.setVaultCheckCache(user.uid, true);
-      unlockVault(decryptedKey, token, expiresAt);
+      VaultService.setVaultCheckCache(ownerId, true);
+      if (unlockVault(decryptedKey, token, expiresAt) === false) return false;
       onSuccess({ mode: vaultMode });
       return true;
     } catch (tokenError) {
+      if (!isCurrentAttempt(attempt)) return false;
       console.error("Failed to issue VAULT_OWNER token:", tokenError);
       toast.error("Vault opened, but we could not complete access setup. Please try again.");
       return false;
     }
-  }, [onSuccess, unlockVault, user.uid, vaultMode]);
+  }, [isCurrentAttempt, onSuccess, unlockVault, ownerId, vaultMode]);
 
   const handleConfirmSignOut = useCallback(async () => {
     if (!onSignOut || isSigningOut || signOutRequestedRef.current) {
       return;
     }
     signOutRequestedRef.current = true;
+    cancelAttempt();
+    setPendingUnlockKey(null);
     setIsSigningOut(true);
     setIsUnlocking(false);
     try {
@@ -310,22 +698,35 @@ export function VaultFlow({
     } finally {
       setIsSigningOut(false);
     }
-  }, [isSigningOut, onSignOut]);
+  }, [cancelAttempt, isSigningOut, onSignOut]);
+
+  const handleShowRecoveryKey = useCallback(() => {
+    switchUnlockMethod();
+    setStep("recovery");
+  }, [switchUnlockMethod]);
 
   // Initial Vault Status Check
   useEffect(() => {
-    const checkStatus = async () => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const isCurrent = () => !cancelled && isValidatedAuthSessionOwnerCurrent({ userId: ownerId, generation: ownerBrowserGeneration }) && currentUserIdRef.current === ownerId && !signOutRequestedRef.current;
+    const MAX_SESSION_RESTORE_ATTEMPTS = 3;
+
+    const checkStatus = async (restoreAttempt = 0, readAttempt = 0) => {
+      if (!isCurrent()) return;
       try {
+        setIsRestoringSession(false);
         // Start the vault-state read in parallel with the existence check so a
         // cold backend pays a single round-trip latency instead of two
         // sequential cold calls (which made the first unlock feel slow). The
         // state read is only awaited on the has-vault branch; if no vault
         // exists we ignore it (and swallow its rejection to avoid an unhandled
         // promise warning).
-        const vaultStatePromise = VaultService.getVaultState(user.uid);
+        const vaultStatePromise = VaultService.getVaultState(ownerId);
         vaultStatePromise.catch(() => undefined);
 
-        const hasVault = await VaultService.checkVault(user.uid);
+        const hasVault = await VaultService.checkVault(ownerId);
+        if (!isCurrent()) return;
         if (!hasVault) {
           if (!allowVaultCreation) {
             setStep("setup_required");
@@ -333,7 +734,6 @@ export function VaultFlow({
           }
           setVaultMode("passphrase");
           setUnlockWithPassphraseFallback(false);
-          setUnlockHint(null);
           // Fresh vault creation is part of the same canonical credential
           // surface as unlock. Do not insert a second education screen here:
           // it adds height above the native keyboard and makes callers such as
@@ -343,23 +743,41 @@ export function VaultFlow({
         }
 
         try {
-          setUnlockHint(null);
           const vaultData = await vaultStatePromise;
+          if (!isCurrent()) return;
           const preferPassphraseForAutomation =
             shouldSkipGeneratedVaultUnlockForAutomation();
           const primaryWrapper = VaultService.getPrimaryWrapper(vaultData);
           const quickMethodCandidates: VaultMethod[] = Capacitor.isNativePlatform()
             ? [
-                "generated_default_native_passkey_prf",
                 "generated_default_native_biometric",
+                "generated_default_native_passkey_prf",
               ]
             : ["generated_default_web_prf"];
+          const [deviceWrapperId, quickUnlockTrust] = await Promise.all([
+            Capacitor.isNativePlatform()
+              ? VaultBootstrapService.getDeviceBiometricWrapperId(ownerId).catch(() => "default")
+              : Promise.resolve("default"),
+            isQuickUnlockTrustRequired()
+              ? VaultQuickUnlockTrustLocalService.load(ownerId)
+              : Promise.resolve(null),
+          ]);
+          if (!isCurrent()) return;
           const quickMethod =
             quickMethodCandidates
-              .map((method) => VaultService.getWrapperByMethod(vaultData, method))
+              .map((method) => VaultService.getWrapperByMethod(vaultData, method,
+                method === "generated_default_native_biometric" ? { wrapperId: deviceWrapperId } : undefined))
               .find((wrapper) => !!wrapper) ?? null;
           const nextQuickMethod = (quickMethod?.method as GeneratedVaultKeyMode | undefined) ?? null;
           setAvailableGeneratedMethod(nextQuickMethod);
+          // On the phone the quick method starts by itself only once it has
+          // unlocked the vault on this device; before that the gate opens on
+          // the passphrase form with the quick method one tap away (B38).
+          const quickUnlockUntrusted =
+            isQuickUnlockTrustRequired() &&
+            !!nextQuickMethod &&
+            quickUnlockTrust?.method !== nextQuickMethod;
+          setQuickUnlockUntrusted(quickUnlockUntrusted);
           const primaryPrefersQuickMethod =
             vaultData.primaryMethod === "generated_default_native_biometric" ||
             vaultData.primaryMethod === "generated_default_web_prf" ||
@@ -368,9 +786,6 @@ export function VaultFlow({
           if (primaryPrefersQuickMethod && !nextQuickMethod) {
             setVaultMode("passphrase");
             setUnlockWithPassphraseFallback(true);
-            setUnlockHint(
-              toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED")
-            );
           } else if (
             preferPassphraseForAutomation &&
             VaultService.getWrapperByMethod(vaultData, "passphrase")
@@ -379,28 +794,63 @@ export function VaultFlow({
             setUnlockWithPassphraseFallback(true);
           } else if (primaryPrefersQuickMethod && nextQuickMethod) {
             setVaultMode(nextQuickMethod);
-            setUnlockWithPassphraseFallback(preferPassphraseForAutomation);
+            setUnlockWithPassphraseFallback(
+              preferPassphraseForAutomation ||
+                quickUnlockUntrusted ||
+                isGeneratedUnlockCancelled(ownerId, nextQuickMethod),
+            );
           } else if (
             primaryWrapper.method === "generated_default_native_biometric" ||
             primaryWrapper.method === "generated_default_web_prf" ||
             primaryWrapper.method === "generated_default_native_passkey_prf"
           ) {
             setVaultMode(primaryWrapper.method);
-            setUnlockWithPassphraseFallback(preferPassphraseForAutomation);
+            setUnlockWithPassphraseFallback(preferPassphraseForAutomation || quickUnlockUntrusted);
           } else {
             setVaultMode(vaultData.primaryMethod);
             setUnlockWithPassphraseFallback(false);
           }
         } catch (metadataError) {
-          console.warn("Vault mode detection failed, defaulting to passphrase:", metadataError);
-          setVaultMode("passphrase");
-          setAvailableGeneratedMethod(null);
-          setUnlockWithPassphraseFallback(false);
-          setUnlockHint(null);
+          // A failed metadata read is not evidence of a passphrase Vault.
+          // In particular, terminal account errors must never select unlock.
+          throw metadataError;
         }
         setStep("unlock");
       } catch (err) {
+        if (!isCurrent()) return;
+        // A Firebase session still restoring is not a Vault failure -- it is
+        // evidence we asked before a token existed. Show a transient
+        // "restoring" state and retry a bounded number of times instead of
+        // surfacing a hard failure for what is, in most cases, a race that
+        // resolves within a second.
+        if (
+          err instanceof VaultAuthSessionNotReadyError &&
+          restoreAttempt < MAX_SESSION_RESTORE_ATTEMPTS
+        ) {
+          if (!isCurrent()) return;
+          setIsRestoringSession(true);
+          setError(null);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (!isCurrent()) return;
+          await checkStatus(restoreAttempt + 1, readAttempt);
+          return;
+        }
+
+        if (isRetryableVaultReadError(err) && readAttempt < VAULT_READ_RETRY_DELAYS_MS.length) {
+          const retry = () => {
+            if (!isCurrent()) return;
+            if (!navigator.onLine || document.visibilityState === "hidden") {
+              retryTimer = setTimeout(retry, VAULT_READ_RETRY_DELAYS_MS[readAttempt]);
+              return;
+            }
+            setError(null);
+            void checkStatus(restoreAttempt, readAttempt + 1);
+          };
+          retryTimer = setTimeout(retry, VAULT_READ_RETRY_DELAYS_MS[readAttempt]);
+        }
+
         console.error("Vault status check failed:", err);
+        setIsRestoringSession(false);
         const errorCode =
           typeof (err as { code?: unknown } | null | undefined)?.code === "string"
             ? (err as { code: string }).code
@@ -416,8 +866,19 @@ export function VaultFlow({
         }
       }
     };
-    checkStatus();
-  }, [allowVaultCreation, nativeTestConfig.vaultPassphrase, shouldPreferPassphraseUnlock, user.uid]);
+    void checkStatus();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
+  }, [
+    allowVaultCreation,
+    checkAttempt,
+    nativeTestConfig.vaultPassphrase,
+    shouldPreferPassphraseUnlock,
+    ownerId,
+    ownerBrowserGeneration,
+  ]);
 
   useLayoutEffect(() => {
     if (step !== "unlock") {
@@ -440,20 +901,24 @@ export function VaultFlow({
       return;
     }
     if (passphrase !== confirmPassphrase) {
-      toast.error("Passphrases do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
 
+    const attempt = beginAttempt();
+    if (!attempt) return;
     createPassphraseAttemptRef.current = true;
     setIsUnlocking(true);
+    onCreateBusyChange?.(true);
     try {
       setError(null);
       // 1. Generate encrypted vault data
       const vaultData = await VaultService.createVault(passphrase);
       const vaultKeyHash = await VaultService.hashVaultKey(vaultData.vaultKeyHex);
+      if (!isCurrentAttempt(attempt)) return;
 
       // 2. Save multi-wrapper vault state (mandatory passphrase wrapper)
-      await VaultService.setupVaultState(user.uid, {
+      await VaultService.setupVaultState(ownerId, {
         vaultKeyHash,
         primaryMethod: "passphrase",
         recoveryEncryptedVaultKey: vaultData.recoveryEncryptedVaultKey,
@@ -470,25 +935,28 @@ export function VaultFlow({
       });
 
       // 3. Verify state persisted correctly before moving ahead.
-      const persistedState = await VaultService.getVaultState(user.uid);
+      const persistedState = await VaultService.getVaultState(ownerId);
       await VaultService.assertVaultKeyMatchesState(
         persistedState,
         vaultData.vaultKeyHex
       );
       if (!VaultService.getWrapperByMethod(persistedState, "passphrase")) {
-        throw new Error("Vault setup verification failed: passphrase wrapper missing.");
+        throw new Error("Vault setup verification failed: password wrapper missing.");
       }
+      if (!isCurrentAttempt(attempt)) return;
 
       setVaultMode("passphrase");
-      VaultService.setVaultCheckCache(user.uid, true);
+      VaultService.setVaultCheckCache(ownerId, true);
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
     } catch (err: any) {
+      if (!isCurrentAttempt(attempt)) return;
       console.error("Create vault error:", err);
       toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       createPassphraseAttemptRef.current = false;
-      setIsUnlocking(false);
+      onCreateBusyChange?.(false);
+      finishAttempt(attempt);
     }
   };
 
@@ -501,10 +969,15 @@ export function VaultFlow({
   };
 
   const handleUnlockPassphraseWith = useCallback(async (passphraseValue: string) => {
+    const attempt = beginAttempt();
+    if (!attempt) return;
     setIsUnlocking(true);
     try {
       setError(null);
-      const vaultData = await VaultService.getVaultState(user.uid);
+      // An unlock decision must never run against a cached, possibly stale
+      // wrapper: force a fresh read so a passphrase change elsewhere cannot
+      // make a correct current passphrase look wrong.
+      const vaultData = await VaultService.getVaultState(ownerId, { forceFresh: true });
       const decryptedKey = await VaultService.unlockWithMethod({
         state: vaultData,
         method: "passphrase",
@@ -512,39 +985,69 @@ export function VaultFlow({
       });
 
       if (decryptedKey) {
+        if (!isCurrentAttempt(attempt)) return;
+        trackEvent("vault_unlock_result", { method: "passphrase", result: "success" });
         if (enableGeneratedDefault) {
+          try {
           const capability = await VaultMethodService.getCapabilityMatrix();
           if (capability.recommendedMethod !== "passphrase") {
-            const hasRecommendedWrapper =
-              VaultService.getWrapperByMethod(vaultData, capability.recommendedMethod) !== null;
-            const promptState = await VaultMethodPromptLocalService.load(user.uid);
+            const deviceWrapperId = capability.recommendedMethod === "generated_default_native_biometric"
+              ? await VaultBootstrapService.getDeviceBiometricWrapperId(ownerId).catch(() => "default")
+              : undefined;
+            const hasRecommendedWrapper = VaultService.getWrapperByMethod(vaultData,
+              capability.recommendedMethod, deviceWrapperId ? { wrapperId: deviceWrapperId } : undefined) !== null &&
+              !(capability.recommendedMethod === "generated_default_native_biometric" && biometricEnrollmentMissingRef.current);
+            const promptState = await VaultMethodPromptLocalService.load(ownerId);
             const dismissedForRecommendedMethod =
               promptState?.dismissed_for_method === capability.recommendedMethod &&
               promptState?.dismissed_for_rp_id === currentRpId;
+            if (!isCurrentAttempt(attempt)) return;
 
             if (!hasRecommendedWrapper && !dismissedForRecommendedMethod) {
+              pendingUnlockOwnerRef.current = ownerId;
               setPendingUnlockKey(decryptedKey);
               setRecommendedQuickMethod(capability.recommendedMethod);
               setStep("method");
               return;
             }
           }
+          } catch {
+            // The verified passphrase remains authoritative when optional
+            // device discovery or preference storage is unavailable.
+            if (!isCurrentAttempt(attempt)) return;
+          }
         }
-        await finalizeUnlock(decryptedKey);
+        await finalizeUnlock(decryptedKey, attempt);
       } else {
-        const message = "That passphrase did not match. Please try again.";
+        if (!isCurrentAttempt(attempt)) return;
+        trackEvent("vault_unlock_result", {
+          method: "passphrase",
+          result: "expected_error",
+          error_class: "no_match",
+        });
+        const message = "That password did not match. Please try again.";
         setError(message);
         toast.error(message);
       }
     } catch (err: any) {
+      if (!isCurrentAttempt(attempt)) return;
       console.error("Unlock error:", err);
+      if (isWebAuthnCancellationError(err)) {
+        setError(null);
+        return;
+      }
+      trackEvent("vault_unlock_result", {
+        method: "passphrase",
+        result: "error",
+        error_class: err?.name ?? "unknown",
+      });
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
     } finally {
-      setIsUnlocking(false);
+      finishAttempt(attempt);
     }
-  }, [currentRpId, enableGeneratedDefault, finalizeUnlock, user.uid]);
+  }, [beginAttempt, currentRpId, enableGeneratedDefault, finalizeUnlock, finishAttempt, isCurrentAttempt, ownerId]);
 
   const handleUnlockPassphrase = useCallback(async () => {
     const passphraseToUse = passphrase;
@@ -590,14 +1093,17 @@ export function VaultFlow({
   }, [handleUnlockPassphraseWith, isUnlocking, shouldPreferPassphraseUnlock, step]);
 
   useEffect(() => {
-    if (step !== "method" || !isNativeUiTestSession() || !pendingUnlockKey) {
+    if (step !== "method" || !isNativeUiTestSession() || !pendingUnlockKey || pendingUnlockOwnerRef.current !== ownerId) {
       return;
     }
     void (async () => {
+      const attempt = beginAttempt();
+      if (!attempt) return;
+      try {
       if (recommendedQuickMethod) {
         try {
           await VaultMethodPromptLocalService.dismiss(
-            user.uid,
+            ownerId,
             recommendedQuickMethod,
             currentRpId
           );
@@ -605,82 +1111,168 @@ export function VaultFlow({
           console.warn("[VaultFlow] UITest quick-unlock dismissal failed:", dismissError);
         }
       }
-      await finalizeUnlock(pendingUnlockKey);
+      await finalizeUnlock(pendingUnlockKey, attempt);
+      } finally { finishAttempt(attempt); }
     })();
   }, [
     currentRpId,
+    beginAttempt,
+    finishAttempt,
     finalizeUnlock,
     pendingUnlockKey,
     recommendedQuickMethod,
     step,
-    user.uid,
+    ownerId,
   ]);
 
-  const handleUnlockGeneratedDefault = useCallback(async () => {
-    setIsUnlocking(true);
-    try {
-      setError(null);
+  const handleUnlockGeneratedDefault = useCallback(
+    async (source: GeneratedUnlockAttemptSource = "user", selectedMode: VaultMode = vaultMode) => {
       if (
-        Capacitor.isNativePlatform() &&
-        vaultMode === "generated_default_web_prf"
+        generatedUnlockAttemptRef.current ||
+        !isGeneratedVaultKeyMode(selectedMode)
       ) {
-        throw new Error(
-          toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED")
-        );
-      }
-      const vaultData = await VaultService.getVaultState(user.uid);
-      const generatedWrapper = VaultService.getWrapperByMethod(vaultData, vaultMode, {
-        wrapperId:
-          vaultData.primaryMethod === vaultMode
-            ? vaultData.primaryWrapperId
-            : undefined,
-      });
-      if (!generatedWrapper) {
-        throw new Error("Quick unlock is not enabled on this device yet.");
-      }
-      const decryptedKey = await VaultService.unlockGeneratedDefaultVault({
-        userId: user.uid,
-        encryptedVaultKey: generatedWrapper.encryptedVaultKey,
-        salt: generatedWrapper.salt,
-        iv: generatedWrapper.iv,
-        keyMode: generatedWrapper.method,
-        authMethod: generatedWrapper.method,
-        passkeyCredentialId: generatedWrapper.passkeyCredentialId,
-        passkeyPrfSalt: generatedWrapper.passkeyPrfSalt,
-      });
-
-      if (!decryptedKey) {
-        throw new Error("Quick unlock is not ready. Use your passphrase.");
-      }
-
-      await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
-      await finalizeUnlock(decryptedKey);
-      setIsUnlocking(false);
-    } catch (err: any) {
-      // A pending WebAuthn ceremony that was superseded by a newer attempt
-      // rejects with an AbortError. That is expected and not a user-facing
-      // failure: the newer attempt owns the unlocking state, so we bail out
-      // quietly without surfacing an error or resetting isUnlocking (which the
-      // active request still owns).
-      if (err?.name === "AbortError") {
-        console.debug(
-          "Generated vault unlock superseded by a newer attempt; ignoring AbortError."
-        );
         return;
       }
-      console.error("Generated vault unlock failed:", err);
-      const message = toInvestorVaultUnlockError(err);
-      setError(message);
-      toast.error(message);
-      setIsUnlocking(false);
-    }
-  }, [finalizeUnlock, user.uid, vaultMode]);
+      const generatedMode = selectedMode;
+      const claim = claimGeneratedUnlock(
+        flowInstanceRef.current,
+        ownerId,
+        generatedMode,
+        source,
+      );
+      if (claim === "cancelled") {
+        generatedUnlockCancelledRef.current = true;
+        setUnlockWithPassphraseFallback(true);
+        setError(null);
+        return;
+      }
+      if (claim === "busy") {
+        return;
+      }
+      const attempt = beginAttempt();
+      if (!attempt) {
+        releaseGeneratedUnlock(flowInstanceRef.current);
+        return;
+      }
+      attempt.generatedMode = generatedMode;
+      generatedUnlockAttemptRef.current = true;
+      setIsUnlocking(true);
+      try {
+        setError(null);
+        if (
+          Capacitor.isNativePlatform() &&
+          generatedMode === "generated_default_web_prf"
+        ) {
+          throw new Error(
+            toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED")
+          );
+        }
+        const vaultData = await VaultService.getVaultState(ownerId);
+        const deviceWrapperId = generatedMode === "generated_default_native_biometric"
+          ? await VaultBootstrapService.getDeviceBiometricWrapperId(ownerId)
+          : undefined;
+        if (!isCurrentAttempt(attempt)) return;
+        const generatedWrapper = VaultService.getWrapperByMethod(vaultData, generatedMode, {
+          wrapperId:
+            deviceWrapperId ?? (vaultData.primaryMethod === generatedMode
+              ? vaultData.primaryWrapperId
+              : undefined),
+        });
+        if (!generatedWrapper) {
+          throw new Error("Quick unlock is not enabled on this device yet.");
+        }
+        const decryptedKey = await VaultService.unlockGeneratedDefaultVault({
+          userId: ownerId,
+          wrapperId: generatedWrapper.wrapperId,
+          signal: attempt.controller.signal,
+          requestId: attempt.requestId,
+          encryptedVaultKey: generatedWrapper.encryptedVaultKey,
+          salt: generatedWrapper.salt,
+          iv: generatedWrapper.iv,
+          keyMode: generatedWrapper.method,
+          authMethod: generatedWrapper.method,
+          passkeyCredentialId: generatedWrapper.passkeyCredentialId,
+          passkeyPrfSalt: generatedWrapper.passkeyPrfSalt,
+          passkeyRpId: generatedWrapper.passkeyRpId,
+        });
+
+        if (!decryptedKey) {
+          throw new Error("Quick unlock is not ready. Use your password.");
+        }
+
+        await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
+        if (!isCurrentAttempt(attempt)) return;
+        if (!(await finalizeUnlock(decryptedKey, attempt))) {
+          throw new Error("We could not complete Vault access. Please try again.");
+        }
+        // This device has now unlocked with the quick method: from the next
+        // launch on the gate may start it by itself.
+        void VaultQuickUnlockTrustLocalService.mark(ownerId, generatedMode);
+        setQuickUnlockUntrusted(false);
+      } catch (err: any) {
+        if (!isCurrentAttempt(attempt)) return;
+        if (err?.code === "VAULT_DEVICE_WRAPPER_UNAVAILABLE") biometricEnrollmentMissingRef.current = true;
+        // A duplicate caller is rejected before it can reach the browser. The
+        // original ceremony remains active and owns the visible prompt.
+        if (isDuplicateWebAuthnError(err)) {
+          return;
+        }
+        if (isWebAuthnCancellationError(err)) {
+          generatedUnlockCancelledRef.current = true;
+          markGeneratedUnlockCancelled(
+            flowInstanceRef.current,
+            ownerId,
+            generatedMode,
+          );
+          setUnlockWithPassphraseFallback(true);
+          setError(null);
+          return;
+        }
+        console.error("Generated vault unlock failed:", err);
+        // Google Password Manager and the platform authenticator can fail
+        // after opening their UI. Keep that outcome session-scoped too: a
+        // focus-driven remount must not immediately reopen the same ceremony.
+        // The visible Passkey action explicitly clears this block and is the
+        // only way to begin another attempt.
+        generatedUnlockCancelledRef.current = true;
+        markGeneratedUnlockCancelled(
+          flowInstanceRef.current,
+          ownerId,
+          generatedMode,
+        );
+        setUnlockWithPassphraseFallback(true);
+        const message = toInvestorVaultUnlockError(err);
+        setError(message);
+      } finally {
+        if (isCurrentAttempt(attempt)) {
+          generatedUnlockAttemptRef.current = false;
+          releaseGeneratedUnlock(flowInstanceRef.current);
+          finishAttempt(attempt);
+        }
+      }
+    },
+    [beginAttempt, finalizeUnlock, finishAttempt, isCurrentAttempt, ownerId, vaultMode],
+  );
+
+  const handleRetryGeneratedUnlock = useCallback((selectedMode: VaultMode = vaultMode) => {
+    if (attemptRef.current || !isGeneratedVaultKeyMode(selectedMode)) return;
+    generatedUnlockCancelledRef.current = false;
+    clearGeneratedUnlockCancellation(ownerId, selectedMode);
+    setVaultMode(selectedMode);
+    setError(null);
+    setUnlockWithPassphraseFallback(false);
+    void handleUnlockGeneratedDefault("user", selectedMode);
+  }, [handleUnlockGeneratedDefault, ownerId, vaultMode]);
 
   const handleRecoveryKeySubmit = async () => {
+    const attempt = beginAttempt();
+    if (!attempt) return;
     setIsUnlocking(true);
     try {
       setError(null);
-      const vaultData = await VaultService.getVaultState(user.uid);
+      // Same freshness requirement as the passphrase path: a stale cached
+      // wrapper must never be why a correct recovery key looks wrong.
+      const vaultData = await VaultService.getVaultState(ownerId, { forceFresh: true });
       const decryptedKey = await VaultService.unlockVaultWithRecoveryKey(
         recoveryKeyInput,
         vaultData.recoveryEncryptedVaultKey,
@@ -690,19 +1282,21 @@ export function VaultFlow({
 
       if (decryptedKey) {
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
-        await finalizeUnlock(decryptedKey);
+        await finalizeUnlock(decryptedKey, attempt);
       } else {
+        if (!isCurrentAttempt(attempt)) return;
         const message = "That recovery key did not match. Please try again.";
         setError(message);
         toast.error(message);
       }
     } catch (err: unknown) {
+      if (!isCurrentAttempt(attempt)) return;
       console.error("Recovery key unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
     } finally {
-      setIsUnlocking(false);
+      finishAttempt(attempt);
     }
   };
 
@@ -722,11 +1316,13 @@ export function VaultFlow({
     if (isUnlocking || recoveryContinueAttemptRef.current) {
       return;
     }
+    const attempt = beginAttempt();
+    if (!attempt) return;
     recoveryContinueAttemptRef.current = true;
     setIsUnlocking(true);
     try {
       // Auto-unlock now that unique key is saved
-      const vaultData = await VaultService.getVaultState(user.uid);
+      const vaultData = await VaultService.getVaultState(ownerId);
       const passphraseWrapper = VaultService.getWrapperByMethod(
         vaultData,
         "passphrase"
@@ -744,40 +1340,76 @@ export function VaultFlow({
       if (!decryptedKey) {
         throw new Error("Auto-unlock returned empty vault key.");
       }
+      if (!isCurrentAttempt(attempt)) return;
 
-      // Post-create optional method upsell: keep a single active KEK, but allow
-      // immediate switch to quick unlock before entering the app.
-      if (vaultMode === "passphrase" && enableGeneratedDefault) {
-        const capability = await VaultMethodService.getCapabilityMatrix();
-        if (capability.recommendedMethod !== "passphrase") {
-          const promptState = await VaultMethodPromptLocalService.load(user.uid);
-          const dismissedForRecommendedMethod =
-            promptState?.dismissed_for_method === capability.recommendedMethod &&
-            promptState?.dismissed_for_rp_id === currentRpId;
-          if (!dismissedForRecommendedMethod) {
-            setPendingUnlockKey(decryptedKey);
-            setRecommendedQuickMethod(capability.recommendedMethod);
-            setStep("method");
-            return;
+      // The answer was already given on the create screen, so this applies it
+      // rather than asking again on a third screen.
+      //
+      // Applied HERE, on this tap, and not inside the create submit: registering
+      // a passkey requires a recent user gesture, and creating the vault spends
+      // seconds on key derivation first -- long enough for browsers to consider
+      // the original tap stale and refuse the prompt. Continue is a fresh tap.
+      if (vaultMode === "passphrase" && enableGeneratedDefault && createQuickUnlockMethod) {
+        if (createWantsQuickUnlock) {
+          try {
+            const result = await VaultMethodService.switchMethod({
+              userId: ownerId,
+              currentVaultKey: decryptedKey,
+              displayName: user.displayName || user.email || "Hussh User",
+              targetMethod: createQuickUnlockMethod,
+              signal: attempt.controller.signal,
+              requestId: attempt.requestId,
+            });
+            if (!isCurrentAttempt(attempt)) return;
+            setVaultMode(result.method);
+            toast.success(
+              result.method === "generated_default_web_prf" ||
+                result.method === "generated_default_native_passkey_prf"
+                ? "Passkey unlock enabled."
+                : "Biometric unlock enabled."
+            );
+          } catch (quickUnlockError) {
+            if (!isCurrentAttempt(attempt)) return;
+            // A refused or unavailable authenticator must not cost the vault
+            // that was just created. The passphrase wrapper is already written,
+            // so the only thing lost is the shortcut.
+            if (!isWebAuthnCancellationError(quickUnlockError)) {
+              console.warn("Quick unlock enable failed:", quickUnlockError);
+              toast.error("Couldn't turn that on. Your password still works.");
+            }
+          }
+        } else {
+          try {
+            await VaultMethodPromptLocalService.dismiss(
+              ownerId,
+              createQuickUnlockMethod,
+              currentRpId
+            );
+          } catch (dismissError) {
+            console.warn(
+              "[VaultFlow] Failed to persist quick-unlock dismissal:",
+              dismissError
+            );
           }
         }
       }
 
-      const finalized = await finalizeUnlock(decryptedKey);
+      const finalized = await finalizeUnlock(decryptedKey, attempt);
       if (!finalized) return;
     } catch (err) {
+      if (!isCurrentAttempt(attempt)) return;
       console.error("Auto-unlock after creation failed", err);
       // If auto-unlock fails, send user to unlock screen to try manually.
       toast.error(
         vaultMode === "passphrase"
-          ? "Quick unlock was not available. Enter your passphrase."
-          : "Quick unlock was not available. Try passphrase or recovery key."
+          ? "Quick unlock was not available. Enter your password."
+          : "Quick unlock was not available. Try password or recovery key."
       );
       setStep("unlock");
       return;
     } finally {
       recoveryContinueAttemptRef.current = false;
-      setIsUnlocking(false);
+      finishAttempt(attempt);
     }
   };
 
@@ -839,14 +1471,19 @@ export function VaultFlow({
   }, [webPrfDecision, vaultMode]);
 
   useEffect(() => {
+    const anotherHardGateIsActive =
+      !isHardGate &&
+      typeof document !== "undefined" &&
+      document.documentElement.hasAttribute("data-vault-unlock-hard-gate");
     if (
+      isVaultUnlocked ||
+      anotherHardGateIsActive ||
       step !== "unlock" ||
       !hasActiveGeneratedWrapper ||
       skipGeneratedUnlockForAutomation ||
       unlockWithPassphraseFallback ||
       webPrfAutoPromptBlocked
     ) {
-      autoGeneratedPromptedRef.current = false;
       return;
     }
     // Never start a second ceremony while one is already running. Without this,
@@ -855,49 +1492,270 @@ export function VaultFlow({
     if (isUnlocking) return;
     if (autoGeneratedPromptedRef.current) return;
     autoGeneratedPromptedRef.current = true;
-    void handleUnlockGeneratedDefault();
+    if (
+      isGeneratedVaultKeyMode(vaultMode) &&
+      isGeneratedUnlockCancelled(ownerId, vaultMode)
+    ) {
+      generatedUnlockCancelledRef.current = true;
+      setUnlockWithPassphraseFallback(true);
+      setError(null);
+      return;
+    }
+    void handleUnlockGeneratedDefault("automatic");
   }, [
     handleUnlockGeneratedDefault,
     hasActiveGeneratedWrapper,
     isUnlocking,
+    isVaultUnlocked,
+    isHardGate,
     skipGeneratedUnlockForAutomation,
     step,
+    ownerId,
     unlockWithPassphraseFallback,
+    vaultMode,
     webPrfAutoPromptBlocked,
   ]);
 
   // Last-resort escape for a user who can't unlock (forgot the vault key AND
   // recovery key). Only rendered on the HARD gate (VaultLockGuard passes
-  // onSignOut); it sits below the unlock methods so it's a deliberate last
-  // choice.
-  const signOutEscape = onSignOut ? (
-    <div className="pt-2 flex justify-center">
-      <button
-        type="button"
+  // onSignOut); it shares the quiet fallback action row with the unlock methods.
+  const recoveryKeyEscapeAction =
+    step === "unlock" && showRecoveryAlternative ? (
+      <Button
+        variant="link"
+        size="sm"
+        showRipple={false}
+        className={VAULT_ESCAPE_LINK_CLASS}
+        data-testid={onSignOut ? "vault-use-recovery-key-escape" : "vault-use-recovery-key"}
         onPointerUp={(event) => {
           event.preventDefault();
-          void handleConfirmSignOut();
+          handleShowRecoveryKey();
         }}
         onClick={(event) => {
           event.preventDefault();
-          void handleConfirmSignOut();
+          handleShowRecoveryKey();
         }}
         disabled={isSigningOut}
-        className="mx-auto flex min-h-11 items-center justify-center gap-1 rounded-full px-3 type-footnote disabled:opacity-50"
       >
-        {isSigningOut ? (
-          <span className="text-muted-foreground font-semibold">Signing out...</span>
-        ) : (
-          <>
-            <span className="text-muted-foreground">Can&apos;t get in?</span>
-            <span className="font-semibold text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline dark:text-[color:var(--app-accent-deep)]">
-              Sign out
-            </span>
-          </>
-        )}
+        Recovery key
+      </Button>
+    ) : null;
+  const signOutAction = onSignOut ? (
+    <button
+      type="button"
+      onPointerUp={(event) => {
+        event.preventDefault();
+        void handleConfirmSignOut();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        void handleConfirmSignOut();
+      }}
+      disabled={isSigningOut}
+      className={VAULT_ESCAPE_LINK_CLASS}
+    >
+      Sign out
+    </button>
+  ) : null;
+  const signOutEscape = onSignOut ? (
+    <div className="flex min-w-0 flex-col items-center justify-start gap-[var(--app-form-related-gap)] text-center type-footnote">
+      {isSigningOut ? (
+        <span className="flex h-11 items-center font-semibold text-muted-foreground">Signing out...</span>
+      ) : (
+        <>
+          <span className="text-muted-foreground">Can&apos;t get in?</span>
+          <div className="flex min-h-11 flex-wrap items-start justify-center gap-x-2 gap-y-0">
+            {recoveryKeyEscapeAction}
+            {recoveryKeyEscapeAction ? (
+              <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+            ) : null}
+            {signOutAction}
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
+  const signOutEscapeSection = signOutEscape ? (
+    <div className="flex justify-center pt-[var(--app-form-section-gap)]">
+      {signOutEscape}
+    </div>
+  ) : null;
+  // The 44px escape targets already leave 24px below their 20px labels.
+  // Keep the last-resort copy in the same secondary group without extra gaps.
+  const lostVaultDeleteEscape = onSignOut ? (
+    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] text-center type-footnote">
+      <p className="text-muted-foreground">Lost every way in?</p>
+      <button
+        type="button"
+        data-testid="vault-delete-and-start-fresh"
+        className="min-h-11 inline-flex items-start justify-center font-semibold leading-5 text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
+        onClick={() => setShowLostVaultDeletion(true)}
+        disabled={isSigningOut}
+      >
+        Delete account and start fresh
       </button>
     </div>
   ) : null;
+  const hasUnlockMethodAlternative =
+    showVaultKeyAlternative || showPasskeyFallbackAlternative;
+  const hasUnlockRecoveryAlternative = Boolean(recoveryKeyEscapeAction);
+  const showUnlockEscapeGroup =
+    hasUnlockFallback || (onSignOut && showRecoveryAlternative);
+  const unlockSecondaryActions = showUnlockEscapeGroup ? (
+    <div
+      data-testid="vault-unlock-escape-group"
+      className={cn(
+        "mx-auto w-full pt-[var(--app-form-section-gap)] text-center",
+        onSignOut ? "max-w-[42rem]" : "max-w-[21rem]",
+      )}
+    >
+      {isSigningOut ? (
+        <span className="flex h-11 items-center justify-center type-footnote font-semibold text-muted-foreground">
+          Signing out...
+        </span>
+      ) : (
+        <div className="flex min-w-0 flex-col items-center justify-start gap-[var(--app-form-related-gap)] text-center type-footnote">
+          <span className="text-muted-foreground">Can&apos;t get in?</span>
+          <div className="flex min-h-11 flex-wrap items-start justify-center gap-x-2 gap-y-0">
+            {showVaultKeyAlternative ? (
+              <Button
+                variant="link"
+                size="sm"
+                showRipple={false}
+                className={VAULT_ESCAPE_LINK_CLASS}
+                data-testid="vault-use-passphrase-instead"
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setUnlockWithPassphraseFallback(true);
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setUnlockWithPassphraseFallback(true);
+                }}
+                disabled={isSigningOut}
+              >
+                Password
+              </Button>
+            ) : null}
+            {showVaultKeyAlternative && showPasskeyFallbackAlternative ? (
+              <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+            ) : null}
+            {showPasskeyFallbackAlternative ? (
+              <Button
+                variant="link"
+                size="sm"
+                showRipple={false}
+                className={VAULT_ESCAPE_LINK_CLASS}
+                data-testid="vault-use-passkey-escape"
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setPassphrase("");
+                  if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setPassphrase("");
+                  if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                }}
+                disabled={isSigningOut}
+              >
+                {compactGeneratedUnlockLabel}
+              </Button>
+            ) : null}
+            {hasUnlockMethodAlternative && hasUnlockRecoveryAlternative ? (
+              <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+            ) : null}
+            {recoveryKeyEscapeAction}
+            {(hasUnlockMethodAlternative || hasUnlockRecoveryAlternative) && signOutAction ? (
+              <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+            ) : null}
+            {signOutAction}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : onSignOut ? signOutEscapeSection : null;
+  const recoveryStepHasPasskeyAlternative =
+    Boolean(availableGeneratedMethod && !webPasskeyUnsupported);
+  const recoverySecondaryActions = (
+    <div
+      data-testid="vault-recovery-escape-group"
+      className="mx-auto w-full max-w-[21rem] pt-[var(--app-form-section-gap)] text-center"
+    >
+      {isSigningOut ? (
+        <span className="flex h-11 items-center justify-center type-footnote font-semibold text-muted-foreground">
+          Signing out...
+        </span>
+      ) : (
+        <div className="flex min-w-0 flex-col items-center justify-start gap-[var(--app-form-related-gap)] text-center type-footnote">
+          <span className="text-muted-foreground">Can&apos;t get in?</span>
+          <div className="flex min-h-11 flex-wrap items-start justify-center gap-x-2 gap-y-0">
+            <Button
+              variant="link"
+              size="sm"
+              showRipple={false}
+              className={VAULT_ESCAPE_LINK_CLASS}
+              data-testid="vault-recovery-use-passphrase"
+              onPointerUp={(event) => {
+                event.preventDefault();
+                switchUnlockMethod();
+                setUnlockWithPassphraseFallback(true);
+                setStep("unlock");
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                switchUnlockMethod();
+                setUnlockWithPassphraseFallback(true);
+                setStep("unlock");
+              }}
+              disabled={isSigningOut}
+            >
+              Password
+            </Button>
+            {recoveryStepHasPasskeyAlternative ? (
+              <>
+                <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+                <Button
+                  variant="link"
+                  size="sm"
+                  showRipple={false}
+                  className={VAULT_ESCAPE_LINK_CLASS}
+                  data-testid="vault-recovery-use-passkey"
+                  onPointerUp={(event) => {
+                    event.preventDefault();
+                    switchUnlockMethod();
+                    setPassphrase("");
+                    setStep("unlock");
+                    if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    switchUnlockMethod();
+                    setPassphrase("");
+                    setStep("unlock");
+                    if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                  }}
+                  disabled={isSigningOut}
+                >
+                  {compactGeneratedUnlockLabel}
+                </Button>
+              </>
+            ) : null}
+            {onSignOut ? (
+              <>
+                <span aria-hidden="true" className="leading-5 text-muted-foreground/50">·</span>
+                {signOutAction}
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   if (step === "checking") {
     if (error) {
@@ -910,19 +1768,43 @@ export function VaultFlow({
               </div>
               <p className="text-muted-foreground">{error}</p>
               <Button
-                onClick={reloadWindow}
+                onClick={() => {
+                  // A clean restart of the whole check, not a page reload:
+                  // re-enter "checking" and re-run the effect from scratch
+                  // rather than dragging a stale error/step across a retry.
+                  setError(null);
+                  setIsRestoringSession(false);
+                  setCheckAttempt((attempt) => attempt + 1);
+                }}
                 variant="none"
                 className="border border-input bg-background hover:bg-accent hover:text-accent-foreground"
               >
                 Try again
               </Button>
+              {signOutEscapeSection}
             </div>
           </div>
         </Card>
       );
     }
 
-    return <HushhLoader label={toInvestorLoading("VAULT")} />;
+    return (
+      <HushhLoader
+        label={
+          isRestoringSession
+            ? "Restoring your session…"
+            : toInvestorLoading("VAULT")
+        }
+      />
+    );
+  }
+
+  if (showLostVaultDeletion && onSignOut && (step === "unlock" || (step === "recovery" && !recoveryKey))) {
+    return (
+      <Suspense fallback={<HushhLoader label="Opening deletion options…" />}>
+        <LostVaultDeletePanel user={user} onBack={() => setShowLostVaultDeletion(false)} />
+      </Suspense>
+    );
   }
 
   return (
@@ -930,105 +1812,184 @@ export function VaultFlow({
       <div
         data-vault-flow-content
         data-vault-flow-step={step}
-        className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[max(calc(1.25rem+env(safe-area-inset-bottom,0px)),calc(1.25rem+var(--kb-height,0px)))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "space-y-4 overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          setupPresentation
+            ? "w-full overflow-visible px-0 py-0"
+            : "max-h-[var(--vault-available-height,min(640px,calc(90svh-3rem-var(--kb-height,0px))))] overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-1 sm:px-7",
+        )}
       >
           {step === "setup_required" && (
             <div className="mx-auto max-w-[21rem] space-y-4 text-center">
               <VaultFlowHeader
+                user={user}
                 icon={Lock}
                 title="Finish setup first"
-                description="Your private vault is the final step after setup."
+                description="This is the last step."
               />
               <p className="type-footnote leading-snug text-muted-foreground">
-                Finish this setup journey, then create your vault from the final security step.
+                Finish setting up, then come back here.
               </p>
             </div>
           )}
           {/* Create Passphrase */}
           {step === "create" && (
             <form
-              className="mx-auto max-w-[21rem] space-y-3"
+              data-vault-create-form
+              className={cn("space-y-3", setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem]")}
               onSubmit={handleCreatePassphraseSubmit}
             >
               <VaultFlowHeader
+                user={user}
                 icon={Lock}
-                title="Create your private vault"
-                description="End-to-end encryption starts here."
+                /* "Set a lock" — the phrase this product already uses for
+                   this exact dialog. one-setup-hub.tsx:607 passes it as the
+                   dialog's accessible title while the visible heading said
+                   something else, so the screen announced one name and showed
+                   another. It also stops naming the mechanism: what the person
+                   is doing is locking their private place, and the passphrase
+                   is merely how. The fields below still say "Password",
+                   which is where that word belongs. */
+                title="Set a lock"
+                // Carries the promise the removed "private place" invitation
+                // screen used to make, on the step that actually needs it.
+                description="Only you can open what you save."
+                setupPresentation={setupPresentation}
               />
-              <div className="space-y-1.5">
+              <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
-                  Passphrase
+                  Password
                 </Label>
-                <div
-                  className={cn(
-                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
-                    "focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
-                    passphrase
-                      ? "border-[color:var(--app-accent)]"
-                      : "border-black/10 dark:border-white/15",
-                  )}
-                >
-                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
-                  <input
-                    id="passphrase"
-                    type="password"
-                    placeholder="Create passphrase"
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
-                    autoFocus
-                    autoComplete="new-password"
-                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
-                  />
-                </div>
+                  <div
+                    data-vault-password-field
+                    className={cn(
+                      VAULT_INPUT_SHELL_CLASS,
+                      "border-black/10 dark:border-white/15",
+                    )}
+                  >
+                    {setupPresentation
+                      ? <Icon icon={Lock} size={18} className="shrink-0" />
+                      : <AccentedKeyIcon size={18} className="shrink-0" />}
+                    <Input
+                      id="passphrase"
+                      type={showPassphrase ? "text" : "password"}
+                      placeholder="Create password"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      autoFocus={!setupPresentation}
+                      autoComplete="new-password"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      className={VAULT_INPUT_CONTROL_CLASS}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassphrase((prev) => !prev)}
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
+                      aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showPassphrase}
+                      title={showPassphrase ? "Hide password" : "Show password"}
+                    >
+                      {showPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
+                    </button>
+                  </div>
               </div>
-              <div className="space-y-1.5">
+              <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="confirm" className="type-footnote font-medium text-muted-foreground">
-                  Confirm passphrase
+                  Confirm password
                 </Label>
-                <div
-                  className={cn(
-                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
-                    "focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
-                    confirmPassphrase
-                      ? "border-[color:var(--app-accent)]"
-                      : "border-black/10 dark:border-white/15",
-                  )}
-                >
-                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
-                  <input
-                    id="confirm"
-                    type="password"
-                    placeholder="Confirm passphrase"
-                    value={confirmPassphrase}
-                    onChange={(e) => setConfirmPassphrase(e.target.value)}
-                    autoComplete="new-password"
-                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
-                  />
-                </div>
+                  <div
+                    data-vault-confirm-field
+                    className={cn(
+                      VAULT_INPUT_SHELL_CLASS,
+                      "border-black/10 dark:border-white/15",
+                    )}
+                  >
+                    {setupPresentation
+                      ? <Icon icon={Lock} size={18} className="shrink-0" />
+                      : <AccentedKeyIcon size={18} className="shrink-0" />}
+                    <Input
+                      id="confirm"
+                      type={showConfirmPassphrase ? "text" : "password"}
+                      placeholder="Confirm password"
+                      value={confirmPassphrase}
+                      onChange={(e) => setConfirmPassphrase(e.target.value)}
+                      autoComplete="new-password"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      className={VAULT_INPUT_CONTROL_CLASS}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassphrase((prev) => !prev)}
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
+                      aria-label={showConfirmPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showConfirmPassphrase}
+                      title={showConfirmPassphrase ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
+                    </button>
+                  </div>
                 {createPassphraseHelperText && (
                   <p className="text-xs font-medium text-destructive" role="status">
                     {createPassphraseHelperText}
                   </p>
                 )}
               </div>
-              <p className="text-center type-footnote leading-snug text-muted-foreground">
-                At least 8 characters. Only you know it.
+              <p data-vault-create-hint className="text-center type-footnote leading-snug text-muted-foreground">
+                {setupPresentation
+                  ? "At least 8 characters. Choose something only you know."
+                  : "At least 8 characters. Only you know it."}
               </p>
+              {createQuickUnlockMethod ? (
+                // The whole of the screen this replaced. It asked one yes/no
+                // question after the vault already existed, so the answer cost
+                // a screen; asked here it costs a switch, and the vault is
+                // created once with the answer already known.
+                <label
+                  data-vault-quick-unlock-option
+                  htmlFor="vault-quick-unlock"
+                  className="flex items-center gap-3 rounded-2xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-4 py-3 text-left"
+                >
+                  <Icon
+                    icon={isPasskeyQuickUnlock ? Key : Fingerprint}
+                    size={18}
+                    className="shrink-0 text-[color:var(--app-accent-deep)]"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block type-subhead font-medium text-foreground">
+                      Also unlock with {setupPresentation && isPasskeyQuickUnlock ? "a passkey" : createQuickUnlockLabel}
+                    </span>
+                    <span className="block type-footnote leading-snug text-muted-foreground">
+                      Your password and recovery key still work.
+                    </span>
+                  </span>
+                  <Switch
+                    id="vault-quick-unlock"
+                    checked={createWantsQuickUnlock}
+                    onCheckedChange={setCreateWantsQuickUnlock}
+                    disabled={isUnlocking}
+                  />
+                </label>
+              ) : null}
               <Button
+                data-vault-create-cta
                 variant="none"
                 effect="fill"
                 size="default"
                 fullWidth
-                className="mt-1 h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                className="mt-1 h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 type="submit"
                 disabled={!canCreatePassphrase}
               >
                 {isUnlocking ? (
                   <>
-                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating vault...
+                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating...
                   </>
                 ) : (
-                  "Create private vault"
+                  "Create password"
                 )}
               </Button>
             </form>
@@ -1038,14 +1999,14 @@ export function VaultFlow({
           {step === "unlock" && (
             <div className="space-y-2.5">
               <VaultFlowHeader
+                user={user}
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                title="Open your private vault"
+                title="Unlock One"
                 description={
                   isGeneratedVaultMode
                     ? "Confirm with your device."
-                    : "Enter your passphrase."
+                    : "Enter your password."
                 }
-                hint={unlockHint}
               />
               {error ? (
                 <Alert
@@ -1063,28 +2024,25 @@ export function VaultFlow({
                 </Alert>
               ) : null}
               {shouldShowPassphraseUnlock && (
-                <div className="space-y-1.5">
+                <div className={VAULT_FIELD_STACK_CLASS}>
                   <Label
                     htmlFor="unlock-passphrase"
                     className="type-footnote font-medium text-muted-foreground"
                   >
-                    Passphrase
+                    Password
                   </Label>
                   <div
                     className={cn(
-                      "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
-                      "focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
-                      passphrase
-                        ? "border-[color:var(--app-accent)]"
-                        : "border-black/10 dark:border-white/15",
+                      VAULT_INPUT_SHELL_CLASS,
+                      "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
-                    <input
+                    <AccentedKeyIcon size={18} className="shrink-0" />
+                    <Input
                       id="unlock-passphrase"
-                      type="password"
-                      placeholder="Enter passphrase"
-                      aria-label="Vault passphrase"
+                      type={showPassphrase ? "text" : "password"}
+                      placeholder="Enter password"
+                      aria-label="Vault password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                       onKeyDown={(e) =>
@@ -1092,19 +2050,32 @@ export function VaultFlow({
                       }
                       autoFocus
                       autoComplete="current-password"
-                      className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      className={VAULT_INPUT_CONTROL_CLASS}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassphrase((prev) => !prev)}
+                      className={VAULT_INPUT_VISIBILITY_CLASS}
+                      aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showPassphrase}
+                      title={showPassphrase ? "Hide password" : "Show password"}
+                    >
+                      {showPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
+                    </button>
                   </div>
                 </div>
               )}
-              <div className="flex flex-col gap-2 pt-1">
+              <div className="flex flex-col gap-[var(--app-form-section-gap)] pt-1">
                 {shouldShowPassphraseUnlock && (
                   <Button
                     variant="none"
                     effect="fill"
                     size="default"
                     fullWidth
-                    className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                    className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -1118,17 +2089,20 @@ export function VaultFlow({
                   </Button>
                 )}
 
-                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && !generatedUnlockError && (
-                  // This branch only renders while the passkey path is viable
-                  // (supported and available, or still being checked). When the
-                  // browser has no authenticator we force the passphrase
-                  // fallback above, so this never strands the user in a hanging
-                  // WebAuthn prompt.
-                  <div className="flex min-h-10 items-center justify-center rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:text-sm">
+                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && !webPasskeyUnsupported && (
+                  <Button
+                    variant="blue-gradient"
+                    effect="fill"
+                    size="lg"
+                    fullWidth
+                    className="min-h-12 rounded-full px-4 py-3 text-[16px] font-semibold whitespace-normal"
+                    onClick={() => handleRetryGeneratedUnlock()}
+                    disabled={isUnlocking || webPrfAutoPromptBlocked}
+                  >
                     {isUnlocking ? (
                       <span className="inline-flex items-center">
                         <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
-                        Prompting {generatedUnlockLabel.toLowerCase()}...
+                        Unlocking with {generatedUnlockLabel}…
                       </span>
                     ) : webPrfAutoPromptBlocked ? (
                       // Decision still pending: show a brief checking state
@@ -1138,94 +2112,32 @@ export function VaultFlow({
                         Checking your device...
                       </span>
                     ) : (
-                      `Ready for ${generatedUnlockLabel.toLowerCase()} confirmation.`
+                      `Unlock with ${generatedUnlockLabel}`
                     )}
-                  </div>
+                  </Button>
                 )}
 
-                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && error && (
+                {hasActiveGeneratedWrapper && error && (
                   <Button
                     variant="none"
                     effect="fade"
                     size="default"
                     fullWidth
                     className="h-10 text-sm sm:h-11"
-                    onClick={() => void handleUnlockGeneratedDefault()}
+                    onClick={() => handleRetryGeneratedUnlock()}
                     disabled={isUnlocking}
                   >
-                    Try passkey again
+                    Unlock with {generatedUnlockLabel}
                   </Button>
                 )}
 
-                {showUnlockOtherMethods ? (
-                  <div className="space-y-1.5 pt-1">
-                    <p className="type-footnote font-medium text-muted-foreground">Use another method</p>
-                    <div
-                      className={cn(
-                        "grid gap-2",
-                        unlockAlternativeCount === 1 ? "grid-cols-1" : "grid-cols-2",
-                      )}
-                    >
-                      {showVaultKeyAlternative ? (
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="default"
-                          fullWidth
-                          className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                          data-testid="vault-use-passphrase-instead"
-                          onClick={() => {
-                            setError(null);
-                            setUnlockWithPassphraseFallback(true);
-                          }}
-                          disabled={isUnlocking}
-                        >
-                          Passphrase
-                        </Button>
-                      ) : null}
-                      {!webPasskeyUnsupported &&
-                      ((hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
-                        showPasskeyAlternative) ? (
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="default"
-                          fullWidth
-                          className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                          onClick={() => {
-                            setError(null);
-                            setPassphrase("");
-                            setUnlockWithPassphraseFallback(false);
-                            if (!hasActiveGeneratedWrapper && availableGeneratedMethod) {
-                              setVaultMode(availableGeneratedMethod);
-                            }
-                          }}
-                          disabled={isUnlocking}
-                        >
-                          {compactGeneratedUnlockLabel}
-                        </Button>
-                      ) : null}
-                      {showRecoveryAlternative ? (
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="default"
-                          fullWidth
-                          className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                          onClick={() => {
-                            setError(null);
-                            setStep("recovery");
-                          }}
-                          disabled={isUnlocking}
-                        >
-                          Recovery key
-                        </Button>
-                      ) : null}
-                    </div>
+                {unlockSecondaryActions || lostVaultDeleteEscape ? (
+                  <div className="flex flex-col">
+                    {unlockSecondaryActions}
+                    {lostVaultDeleteEscape}
                   </div>
                 ) : null}
               </div>
-              {signOutEscape}
             </div>
           )}
 
@@ -1233,11 +2145,12 @@ export function VaultFlow({
           {step === "recovery" && !recoveryKey && (
             <div className="space-y-2.5">
               <VaultFlowHeader
+                user={user}
                 icon={Key}
                 title="Enter recovery key"
-                description="Use this if your passphrase is unavailable."
+                description="Use this if your password is unavailable."
               />
-              <div className="space-y-1.5">
+              <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="recovery-key" className="text-xs font-medium sm:text-sm">Recovery Key</Label>
                 <Input
                   id="recovery-key"
@@ -1250,16 +2163,16 @@ export function VaultFlow({
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="characters"
-                  className="h-12 rounded-[14px] px-4 font-mono text-[16px]"
+                  className="h-14 px-4 font-mono text-[16px]"
                 />
               </div>
-              <div className="flex flex-col gap-2 pt-2">
+              <div className="flex flex-col gap-[var(--app-form-section-gap)] pt-2">
                 <Button
                   variant="none"
                   effect="fill"
                   size="default"
                   fullWidth
-                  className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                  className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
@@ -1271,60 +2184,18 @@ export function VaultFlow({
                     "Unlock"
                   )}
                 </Button>
-                <div className="space-y-1.5">
-                  <p className="type-footnote font-medium text-muted-foreground">Use another method</p>
-                  <div
-                    className={cn(
-                      "grid gap-2",
-                      availableGeneratedMethod && !webPasskeyUnsupported
-                        ? "grid-cols-2"
-                        : "grid-cols-1",
-                    )}
-                  >
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      size="default"
-                      fullWidth
-                      className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                      onClick={() => {
-                        setError(null);
-                        setUnlockWithPassphraseFallback(true);
-                        setStep("unlock");
-                      }}
-                      disabled={isUnlocking}
-                    >
-                      Passphrase
-                    </Button>
-                    {availableGeneratedMethod && !webPasskeyUnsupported ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="default"
-                        fullWidth
-                        className={VAULT_ALTERNATIVE_BUTTON_CLASS}
-                        onClick={() => {
-                          setError(null);
-                          setPassphrase("");
-                          setVaultMode(availableGeneratedMethod);
-                          setUnlockWithPassphraseFallback(false);
-                          setStep("unlock");
-                        }}
-                        disabled={isUnlocking}
-                      >
-                        {compactGeneratedUnlockLabel}
-                      </Button>
-                    ) : null}
-                  </div>
+                <div className="flex flex-col">
+                  {recoverySecondaryActions}
+                  {lostVaultDeleteEscape}
                 </div>
               </div>
-              {signOutEscape}
             </div>
           )}
 
           {step === "method" && (
             <div className="space-y-4">
               <VaultFlowHeader
+                user={user}
                 icon={
                   recommendedQuickMethod === "generated_default_web_prf" ||
                   recommendedQuickMethod ===
@@ -1333,14 +2204,24 @@ export function VaultFlow({
                     : Fingerprint
                 }
                 title="Enable quicker unlock?"
-                description={`You can keep passphrase unlock, or enable ${
-                  recommendedQuickMethod === "generated_default_web_prf" ||
-                  recommendedQuickMethod ===
-                    "generated_default_native_passkey_prf"
-                    ? "passkey"
-                    : "device biometric"
-                } and still retain passphrase and recovery-key backup.`}
+                description="Your password and recovery key still work."
               />
+
+              {error ? (
+                <Alert
+                  role="alert"
+                  className="rounded-[18px] border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-3.5 py-3 text-left"
+                >
+                  <Icon
+                    icon={AlertCircle}
+                    size="sm"
+                    className="mt-0.5 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
+                  />
+                  <AlertDescription className="type-footnote leading-snug text-foreground">
+                    {error}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
               <div className="flex flex-col gap-3 pt-2">
                 <Button
@@ -1351,17 +2232,22 @@ export function VaultFlow({
                   className="h-12 rounded-full text-[15px] font-semibold"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
                   onClick={async () => {
-                    if (!pendingUnlockKey || !recommendedQuickMethod) return;
+                    if (!pendingUnlockKey || !recommendedQuickMethod || pendingUnlockOwnerRef.current !== ownerId) return;
+                    const attempt = beginAttempt();
+                    if (!attempt) return;
                     setIsUnlocking(true);
                     try {
                       const result = await VaultMethodService.switchMethod({
-                        userId: user.uid,
+                        userId: ownerId,
                         currentVaultKey: pendingUnlockKey,
                         displayName: user.displayName || user.email || "Hussh User",
                         targetMethod: recommendedQuickMethod,
+                        signal: attempt.controller.signal,
+                        requestId: attempt.requestId,
                       });
+                      if (!isCurrentAttempt(attempt)) return;
                       setVaultMode(result.method);
-                      const finalized = await finalizeUnlock(pendingUnlockKey);
+                      const finalized = await finalizeUnlock(pendingUnlockKey, attempt);
                       if (!finalized) return;
                       toast.success(
                         result.method === "generated_default_web_prf" ||
@@ -1370,12 +2256,19 @@ export function VaultFlow({
                           : "Biometric unlock enabled."
                       );
                     } catch (err: any) {
-                      console.error("Quick unlock enable failed:", err);
-                      toast.error(
-                        err?.message || "Couldn't enable quick unlock right now."
-                      );
+                      if (!isCurrentAttempt(attempt)) return;
+                      if (isWebAuthnCancellationError(err)) {
+                        setError(
+                          "Quick unlock setup was cancelled. Your password still works."
+                        );
+                      } else {
+                        console.error("Quick unlock enable failed:", err);
+                        toast.error(
+                          err?.message || "Couldn't enable quick unlock right now."
+                        );
+                      }
                     } finally {
-                      setIsUnlocking(false);
+                      finishAttempt(attempt);
                     }
                   }}
                 >
@@ -1389,7 +2282,7 @@ export function VaultFlow({
                       recommendedQuickMethod === "generated_default_web_prf" ||
                       recommendedQuickMethod === "generated_default_native_passkey_prf"
                         ? "Passkey"
-                        : "Biometric"
+                        : biometricLabel
                     }`
                   )}
                 </Button>
@@ -1400,13 +2293,18 @@ export function VaultFlow({
                   size="lg"
                   fullWidth
                   className="h-12 rounded-full border border-[color:var(--app-accent-border)] !bg-[color:var(--app-accent-tint)] px-4 text-center text-[15px] font-medium !text-[color:var(--app-accent-deep)] transition-colors hover:!bg-[color:var(--app-accent-surface-strong)]"
-                  disabled={isUnlocking || !pendingUnlockKey}
+                  disabled={isSigningOut || !pendingUnlockKey}
                   onClick={async () => {
-                    if (!pendingUnlockKey) return;
+                    if (!pendingUnlockKey || pendingUnlockOwnerRef.current !== ownerId) return;
+                    switchUnlockMethod();
+                    const attempt = beginAttempt();
+                    if (!attempt) return;
+                    setIsUnlocking(true);
+                    try {
                     if (recommendedQuickMethod) {
                       try {
                         await VaultMethodPromptLocalService.dismiss(
-                          user.uid,
+                          ownerId,
                           recommendedQuickMethod,
                           currentRpId
                         );
@@ -1417,10 +2315,11 @@ export function VaultFlow({
                         );
                       }
                     }
-                    await finalizeUnlock(pendingUnlockKey);
+                    await finalizeUnlock(pendingUnlockKey, attempt);
+                    } finally { finishAttempt(attempt); }
                   }}
                 >
-                  Not now, continue with passphrase
+                  Not now, continue with password
                 </Button>
               </div>
             </div>
@@ -1430,28 +2329,33 @@ export function VaultFlow({
           {step === "recovery" && recoveryKey ? (
             <div
               data-vault-recovery-key
-              className="mx-auto max-w-[21rem] space-y-4"
+              className={cn(setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem] space-y-4")}
             >
               <VaultFlowHeader
+                user={user}
                 icon={Key}
                 title="Save your recovery key"
-                description="Keep it somewhere only you can reach."
+                description={setupPresentation
+                  ? "If you forget your password, this key can help you get back in."
+                  : "Keep it somewhere only you can reach."}
               />
 
-              <Alert className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
+              <Alert data-vault-recovery-warning className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
                 <Icon icon={AlertCircle} size="sm" className="text-orange-500" />
                 <AlertDescription className="text-[13.5px] leading-[1.4] text-orange-700 dark:text-orange-300">
-                  Save this now. It cannot be shown again.
+                  {setupPresentation
+                    ? "Save this now. You won't see it again."
+                    : "Save this now. It cannot be shown again."}
                 </AlertDescription>
               </Alert>
 
-              <div className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
+              <div data-vault-recovery-code className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
                 <code className="break-all font-mono text-[15px] font-medium leading-[1.5] tracking-normal">
                   {recoveryKey}
                 </code>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div data-vault-recovery-actions className="grid grid-cols-2 gap-2">
                 <Button
                   variant="none"
                   effect="fade"
@@ -1492,18 +2396,24 @@ export function VaultFlow({
                 </Button>
               </div>
 
+              {setupPresentation ? (
+                <p className="text-center text-xs leading-[18px] text-muted-foreground">
+                  Store it somewhere safe, separate from this device.
+                </p>
+              ) : null}
+
               <Button
+                data-vault-recovery-cta
                 variant="none"
                 effect="fill"
                 size="default"
                 fullWidth
-                className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 onClick={handleRecoveryKeyContinue}
                 disabled={isUnlocking}
               >
-                {isUnlocking
-                  ? "Opening vault..."
-                  : "I’ve saved my recovery key"}
+                {isUnlocking ? "Opening..." : "I’ve saved my recovery key"}
+                {setupPresentation && !isUnlocking ? <Icon icon={ArrowRight} size="sm" className="ml-2" aria-hidden="true" /> : null}
               </Button>
             </div>
           ) : null}

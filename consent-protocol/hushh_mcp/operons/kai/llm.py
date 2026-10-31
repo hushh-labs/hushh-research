@@ -24,6 +24,7 @@ except ImportError:
     types = None  # type: ignore
     logging.warning("⚠️ google-genai SDK not found. Kai LLM operons are unavailable.")
 
+from hushh_mcp.agents.kai.runtime import run_kai_analyst_turn, run_kai_synthesis_turn
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import (
     GEMINI_MODEL,
@@ -39,6 +40,8 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
 )
 from hushh_mcp.types import UserID
+
+from .valuation_prompt import valuation_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +78,13 @@ def _is_truthy(raw_value: str) -> bool:
 
 
 def _resolve_vertex_mode() -> bool:
-    # Vertex-only by default for Kai (legacy non-Vertex path intentionally disabled).
+    # Vertex compatibility branch when the managed Azure policy is not selected.
     raw_value = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     return _is_truthy(raw_value)
 
 
 def _initialize_gemini_client(force: bool = False) -> None:
-    """Initialize or refresh the shared Gemini Vertex client."""
+    """Initialize managed text from the selected Azure or Vertex policy."""
     global _gemini_client
     global _gemini_unavailable_reason
     global _gemini_model_name
@@ -95,10 +98,23 @@ def _initialize_gemini_client(force: bool = False) -> None:
 
     _gemini_client = None
     _gemini_unavailable_reason = None
-    _gemini_model_name = (os.getenv("GEMINI_MODEL") or GEMINI_MODEL).strip()
+    _gemini_model_name = GEMINI_MODEL
     _gemini_use_vertex = _resolve_vertex_mode()
     binding = None
     try:
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        azure = ManagedAzureBinding.from_environment()
+        if azure is not None:
+            from hushh_mcp.runtime_providers import build_managed_runtime_client
+
+            _gemini_client = build_managed_runtime_client("gemini")
+            _gemini_use_vertex = False
+            _gemini_project = ""
+            _gemini_project_source = "managed_azure_policy"
+            _gemini_location = "azure-global"
+            logger.info("[Kai LLM] Managed Azure text client initialized")
+            return
         binding = ManagedGeminiRuntimeBinding.from_environment()
         _gemini_project = binding.project
         _gemini_project_source = "managed_runtime_binding"
@@ -318,9 +334,6 @@ async def analyze_stock_with_gemini(
         logger.error(f"[Gemini Operon] Permission denied: {reason}")
         raise PermissionError(f"Gemini analysis denied: {reason}")
 
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
-
     logger.info(f"[Gemini Operon] Starting deep analyst session for {ticker}")
 
     # 2. Build Rich Context (Trends + Fundamentals)
@@ -403,12 +416,12 @@ async def analyze_stock_with_gemini(
     {personalization}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Income: ${latest_10k.get("operating_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
-    R&D Investment: ${latest_10k.get("research_and_development", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Income: ${format(latest_10k["operating_income"], ",") if latest_10k.get("operating_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
+    R&D Investment: ${format(latest_10k["research_and_development"], ",") if latest_10k.get("research_and_development") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
@@ -417,9 +430,9 @@ async def analyze_stock_with_gemini(
     R&D Trend: {quant_metrics.get("rnd_trend_data") if quant_metrics else "N/A"}
     
     [Efficiency Ratios]
-    Revenue CAGR (3Y): {quant_metrics.get("revenue_cagr_3y", 0) * 100:.2f}%
-    Revenue Growth (YoY): {quant_metrics.get("revenue_growth_yoy", 0) * 100:.2f}%
-    Net Income Growth (YoY): {quant_metrics.get("net_income_growth_yoy", 0) * 100:.2f}%
+    Revenue CAGR (3Y): {format(quant_metrics["revenue_cagr_3y"] * 100, ".2f") if quant_metrics.get("revenue_cagr_3y") is not None else "unavailable"}%
+    Revenue Growth (YoY): {format(quant_metrics["revenue_growth_yoy"] * 100, ".2f") if quant_metrics.get("revenue_growth_yoy") is not None else "unavailable"}%
+    Net Income Growth (YoY): {format(quant_metrics["net_income_growth_yoy"] * 100, ".2f") if quant_metrics.get("net_income_growth_yoy") is not None else "unavailable"}%
     
     --- MARKET DATA ---
     Current Price: {market_data.get("price", "N/A") if market_data else "N/A"}
@@ -455,16 +468,13 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
 
     # 3. Call Gemini
     try:
-        response_text = await _generate_content_text(
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_fundamental",
             prompt=f"{system_instruction}\n\nCONTEXT DATA:\n{context}",
-            timeout_seconds=40.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=60.0,
         )
-
-        analysis = _extract_json(response_text)
-        if not analysis:
-            raise ValueError("Failed to parse JSON from Gemini response")
 
         # Fallback to defaults if keys missing to prevent "N/A"
         analysis.setdefault("bull_case", "Growth potential through market expansion.")
@@ -502,9 +512,6 @@ async def analyze_sentiment_with_gemini(
     if not valid:
         logger.error(f"[Gemini Sentiment] Permission denied: {reason}")
         raise PermissionError(f"Sentiment analysis denied: {reason}")
-
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
 
     logger.info(f"[Gemini Sentiment] Analyzing sentiment for {ticker}")
 
@@ -562,18 +569,13 @@ Analyze the provided news articles and assess market sentiment for this stock.
 
     # 3. Call Gemini
     try:
-        text = await _generate_content_text(
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_sentiment",
             prompt=f"{system_instruction}\n\nCONTEXT:\n{context}",
-            timeout_seconds=30.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=45.0,
         )
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-
-        analysis = json.loads(text)
         logger.info(f"[Gemini Sentiment] Analysis complete for {ticker}")
         return analysis
 
@@ -605,83 +607,17 @@ async def analyze_valuation_with_gemini(
         logger.error(f"[Gemini Valuation] Permission denied: {reason}")
         raise PermissionError(f"Valuation analysis denied: {reason}")
 
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
-
     logger.info(f"[Gemini Valuation] Analyzing valuation for {ticker}")
-
-    # 2. Build Context
-    peer_context = (
-        "\n".join(
-            [
-                f"- {p.get('ticker', 'N/A')}: P/E={p.get('pe_ratio', 'N/A')}, Growth={p.get('growth', 'N/A')}"
-                for p in (peer_data or [])[:5]
-            ]
-        )
-        if peer_data
-        else "No peer data available."
-    )
-
-    user_risk = user_context.get("risk_tolerance", "Balanced") if user_context else "Balanced"
-
-    context = f"""
-    --- VALUATION ANALYSIS TERMINAL ({ticker}) ---
-    
-    [Market Data]
-    Current Price: ${market_data.get("price", "N/A")}
-    P/E Ratio: {market_data.get("pe_ratio", "N/A")}
-    Forward P/E: {market_data.get("forward_pe", "N/A")}
-    P/B Ratio: {market_data.get("pb_ratio", "N/A")}
-    P/S Ratio: {market_data.get("ps_ratio", "N/A")}
-    EV/EBITDA: {market_data.get("ev_ebitda", "N/A")}
-    Market Cap: ${market_data.get("market_cap", "N/A")}
-    Dividend Yield: {market_data.get("dividend_yield", "N/A")}
-    52-Week Range: ${market_data.get("52w_low", "N/A")} - ${market_data.get("52w_high", "N/A")}
-    
-    [Peer Comparison]
-    {peer_context}
-    
-    [Investor Profile]
-    Risk Tolerance: {user_risk}
-    """
-
-    system_instruction = """
-You are a **Quantitative Valuation Analyst** at an institutional investment firm.
-
-Perform a comprehensive valuation analysis with focus on relative and intrinsic value.
-
-### REPORT STRUCTURE (Strict JSON)
-- `summary`: (String) 1-paragraph valuation assessment
-- `valuation_verdict`: (String) "undervalued", "fair", or "overvalued"
-- `valuation_metrics`: (Dict) Key metrics analyzed with values
-- `peer_ranking`: (String) How this stock ranks vs peers
-- `price_targets`: (Dict) {"conservative": X, "base_case": Y, "optimistic": Z}
-- `upside_downside`: (Dict) {"upside_pct": X, "downside_pct": Y}
-- `confidence`: (Float 0.0-1.0)
-- `recommendation`: (String: "undervalued", "fair", "overvalued")
-
-### RULES
-- Use multiple valuation methods (P/E, EV/EBITDA, DCF if possible)
-- Compare to sector averages
-- Consider growth rates when evaluating multiples
-- Keep wording concise and investor-friendly
-- DO NOT use markdown inside JSON strings
-"""
 
     # 3. Call Gemini
     try:
-        text = await _generate_content_text(
-            prompt=f"{system_instruction}\n\nCONTEXT:\n{context}",
-            timeout_seconds=30.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_valuation",
+            prompt=valuation_prompt(ticker, market_data, peer_data, user_context),
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=45.0,
         )
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-
-        analysis = json.loads(text)
         logger.info(f"[Gemini Valuation] Analysis complete for {ticker}")
         return analysis
 
@@ -704,15 +640,14 @@ async def synthesize_debate_recommendation_card(
     valuation_payload: Dict[str, Any],
     debate_payload: Dict[str, Any],
     highlights: List[Dict[str, Any]],
+    user_id: Optional[str] = None,
+    consent_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build a rich post-debate synthesis card using Gemini.
 
     Returns strict JSON fields for frontend decision-card rendering.
     """
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini synthesis unavailable")
-
     synthesis_prompt = f"""
 You are Kai Chief Investment Strategist.
 You are given finalized multi-agent debate artifacts for {ticker}.
@@ -752,13 +687,27 @@ highlights={json.dumps(highlights[:24], default=str)[:4000]}
 """
 
     try:
-        text = await _generate_content_text(
-            prompt=synthesis_prompt,
-            timeout_seconds=25.0,
-            max_output_tokens=KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
-            response_mime_type="application/json",
-        )
-        parsed = _extract_json(text)
+        has_user_id = bool(str(user_id or "").strip())
+        has_consent_token = bool(str(consent_token or "").strip())
+        if has_user_id != has_consent_token:
+            raise ValueError("Kai synthesis authority requires both user_id and consent_token")
+        if has_user_id and has_consent_token:
+            parsed = await run_kai_synthesis_turn(
+                prompt=synthesis_prompt,
+                user_id=str(user_id),
+                consent_token=str(consent_token),
+                timeout_seconds=90.0,
+            )
+        else:
+            if not _require_gemini_ready():
+                return _gemini_unavailable_payload("Gemini synthesis unavailable")
+            text = await _generate_content_text(
+                prompt=synthesis_prompt,
+                timeout_seconds=25.0,
+                max_output_tokens=KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
+                response_mime_type="application/json",
+            )
+            parsed = _extract_json(text)
         if not parsed:
             raise ValueError("Empty synthesis JSON")
         return parsed
@@ -836,7 +785,12 @@ async def stream_gemini_response(
             remaining = deadline - loop.time()
             if remaining <= 0:
                 raise asyncio.TimeoutError
-            async with _gemini_stream_semaphore:
+            # Queueing consumes the same operation budget as provider work.
+            await asyncio.wait_for(_gemini_stream_semaphore.acquire(), timeout=remaining)
+            try:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
                 first_event_timeout = min(15.0, remaining)
                 stream = await asyncio.wait_for(
                     _gemini_client.aio.models.generate_content_stream(
@@ -920,6 +874,9 @@ async def stream_gemini_response(
                     except Exception as e:
                         logger.warning("[Gemini Streaming] Skipped chunk for %s: %s", agent_name, e)
                         continue
+
+            finally:
+                _gemini_stream_semaphore.release()
 
             elapsed_ms = round((time.perf_counter() - started_at) * 1000)
             first_response_ms = (
@@ -1035,10 +992,10 @@ async def analyze_fundamental_streaming(
     Risk Profile: {risk}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}

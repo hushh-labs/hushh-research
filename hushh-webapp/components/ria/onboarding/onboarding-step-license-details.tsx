@@ -1,14 +1,15 @@
 "use client";
 
-import { Pencil, Shield } from "lucide-react";
+import { useEffect, useState } from "react";
+import { isNative } from "@/lib/capacitor/platform";
+import styles from "./onboarding-native.module.css";
+import { Pencil, Shield } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 
 function EnrichingPlaceholder() {
   return <span className="h-5 w-28 animate-pulse rounded bg-muted/50" />;
 }
-
-
-
 
 function InfoRow({
   label,
@@ -23,17 +24,23 @@ function InfoRow({
 }) {
   return (
     <SettingsRow
-      title={<span className="whitespace-nowrap">{label}</span>}
+      className={styles.detailRow}
+      stackTrailingOnMobile
+      title={<span>{label}</span>}
       trailing={
-        <span className={cn("text-[15px] font-medium text-foreground", numeric && "tabular-nums")}>
+        <span
+          className={cn(
+            "block w-full min-w-0 whitespace-normal break-words text-left text-[15px] font-medium leading-6 text-foreground sm:text-right",
+            styles.value,
+            numeric && "tabular-nums",
+          )}
+        >
           {loading ? <EnrichingPlaceholder /> : value?.trim() || "Not returned"}
         </span>
       }
     />
   );
 }
-
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 
 function EditableRow({
   label,
@@ -50,17 +57,23 @@ function EditableRow({
 }) {
   return (
     <SettingsRow
-      title={<span className="whitespace-nowrap">{label}</span>}
+      className={styles.detailRow}
+      stackTrailingOnMobile
+      title={<span>{label}</span>}
       trailing={
         loading ? (
           <EnrichingPlaceholder />
         ) : (
-          <div className="flex items-center gap-2">
+          <div className={cn(styles.editable, "flex w-full min-w-0 items-center gap-2 sm:w-auto")}>
             <input
+              aria-label={label}
               type="text"
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              className={cn("bg-transparent min-w-[120px] max-w-[200px] text-right text-[15px] outline-none text-foreground placeholder:text-muted-foreground", numeric && "tabular-nums")}
+              className={cn(
+                "min-w-0 flex-1 bg-transparent text-left text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:min-w-[120px] sm:max-w-[200px] sm:text-right",
+                numeric && "tabular-nums",
+              )}
             />
             <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           </div>
@@ -99,6 +112,8 @@ export function OnboardingStepLicenseDetails({
   onPinZipChange: (value: string) => void;
   isEnriching: boolean;
 }) {
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNative()), []);
   const certificationLabel =
     certifications.length > 0 ? certifications.join(", ") : "Not returned";
   const regulatorLine =
@@ -107,14 +122,17 @@ export function OnboardingStepLicenseDetails({
       : "Regulator status pending";
 
   return (
-    <div className="space-y-4">
+    <div className={cn(styles.details, "space-y-4")} data-native={native || undefined} data-testid="ria-license-details-grid">
       {/* Regulator shield card (full-width, replaces the old status pill). */}
-      <div className="flex items-center gap-3 rounded-2xl border border-border bg-background/80 p-4 shadow-sm backdrop-blur-md">
+      <div
+        className="flex items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-border bg-background/80 p-4 shadow-sm backdrop-blur-md"
+        data-testid="ria-license-regulator-card"
+      >
         <Shield
-          className="h-[19px] w-[19px] shrink-0 text-foreground"
+          className="mt-0.5 h-[19px] w-[19px] shrink-0 text-foreground"
           strokeWidth={1.7}
         />
-        <span className="text-[14px] font-medium leading-[1.3] text-foreground">
+        <span className="min-w-0 text-[14px] font-medium leading-6 text-foreground">
           {regulatorLine}
         </span>
       </div>

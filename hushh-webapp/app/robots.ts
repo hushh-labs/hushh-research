@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { DISALLOWED_PREFIXES, SITE_URL } from "@/lib/seo/site";
+import { DISALLOWED_PREFIXES, SITE_URL, isProductionIndexing } from "@/lib/seo/site";
 
 /**
  * robots.txt
@@ -11,6 +11,7 @@ import { DISALLOWED_PREFIXES, SITE_URL } from "@/lib/seo/site";
  * answer-engine results (AEO).
  */
 export default function robots(): MetadataRoute.Robots {
+  if (!isProductionIndexing()) return { rules: [{ userAgent: "*", disallow: "/" }] };
   const disallow = DISALLOWED_PREFIXES.map((prefix) => prefix);
 
   // AI answer-engine crawlers we explicitly welcome for AEO.

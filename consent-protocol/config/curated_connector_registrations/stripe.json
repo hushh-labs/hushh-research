@@ -1,0 +1,23 @@
+{
+  "version": "curated-connector-registration.v1",
+  "connectorId": "stripe",
+  "displayName": "Stripe",
+  "description": "Connect your Stripe account with OAuth. Account and payment access remain unavailable until the selected account and environment are verified.",
+  "mcpEndpoint": "https://mcp.stripe.com",
+  "oauth": {
+    "issuer": "https://access.stripe.com/mcp",
+    "authorizeUrl": "https://access.stripe.com/mcp/oauth2/authorize",
+    "tokenUrl": "https://access.stripe.com/mcp/oauth2/token",
+    "registrationUrl": "https://access.stripe.com/mcp/oauth2/register",
+    "scopes": [],
+    "tokenEndpointAuth": "none",
+    "clientIdEnv": "STRIPE_OAUTH_CLIENT_ID"
+  },
+  "environments": {
+    "uat": {
+      "registeredRedirectUris": [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
+    }
+  }
+}

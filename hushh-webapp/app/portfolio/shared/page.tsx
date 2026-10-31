@@ -154,7 +154,7 @@ function buildPerformanceChartData(performance: PortfolioSharePerformancePoint[]
 
 function EmptySnapshot() {
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
+    <main className="min-h-0 w-full bg-slate-950 px-4 py-10 text-slate-100">
       <NativeTestBeacon
         routeId="/portfolio/shared"
         marker="native-route-portfolio-shared"
@@ -177,7 +177,7 @@ function SnapshotView({ payload }: { payload: PortfolioSharePayload }) {
   const generatedAtText = formatDateLabel(safePayload.generatedAt);
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:py-10">
+    <main className="min-h-0 w-full bg-slate-950 px-4 py-8 text-slate-100 sm:py-10">
       <NativeTestBeacon
         routeId="/portfolio/shared"
         marker="native-route-portfolio-shared"

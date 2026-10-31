@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { AlertTriangle, RefreshCcw } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 

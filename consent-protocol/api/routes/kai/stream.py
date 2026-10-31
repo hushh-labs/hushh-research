@@ -16,10 +16,11 @@ import time
 from datetime import datetime, timezone
 from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from api.middleware import require_vault_owner_token as require_vault_owner_token
 from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import (
     STOCK_ANALYZE_TIMEOUT_SECONDS,
@@ -30,8 +31,6 @@ from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent, ValuationInsight
-from hushh_mcp.consent.token import validate_token_with_db
-from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
     is_gemini_ready,
@@ -39,16 +38,30 @@ from hushh_mcp.operons.kai.llm import (
     synthesize_debate_recommendation_card,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
+
+from ._analysis_presentation import (
+    _analysis_measurements,
+    _collect_degraded_agents,
+    _market_snapshot,
+    _synthesis_recommendation,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
 _RUN_MANAGER = KaiAnalyzeRunManager()
+
+
+async def shutdown_analyze_run_retention() -> None:
+    """Stop the analyze owner's expiry worker during application shutdown."""
+    await _RUN_MANAGER.stop_retention()
+
 
 # ---------------------------------------------------------------------------
 # Input bounds (CWE-400 — Uncontrolled Resource Consumption)
@@ -63,6 +76,7 @@ _TICKER_RAW_MAX_LEN: int = 20  # regex further constrains to <=6 after normaliza
 _RISK_PROFILE_MAX_LEN: int = 64
 _DEBATE_SESSION_ID_MAX_LEN: int = 256
 _RUN_ID_MAX_LEN: int = 128
+_RIA_PICK_THESIS_MAX_LENGTH: int = 2000
 
 RunId = Annotated[str, Path(min_length=1, max_length=_RUN_ID_MAX_LEN)]
 
@@ -136,39 +150,29 @@ def _require_known_ticker_or_422(ticker: str) -> str:
     return ticker
 
 
-async def _require_vault_owner_token(
+def _require_stream_owner_token(
     *,
     user_id: str,
-    authorization: str | None,
+    token_data: dict,
 ) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Missing consent token. Call /api/consent/owner-token first.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    """Bind a canonically validated owner capability to the requested owner.
 
-    # Use removeprefix (not replace) so "Bearer " is stripped only from the start,
-    # preventing accidental token corruption when the token value itself contains
-    # the substring "Bearer ".
-    consent_token = authorization.removeprefix("Bearer ").strip()
-
-    # validate_token_with_db performs both the offline JWT check AND a DB-backed
-    # revocation lookup, matching the canonical pattern in api/middleware.py.
-    # validate_token (offline-only) was the previous, weaker check.
-    valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
-
-    if not valid or not payload:
-        logger.warning("stream.token_invalid reason=%s", reason)
-        raise HTTPException(
-            status_code=401,
-            detail="Consent token validation failed.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if payload.user_id != user_id:
+    ``require_vault_owner_token`` (under ``hub_content_owner``) is the authority for
+    signature, scope, revocation and account lifecycle. Keeping only the owner match here
+    stops this module growing a second auth path that drifts from the 401/423/503 contract.
+    """
+    if str(token_data.get("user_id") or "") != user_id:
         raise HTTPException(status_code=403, detail="Token user mismatch")
 
+    consent_token = str(token_data.get("token") or "").strip()
+    if not consent_token:
+        # Defensive only: the canonical dependency always returns the raw
+        # validated token. Never begin a downstream run without it.
+        raise HTTPException(
+            status_code=401,
+            detail="Token validation failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return consent_token
 
 
@@ -186,6 +190,14 @@ class StreamAnalyzeRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
     run_id: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
     resume_cursor: Optional[int] = Field(default=0, ge=0)
+    # Present => start the session's resumable run and stream it in THIS
+    # response (409 when the session already has one, as /analyze/run/start).
+    # See ``analyze_stream_post`` for why the start and the first attach must
+    # share one request.
+    debate_session_id: Optional[str] = Field(
+        default=None, min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN
+    )
+    pick_source: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
 
 
 class StartAnalyzeRunRequest(BaseModel):
@@ -393,10 +405,74 @@ def _recommendation_bias_from_advisor_tier(tier: str | None) -> str | None:
     return None
 
 
+def _normalize_ria_pick_thesis_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text[:_RIA_PICK_THESIS_MAX_LENGTH] if text else None
+
+
+def _build_authorized_advisor_thesis_source(
+    *,
+    pick_source: str,
+    source_label: str | None,
+    advisor_row: dict[str, Any] | None,
+    source_snapshot: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(advisor_row, dict):
+        return None
+    existing = advisor_row.get("advisor_thesis")
+    existing_thesis = existing if isinstance(existing, dict) else {}
+    thesis_text = _normalize_ria_pick_thesis_text(
+        existing_thesis.get("text") or advisor_row.get("investment_thesis")
+    )
+    if not thesis_text:
+        return None
+    ticker = str(advisor_row.get("ticker") or "").strip().upper()
+    updated_at = str(
+        existing_thesis.get("updated_at")
+        or (source_snapshot or {}).get("source_data_version")
+        or ""
+    ).strip()
+    authored_by_user_id = str(existing_thesis.get("authored_by_user_id") or "").strip()
+    return {
+        "kind": "advisor_thesis",
+        "label": source_label or "Linked RIA picks",
+        "source_id": pick_source,
+        **({"ticker": ticker} if ticker else {}),
+        "text": thesis_text,
+        "authored_by_user_id": authored_by_user_id or None,
+        "updated_at": updated_at or None,
+        "source": "ria_picks_editor",
+        "relationship_id": (source_snapshot or {}).get("relationship_id"),
+        "share_grant_id": (source_snapshot or {}).get("share_grant_id"),
+        "artifact_id": (source_snapshot or {}).get("artifact_id"),
+    }
+
+
+def _build_advisor_thesis_structured_source(
+    advisor_thesis_source: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(advisor_thesis_source, dict):
+        return None
+    ticker = str(advisor_thesis_source.get("ticker") or "").strip().upper()
+    return {
+        "label": advisor_thesis_source.get("label") or "Linked RIA picks",
+        "url": None,
+        "kind": "advisor_thesis",
+        "source_id": advisor_thesis_source.get("source_id"),
+        **({"ticker": ticker} if ticker else {}),
+        "updated_at": advisor_thesis_source.get("updated_at"),
+        "relationship_id": advisor_thesis_source.get("relationship_id"),
+        "share_grant_id": advisor_thesis_source.get("share_grant_id"),
+        "artifact_id": advisor_thesis_source.get("artifact_id"),
+    }
+
+
 async def _merge_ria_pick_package_context(
     *,
     ticker: str,
     pick_source: str | None,
+    pick_source_label: str | None = None,
+    pick_source_snapshot: dict[str, Any] | None = None,
     pick_package: dict[str, Any] | None,
     renaissance_context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -431,16 +507,23 @@ async def _merge_ria_pick_package_context(
         None,
     )
     merged_context = dict(renaissance_context)
+    source_label = str(pick_source_label or "").strip() or None
+    source_snapshot = pick_source_snapshot if isinstance(pick_source_snapshot, dict) else {}
     if advisor_top_row:
+        advisor_thesis_source = _build_authorized_advisor_thesis_source(
+            pick_source=normalized_source,
+            source_label=source_label,
+            advisor_row=advisor_top_row,
+            source_snapshot=source_snapshot,
+        )
         merged_context["tier"] = advisor_top_row.get("tier") or merged_context.get("tier")
         merged_context["conviction_weight"] = (
             advisor_top_row.get("conviction_weight")
             if advisor_top_row.get("conviction_weight") is not None
             else merged_context.get("conviction_weight")
         )
-        merged_context["investment_thesis"] = advisor_top_row.get(
-            "investment_thesis"
-        ) or merged_context.get("investment_thesis")
+        if advisor_thesis_source:
+            merged_context["advisor_thesis"] = advisor_thesis_source
         merged_context["sector"] = advisor_top_row.get("sector") or merged_context.get("sector")
         merged_context["recommendation_bias"] = (
             advisor_top_row.get("recommendation_bias")
@@ -456,12 +539,17 @@ async def _merge_ria_pick_package_context(
     normalized_screening = _normalize_advisor_screening_criteria(screening_sections)
     if normalized_screening:
         merged_context["screening_criteria"] = normalized_screening
+    investor_debate_thesis = str(package.get("investor_debate_thesis") or "").strip()[:2000]
     merged_context["advisor_pick_package"] = {
         "source": normalized_source,
+        "label": source_label,
         "top_picks_count": len(top_rows) if isinstance(top_rows, list) else 0,
         "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
         "screening_section_count": len(normalized_screening),
         "package_note": package.get("package_note") if isinstance(package, dict) else None,
+        # This remains in the live, authorized run context only. Do not add it
+        # to source lineage, run checkpoints, event payloads, or history.
+        "investor_debate_thesis": investor_debate_thesis or None,
     }
     return merged_context
 
@@ -487,6 +575,7 @@ async def _canonicalize_pick_source_context(
         "pick_source_kind",
         "pick_source_snapshot",
         "_kai_authorized_pick_package",
+        "advisor_thesis",
     ):
         next_context.pop(key, None)
 
@@ -529,6 +618,10 @@ async def _canonicalize_pick_source_context(
     package = resolved.get("package")
     if source_kind == "ria" and isinstance(package, dict):
         next_context["_kai_authorized_pick_package"] = package
+        next_context["pick_source_snapshot"] = {
+            **source_snapshot,
+            "label": source_label,
+        }
     return next_context
 
 
@@ -811,17 +904,9 @@ def _derive_fair_value(
     price_targets: dict[str, Any] | None,
     valuation_metrics: dict[str, Any] | None,
     valuation_recommendation: str,
-) -> tuple[str, float, float | None]:
-    current_price = _pick_first_numeric(
-        valuation_metrics,
-        (
-            "current_price",
-            "price",
-            "market_price",
-            "spot_price",
-            "last_price",
-        ),
-    )
+    provider_snapshot: dict[str, Any] | None = None,
+) -> tuple[str, float | None, float | None]:
+    current_price = _safe_float(provider_snapshot.get("last_price")) if provider_snapshot else None
     target_price = _pick_first_numeric(
         price_targets,
         (
@@ -839,13 +924,7 @@ def _derive_fair_value(
         gap_pct = ((target_price - current_price) / current_price) * 100.0
         score = _clamp(5.0 + (gap_pct / 4.0), 0.0, 10.0)
     else:
-        rec = (valuation_recommendation or "").strip().lower()
-        if "under" in rec:
-            score = 7.2
-        elif "over" in rec:
-            score = 2.8
-        else:
-            score = 5.0
+        return "Unavailable", None, None
     if score >= 6.2:
         label = "Undervalued"
     elif score <= 3.8:
@@ -865,12 +944,12 @@ def _derive_company_strength_score(
     market_trend_score: float,
 ) -> float:
     fundamental_score = (
-        _clamp((fundamental_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(fundamental_confidence * 10.0, 0.0, 10.0)
         if fundamental_confidence is not None
         else 5.0
     )
     valuation_score = (
-        _clamp((valuation_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(valuation_confidence * 10.0, 0.0, 10.0)
         if valuation_confidence is not None
         else fair_value_score
     )
@@ -879,7 +958,7 @@ def _derive_company_strength_score(
         if sentiment_score is not None
         else market_trend_score
     )
-    debate_score = _clamp((debate_confidence or 0.5) * 10.0, 0.0, 10.0)
+    debate_score = _clamp(debate_confidence * 10.0, 0.0, 10.0)
     blended = (
         (fundamental_score * 0.40)
         + (valuation_score * 0.20)
@@ -1155,6 +1234,12 @@ async def analyze_stream_generator(
 
     logger.info("[Kai Stream] Starting analysis for %s - user %s", ticker, user_id)
 
+    from hushh_mcp.services.market_provider_telemetry import (
+        finish_provider_call_counts,
+        start_provider_call_counts,
+    )
+
+    provider_calls_token = start_provider_call_counts()
     stream_token = _stream_ctx.set(CanonicalSSEStream("stock_analyze"))
     stream_ctx = _stream_ctx.get()
     stream_id = stream_ctx.stream_id if stream_ctx is not None else None
@@ -1287,6 +1372,13 @@ async def analyze_stream_generator(
             renaissance_context = await _merge_ria_pick_package_context(
                 ticker=ticker,
                 pick_source=request_pick_source,
+                pick_source_label=str(request_context.get("pick_source_label") or "").strip()
+                or None,
+                pick_source_snapshot=(
+                    request_context.get("pick_source_snapshot")
+                    if isinstance(request_context.get("pick_source_snapshot"), dict)
+                    else None
+                ),
                 pick_package=(
                     authorized_pick_package if isinstance(authorized_pick_package, dict) else None
                 ),
@@ -1496,6 +1588,8 @@ async def analyze_stream_generator(
             disconnection_event=disconnection_event,
             user_context=full_user_context,
             renaissance_context=renaissance_context,
+            user_id=user_id,
+            consent_token=consent_token,
         )
 
         # =========================================================================
@@ -1995,6 +2089,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "round": 1,
@@ -2030,6 +2125,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "fallback_used": True,
@@ -2252,6 +2348,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                 },
                 debate_payload={
@@ -2263,53 +2360,39 @@ async def analyze_stream_generator(
                     "final_statement": debate_result.final_statement,
                 },
                 highlights=debate_highlights,
+                user_id=user_id,
+                consent_token=consent_token,
             ),
             timeout=min(remaining_timeout(), 30.0),
+        )
+        _collect_degraded_agents(
+            degraded_agents, fundamental_insight, sentiment_insight, valuation_insight
         )
         analysis_degraded = len(degraded_agents) > 0
         if analysis_degraded:
             analysis_mode = "degraded"
-        synthesis_short = ""
-        if isinstance(synthesis_payload, dict):
-            for key in ("short_recommendation", "thesis", "summary"):
-                value = synthesis_payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    synthesis_short = value.strip()
-                    break
-        short_recommendation = (
-            synthesis_short
-            if synthesis_short
-            else _build_short_recommendation(
-                debate_result.decision,
-                debate_result.confidence,
-                debate_result.final_statement,
-                degraded_agents,
-            )
+        short_recommendation = _synthesis_recommendation(
+            synthesis_payload, debate_result, degraded_agents, _build_short_recommendation
         )
-        sentiment_score_value = _safe_float(sentiment_insight.sentiment_score)
-        market_trend_label, market_trend_score = _derive_market_trend(
-            sentiment_score_value,
-            debate_result.decision,
-        )
-        fair_value_label, fair_value_score, fair_value_gap_pct = _derive_fair_value(
-            price_targets=valuation_insight.price_targets,
-            valuation_metrics=valuation_insight.valuation_metrics,
-            valuation_recommendation=valuation_insight.recommendation,
-        )
-        company_strength_score = _derive_company_strength_score(
-            fundamental_confidence=_safe_float(fundamental_insight.confidence),
-            valuation_confidence=_safe_float(valuation_insight.confidence),
-            debate_confidence=_safe_float(debate_result.confidence) or 0.5,
-            sentiment_score=sentiment_score_value,
-            fair_value_score=fair_value_score,
-            market_trend_score=market_trend_score,
+        (
+            market_trend_label,
+            market_trend_score,
+            fair_value_label,
+            fair_value_score,
+            fair_value_gap_pct,
+            company_strength_score,
+        ) = _analysis_measurements(
+            fundamental_insight,
+            sentiment_insight,
+            valuation_insight,
+            debate_result,
+            _safe_float,
+            _derive_market_trend,
+            _derive_fair_value,
+            _derive_company_strength_score,
         )
         analysis_updated_at = _now_utc_iso()
-        market_snapshot = _derive_market_snapshot(
-            valuation_metrics=valuation_insight.valuation_metrics,
-            price_targets=valuation_insight.price_targets,
-            analysis_updated_at=analysis_updated_at,
-        )
+        market_snapshot = _market_snapshot(valuation_insight.market_snapshot)
 
         pkm_context = {
             "risk_profile": full_user_context.get("risk_profile"),
@@ -2348,6 +2431,17 @@ async def analyze_stream_generator(
                 "kind": "paper",
             }
         )
+        advisor_thesis_source = (
+            renaissance_context.get("advisor_thesis")
+            if isinstance(renaissance_context.get("advisor_thesis"), dict)
+            else None
+        )
+        if advisor_thesis_source:
+            structured_advisor_source = _build_advisor_thesis_structured_source(
+                advisor_thesis_source
+            )
+            if structured_advisor_source:
+                structured_sources.append(structured_advisor_source)
 
         # Build raw_card structure
         raw_card = {
@@ -2529,6 +2623,7 @@ async def analyze_stream_generator(
     finally:
         _stream_activity_ctx.reset(activity_token)
         _stream_ctx.reset(stream_token)
+        finish_provider_call_counts(provider_calls_token)
 
 
 def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:
@@ -2611,7 +2706,7 @@ async def analyze_stream(
     ticker: str = Query(min_length=1, max_length=_TICKER_RAW_MAX_LEN),
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     risk_profile: str = Query(default="balanced", max_length=_RISK_PROFILE_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     SSE endpoint for streaming Kai analysis.
@@ -2630,8 +2725,7 @@ async def analyze_stream(
     """
     ticker = _normalize_ticker_or_422(ticker)
 
-    # Auth uses validate_token_with_db inside _require_vault_owner_token().
-    consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    consent_token = _require_stream_owner_token(user_id=user_id, token_data=token_data)
     # Membership gate runs after auth so unauthenticated callers cannot probe
     # which symbols exist.
     ticker = _require_known_ticker_or_422(ticker)
@@ -2663,7 +2757,7 @@ async def analyze_stream(
 async def analyze_stream_post(
     request: Request,
     body: StreamAnalyzeRequest,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     POST version of streaming analysis (allows context in body).
@@ -2671,10 +2765,9 @@ async def analyze_stream_post(
     """
     ticker = _normalize_ticker_or_422(body.ticker)
 
-    # Auth uses validate_token_with_db inside _require_vault_owner_token().
-    consent_token = await _require_vault_owner_token(
+    consent_token = _require_stream_owner_token(
         user_id=body.user_id,
-        authorization=authorization,
+        token_data=token_data,
     )
 
     if not body.run_id:
@@ -2698,13 +2791,10 @@ async def analyze_stream_post(
             raise HTTPException(status_code=403, detail="Token user mismatch")
 
         start_cursor = _parse_cursor(body.resume_cursor)
-        if getattr(run, "is_durable_replay", False):
-            # Durable replay carries only the terminal frame; the client's
-            # resume cursor came from a live buffer on another (now-missed)
-            # instance. Replay the terminal frame from 0 rather than 410-ing on
-            # a stale cursor -- otherwise recovery would trade a 404 for a 410.
-            start_cursor = 0
-        elif start_cursor > run.latest_cursor:
+        # A run held by another process is followed, not replayed from a local
+        # buffer; its cursor only numbers the terminal frame past what the
+        # client has seen, so the stale-cursor 410 does not apply.
+        if not getattr(run, "is_durable_replay", False) and start_cursor > run.latest_cursor:
             raise HTTPException(
                 status_code=410,
                 detail={
@@ -2718,6 +2808,32 @@ async def analyze_stream_post(
             _RUN_MANAGER.stream_run_events(
                 run=run,
                 start_cursor=start_cursor,
+                request=request,
+            )
+        )
+
+    if body.debate_session_id:
+        # Start-and-attach. The live run exists only in the memory of the
+        # process that created it, and production serves each instance with
+        # several worker processes behind several instances. A start followed
+        # by a separate GET .../stream therefore lands on a process that never
+        # saw the run and 404s -- on UAT that was every debate. Streaming the
+        # run from the request that created it pins the first attach to the
+        # owning process, the same way POST /portfolio/import/stream does.
+        _state, run = await _start_analyze_run(
+            user_id=body.user_id,
+            debate_session_id=body.debate_session_id,
+            ticker=ticker,
+            risk_profile=body.risk_profile,
+            context=body.context,
+            pick_source=body.pick_source,
+            consent_token=consent_token,
+            endpoint="stream/analyze",
+        )
+        return _create_sse_response(
+            _RUN_MANAGER.stream_run_events(
+                run=run,
+                start_cursor=0,
                 request=request,
             )
         )
@@ -2750,44 +2866,50 @@ async def analyze_stream_post(
     )
 
 
-@router.post("/analyze/run/start")
-async def analyze_run_start(
-    body: StartAnalyzeRunRequest,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
-):
-    """Start or attach to a session-locked background analyze run."""
-    ticker = _normalize_ticker_or_422(body.ticker)
+async def _start_analyze_run(
+    *,
+    user_id: str,
+    debate_session_id: str,
+    ticker: str,
+    risk_profile: str,
+    context: Optional[Dict[str, Any]],
+    pick_source: Optional[str],
+    consent_token: str,
+    endpoint: Optional[str] = None,
+) -> tuple[str, Any]:
+    """Audit and start a session-locked run; 409 when the session already has one.
 
-    consent_token = await _require_vault_owner_token(
-        user_id=body.user_id,
-        authorization=authorization,
-    )
-    # Membership gate runs after auth so unauthenticated callers cannot probe
-    # which symbols exist.
-    ticker = _require_known_ticker_or_422(ticker)
+    ``ticker`` must already be normalized and membership-gated by the caller.
+    Shared by ``/analyze/run/start`` and the start-and-attach mode of
+    ``POST /analyze/stream`` so both record the same audit operation and honor
+    the same one-run-per-session lock.
+    """
     consent_service = ConsentDBService()
     next_context = await _canonicalize_pick_source_context(
-        user_id=body.user_id,
-        context=body.context,
-        requested_source=body.pick_source,
+        user_id=user_id,
+        context=context,
+        requested_source=pick_source,
     )
+    metadata: Dict[str, Any] = {
+        "risk_profile": risk_profile,
+        "debate_session_id": debate_session_id,
+        "has_context": bool(next_context),
+        "pick_source": next_context.get("pick_source"),
+        "pick_source_kind": next_context.get("pick_source_kind"),
+    }
+    if endpoint:
+        metadata["endpoint"] = endpoint
     await consent_service.log_operation(
-        user_id=body.user_id,
+        user_id=user_id,
         operation="kai.analyze.run.start",
         target=ticker,
-        metadata={
-            "risk_profile": body.risk_profile,
-            "debate_session_id": body.debate_session_id,
-            "has_context": bool(next_context),
-            "pick_source": next_context.get("pick_source"),
-            "pick_source_kind": next_context.get("pick_source_kind"),
-        },
+        metadata=metadata,
     )
     state, run = await _RUN_MANAGER.start_or_get_active(
-        user_id=body.user_id,
-        debate_session_id=body.debate_session_id,
+        user_id=user_id,
+        debate_session_id=debate_session_id,
         ticker=ticker,
-        risk_profile=body.risk_profile,
+        risk_profile=risk_profile,
         context=next_context or None,
         consent_token=consent_token,
         generator_factory=_stream_factory,
@@ -2801,6 +2923,33 @@ async def analyze_run_start(
                 "active_run": run.to_public_dict(),
             },
         )
+    return state, run
+
+
+@router.post("/analyze/run/start")
+async def analyze_run_start(
+    body: StartAnalyzeRunRequest,
+    token_data: dict = Depends(hub_content_owner),
+):
+    """Start or attach to a session-locked background analyze run."""
+    ticker = _normalize_ticker_or_422(body.ticker)
+
+    consent_token = _require_stream_owner_token(
+        user_id=body.user_id,
+        token_data=token_data,
+    )
+    # Membership gate runs after auth so unauthenticated callers cannot probe
+    # which symbols exist.
+    ticker = _require_known_ticker_or_422(ticker)
+    _state, run = await _start_analyze_run(
+        user_id=body.user_id,
+        debate_session_id=body.debate_session_id,
+        ticker=ticker,
+        risk_profile=body.risk_profile,
+        context=body.context,
+        pick_source=body.pick_source,
+        consent_token=consent_token,
+    )
     return {"run": run.to_public_dict()}
 
 
@@ -2808,13 +2957,13 @@ async def analyze_run_start(
 async def analyze_run_active(
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     debate_session_id: str = Query(min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Get active run for a given user/session.
 
     Returns HTTP 200 with ``{"run": null}`` when no active run exists.
     """
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.get_active(user_id=user_id, debate_session_id=debate_session_id)
     return {"run": run.to_public_dict() if run else None}
 
@@ -2825,10 +2974,10 @@ async def analyze_run_stream(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     cursor: Optional[int] = 0,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Replay buffered events (from cursor) and continue streaming live."""
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.get_run(run_id)
     if run is None or run.user_id != user_id:
         raise HTTPException(
@@ -2841,13 +2990,10 @@ async def analyze_run_stream(
         )
 
     start_cursor = _parse_cursor(cursor)
-    if getattr(run, "is_durable_replay", False):
-        # Durable replay carries only the terminal frame; the client's resume
-        # cursor came from a live buffer on another (now-missed) instance.
-        # Replay the terminal frame from 0 rather than 410-ing on a stale cursor
-        # -- otherwise recovery would trade a 404 for a 410.
-        start_cursor = 0
-    elif start_cursor > run.latest_cursor:
+    # A run held by another process is followed, not replayed from a local
+    # buffer; its cursor only numbers the terminal frame past what the client
+    # has seen, so the stale-cursor 410 does not apply.
+    if not getattr(run, "is_durable_replay", False) and start_cursor > run.latest_cursor:
         raise HTTPException(
             status_code=410,
             detail={
@@ -2871,10 +3017,10 @@ async def analyze_run_stream(
 async def analyze_run_cancel(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Cancel an active run."""
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.cancel_run(run_id=run_id, user_id=user_id)
     if run is None:
         raise HTTPException(

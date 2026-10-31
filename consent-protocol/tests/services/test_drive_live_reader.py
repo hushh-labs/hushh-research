@@ -1,0 +1,1050 @@
+"""Live preparation works without a selected file or indexed chunk."""
+
+import asyncio
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
+from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveMetadata, DriveReadError
+
+
+def fixture():
+    row = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 7,
+    }
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(return_value=(row, {"accessToken": "synthetic"}))
+    )
+    metadata = DriveMetadata(
+        "file-1", "March statement.pdf", "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+    )
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(return_value=metadata),
+        get_share_metadata=AsyncMock(return_value=metadata),
+    )
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id == "owner"
+        if tool_name == "search_files":
+            assert (
+                arguments["query"]
+                == "(title contains 'statement' or fullText contains 'statement')"
+            )
+            return ExternalMcpToolResult(False, {"files": [{"id": "file-1"}]}, False)
+        assert tool_name == "read_file_content" and arguments == {"fileId": "file-1"}
+        return ExternalMcpToolResult(False, {"fileContent": "Statement period: March 2026"}, False)
+
+    mcp = SimpleNamespace(read_tool=AsyncMock(side_effect=read))
+    fence = AsyncMock()
+    reader = DriveLiveReader(
+        user_id="owner", require_access=fence, oauth=oauth, mcp=mcp, adapter=adapter
+    )
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(False, {"drives": []}, False)
+    )
+    return reader, adapter, mcp, fence
+
+
+@pytest.mark.asyncio
+async def test_live_search_reads_without_indexing_and_fences_source():
+    reader, adapter, mcp, fence = fixture()
+    result = await reader.search(query=["statement"])
+    assert len(result["untrusted_external_content"]) == 1
+    assert result["untrusted_external_content"][0]["text"] == "Statement period: March 2026"
+    assert result["truncated"] is False
+    assert len(reader._rows) == 1
+    assert reader._rows[0]["source_version"] == "11"
+    assert len(reader._rows[0]["content_fingerprint"]) == 64
+    assert all(
+        call.kwargs["require_app_authorized"] is False
+        for call in adapter.get_metadata.await_args_list
+    )
+    assert mcp.read_tool.await_count == 2
+    assert fence.await_count >= 4
+
+
+@pytest.mark.asyncio
+async def test_compilation_read_retains_full_text_and_rechecks_exact_source():
+    reader, adapter, mcp, fence = fixture()
+    long_body = "the whole original note\n" * 1500
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, {"fileContent": long_body}, False)
+    metadata, body, source_truncated = await reader.read_compilation_match(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert body == long_body
+    assert source_truncated is False
+    assert metadata.version == "11"
+    await reader.require_compilation_source_current(metadata=metadata)
+    assert adapter.get_metadata.await_count == 3
+    assert fence.await_count >= 5
+
+
+def _original_text_pdf(body: str) -> bytes:
+    lines = [body[index : index + 70] for index in range(0, len(body), 70)]
+    commands = [b"BT /F1 9 Tf 20 1800 Td"]
+    for line in lines:
+        escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        commands.append(b"(" + escaped.encode("ascii") + b") Tj 0 -16 Td")
+    commands.append(b"ET")
+    stream = b"\n".join(commands)
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 1900] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    payload = b"%PDF-1.4\n"
+    offsets = [0]
+    for number, value in enumerate(objects, 1):
+        offsets.append(len(payload))
+        payload += str(number).encode() + b" 0 obj\n" + value + b"\nendobj\n"
+    xref = len(payload)
+    payload += b"xref\n0 6\n0000000000 65535 f \n"
+    payload += b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:])
+    return payload + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_extracts_original_multipage_pdf_after_20k_and_late_page():
+    from tests.services.test_drive_document_processor import joined_pdf
+
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    original = joined_pdf(
+        *(_original_text_pdf("Account activity entries and balances. " * 70) for _ in range(8)),
+        _original_text_pdf(
+            "Charles Schwab brokerage statement. September 1, 2026 to September 30, 2026. "
+            + "Holdings and ending balance. " * 70
+        ),
+    )
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", original))
+    source, pages, incomplete, fingerprint = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert source.version == "11"
+    assert len(pages) == 9 and not incomplete
+    assert sum(len(page.text.encode()) for page in pages) > 20 * 1024
+    assert "Charles Schwab brokerage statement" in pages[-1].text
+    assert "September 30," in pages[-1].text and "2026" in pages[-1].text
+    assert len(fingerprint) == 64
+    assert adapter.read_live_bytes.call_args.kwargs["max_bytes"] == 32 * 1024 * 1024
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_reports_unread_pdf_tail_after_page_budget():
+    from tests.services.test_drive_document_processor import joined_pdf
+
+    reader, adapter, _, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    original = joined_pdf(
+        *(_original_text_pdf(f"Page {number} of a longer report") for number in range(17))
+    )
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", original))
+    _, pages, incomplete, _ = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert len(pages) == 16
+    assert incomplete is True
+
+
+@pytest.mark.asyncio
+async def test_request_reader_keeps_unreadable_original_image_as_gap(monkeypatch):
+    from hushh_mcp.services import drive_document_pages as pages
+    from tests.services.test_drive_document_processor import scanned_image
+
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = SimpleNamespace(
+        extract_pages=AsyncMock(
+            side_effect=lambda **kwargs: pages.extract_pages(
+                kwargs["content"],
+                kwargs["mime_type"],
+                start_page=kwargs["start_page"],
+                page_limit=kwargs["page_limit"],
+            )
+        )
+    )
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", "/nonexistent/tesseract")
+    image_meta = DriveMetadata(
+        "file-1", "scan.png", "image/png", "11", "2026-04-01T00:00:00Z", 100, None
+    )
+    adapter.get_metadata.return_value = image_meta
+    original = scanned_image()
+    adapter.read_live_bytes = AsyncMock(return_value=("image/png", original))
+    source, extracted, incomplete, fingerprint = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "scan.png", "mime_type": "image/png"}
+    )
+    assert source == image_meta
+    assert len(extracted) == 1 and extracted[0].error_code == "ocr_unavailable"
+    assert incomplete is True and len(fingerprint) == 64
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_uses_original_scanned_pdf_ocr_when_engine_available():
+    from tests.services.test_drive_document_processor import scanned_pdf
+
+    binary = os.environ.get("DRIVE_TEST_TESSERACT_BINARY", "/usr/bin/tesseract")
+    if not Path(binary).is_file():
+        pytest.skip("local OCR engine not installed; production image installs it")
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", scanned_pdf()))
+    _, pages, incomplete, _ = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert not incomplete and pages[0].method == "ocr"
+    assert "September 30, 2026" in pages[0].text
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compilation_does_not_release_changed_or_renamed_source():
+    reader, adapter, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.read_compilation_match(
+            match={"file_id": "file-1", "name": "Different title", "mime_type": "application/pdf"}
+        )
+    mcp.read_tool.assert_not_awaited()
+
+    reader, adapter, _, _ = fixture()
+    old = adapter.get_metadata.return_value
+    metadata, _, _ = await reader.read_compilation_match(
+        match={"file_id": "file-1", "name": old.name, "mime_type": "application/pdf"}
+    )
+    adapter.get_metadata.return_value = DriveMetadata(
+        old.file_id,
+        old.name,
+        old.mime_type,
+        "12",
+        old.modified_time,
+        old.size,
+        old.checksum,
+        old.created_time,
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_compilation_source_current(metadata=metadata)
+
+
+@pytest.mark.asyncio
+async def test_changed_source_fails_before_review_publication():
+    reader, adapter, _, _ = fixture()
+    await reader.search(query=["statement"])
+    adapter.get_metadata.return_value = DriveMetadata(
+        "file-1",
+        "March statement.pdf",
+        "application/pdf",
+        "12",
+        "2026-04-01T00:00:00Z",
+        100,
+        None,
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_current()
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_search_terms_never_reach_provider():
+    reader, _, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.search(query=["statement\x00secret"])
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_empty_text_cannot_become_a_complete_suggestion():
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(False, {"files": [{"id": "file-1"}]}, False),
+        ExternalMcpToolResult(False, {"fileContent": "  "}, False),
+    ]
+    result = await reader.search(query=["statement"])
+    assert result["truncated"] is True
+    assert result["untrusted_external_content"] == []
+
+
+@pytest.mark.asyncio
+async def test_find_returns_video_and_folder_without_reading_content_or_index():
+    reader, adapter, mcp, _ = fixture()
+    mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    {
+                        "id": "video-1",
+                        "title": "Board recording.mp4",
+                        "mimeType": "video/mp4",
+                        "modifiedTime": "2026-09-23T10:00:00Z",
+                        "viewUrl": "https://drive.google.com/file/d/video-1/view?resourcekey=0-abc",
+                    }
+                ],
+                "nextPageToken": "next",
+            },
+            False,
+        ),
+        ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    {
+                        "id": "folder-1",
+                        "title": "Board folder",
+                        "mimeType": "application/vnd.google-apps.folder",
+                    },
+                    {
+                        "id": "file-2",
+                        "title": "Untyped file",
+                        "viewUrl": "https://evil.invalid/fake",
+                    },
+                ],
+            },
+            False,
+        ),
+    ]
+    found = await reader.find(query=["Board"])
+    assert [item["name"] for item in found["matches"]] == [
+        "Board recording.mp4",
+        "Board folder",
+        "Untyped file",
+    ]
+    assert found["matches"][0]["open_url"] == (
+        "https://drive.google.com/file/d/video-1/view?resourcekey=0-abc"
+    )
+    assert found["matches"][2]["open_url"] == "https://drive.google.com/open?id=file-2"
+    assert found["matches"][2]["mime_type"] == ""
+    assert found["truncated"] is False
+    assert mcp.read_tool.await_args_list[1].kwargs["arguments"]["pageToken"] == "next"
+    adapter.get_metadata.assert_not_awaited()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_find_caps_results_within_the_last_page():
+    reader, adapter, mcp, _ = fixture()
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [{"id": f"file-{index}", "title": f"File {index}"} for index in range(25)],
+            "nextPageToken": "more-results",
+        },
+        False,
+    )
+    found = await reader.find(query=["File"])
+    assert len(found["matches"]) == 25
+    assert found["truncated"] is True
+    assert mcp.read_tool.await_count == 1
+    assert mcp.read_tool.await_args.kwargs["arguments"]["pageSize"] == 25
+    adapter.get_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_opt_in_pages_past_default_cap_without_content_reads():
+    reader, adapter, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        assert tool_name == "search_files"
+        assert arguments["pageSize"] == 25
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, min(offset + 25, 35))
+        ]
+        return ExternalMcpToolResult(
+            False,
+            {"files": files, "nextPageToken": str(offset + 25) if offset + 25 < 35 else None},
+            False,
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=100)
+    assert len(result["matches"]) == 35
+    assert result["truncated"] is False
+    assert mcp.read_tool.await_count == 2
+    adapter.get_metadata.assert_not_awaited()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_opt_in_reports_truncation_at_explicit_cap():
+    reader, _, mcp, _ = fixture()
+
+    async def page(*, user_id, tool_name, arguments):
+        offset = int(arguments.get("pageToken") or 0)
+        files = [
+            {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+            for index in range(offset, offset + arguments["pageSize"])
+        ]
+        return ExternalMcpToolResult(
+            False, {"files": files, "nextPageToken": str(offset + arguments["pageSize"])}, False
+        )
+
+    mcp.read_tool.side_effect = page
+    result = await reader.find(query=["standup"], max_results=30)
+    assert len(result["matches"]) == 30
+    assert result["truncated"] is True
+    assert mcp.read_tool.await_count == 2
+    assert result["continuation"]["arguments"]["pageToken"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_owner_listing_cancellation_stops_the_next_page_without_releasing_results():
+    reader, _, mcp, _ = fixture()
+    next_page_started = asyncio.Event()
+    next_page_cancelled = asyncio.Event()
+
+    async def page(*, user_id, tool_name, arguments):
+        if "pageToken" not in arguments:
+            return ExternalMcpToolResult(
+                False,
+                {
+                    "files": [
+                        {"id": f"file-{index}", "title": f"Standup sync notes {index:02d}"}
+                        for index in range(25)
+                    ],
+                    "nextPageToken": "next",
+                },
+                False,
+            )
+        next_page_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            next_page_cancelled.set()
+            raise
+
+    mcp.read_tool.side_effect = page
+    task = asyncio.create_task(reader.find(query=["standup"], max_results=100))
+    try:
+        await asyncio.wait_for(next_page_started.wait(), timeout=1)
+    finally:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert next_page_cancelled.is_set()
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_results", [0, 101, True, 25.0])
+async def test_owner_listing_rejects_invalid_caps_before_provider_call(max_results):
+    reader, _, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["standup"], max_results=max_results)
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_read_matches_reads_only_chosen_file_and_rechecks_name():
+    reader, adapter, mcp, _ = fixture()
+    chosen = [{"file_id": "file-1", "name": "March statement.pdf"}]
+    result = await reader.read_matches(matches=chosen)
+    assert result["untrusted_external_content"][0]["text"] == "Statement period: March 2026"
+    assert mcp.read_tool.await_count == 1
+    assert mcp.read_tool.await_args.kwargs["tool_name"] == "read_file_content"
+    adapter.get_metadata.return_value = DriveMetadata(
+        "file-1", "Renamed.pdf", "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.read_matches(matches=chosen)
+
+
+@pytest.mark.asyncio
+async def test_date_only_find_uses_bounded_provider_metadata_search():
+    reader, adapter, mcp, _ = fixture()
+    mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    {"id": "file-1", "title": "Recent.pdf", "modifiedTime": "2026-09-23T10:00:00Z"}
+                ]
+            },
+            False,
+        )
+    ]
+    result = await reader.find(
+        query=[],
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert [row["name"] for row in result["matches"]] == ["Recent.pdf"]
+    assert mcp.read_tool.await_args.kwargs["arguments"]["query"] == (
+        "(modifiedTime >= '2026-09-22T00:00:00Z' and modifiedTime < '2026-09-24T00:00:00Z')"
+    )
+    assert mcp.read_tool.await_args.kwargs["arguments"]["excludeContentSnippets"] is True
+    adapter.get_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_date_filter_combines_with_terms_in_read_search():
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(False, {"files": [{"id": "file-1"}]}, False),
+        ExternalMcpToolResult(False, {"fileContent": "Statement period: March 2026"}, False),
+    ]
+    result = await reader.search(
+        query=["statement"],
+        time_field="createdTime",
+        start_time="2026-03-01T00:00:00Z",
+        end_time="2026-05-01T00:00:00Z",
+    )
+    assert result["untrusted_external_content"][0]["text"] == "Statement period: March 2026"
+    assert mcp.read_tool.await_args_list[0].kwargs["arguments"]["query"] == (
+        "(title contains 'statement' or fullText contains 'statement') "
+        "and (createdTime >= '2026-03-01T00:00:00Z' "
+        "and createdTime < '2026-05-01T00:00:00Z')"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,start,end",
+    [
+        ("viewedByMeTime", "2026-09-22T00:00:00Z", "2026-09-24T00:00:00Z"),
+        ("modifiedTime", "2026-09-24T00:00:00Z", "2026-09-22T00:00:00Z"),
+        ("modifiedTime", "2026-09-24T00:00:00Z", "2026-09-24T00:00:00Z"),
+        ("modifiedTime", "2026-13-22T00:00:00Z", "2026-09-24T00:00:00Z"),
+        ("modifiedTime", "2026-09-22T00:00:00+05:30", "2026-09-24T00:00:00Z"),
+        ("modifiedTime", "2026-09-22T00:00:00Z", None),
+    ],
+)
+async def test_invalid_date_bounds_never_reach_provider(field, start, end):
+    reader, _, mcp, _ = fixture()
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=[], time_field=field, start_time=start, end_time=end)
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bind_matches_uses_current_metadata_without_reading_file_content():
+    reader, adapter, mcp, _ = fixture()
+    adapter.get_share_metadata.return_value = DriveMetadata(
+        "file-1", "Recent.pdf", "application/pdf", "11", "2026-09-23T10:00:00Z", 100, None
+    )
+    matches = [{"file_id": "file-1", "name": "Recent.pdf", "mime_type": "application/pdf"}]
+    result = await reader.bind_matches(
+        matches=matches,
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert result["truncated"] is False
+    assert result["untrusted_external_content"][0]["metadata_only"] is True
+    assert reader._rows[0]["source_version"] == "11"
+    assert reader._rows[0]["connection_generation"] == 7
+    assert reader._rows[0]["content_fingerprint"] is None
+    assert reader._rows[0]["metadata_only"] is True
+    assert reader._rows[0]["time_field"] == "modifiedTime"
+    assert reader._rows[0]["start_time"] == "2026-09-22T00:00:00Z"
+    assert reader._rows[0]["end_time"] == "2026-09-24T00:00:00Z"
+    mcp.read_tool.assert_not_awaited()
+    assert adapter.get_share_metadata.await_count == 2
+    adapter.get_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_binding_survives_a_version_bump_but_not_a_rename():
+    """Sharing a file with one person bumps its Drive version; the next person's
+    share of the same file must still bind. A rename is a different file choice."""
+    reader, adapter, _, _ = fixture()
+
+    def metadata(name, version):
+        return DriveMetadata(
+            "file-1", name, "application/pdf", version, "2026-09-23T10:00:00Z", 100, None
+        )
+
+    adapter.get_share_metadata.return_value = metadata("Recent.pdf", "11")
+    await reader.bind_matches(
+        matches=[{"file_id": "file-1", "name": "Recent.pdf", "mime_type": "application/pdf"}],
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    adapter.get_share_metadata.return_value = metadata("Recent.pdf", "12")
+    await reader.require_current()
+    adapter.get_share_metadata.return_value = metadata("Renamed.pdf", "12")
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_current()
+
+
+@pytest.mark.asyncio
+async def test_bind_matches_excludes_folder_and_changed_date_from_complete_preview():
+    reader, adapter, mcp, _ = fixture()
+    adapter.get_share_metadata.return_value = DriveMetadata(
+        "file-1", "Old.pdf", "application/pdf", "11", "2026-09-20T10:00:00Z", 100, None
+    )
+    result = await reader.bind_matches(
+        matches=[
+            {
+                "file_id": "folder-1",
+                "name": "Folder",
+                "mime_type": "application/vnd.google-apps.folder",
+            },
+            {"file_id": "file-1", "name": "Old.pdf", "mime_type": "application/pdf"},
+        ],
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert result == {"untrusted_external_content": [], "truncated": True}
+    assert reader._rows == []
+    assert adapter.get_share_metadata.await_count == 1
+    adapter.get_metadata.assert_not_awaited()
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bind_matches_can_preview_shareable_video_by_created_time():
+    reader, adapter, mcp, _ = fixture()
+    adapter.get_share_metadata.return_value = DriveMetadata(
+        "video-1",
+        "Recording.mp4",
+        "video/mp4",
+        "12",
+        "2026-09-24T10:00:00Z",
+        1234,
+        None,
+        "2026-09-23T10:00:00Z",
+    )
+    result = await reader.bind_matches(
+        matches=[{"file_id": "video-1", "name": "Recording.mp4", "mime_type": "video/mp4"}],
+        time_field="createdTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert result["truncated"] is False
+    assert reader._rows[0]["file_id"] == "video-1"
+    assert reader._rows[0]["source_version"] == "12"
+    assert adapter.get_share_metadata.await_count == 2
+    adapter.get_metadata.assert_not_awaited()
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_metadata_preview_rechecks_date_when_file_changes_before_review():
+    reader, adapter, _, _ = fixture()
+    adapter.get_share_metadata.return_value = DriveMetadata(
+        "file-1", "Recent.pdf", "application/pdf", "11", "2026-09-23T10:00:00Z", 100, None
+    )
+    await reader.bind_matches(
+        matches=[{"file_id": "file-1", "name": "Recent.pdf", "mime_type": "application/pdf"}],
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    adapter.get_share_metadata.return_value = DriveMetadata(
+        "file-1", "Recent.pdf", "application/pdf", "11", "2026-09-24T00:00:00Z", 100, None
+    )
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await reader.require_current()
+
+
+@pytest.mark.asyncio
+async def test_a_search_with_no_matches_is_an_empty_answer_not_a_failure():
+    from hushh_mcp.services.google_drive_mcp_service import _search_metadata
+
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, _search_metadata({}), False)
+    found = await reader.find(query=["statement"])
+    assert found == {
+        "matches": [],
+        "truncated": False,
+        "incomplete_search": False,
+        "continuation": None,
+    }
+
+
+def three_file_reader(read_payloads, metadata_errors=None):
+    reader, adapter, mcp, _ = fixture()
+    names = {"file-1": "March statement.pdf", "file-2": "Locked.pdf", "file-3": "Huge.pdf"}
+    metadata_errors = metadata_errors or {}
+
+    async def metadata(*, file_id, **_):
+        if file_id in metadata_errors:
+            raise DriveReadError(metadata_errors[file_id])
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    async def read(*, user_id, tool_name, arguments):
+        return ExternalMcpToolResult(False, read_payloads[arguments["fileId"]], False)
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = read
+    matches = [
+        {"file_id": file_id, "name": name, "source_ref": f"document:{index:032d}"}
+        for index, (file_id, name) in enumerate(names.items(), 1)
+    ]
+    return reader, mcp, matches
+
+
+@pytest.mark.asyncio
+async def test_unreadable_files_are_reported_with_a_reason():
+    reader, _, matches = three_file_reader(
+        {
+            "file-1": {"fileContent": "Statement period: March 2026"},
+            "file-2": {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+        },
+        metadata_errors={"file-3": "file_too_large"},
+    )
+    result = await reader.read_matches(matches=matches)
+    assert result["unreadable"] == [
+        {
+            "name": "Locked.pdf",
+            "reason": "encrypted_document",
+            "source_ref": matches[1]["source_ref"],
+        },
+        {"name": "Huge.pdf", "reason": "file_too_large", "source_ref": matches[2]["source_ref"]},
+    ]
+    assert result["truncated"] is True
+    assert len(result["untrusted_external_content"]) == 1
+    assert len(reader._rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_reads_overlap_by_two_but_publish_in_search_order():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    release = asyncio.Event()
+    two_started = asyncio.Event()
+    started: list[str] = []
+    active = 0
+    max_active = 0
+
+    async def read(*, user_id, tool_name, arguments):
+        nonlocal active, max_active
+        file_id = arguments["fileId"]
+        started.append(file_id)
+        active += 1
+        max_active = max(max_active, active)
+        if len(started) == 2:
+            two_started.set()
+        try:
+            await release.wait()
+            return ExternalMcpToolResult(False, {"fileContent": file_id}, False)
+        finally:
+            active -= 1
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    task = asyncio.create_task(
+        reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p))
+    )
+    try:
+        await asyncio.wait_for(two_started.wait(), timeout=1)
+        assert started == ["file-1", "file-2"]
+        assert max_active == 2
+    finally:
+        release.set()
+    result = await asyncio.wait_for(task, timeout=1)
+    assert [item["name"] for item in result["untrusted_external_content"]] == [
+        item["name"] for item in matches
+    ]
+    assert [row["file_id"] for row in reader._rows] == [item["file_id"] for item in matches]
+    assert max_active == 2
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+
+
+@pytest.mark.asyncio
+async def test_fatal_live_read_cancels_sibling_and_keeps_no_partial_observations():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+    started: list[str] = []
+
+    async def read(*, user_id, tool_name, arguments):
+        file_id = arguments["fileId"]
+        started.append(file_id)
+        if file_id == "file-1":
+            await sibling_started.wait()
+            raise DriveReadError("source_changed")
+        if file_id == "file-2":
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+        raise AssertionError("third read must not start after a fatal error")
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    with pytest.raises(DriveReadError, match="source_changed"):
+        await asyncio.wait_for(
+            reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p)),
+            timeout=1,
+        )
+    assert sibling_cancelled.is_set()
+    assert started == ["file-1", "file-2"]
+    assert reader._rows == []
+    assert progress == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_live_read_drains_active_siblings_and_clears_partial_rows():
+    reader, mcp, matches = three_file_reader(
+        {file_id: {"fileContent": file_id} for file_id in ("file-1", "file-2", "file-3")}
+    )
+    both_waiting = asyncio.Event()
+    waiting: set[str] = set()
+    cancelled: set[str] = set()
+
+    async def read(*, user_id, tool_name, arguments):
+        file_id = arguments["fileId"]
+        if file_id == "file-1":
+            return ExternalMcpToolResult(False, {"fileContent": file_id}, False)
+        waiting.add(file_id)
+        if waiting == {"file-2", "file-3"}:
+            both_waiting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.add(file_id)
+            raise
+
+    mcp.read_tool.side_effect = read
+    progress: list[tuple[int, int]] = []
+    task = asyncio.create_task(
+        reader.read_matches(matches=matches, on_progress=lambda *p: progress.append(p))
+    )
+    try:
+        await asyncio.wait_for(both_waiting.wait(), timeout=1)
+        assert len(reader._rows) == 1
+        assert reader._rows[0]["file_id"] == "file-1"
+    finally:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert cancelled == {"file-2", "file-3"}
+    assert reader._rows == []
+    assert progress == [(1, 3)]
+
+
+@pytest.mark.asyncio
+async def test_access_loss_after_content_is_fatal_not_an_unreadable_file():
+    reader, _, _, fence = fixture()
+    fence.side_effect = [None, None, DriveReadError("source_unavailable")]
+    with pytest.raises(DriveReadError, match="source_unavailable"):
+        await reader.read_matches(matches=[{"file_id": "file-1", "name": "March statement.pdf"}])
+    assert reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_unreadable_progress_is_count_only_and_callback_failure_is_nonfatal():
+    reader, _, matches = three_file_reader(
+        {
+            "file-1": {"fileContent": "Readable"},
+            "file-2": {"textFormattingNotSupported": True, "reason": "encrypted_document"},
+            "file-3": {"fileContent": "Readable too"},
+        }
+    )
+    progress: list[tuple[int, int]] = []
+
+    def report(completed: int, total: int) -> None:
+        progress.append((completed, total))
+        if completed == 2:
+            raise RuntimeError("UI closed")
+
+    result = await reader.read_matches(matches=matches, on_progress=report)
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+    assert [item["name"] for item in result["untrusted_external_content"]] == [
+        matches[0]["name"],
+        matches[2]["name"],
+    ]
+    assert result["unreadable"][0]["name"] == matches[1]["name"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ({"fileContent": "   "}, "no_extractable_text"),
+        ({"textFormattingNotSupported": True}, "unsupported_format"),
+        # A reason outside the allowlist is never passed through.
+        ({"textFormattingNotSupported": True, "reason": "PRIVATE detail"}, "unsupported_format"),
+        (
+            {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
+            "no_extractable_text",
+        ),
+    ],
+)
+async def test_each_unreadable_file_carries_one_allowlisted_reason(payload, reason):
+    reader, _, matches = three_file_reader({"file-1": payload})
+    result = await reader.read_matches(matches=matches[:1])
+    assert result["unreadable"] == [
+        {"name": "March statement.pdf", "reason": reason, "source_ref": matches[0]["source_ref"]}
+    ]
+    assert result["untrusted_external_content"] == [] and result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_readable_turn_reports_no_unreadable_files():
+    reader, _, _, _ = fixture()
+    result = await reader.read_matches(
+        matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
+    )
+    assert result["unreadable"] == []
+
+
+def statements_reader(count, text):
+    reader, adapter, mcp, _ = fixture()
+    names = {f"file-{index}": f"Statement {index:02d}.pdf" for index in range(1, count + 1)}
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    adapter.get_metadata.side_effect = metadata
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, {"fileContent": text}, False)
+    return reader, [{"file_id": file_id, "name": name} for file_id, name in names.items()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unit", ["A", "क"])  # one byte and three bytes in UTF-8
+async def test_six_statements_all_reach_the_model_with_a_fair_share_each(unit):
+    """UAT 2026-09-25: 'last six months of statements' read three files in full
+    and dropped the rest at the 16 KiB context budget."""
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(6, "Statement period March 2026. " + unit * 6000)
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert [item["name"] for item in content] == [item["name"] for item in matches]
+    assert all(item["text"].startswith("Statement period March 2026.") for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+    assert result["truncated"] is True and len(reader._rows) == 6
+
+
+@pytest.mark.asyncio
+async def test_one_file_still_gets_the_full_excerpt():
+    reader, matches = statements_reader(1, "A" * 6000)
+    result = await reader.read_matches(matches=matches)
+    assert len(result["untrusted_external_content"][0]["text"]) == 4000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("count", "text", "name_length"),
+    [
+        # Review 2026-09-25: a Hindi header over English lines overshot a
+        # proportional clip, so only three of six statements were kept.
+        (6, "क" * 1500 + "Txn 2026-01-02 UPI 450.00\n" * 200, 12),
+        (8, "\x01" * 1000 + "A" * 4000, 12),
+        (8, "A" * 6000, 240),
+    ],
+    ids=["hindi-header-six", "control-chars-eight", "long-names-eight"],
+)
+async def test_mixed_bytes_and_long_names_still_fit_every_chosen_file(count, text, name_length):
+    import json
+
+    from hushh_mcp.services.drive_live_reader import MAX_CONTEXT_BYTES
+
+    reader, matches = statements_reader(count, text)
+    names = {
+        item["file_id"]: "N" * (name_length - 7) + f"-{index:02d}.pdf"
+        for index, item in enumerate(matches)
+    }
+
+    async def metadata(*, file_id, **_):
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    reader.adapter.get_metadata.side_effect = metadata
+    for item in matches:
+        item["name"] = names[item["file_id"]]
+    result = await reader.read_matches(matches=matches)
+    content = result["untrusted_external_content"]
+    assert len(content) == count
+    assert all(item["text"] for item in content)
+    assert len(json.dumps(content, ensure_ascii=False).encode()) <= MAX_CONTEXT_BYTES
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_file_leaves_its_share_to_the_others():
+    reader, matches = statements_reader(8, "S" * 6000)
+    locked = {item["file_id"] for item in matches[:5]}
+
+    async def read(*, user_id, tool_name, arguments):
+        if arguments["fileId"] in locked:
+            return ExternalMcpToolResult(
+                False, {"textFormattingNotSupported": True, "reason": "encrypted_document"}, False
+            )
+        return ExternalMcpToolResult(False, {"fileContent": "S" * 6000}, False)
+
+    reader.mcp.read_tool.side_effect = read
+    result = await reader.read_matches(matches=matches)
+    texts = [item["text"] for item in result["untrusted_external_content"]]
+    # Five locked files leave their share: the three readable ones keep the
+    # full excerpt instead of an eighth of the budget each.
+    assert [len(text) for text in texts] == [4000, 4000, 4000]
+
+
+@pytest.mark.asyncio
+async def test_one_transient_retry_budget_is_shared_and_other_files_still_return(monkeypatch):
+    reader, _, matches = three_file_reader({})
+    reader.require_current = AsyncMock()
+    attempts = {}
+
+    async def read(*, arguments, **kwargs):
+        file_id = arguments["fileId"]
+        attempts[file_id] = attempts.get(file_id, 0) + 1
+        if file_id != "file-3":
+            raise DriveReadError("provider_unavailable", retryable=True)
+        return ExternalMcpToolResult(False, {"fileContent": "Still readable"}, False)
+
+    reader.mcp.read_tool.side_effect = read
+    result = await reader.read_matches(matches=matches)
+    assert sum(attempts.values()) == 4  # three files plus one shared retry
+    assert [item["name"] for item in result["untrusted_external_content"]] == [matches[2]["name"]]
+    assert [item["reason"] for item in result["unreadable"]] == ["provider_unavailable"] * 2
+    assert [row["file_id"] for row in reader._rows] == ["file-3"]
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_content_transient_retry_success_still_fences_the_source():
+    reader, adapter, mcp, _ = fixture()
+    mcp.read_tool.side_effect = [
+        DriveReadError("provider_unavailable", retryable=True),
+        ExternalMcpToolResult(False, {"fileContent": "Recovered"}, False),
+    ]
+    result = await reader.read_matches(
+        matches=[{"file_id": "file-1", "name": "March statement.pdf"}]
+    )
+    assert result["untrusted_external_content"][0]["text"] == "Recovered"
+    assert result["unreadable"] == []
+    assert mcp.read_tool.await_count == 2 and adapter.get_metadata.await_count >= 3
+
+
+@pytest.mark.asyncio
+async def test_retry_access_failure_is_fatal_even_with_a_provider_error_code():
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    reader.require_current = AsyncMock(side_effect=DriveReadError("provider_unavailable"))
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await reader.read_matches(matches=[{"file_id": "file-1", "name": "March statement.pdf"}])
+    assert mcp.read_tool.await_count == 1 and reader._rows == []

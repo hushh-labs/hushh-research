@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
+import logging
 import threading
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -10,6 +15,7 @@ import pytest
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
+    BoundActionTerms,
 )
 
 
@@ -20,6 +26,9 @@ class _StatefulDirectiveDb:
         self.requires_trusted_activation = False
         self.params: list[dict] = []
         self.sql: list[str] = []
+        self.issued: dict = {}
+        self.receipt_hash: str | None = None
+        self.settlement: dict | None = None
 
     def execute_raw(self, sql: str, params: dict):
         with self.lock:
@@ -28,6 +37,32 @@ class _StatefulDirectiveDb:
             if "INSERT INTO one_action_directive_ledger" in sql:
                 self.state = "issued"
                 self.requires_trusted_activation = bool(params["trusted_activation_required"])
+                self.issued = dict(params)
+                return SimpleNamespace(data=[{"directive_id": params["directive_id"]}])
+            if any(
+                key in params and params[key] != self.issued.get(key)
+                for key in (
+                    "directive_id",
+                    "user_id",
+                    "action_id",
+                    "context_revision",
+                    "conversation_id",
+                    "session_id",
+                )
+            ):
+                return SimpleNamespace(data=[])
+            if "SELECT directive_id" in sql and "state='consumed'" in sql:
+                expected = {
+                    "expected_contract": "action_contract_digest",
+                    "expected_slots": "slots_hmac",
+                    "expected_binding": "resource_binding_hmac",
+                }
+                if (
+                    self.state != "consumed"
+                    or params["receipt_hash"] != self.receipt_hash
+                    or any(params[name] != self.issued[target] for name, target in expected.items())
+                ):
+                    return SimpleNamespace(data=[])
                 return SimpleNamespace(data=[{"directive_id": params["directive_id"]}])
             if "SET state = 'confirmed'" in sql:
                 if self.state != "issued" or (
@@ -35,6 +70,7 @@ class _StatefulDirectiveDb:
                 ):
                     return SimpleNamespace(data=[])
                 self.state = "confirmed"
+                self.receipt_hash = params["receipt_hash"]
                 return SimpleNamespace(
                     data=[
                         {
@@ -45,14 +81,15 @@ class _StatefulDirectiveDb:
                     ]
                 )
             if "SET state = 'consumed'" in sql:
-                if self.state != "confirmed":
+                if self.state != "confirmed" or params["receipt_hash"] != self.receipt_hash:
                     return SimpleNamespace(data=[])
                 self.state = "consumed"
                 return SimpleNamespace(data=[{"directive_id": params["directive_id"]}])
             if "SET state = 'settled'" in sql:
-                if self.state != "consumed":
+                if self.state != "consumed" or params["receipt_hash"] != self.receipt_hash:
                     return SimpleNamespace(data=[])
                 self.state = "settled"
+                self.settlement = dict(params)
                 return SimpleNamespace(data=[{"directive_id": params["directive_id"]}])
             if "SET state = 'cancelled'" in sql:
                 if self.state not in {"issued", "confirmed", "consumed"}:
@@ -135,8 +172,6 @@ async def test_wrong_context_cannot_confirm_directive():
     # The fake store models SQL compare-and-set state, while this assertion
     # proves the authoritative query carries the caller's exact context bind.
     with pytest.raises(ActionDirectiveAuthorityError):
-        # Force an already-used state to exercise the same generic rejection.
-        db.state = "expired"
         await store.confirm(
             directive_id=issued.directive_id,
             user_id="user-1",
@@ -145,6 +180,7 @@ async def test_wrong_context_cannot_confirm_directive():
             context_revision="different-context",
         )
     assert db.params[-1]["context_revision"] == "different-context"
+    assert db.state == "issued"
 
 
 @pytest.mark.asyncio
@@ -258,3 +294,293 @@ async def test_new_intent_cancels_an_authorized_directive_waiting_for_run():
 
     assert voice_db.state == "cancelled"
     assert "state IN ('issued', 'confirmed', 'consumed')" in voice_db.sql[-1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action_id", "slot_name"),
+    [
+        ("connect.send_request", "userId"),
+        ("connect.accept_request", "requestId"),
+        ("connect.reject_request", "requestId"),
+        ("connect.cancel_request", "requestId"),
+        ("connect.remove_connection", "connectionId"),
+    ],
+)
+async def test_exact_connection_slots_bind_metadata_through_one_time_settlement(
+    action_id, slot_name
+):
+    """Ledger-level authority proof; browser slot transport is tested separately.
+
+    The ledger stores only a commitment, never returns the slots, and cannot by
+    itself prove that a domain mutation or frontend replay uses these slots.
+    """
+    db = _StatefulDirectiveDb()
+    key = "test-key-at-least-32-characters-long"
+    store = ActionDirectiveStore(db=db, hmac_key=key)
+    slots = {slot_name: "Opaque-Fixture:AbC-009", "person": "Fixture Person"}
+    original_slots = deepcopy(slots)
+    context = dict(
+        user_id="fixture-owner",
+        conversation_id="00000000-0000-0000-0000-000000000003",
+        action_id=action_id,
+        context_revision="connections-revision-1",
+    )
+    issued = await store.issue(
+        **context,
+        channel="typed_chat",
+        slots=slots,
+        action_contract={"id": action_id, "execution_policy": "confirm_required"},
+        trusted_activation_required=True,
+    )
+    expected_hmac = hmac.new(
+        key.encode(),
+        json.dumps(slots, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    assert db.issued["slots_hmac"] == expected_hmac
+    assert slots[slot_name] not in repr(db.issued)
+    assert "slots" not in db.issued
+    issued_metadata = deepcopy(db.issued)
+    confirmation = await store.confirm(
+        **context, directive_id=issued.directive_id, trusted_activation=True
+    )
+
+    async def consume_once():
+        await store.consume(
+            **context, directive_id=issued.directive_id, receipt=confirmation.receipt
+        )
+        return "authority_consumed"
+
+    outcomes = await asyncio.gather(consume_once(), consume_once(), return_exceptions=True)
+    assert outcomes.count("authority_consumed") == 1
+    assert sum(isinstance(outcome, ActionDirectiveAuthorityError) for outcome in outcomes) == 1
+    settlement = dict(
+        directive_id=issued.directive_id,
+        receipt=confirmation.receipt,
+        user_id=context["user_id"],
+        action_id=action_id,
+        context_revision=context["context_revision"],
+        status="succeeded",
+        reason_code="fixture_applied",
+    )
+    await store.settle(**settlement)
+    persisted_outcome = deepcopy(db.settlement)
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await consume_once()
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await store.settle(**{**settlement, "status": "failed", "reason_code": "duplicate_attempt"})
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await store.confirm(**context, directive_id=issued.directive_id, trusted_activation=True)
+    assert db.state == "settled"
+    assert db.settlement == persisted_outcome
+    assert db.issued == issued_metadata
+    assert slots == original_slots
+
+    # Exact identifiers are case-sensitive commitments, not name-resolution hints.
+    changed_db = _StatefulDirectiveDb()
+    changed_store = ActionDirectiveStore(db=changed_db, hmac_key=key)
+    await changed_store.issue(
+        **context,
+        channel="typed_chat",
+        action_contract={"id": action_id, "execution_policy": "confirm_required"},
+        slots={**slots, slot_name: slots[slot_name].lower()},
+    )
+    assert changed_db.issued["slots_hmac"] != expected_hmac
+
+
+@pytest.mark.asyncio
+async def test_connection_receipt_rejects_wrong_owner_and_receipt_without_consuming():
+    db = _StatefulDirectiveDb()
+    store = ActionDirectiveStore(db=db, hmac_key="test-key-at-least-32-characters-long")
+    context = dict(
+        user_id="fixture-owner",
+        conversation_id="00000000-0000-0000-0000-000000000004",
+        action_id="connect.remove_connection",
+        context_revision="connections-revision-1",
+    )
+    issued = await store.issue(
+        **context,
+        channel="typed_chat",
+        slots={"connectionId": "fixture-connection"},
+        action_contract={"id": context["action_id"]},
+    )
+    confirmation = await store.confirm(**context, directive_id=issued.directive_id)
+    for override in (
+        {"user_id": "different-owner"},
+        {"receipt": "wrong-receipt"},
+        {"context_revision": "different-revision"},
+    ):
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await store.consume(
+                **{
+                    **context,
+                    "directive_id": issued.directive_id,
+                    "receipt": confirmation.receipt,
+                    **override,
+                }
+            )
+        assert db.state == "confirmed"
+    await store.consume(**context, directive_id=issued.directive_id, receipt=confirmation.receipt)
+    assert db.state == "consumed"
+
+
+@pytest.mark.parametrize("purpose", ["disclose", "model_process"])
+async def test_browser_reviews_use_existing_ledger_exact_terms_and_cannot_impersonate_mcp(purpose):
+    from hushh_mcp.services.pod_browser.consent import BrowserApprovalReceipt, LedgerBrowserConsent
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+    from tests.helpers.pod_browser import Authority, binding
+
+    db = _StatefulDirectiveDb()
+    store = ActionDirectiveStore(db=db, hmac_key="test-key-at-least-32-characters-long")
+    consent = LedgerBrowserConsent(
+        store=store, key=b"B" * 32, check_binding=Authority().check_binding, clock=lambda: 1000
+    )
+    private = {"destination": "https://example.com/", "selected": "synthetic-private"}
+    review = consent.review(binding(), purpose, private)
+    with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+        await consent.require(binding(), purpose, private)
+    issued = await consent.offer(review)
+    assert "synthetic-private" not in str(db.params) and "example.com" not in str(db.params)
+    with pytest.raises(ActionDirectiveAuthorityError, match="exact current terms"):
+        await store.confirm(
+            **review.identity,
+            directive_id=issued.directive_id,
+            trusted_activation=True,
+            expected_channel="pod_chat",
+        )
+    confirmed = await store.confirm(
+        **review.identity,
+        directive_id=issued.directive_id,
+        trusted_activation=True,
+        terms=review.terms,
+        expected_channel="pod_chat",
+    )
+    await consent.accept_owner_receipt(
+        review, BrowserApprovalReceipt(confirmed.directive_id, confirmed.receipt)
+    )
+    with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+        await consent.require(binding(), purpose, {**private, "selected": "changed"})
+    await consent.require(binding(), purpose, private)
+    assert db.state == "consumed"
+    if purpose == "disclose":
+        with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+            await consent.require(binding(), purpose, private)
+    else:
+        await consent.require(binding(), purpose, private)
+        db.state = "cancelled"  # admission remains valid; revoke only this receipt
+        with pytest.raises(ActionDirectiveAuthorityError, match="revoked"):
+            await consent.require(binding(), purpose, private)
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await store.issue(
+            **{**review.identity, "action_id": "connector.mcp.invoke"},
+            channel="pod_chat",
+            action_contract=review.terms.action_contract,
+            slots=review.terms.slots,
+            resource_binding=review.terms.resource_binding,
+            trusted_activation_required=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_new_turn_disarms_only_unconfirmed_adk_chat_reviews_for_one_session_and_action():
+    db = _StatefulDirectiveDb()
+    store = ActionDirectiveStore(db=db, hmac_key="k" * 40)
+
+    await store.cancel_unconfirmed_adk_chat(
+        user_id="user-1", session_id="thread-1", action_id="connector.mcp.invoke"
+    )
+
+    sql = " ".join(db.sql[-1].split())
+    # Same transition and reason as the typed-chat supersede, narrowed to one
+    # owner, one encrypted session, one action; approved reviews are kept.
+    assert "SET state = 'cancelled'" in sql
+    assert "settlement_reason_code = 'superseded_by_new_turn'" in sql
+    assert "channel = 'adk_chat'" in sql and "adk_app_name = 'hussh_one'" in sql
+    for bound in ("user_id = :user_id", "session_id = :session_id", "action_id = :action_id"):
+        assert bound in sql
+    assert "AND state = 'issued'" in sql
+    assert "'confirmed'" not in sql and "'consumed'" not in sql
+    assert db.params[-1] == {
+        "user_id": "user-1",
+        "session_id": "thread-1",
+        "action_id": "connector.mcp.invoke",
+    }
+
+
+_MCP_REFUSAL_TERMS = {
+    "user_id": "user-1",
+    "session_id": "thread-1",
+    "action_id": "connector.mcp.invoke",
+    "context_revision": "mcp:rev",
+    "adk_app_name": "hussh_one",
+    "terms": BoundActionTerms(action_contract={"a": 1}, slots={"q": 1}, resource_binding={"r": 1}),
+}
+
+
+class _RefusalDb:
+    """A confirm/consume that matches nothing, then the diagnostic read."""
+
+    def __init__(self, row):
+        self.row = row
+        self.sql: list[str] = []
+
+    def execute_raw(self, sql: str, params: dict):
+        self.sql.append(sql)
+        if "SELECT state" in sql:
+            if isinstance(self.row, Exception):
+                raise self.row
+            return SimpleNamespace(data=[self.row] if self.row else [])
+        return SimpleNamespace(data=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "operation", "reason"),
+    [
+        (None, "confirm", "directive_unknown"),
+        ({"state": "cancelled", "expired": False}, "confirm", "directive_not_open"),
+        ({"state": "consumed", "expired": False}, "confirm", "directive_not_open"),
+        ({"state": "issued", "expired": True}, "confirm", "directive_expired"),
+        ({"state": "issued", "expired": False}, "confirm", "binding_mismatch"),
+        ({"state": "issued", "expired": False}, "consume", "directive_not_open"),
+        ({"state": "confirmed", "expired": True}, "consume", "directive_expired"),
+        ({"state": "confirmed", "expired": False}, "consume", "binding_mismatch"),
+    ],
+)
+async def test_refused_adk_directive_logs_a_reason_without_changing_the_refusal(
+    caplog, row, operation, reason
+):
+    db = _RefusalDb(row)
+    store = ActionDirectiveStore(db=db, hmac_key="k" * 40)
+    common = {**_MCP_REFUSAL_TERMS, "directive_id": "dir_" + "a" * 32}
+    call = (
+        store.confirm(**common, trusted_activation=True)
+        if operation == "confirm"
+        else store.consume(**common, receipt="private-receipt-value")
+    )
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ActionDirectiveAuthorityError) as refused:
+            await call
+    assert refused.value.reason == reason
+    assert str(refused.value) in (
+        "directive is stale, mismatched, or already used",
+        "confirmation receipt is invalid or already used",
+    )
+    assert reason in caplog.text
+    for private in ("dir_" + "a" * 32, "user-1", "thread-1", "private-receipt-value"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_failing_diagnostic_read_leaves_the_refusal_untouched(caplog):
+    from db.db_client import DatabaseExecutionError
+
+    store = ActionDirectiveStore(
+        db=_RefusalDb(DatabaseExecutionError(table_name="t", operation="select", details="down")),
+        hmac_key="k" * 40,
+    )
+    with pytest.raises(ActionDirectiveAuthorityError) as refused:
+        await store.consume(**_MCP_REFUSAL_TERMS, directive_id="dir_" + "a" * 32, receipt="r")
+    assert refused.value.reason is None
+    assert str(refused.value) == "confirmation receipt is invalid or already used"

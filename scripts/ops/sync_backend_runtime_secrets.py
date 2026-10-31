@@ -8,12 +8,35 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from runpy import run_path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
-GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
+AZURE_OAUTH_RETURN_PATH = "/one/setup/cloud/azure/return"
+CONNECTOR_ROLLOUT_FLAGS = (
+    "connections_panel_v2",
+    "google_drive_connection",
+    "google_drive_live",
+    "google_drive_picker",
+    "drive_document_indexing",
+    "drive_four_group_index",
+    "drive_document_sharing",
+    "drive_agent_packages_enabled",
+    "drive_period_packets",
+    "gmail_chat_reads",
+    "google_drive_chat_reads",
+    "curated_mcp_connectors",
+)
+
+
+def _scope_commerce_runtime_policy() -> dict[str, Any]:
+    # File-relative loading supports both direct CLI execution and importlib test harnesses.
+    return run_path(str(Path(__file__).with_name("scope_commerce_runtime_policy.py")))
+
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -26,7 +49,6 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "GOOGLE_MAPS_API_KEY": ("GOOGLE_MAPS_API_KEY",),
     "PLAID_ACCESS_TOKEN_KEY": ("PLAID_ACCESS_TOKEN_KEY", "PLAID_TOKEN_ENCRYPTION_KEY"),
     "GMAIL_OAUTH_TOKEN_KEY": ("GMAIL_OAUTH_TOKEN_KEY", "GMAIL_TOKEN_ENCRYPTION_KEY"),
-    "VOICE_RUNTIME_CONFIG_JSON": ("VOICE_RUNTIME_CONFIG_JSON",),
     "REVIEWER_UID": ("REVIEWER_UID", "UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID"),
     "REVIEWER_VAULT_PASSPHRASE": (
         "REVIEWER_VAULT_PASSPHRASE",
@@ -34,6 +56,13 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
         "KAI_TEST_PASSPHRASE",
         "HUSHH_REVIEWER_PASSPHRASE",
     ),
+    # Pod durability roots. Both existed on dev ONLY because someone created them
+    # by hand, and `append_optional_secret` skips a missing secret silently -- so
+    # an environment rebuild would lose pod memory durability with no signal.
+    # Syncing them here makes the durable-memory substrate part of the
+    # reproducible environment, not tribal memory.
+    "HUSSH_POD_KEY_MASTER": ("HUSSH_POD_KEY_MASTER",),
+    "HUSSH_POD_DEV_SIGNING_KEY": ("HUSSH_POD_DEV_SIGNING_KEY",),
 }
 
 
@@ -45,6 +74,7 @@ def _run(
         input=input_text,
         text=True,
         capture_output=True,
+        check=False,
     )
     if check and result.returncode != 0:
         sys.stderr.write(result.stderr or result.stdout)
@@ -96,17 +126,6 @@ def _resolve_secret(project: str, names: tuple[str, ...]) -> str:
     return ""
 
 
-def _bool_or_none(value: str) -> bool | None:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    if raw in {"1", "true", "yes", "on", "enabled"}:
-        return True
-    if raw in {"0", "false", "no", "off", "disabled"}:
-        return False
-    return None
-
-
 def _int_or_none(value: str) -> int | None:
     raw = str(value or "").strip()
     if not raw:
@@ -126,7 +145,38 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
+def _canonical_frontend_origin(app_frontend_origin: str) -> str:
+    parsed = urlsplit(app_frontend_origin.strip())
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
 def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    return f"{_canonical_frontend_origin(app_frontend_origin)}{GMAIL_OAUTH_RETURN_PATH}"
+
+
+def _sync_oauth_redirects(project: str, app_frontend_origin: str) -> list[str]:
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    callbacks = {
+        "GMAIL_OAUTH_REDIRECT_URI": GMAIL_OAUTH_RETURN_PATH,
+        "GOOGLE_OAUTH_REDIRECT_URI": CALENDAR_OAUTH_RETURN_PATH,
+    }
+    for name, path in callbacks.items():
+        _upsert_secret(project, name, f"{origin}{path}")
+    return list(callbacks)
+
+
+def _frontend_origin_host(app_frontend_origin: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
@@ -136,28 +186,122 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
         or parsed.query
         or parsed.fragment
         or parsed.path not in {"", "/"}
+        or not parsed.hostname
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return parsed.hostname.rstrip(".").lower()
 
 
-def _read_voice_config(project: str) -> dict[str, Any]:
-    existing_raw = _resolve_secret(project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"])
-    if not existing_raw:
-        return {}
-    try:
-        parsed = json.loads(existing_raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return _drop_empty(dict(parsed))
+def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["allowed_rp_ids"](_frontend_origin_host(app_frontend_origin))
+
+
+def _cors_with_frontend_aliases(app_frontend_origin: str, configured: str) -> str:
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["cors_with_aliases"](_frontend_origin_host(app_frontend_origin), configured)
+
+
+def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
+    return tuple(sorted({item.strip().lower() for item in value.split(",") if item.strip()}))
+
+
+def _validate_connector_rollout(args: argparse.Namespace) -> None:
+    """Fail before touching Secret Manager on an unsafe hosted rollout."""
+    _production_drive_candidate["validate_candidate_only"](args)
+    if getattr(args, "drive_period_packets", "false") == "true" and args.environment != "uat":
+        raise ValueError("Drive period packets rollout is limited to UAT")
+    enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
+    uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
+    prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
+    uat_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
+    prod_value = str(getattr(args, "connector_production_all_users", "false")).strip().lower()
+    if uat_value not in {"true", "false"}:
+        raise ValueError("UAT connector all-users mode must be true or false")
+    if prod_value not in {"true", "false"}:
+        raise ValueError("Production connector all-users mode must be true or false")
+    all_uat_users = uat_value == "true"
+    all_prod_users = prod_value == "true"
+    if (uat_cohort or all_uat_users) and args.environment != "uat":
+        raise ValueError("UAT connector audience is limited to UAT")
+    if (prod_cohort or all_prod_users) and args.environment != "production":
+        raise ValueError("Production connector audience is limited to production")
+    if all_uat_users and uat_cohort:
+        raise ValueError("UAT connector all-users mode cannot be combined with a cohort")
+    if all_prod_users and prod_cohort:
+        raise ValueError("Production connector all-users mode cannot be combined with a cohort")
+    if enabled and args.environment not in {"uat", "production"}:
+        raise ValueError("Mail/Drive connector rollout requires a reviewed hosted lane")
+    if args.environment == "production" and enabled and args.project != "hushh-pda":
+        raise ValueError("Production Drive rollout requires the production project")
+    if args.environment == "production" and (prod_cohort or all_prod_users) and not enabled:
+        raise ValueError("Production connector audience requires enabled rollout flags")
+    candidate_secret = str(getattr(args, "production_drive_candidate_secret", "") or "")
+    if args.environment == "production" and (
+        (enabled and not candidate_secret)
+        or (
+            candidate_secret
+            and not _production_drive_candidate["valid_candidate_secret"](candidate_secret)
+        )
+    ):
+        raise ValueError("Production Drive rollout requires a per-release candidate secret")
+    if candidate_secret and args.environment != "production":
+        raise ValueError("Production Drive candidate secret is production-only")
+    cohort = uat_cohort if args.environment == "uat" else prod_cohort
+    all_users = all_uat_users if args.environment == "uat" else all_prod_users
+    if enabled and not (cohort or all_users):
+        raise ValueError(
+            "Enabled Mail/Drive flags require a lane-specific cohort or all-users mode"
+        )
+    if not cohort:
+        return
+    members = cohort.split(",")
+    if (
+        len(members) > 25
+        or len(set(members)) != len(members)
+        or any(
+            not member
+            or len(member) > 128
+            or member.lower() in {"*", "all"}
+            or any(char.isspace() for char in member)
+            for member in members
+        )
+    ):
+        raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
+
+
+_runtime_config_retention = run_path(str(Path(__file__).with_name("runtime_config_retention.py")))
+# Existing operator tests/callers retain their file-relative entrypoints.
+_retained_referral_config = _runtime_config_retention["_retained_referral_config"]
+_retained_plg_config = _runtime_config_retention["_retained_plg_config"]
+_retained_dev_inference_bridge = _runtime_config_retention["_retained_dev_inference_bridge"]
+
+
+def _connector_rollout_config(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        **{name: getattr(args, name, "false") for name in CONNECTOR_ROLLOUT_FLAGS},
+        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
+        "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
+        "connector_production_owner_cohort": getattr(args, "connector_production_owner_cohort", ""),
+        "connector_production_all_users": getattr(args, "connector_production_all_users", "false"),
+    }
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
+        raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
+        "auth_db_listener_isolation_enabled": getattr(args, "auth_db_listener_isolation_enabled", "true"),
+        "one_plg_export_enabled": False,
+        "one_plg_activity_enabled": False,
+        "one_plg_activity_all_registered": False,
+        "one_plg_audience_enabled": False,
+        "one_plg_subscription_enabled": False,
+        "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
+        "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
+        "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
+        "email_auth_mail_from": "one@hushh.ai",
         "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
         "google_cloud_project": args.project,
@@ -182,17 +326,98 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        **_connector_rollout_config(args),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
+        "hushh_tech_client_enabled": getattr(args, "hushh_tech_client_enabled", "false"),
+        # One Voice reply-in-thread. A new capability, so absent means off and
+        # each lane opts in explicitly (UAT first; production passes false).
+        "one_voice_mail_reply_enabled": getattr(args, "one_voice_mail_reply_enabled", "false"),
+        # Voice scheduled send, voice Gmail drafts, and the server-side drain
+        # that delivers scheduled mail with no device present. New capability,
+        # so each is off unless a lane opts in (UAT first; production false).
+        "one_voice_mail_schedule_send_enabled": getattr(
+            args, "one_voice_mail_schedule_send_enabled", "false"
+        ),
+        "one_voice_mail_drafts_enabled": getattr(args, "one_voice_mail_drafts_enabled", "false"),
+        "mail_scheduled_drain_enabled": getattr(args, "mail_scheduled_drain_enabled", "false"),
+        "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
+        "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
+        "hushh_tech_allowed_redirect_uris": getattr(args, "hushh_tech_allowed_redirect_uris", ""),
+        "hushh_tech_allowed_consent_scopes": getattr(args, "hushh_tech_allowed_consent_scopes", ""),
+        "hushh_tech_uat_firebase_uid_allowlist": getattr(
+            args, "hushh_tech_uat_firebase_uid_allowlist", ""
+        ),
+        "hushh_tech_shadow_max_age_ms": getattr(args, "hushh_tech_shadow_max_age_ms", "604800000"),
+        "hushh_tech_trusted_proxy_hops": getattr(args, "hushh_tech_trusted_proxy_hops", "0"),
+        "hushh_tech_proxy_audience": getattr(args, "hushh_tech_proxy_audience", ""),
+        "hushh_tech_trusted_proxy_service_accounts": getattr(
+            args, "hushh_tech_trusted_proxy_service_accounts", ""
+        ),
         "advisors_api_base_url": args.advisors_api_base_url,
         "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
+        "nws_nearby_api_base_url": args.nws_nearby_api_base_url,
+        "nws_nearby_v4_api_base_url": args.nws_nearby_v4_api_base_url,
+        # The lane's own registered consumer identity upstream. Derived from the
+        # deploy target rather than taken as a flag: a per-lane value with a
+        # default is the shape that silently ships one lane's identity to
+        # another, and a mismatch here is refused upstream as a project
+        # mismatch — which reads like an outage, not a config error.
+        "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
+        "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
+        "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
+        "one_magic_intelligence_inner_team_emails": getattr(
+            args, "one_magic_intelligence_inner_team_emails", ""
+        ),
+        "one_magic_intelligence_senior_team_emails": getattr(
+            args, "one_magic_intelligence_senior_team_emails", ""
+        ),
+        "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
-    return _drop_empty(config)
+    return _scope_commerce_runtime_policy()["apply_policy"](
+        _drop_empty(config), getattr(args, "scope_commerce_policy", {})
+    )
+
+
+_production_drive_candidate = run_path(str(Path(__file__).with_name("production_drive_candidate_config.py")))
+_split_production_drive_candidate_config = _production_drive_candidate["split_candidate_config"]
+
+# One NWS v4 credential per lane, because the upstream registry binds each key
+# to exactly one consumer and one project. An unlisted lane resolves to blank,
+# which skips the mirror and leaves the surface reporting "not set up" — the
+# right answer for a lane with no registered consumer, and better than handing
+# it another lane's identity.
+_NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
+    "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
+    "hushh-pda": "nws-hushh-research-v4-api-key-prod",
+}
+
+
+# Connect Azure, per lane: dev only until byoc-azure.md's admission bar has live
+# evidence. Public identifiers, not secrets; the sign-in return follows the origin.
+_AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
+    "hushh-pda-dev": {
+        "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
+        "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_azure_pod_image_repository": "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod",
+    },
+}
+
+
+def _azure_owner_cloud_config(project: str, app_frontend_origin: str) -> dict[str, str]:
+    lane = _AZURE_OWNER_CLOUD_BY_PROJECT.get(project)
+    if not lane:
+        return {}
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    return {**lane, "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}"}
 
 
 def _mirror_directory_key(
@@ -252,6 +477,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--auth-db-listener-isolation-enabled", default="true", choices=["true", "false"])
+    parser.add_argument("--email-auth-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--app-frontend-origin", required=True)
     parser.add_argument("--db-host", required=True)
     parser.add_argument("--db-port", required=True)
@@ -264,7 +491,14 @@ def main() -> int:
     parser.add_argument("--remote-mcp-enabled", required=True)
     parser.add_argument("--cors-allowed-origins", required=True)
     parser.add_argument("--obs-data-stale-ratio-threshold", required=True)
-    parser.add_argument("--passkey-allowed-rp-ids", default="")
+    parser.add_argument(
+        "--passkey-allowed-rp-ids",
+        default="",
+        help=(
+            "Deprecated compatibility input; when supplied it must equal the "
+            "localhost plus APP_FRONTEND_ORIGIN host contract."
+        ),
+    )
     parser.add_argument("--plaid-env", default="")
     parser.add_argument("--plaid-client-name", default="")
     parser.add_argument("--plaid-country-codes", default="")
@@ -272,7 +506,36 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-path", default="")
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
+    # Hosted rollouts stay on the compatibility path until their bounded
+    # retention scheduler is installed and verified. The service itself keeps
+    # its read-only semantic default; this generator default is deliberately a
+    # rollout default, not a change to application behavior when the env is
+    # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--connections-panel-v2", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-live", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
+    parser.add_argument(
+        "--drive-period-packets-enabled", dest="drive_period_packets", default="false",
+        choices=["true", "false"],
+    )
+    parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
+    parser.add_argument("--connector-internal-owner-cohort", default="")
+    parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
+    parser.add_argument("--connector-production-owner-cohort", default="")
+    parser.add_argument(
+        "--connector-production-all-users", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--production-drive-candidate-secret", default="")
+    parser.add_argument("--production-drive-candidate-only", action="store_true", help="Create or reuse only the production per-release config; leave canonical/provider secrets unchanged.")
+    _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -283,6 +546,28 @@ def main() -> int:
     parser.add_argument("--db-bulk-batching-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
+    parser.add_argument("--hushh-tech-client-enabled", default="false")
+    parser.add_argument(
+        "--one-voice-mail-reply-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-schedule-send-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-drafts-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--mail-scheduled-drain-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--hushh-tech-developer-app-id", default="")
+    parser.add_argument("--hushh-tech-allowed-audience", default="")
+    parser.add_argument("--hushh-tech-allowed-redirect-uris", default="")
+    parser.add_argument("--hushh-tech-allowed-consent-scopes", default="")
+    parser.add_argument("--hushh-tech-uat-firebase-uid-allowlist", default="")
+    parser.add_argument("--hushh-tech-shadow-max-age-ms", default="604800000")
+    parser.add_argument("--hushh-tech-trusted-proxy-hops", default="0")
+    parser.add_argument("--hushh-tech-proxy-audience", default="")
+    parser.add_argument("--hushh-tech-trusted-proxy-service-accounts", default="")
     # Advisor directory base URL. Non-secret, so it belongs in the generated
     # runtime config rather than in the deploy step, which sits close to Cloud
     # Build's arg ceiling. Blank leaves it out entirely and the surface reports
@@ -298,12 +583,84 @@ def main() -> int:
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
     parser.add_argument(
-        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
+        "--one-business-directory-enabled", default="false", choices=["true", "false"]
     )
+    parser.add_argument(
+        "--one-profile-research-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("012345"))
+    parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-qa-emails", default="")
+    parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
     )
+    # NWS Nearby Intelligence. Same split again, with one deliberate difference:
+    # the base URL carries a real default instead of "". There is exactly one
+    # deployed NWS service and every lane calls it, so a blank default would
+    # leave any lane whose workflow forgot the flag silently unconfigured while
+    # the lane that remembered looked healthy. The two directories above are
+    # per-lane and correctly default to blank; this one is not.
+    parser.add_argument(
+        "--nws-nearby-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument("--nws-nearby-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--nws-nearby-api-key-source-secret", default="nws-nearby-api-key")
+    # NWS v4 net-worth contract. Same single deployed service, so the base URL
+    # carries a real default for the same reason as the v2 one above. The v4
+    # credential is a per-consumer key rather than the shared service key, so it
+    # is mirrored from its own source secret and never falls back to the v2 one:
+    # presenting the v2 key to v4 is refused as invalid credentials, and sharing
+    # one key across two consumers is exactly what the upstream registry exists
+    # to prevent.
+    parser.add_argument(
+        "--nws-nearby-v4-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument("--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod")
+    # Blank by default and resolved from the lane below. Unlike the v2 key,
+    # which is one shared service credential every lane may use, a v4 key is
+    # bound in the upstream registry to a single consumer with a single
+    # project. Mirroring one key into every lane would hand production UAT's
+    # credential, and the upstream would refuse it as a project mismatch.
+    parser.add_argument("--nws-nearby-v4-api-key-source-secret", default="")
     args = parser.parse_args()
+    try:
+        _validate_connector_rollout(args)
+        retained_runtime_config = _scope_commerce_runtime_policy()["_read_existing_runtime_config"](
+            args.project, _run, _secret_exists
+        )
+        retained_settings = _runtime_config_retention["retained_settings"](
+            retained_runtime_config, project=args.project, environment=args.environment
+        )
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](
+            args, _run, _secret_exists, _canonical_frontend_origin,
+            existing_runtime_config=retained_runtime_config,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    _scope_commerce_runtime_policy()["validate_passkey_origin"](
+        args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids
+    )
+    args.cors_allowed_origins = _cors_with_frontend_aliases(
+        args.app_frontend_origin, args.cors_allowed_origins
+    )
+
+    if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
+        args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(
+            args.project, ""
+        )
+
+    config = _build_backend_runtime_config(args)
+    config.update(retained_settings)
+    config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
+        "apply_policy"
+    ](config, retained_runtime_config if args.environment == "dev" else {})
+    if args.production_drive_candidate_only:
+        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)
 
     sync_summary: list[str] = []
 
@@ -317,6 +674,16 @@ def main() -> int:
             "INSURANCE_AGENTS_API_KEY",
             args.insurance_agents_api_key_source_project,
             args.insurance_agents_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_API_KEY",
+            args.nws_nearby_api_key_source_project,
+            args.nws_nearby_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_V4_API_KEY",
+            args.nws_nearby_v4_api_key_source_project,
+            args.nws_nearby_v4_api_key_source_secret,
         ),
     ):
         status = _mirror_directory_key(
@@ -332,7 +699,6 @@ def main() -> int:
         if canonical_name in {
             "APP_FRONTEND_ORIGIN",
             "BACKEND_RUNTIME_CONFIG_JSON",
-            "VOICE_RUNTIME_CONFIG_JSON",
         }:
             continue
         value = _resolve_secret(args.project, fallback_names)
@@ -344,41 +710,33 @@ def main() -> int:
     _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
-    _upsert_secret(
-        args.project,
-        "GMAIL_OAUTH_REDIRECT_URI",
-        _gmail_oauth_redirect_uri(args.app_frontend_origin),
-    )
-    sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
+    sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
-    backend_runtime_config = _build_backend_runtime_config(args)
-    _upsert_secret(
-        args.project,
-        "BACKEND_RUNTIME_CONFIG_JSON",
-        json.dumps(backend_runtime_config, separators=(",", ":"), sort_keys=True),
+    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
+        args, config
     )
-    sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
-
-    voice_runtime_config = _read_voice_config(args.project)
-    if voice_runtime_config:
+    if candidate_runtime_config is None:
         _upsert_secret(
             args.project,
-            "VOICE_RUNTIME_CONFIG_JSON",
-            json.dumps(voice_runtime_config, separators=(",", ":"), sort_keys=True),
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            json.dumps(backend_runtime_config, separators=(",", ":"), sort_keys=True),
         )
-        sync_summary.append("VOICE_RUNTIME_CONFIG_JSON")
+        sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
+    # Existing production revisions may read canonical :latest at runtime.
+    # Leave canonical :latest untouched for every candidate release. The
+    # candidate is attested before app traffic is promoted.
+    if candidate_runtime_config is not None:
+        _upsert_secret(
+            args.project,
+            args.production_drive_candidate_secret,
+            json.dumps(candidate_runtime_config, separators=(",", ":"), sort_keys=True),
+        )
+        sync_summary.append(args.production_drive_candidate_secret)
 
-    print(
-        json.dumps(
-            {
-                "project": args.project,
-                "synced_secrets": sorted(set(sync_summary)),
-                "backend_runtime_config_keys": sorted(backend_runtime_config.keys()),
-                "voice_runtime_config_keys": sorted(voice_runtime_config.keys()),
-            },
-            indent=2,
-        )
-    )
+    runtime_config_for_summary = candidate_runtime_config or backend_runtime_config
+    if runtime_config_for_summary is None:
+        raise ValueError("Backend runtime config target is unavailable")
+    _production_drive_candidate["print_sync_summary"](args.project, sync_summary, runtime_config_for_summary)
     return 0
 
 

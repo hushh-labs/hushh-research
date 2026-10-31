@@ -13,10 +13,23 @@
 // depth + intensity ride the smoothed audio level. Enter and exit are symmetric
 // (both fade over the overlay motion tokens) so it glides in when a session
 // opens and glides back out when it ends.
+//
+// Rendering budget: the audio level drives a single CSS custom property on the
+// container, written from a requestAnimationFrame loop that runs only while
+// the glow is active or still settling, never through React state. The twelve
+// pools derive their blur, the mask depth and the layer opacity from that one
+// variable in CSS, and they are unmounted once the exit fade has finished, so
+// an idle screen carries no glow work at all.
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type TransitionEvent,
+} from "react";
 
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -108,76 +121,97 @@ const ANIM_NAME: Record<PoolDef["anim"], string> = {
   breathe: "one-siri-breathe",
 };
 
+/** The custom property the loop writes; every visual in CSS derives from it. */
+export const ONE_SIRI_LEVEL_VAR = "--one-siri-level";
+
+// Once the exit fade has had this long, the pools are unmounted even if the
+// transitionend never fired (reduced motion, an unpainted tab). This is a
+// cleanup deadline, not a motion duration; the fade itself keeps the overlay
+// exit token.
+const UNMOUNT_FALLBACK_MS = 240;
+
 export function AgentVoiceEdgeGlow() {
   const runtime = useAgentRuntimeStateOptional();
   const active = useAgentVoiceState((s) => s.active);
   const status = useAgentVoiceState((s) => s.status);
   const level = useAgentVoiceState((s) => s.level);
 
-  // Smooth the raw audio level so the glow breathes instead of jittering. A
-  // light exponential follower (fast attack, slower release) tracks speech
-  // energy the way Siri's glow does.
-  const [smoothLevel, setSmoothLevel] = useState(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const smoothRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const targetRef = useRef(0);
 
-  useEffect(() => {
-    targetRef.current = active ? Math.min(1, Math.max(0, level)) : 0;
-  }, [level, active]);
+  // The pools stay mounted through the exit fade and are dropped after it, so
+  // an idle screen runs none of the twelve infinite keyframe animations.
+  const [poolsMounted, setPoolsMounted] = useState(active);
 
   useEffect(() => {
+    if (active) {
+      setPoolsMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setPoolsMounted(false),
+      UNMOUNT_FALLBACK_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [active]);
+
+  // Smooth the raw audio level so the glow breathes instead of jittering. A
+  // light exponential follower (fast attack, slower release) tracks speech
+  // energy the way Siri's glow does. The follower writes one custom property
+  // on the container and runs only while there is somewhere left to move.
+  useEffect(() => {
     if (typeof window === "undefined") return;
+    targetRef.current = active ? Math.min(1, Math.max(0, level)) : 0;
+    if (rafRef.current !== null) return;
     const tick = () => {
       const target = targetRef.current;
       const current = smoothRef.current;
       const factor = target > current ? 0.3 : 0.09;
       const next = current + (target - current) * factor;
-      smoothRef.current = Math.abs(next - current) < 0.001 ? target : next;
-      setSmoothLevel(smoothRef.current);
+      const settled = Math.abs(next - current) < 0.001;
+      smoothRef.current = settled ? target : next;
+      containerRef.current?.style.setProperty(
+        ONE_SIRI_LEVEL_VAR,
+        smoothRef.current.toFixed(3),
+      );
+      if (settled && (target === 0 || target === smoothRef.current)) {
+        rafRef.current = null;
+        return;
+      }
       rafRef.current = window.requestAnimationFrame(tick);
     };
     rafRef.current = window.requestAnimationFrame(tick);
-    return () => {
+  }, [level, active]);
+
+  useEffect(
+    () => () => {
       if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
+      rafRef.current = null;
+    },
+    [],
+  );
+
+  const handleTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.propertyName !== "opacity") return;
+    if (!active) setPoolsMounted(false);
+  };
 
   const showEdgeGlow = active;
   const mix = STATUS_MIX[status] ?? DEFAULT_MIX;
 
-  // Presence: subtle and vivid. Kept restrained so the rim never competes with
-  // on-screen content; energy adds a little lift, not a wash.
-  const poolsAlpha = showEdgeGlow ? Math.min(0.9, 0.6 + smoothLevel * 0.3) : 0;
-  const poolBlur = 30 - smoothLevel * 8; // px
-  // Saturation keeps the colours vivid so even a thin rim reads as a spectrum.
-  const poolPunch = "saturate(1.55) brightness(1.15)";
-
-  // Edge mask: reveal the pools only in a NARROW band at the perimeter and
-  // feather quickly to transparent, so only a tight rim shows and the whole body
-  // stays clear. Two linear masks (top/bottom + left/right) unioned so all four
-  // edges show; the band grows only slightly with energy. Anchored to the true
-  // edges (0%), so the rim reaches end-to-end.
-  const depth = 5 + smoothLevel * 3; // % of the screen the rim reaches in
-  const maskStyle = useMemo<CSSProperties>(() => {
-    const vert = `linear-gradient(to bottom, #000 0%, transparent ${depth}%, transparent ${100 - depth}%, #000 100%)`;
-    const horiz = `linear-gradient(to right, #000 0%, transparent ${depth}%, transparent ${100 - depth}%, #000 100%)`;
-    return {
-      WebkitMaskImage: `${vert}, ${horiz}`,
-      maskImage: `${vert}, ${horiz}`,
-      WebkitMaskComposite: "source-over",
-      maskComposite: "add",
-    };
-  }, [depth]);
-
   return (
     <div
+      ref={containerRef}
       aria-hidden
       data-voice-status={status}
       data-morphy-ax-presentation={runtime?.morphyAxPresentation ?? "idle"}
       data-testid="one-voice-edge-glow"
+      onTransitionEnd={handleTransitionEnd}
       className={cn(
-        "pointer-events-none fixed inset-0 z-[117] overflow-hidden",
+        "one-siri-edge-glow pointer-events-none fixed inset-0 z-[117] overflow-hidden",
         "transition-opacity ease-[var(--motion-overlay-enter-ease)]",
         showEdgeGlow
           ? "opacity-100 duration-[var(--motion-overlay-enter-duration)]"
@@ -186,31 +220,29 @@ export function AgentVoiceEdgeGlow() {
     >
       {/* Edge-masked layer: the pools live here and are shown only along the
           four edges (center feathers to clear). Full-bleed to the true screen
-          edges - no inset, no rounded band - so the glow spans end-to-end. */}
-      <div
-        className="absolute inset-0 transition-opacity duration-[var(--motion-duration-lg)]"
-        style={{ opacity: poolsAlpha, ...maskStyle }}
-      >
-        {POOLS.map((pool) => (
-          <span
-            key={pool.key}
-            className="one-siri-edge-pool"
-            style={
-              {
-                ...pool.style,
-                background: `radial-gradient(closest-side, ${mix[pool.colorIndex] ?? mix[0]} 0%, ${mix[pool.colorIndex] ?? mix[0]} 34%, transparent 74%)`,
-                animationName: ANIM_NAME[pool.anim],
-                animationDuration: `${pool.duration}s`,
-                animationDelay: `${pool.delay}s`,
-                animationTimingFunction: "ease-in-out",
-                animationIterationCount: "infinite",
-                ["--one-siri-pool-blur" as string]: `${poolBlur}px`,
-                filter: `blur(${poolBlur}px) ${poolPunch}`,
-              } as CSSProperties
-            }
-          />
-        ))}
-      </div>
+          edges - no inset, no rounded band - so the glow spans end-to-end.
+          Opacity, mask depth and pool blur all ride --one-siri-level in CSS. */}
+      {poolsMounted ? (
+        <div className="one-siri-edge-pools absolute inset-0 transition-opacity duration-[var(--motion-duration-lg)]">
+          {POOLS.map((pool) => (
+            <span
+              key={pool.key}
+              className="one-siri-edge-pool"
+              style={
+                {
+                  ...pool.style,
+                  background: `radial-gradient(closest-side, ${mix[pool.colorIndex] ?? mix[0]} 0%, ${mix[pool.colorIndex] ?? mix[0]} 34%, transparent 74%)`,
+                  animationName: ANIM_NAME[pool.anim],
+                  animationDuration: `${pool.duration}s`,
+                  animationDelay: `${pool.delay}s`,
+                  animationTimingFunction: "ease-in-out",
+                  animationIterationCount: "infinite",
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

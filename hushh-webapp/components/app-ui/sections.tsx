@@ -9,7 +9,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 
@@ -246,7 +246,7 @@ export function Card({
 
   const shellClassName = cn(
     "group flex flex-col rounded-[var(--app-card-radius-feature)] border border-border/60 bg-card p-5",
-    href && "transition-all hover:-translate-y-0.5 hover:shadow-lg",
+    href && "transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-lg",
     className,
   );
 

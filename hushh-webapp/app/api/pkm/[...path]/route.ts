@@ -14,6 +14,7 @@ const metadataHotGet = createHotGetJsonCache({
   freshTtlMs: 5 * 60 * 1000,
   staleTtlMs: 30 * 60 * 1000,
 });
+let discoveryCacheVersion = 0;
 const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
 const PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS = Number.parseInt(
   process.env.PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS ?? "90000",
@@ -82,6 +83,25 @@ function emptyLegacyDataPayload() {
   };
 }
 
+function invalidateDiscoveryCacheForMutation(authorization: string): void {
+  if (!authorization) return;
+  discoveryCacheVersion += 1;
+  metadataHotGet.invalidate((key) => key.endsWith(`:${authorization}`));
+}
+
+function isPersistentPkmMutation(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  pathStr: string,
+  status: number,
+): boolean {
+  return (
+    method !== "GET" &&
+    status >= 200 &&
+    status < 400 &&
+    pathStr !== "store-domain/validate"
+  );
+}
+
 function normalizeEmptyPkmGet(
   method: "GET" | "POST" | "PUT" | "DELETE",
   pathStr: string,
@@ -127,17 +147,38 @@ async function proxyPkmRequest(
   const pathStr = path.join("/");
   const query = request.nextUrl.search;
   const authHeader = request.headers.get("Authorization") || "";
+  // The client's PKM level decides whether the upgrade routes offer it the
+  // reserved-branch relocation, so it is forwarded (semver only) and is part of
+  // the hot-cache key: an old build and a current one never share a status.
+  const rawClientVersion = request.headers.get("x-hushh-client-version") || "";
+  const clientVersion = /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(rawClientVersion) ? rawClientVersion : "";
+  const bypassHotCache = request.headers
+    .get("Cache-Control")
+    ?.toLowerCase()
+    .includes("no-cache");
   const hotCacheKey =
     method === "GET" &&
+    !bypassHotCache &&
     authHeader &&
     (pathStr.startsWith("metadata/") || pathStr.startsWith("upgrade/status/"))
-      ? `${pathStr}${query}:${authHeader}`
+      ? `${pathStr}${query}:${clientVersion}:${authHeader}`
       : null;
+  const hotCacheVersion = hotCacheKey ? discoveryCacheVersion : null;
+  let load: Promise<PkmProxyResult> | null = null;
 
   try {
     const backendUrl = `${getPythonApiUrl()}/api/pkm/${pathStr}${query}`;
+    // Ingestion correlation headers make a multi-chunk Memory import traceable
+    // server-side (ingestion id + chunk index); they carry no content.
+    const ingestionId = request.headers.get("x-pkm-ingestion-id");
+    const chunkIndex = request.headers.get("x-pkm-chunk-index");
     const headers = createUpstreamHeaders(requestId, {
       ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(ingestionId && /^[A-Za-z0-9_-]{1,96}$/.test(ingestionId)
+        ? { "X-PKM-Ingestion-Id": ingestionId }
+        : {}),
+      ...(chunkIndex && /^\d{1,4}$/.test(chunkIndex) ? { "X-PKM-Chunk-Index": chunkIndex } : {}),
+      ...(clientVersion ? { "x-hushh-client-version": clientVersion } : {}),
       ...(method === "POST" || method === "PUT"
         ? { "Content-Type": "application/json" }
         : {}),
@@ -165,7 +206,7 @@ async function proxyPkmRequest(
       }
     }
 
-    const load = (async (): Promise<PkmProxyResult> => {
+    load = (async (): Promise<PkmProxyResult> => {
       const timeoutMs =
         method === "POST" || method === "PUT" || method === "DELETE"
           ? PKM_PROXY_WRITE_TIMEOUT_MS
@@ -193,12 +234,16 @@ async function proxyPkmRequest(
       };
     })();
 
-    if (hotCacheKey) {
+    if (hotCacheKey && load) {
       metadataHotGet.setInflight(hotCacheKey, load);
     }
 
     const result = normalizeEmptyPkmGet(method, pathStr, await load);
-    if (hotCacheKey && result.status < 500) {
+    if (
+      hotCacheKey &&
+      result.status < 500 &&
+      hotCacheVersion === discoveryCacheVersion
+    ) {
       metadataHotGet.write(hotCacheKey, result);
     } else if (hotCacheKey && result.status >= 500) {
       const stale = metadataHotGet.read(hotCacheKey, { allowStale: true });
@@ -207,6 +252,13 @@ async function proxyPkmRequest(
           status: stale.status,
         });
       }
+    }
+
+    if (isPersistentPkmMutation(method, pathStr, result.status)) {
+      // A vault-owner token is intentionally reused across a browser session.
+      // Clear discovery reads for that owner after a write so a refresh cannot
+      // render a prior normalized "no PKM yet" response as authoritative.
+      invalidateDiscoveryCacheForMutation(authHeader);
     }
 
     const responseHeaders: Record<string, string> = {};
@@ -239,8 +291,8 @@ async function proxyPkmRequest(
       { status: 500 }
     );
   } finally {
-    if (hotCacheKey) {
-      metadataHotGet.clearInflight(hotCacheKey);
+    if (hotCacheKey && load) {
+      metadataHotGet.clearInflight(hotCacheKey, load);
     }
   }
 }

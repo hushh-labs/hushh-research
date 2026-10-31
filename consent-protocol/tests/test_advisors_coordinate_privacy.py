@@ -38,6 +38,9 @@ def _redact(message: str) -> str:
         "https://x/v1/advisors?latitude=47.6769&longitude=-122.206",
         "https://maps.googleapis.com/maps/api/geocode/json?latlng=47.67,-122.20&key=k",
         "https://x/v1/advisors?postalCode=98033&limit=10",
+        # Dotted coordinate names (e.g. Google's location.latitude form).
+        "https://weather.googleapis.com/v1/currentConditions:lookup?key=k"
+        "&location.latitude=47.6769&location.longitude=-122.206",
     ],
 )
 def test_coordinates_are_redacted_from_outbound_request_logs(query: str) -> None:

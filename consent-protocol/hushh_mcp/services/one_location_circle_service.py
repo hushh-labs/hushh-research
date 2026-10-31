@@ -3,8 +3,8 @@
 Joining a Circle is explicit relationship consent. Membership creates a
 source-aware connection origin with every active Circle member, but never
 creates a trusted edge, SMS selection, live-location grant, capability token,
-or encrypted envelope. Every active member may invite an existing direct
-connection without requiring another connection request or a code. Circle
+or encrypted envelope. The owner may add an existing direct connection
+without requiring another connection request or a code. Circle
 governance (rename, removal, code rotation, and deletion) remains owner-only.
 """
 
@@ -14,30 +14,147 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
+import unicodedata
 import uuid
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import text
 
 from db.db_client import DatabaseClient, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.circle_photo import validate_circle_photo
 from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
     revoke_circle_origins,
 )
+from hushh_mcp.services.location_circle_command import begin_circle_command, save_circle_command
+from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from mcp_modules.log_redaction import redact_log_field
 
 logger = logging.getLogger(__name__)
 
+_CIRCLE_NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, int(os.getenv("ONE_LOCATION_CIRCLE_NOTIFICATION_WORKERS", "2"))),
+    thread_name_prefix="one-location-circle-notify",
+)
+
+
+def _submit_circle_lifecycle_notification(
+    callback: Callable[..., None],
+    /,
+    **kwargs: Any,
+) -> None:
+    """Queue post-commit Circle fan-out without extending mutation latency."""
+
+    circle_id = str(kwargs.get("circle_id") or "").strip()
+    try:
+        _CIRCLE_NOTIFICATION_EXECUTOR.submit(callback, **kwargs)
+    except Exception:
+        logger.exception(
+            "circle.notify_submit_failed circle_id=%s",
+            circle_id,
+        )
+
+
 CIRCLE_CODE_TTL_HOURS = 72
+# Nothing sets this any more -- connections are added outright rather than
+# invited. It stays because the invitations written before that change are
+# still readable, and accept/decline still refuse the ones that ran out.
 CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
-CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
-CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT = 5
-CIRCLE_MAX_PER_USER = 10
-CIRCLE_DEFAULT_MEMBER_LIMIT = 20
+CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 1
+# How many people one `create_member_invites` call takes; a larger reviewed
+# audience is added as several of these inside one transaction.
+CIRCLE_MEMBER_ADD_CHUNK = 20
+# How many people may be on one SMS Circle, including its owner.
+#
+# Deliberately far below an ordinary Circle's hundred, because this is not a
+# smaller version of the same thing: everyone here is woken up at once, with
+# the owner's address, at the worst moment of their day. A hundred recipients
+# is not a bigger safety net -- it is a hundred messages nobody is accountable
+# for and a roster the owner cannot check at a glance when it matters most.
+#
+# There is no cap on how many Circles a person may belong to. That number used
+# to live here as CIRCLE_MAX_PER_USER; it counted MEMBERSHIPS, so it was really
+# deciding how many Circles other people may put you in, which was never ours
+# to decide.
+SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 11
+
+
+def _member_add_event_batch_id(
+    *,
+    actor_user_id: str,
+    circle_id: str,
+    operation_id: str | None,
+    explicit_batch_id: str | None,
+) -> str:
+    if explicit_batch_id:
+        return explicit_batch_id
+    if operation_id:
+        # A reviewed command can send up to five separate 20-person requests.
+        # Its operation ID is stable across retries and chunks, so the chat
+        # timeline can show the whole action as one addition.
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"hushh.circle-member-add:v1:{actor_user_id}:{circle_id}:{operation_id}",
+            )
+        )
+    return str(uuid.uuid4())
+
+
+# Raised from 20 in migration 158. This constant is stamped onto a Circle at
+# INSERT and never edited afterwards, so it governs new Circles only -- the
+# migration lifts the stored ceiling on Circles that already carry the old
+# default, which is what makes the higher limit real for accounts that
+# already have Circles rather than only for ones created from here on.
+CIRCLE_DEFAULT_MEMBER_LIMIT = 100
+# The one system Circle this product provisions today.
+#
+# "Circle", not "Contacts": it sits in the Circles list beside Circles the
+# person named themselves ("Family", "Climbing"), and a row reading like a
+# contact list among Circles is the confusion the UAT report described.
+SMS_SYSTEM_CIRCLE_NAME = "SMS Circle"
+
+# The built-in container offered as a default Circle. Its membership is manual.
+#
+# Marked with `system_kind` and deliberately NOT `is_system`: pre-163 code
+# looks a system Circle up with `WHERE is_system ... LIMIT 1` and no ORDER BY,
+# so a Trusted row wearing that flag could be picked, renamed "SMS Circle" and
+# handed to SOS. Migration 163's header carries the full reasoning.
+TRUSTED_SYSTEM_CIRCLE_NAME = "Trusted"
+
+# Trusted uses the same normal capacity enforcement as every other manually
+# managed Circle. The ordinary default also remains compatible with migration
+# 158's replay-safe `member_limit BETWEEN 2 AND 100` constraint.
+TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = CIRCLE_DEFAULT_MEMBER_LIMIT
+
+# Historical connection projections were owner-private, not roster-sharing
+# decisions. Only the owner or a member explicitly added by that owner may
+# read a Trusted roster. Keep old rows intact; bootstrap must not promote them.
+# The placeholders below are fixed SQL aliases supplied by these readers,
+# never request input. Keep one admission rule for all four read surfaces.
+_TRUSTED_ROSTER_VIEWER_SQL = """(
+    {circle}.system_kind IS DISTINCT FROM 'trusted'
+    OR {circle}.owner_user_id = :{viewer}
+    OR COALESCE(
+      {membership}.metadata @> jsonb_build_object(
+        'addedVia', 'direct_add', 'addedBy', {circle}.owner_user_id
+      ), FALSE
+    )
+)"""
+
+# What the product called it before. Rows still carrying this are renamed on
+# the next bootstrap; a name the OWNER chose is never touched.
+SMS_SYSTEM_CIRCLE_LEGACY_NAMES = ("SMS Contacts",)
 CIRCLE_CODE_LENGTH = 12
 CIRCLE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 _CIRCLE_CODE_DOMAIN = b"one-location-circle-code:v1:"
@@ -58,6 +175,26 @@ class OneLocationCircleError(RuntimeError):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+def _format_cooldown_remaining(remaining_seconds: int | float | None) -> str:
+    """ "in 47 minutes" / "in 2 hours 5 minutes" / "in under a minute".
+
+    Rounds UP to the minute so the toast never promises a shorter wait than
+    the database will actually honor -- the person re-tries at the stated
+    time and it works, rather than "in 1 minute" meaning "in 1-119 seconds".
+    """
+    total_seconds = max(0, int(remaining_seconds or 0))
+    if total_seconds < 60:
+        return "in under a minute"
+    total_minutes = -(-total_seconds // 60)  # ceil
+    hours, minutes = divmod(total_minutes, 60)
+    if hours <= 0:
+        return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+    parts = [f"{hours} hour{'s' if hours != 1 else ''}"]
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    return "in " + " ".join(parts)
 
 
 def normalize_circle_code(value: str) -> str:
@@ -118,6 +255,141 @@ def _all(result: Any) -> list[dict[str, Any]]:
     return [payload for row in result.fetchall() if (payload := _row_dict(row)) is not None]
 
 
+def _human_display_name(name: Any, user_id: Any) -> str:
+    """A display name, or "" when what we hold is not one.
+
+    The identity cache stores whatever the account gave it, and for an account
+    with no display name that has been observed to be the Firebase uid itself.
+    Rendering it produced "6mRRECV04CYyKrGQT1sGe2zszdt1's SMS Circle" on a
+    real screen -- an opaque 28-character token where a person's name belongs.
+
+    Fixing the sync is its own change. Nothing that formats a name for a reader
+    should trust it in the meantime: a "name" identical to the id it is keyed
+    by is not a name, and neither is a bare uid-shaped string.
+    """
+
+    cleaned = str(name or "").strip()
+    if not cleaned:
+        return ""
+    if cleaned == str(user_id or "").strip():
+        return ""
+    # Firebase uids are 28 characters of mixed-case alphanumerics with no
+    # spaces. A real display name that shape is vanishingly unlikely; a uid
+    # that shape is certain.
+    if len(cleaned) >= 20 and " " not in cleaned and cleaned.isalnum():
+        return ""
+    return cleaned
+
+
+def _identity_label(
+    *,
+    user_id: Any,
+    display_name: Any,
+    email: Any = None,
+    fallback: str = "Someone",
+) -> str:
+    """Resolve a relationship-scoped label without ever exposing a raw id."""
+
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(
+        {
+            "user_id": str(user_id or ""),
+            "display_name": display_name,
+            "email": email,
+        },
+        fallback=fallback,
+    )
+
+
+def _record_circle_event(
+    conn: Any,
+    *,
+    owner_user_id: str,
+    actor_user_id: str,
+    event_type: str,
+    metadata: dict[str, Any],
+) -> None:
+    """Write a Circle transition to the One Location audit ledger atomically."""
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO one_location_events (
+              owner_user_id, actor_user_id, event_type, metadata
+            )
+            VALUES (
+              :owner_user_id, :actor_user_id, :event_type,
+              CAST(:metadata AS JSONB)
+            )
+            """
+        ),
+        {
+            "owner_user_id": owner_user_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "metadata": json.dumps(metadata, separators=(",", ":")),
+        },
+    )
+
+
+def _record_sms_membership_event(
+    conn: Any, *, owner_user_id: str, contact_user_id: str, added: bool
+) -> None:
+    """Preserve migration 187's two-audience Feed contract in the membership transaction."""
+    rows = _all(
+        conn.execute(
+            text("""SELECT user_id, display_name, email
+        FROM actor_identity_cache WHERE user_id = ANY(CAST(:people AS TEXT[]))"""),
+            {"people": [owner_user_id, contact_user_id]},
+        )
+    )
+    labels = {
+        str(row["user_id"]): _identity_label(
+            user_id=row["user_id"],
+            display_name=row.get("display_name"),
+            email=row.get("email"),
+            fallback="A trusted person",
+        )
+        for row in rows
+    }
+    conn.execute(
+        text("""INSERT INTO one_location_events
+        (owner_user_id, actor_user_id, recipient_user_id, event_type, metadata)
+        VALUES (:owner, :owner, :contact, :event, CAST(:metadata AS JSONB))"""),
+        {
+            "owner": owner_user_id,
+            "contact": contact_user_id,
+            "event": "location_sms_contact_added" if added else "location_sms_contact_removed",
+            "metadata": json.dumps(
+                {
+                    "owner_label": labels.get(owner_user_id, "A trusted person"),
+                    "counterpart_label": labels.get(contact_user_id, "A trusted person"),
+                }
+            ),
+        },
+    )
+
+
+def _is_product_managed(row: dict[str, Any]) -> bool:
+    """Is this a Circle the product provisions, rather than one a person made?
+
+    `is_system` was the whole of that question while the SMS Circle was the
+    only such Circle. Trusted is deliberately NOT `is_system` -- migration 163
+    carries the reasoning -- so a guard that asks the flag alone lets Trusted
+    walk through every door that was shut against the SMS one, including the
+    join-code door this file closed two commits ago.
+
+    `system_kind` is the question now. The flag stays in the test so a row read
+    by a revision that predates the column still answers correctly, and so a
+    demotion that clears only the flag cannot quietly re-open anything.
+    """
+
+    if bool(row.get("is_system")):
+        return True
+    return bool(str(row.get("system_kind") or "").strip())
+
+
 def _clean_circle_id(value: str) -> str:
     circle_id = str(value or "").strip()
     if not _CIRCLE_ID_RE.fullmatch(circle_id):
@@ -153,10 +425,12 @@ def _clean_user_id(value: str) -> str:
 
 def _clean_name(value: str) -> str:
     name = " ".join(str(value or "").split())
-    if len(name) < 2 or len(name) > 80:
+    # One character is a name. The old two-character floor rejected a circle
+    # called "A" from a Create button that gave no reason for staying dead.
+    if len(name) < 1 or len(name) > 80:
         raise OneLocationCircleError(
             "LOCATION_CIRCLE_NAME_INVALID",
-            "Circle name must be between 2 and 80 characters.",
+            "Circle name must be between 1 and 80 characters.",
             status_code=422,
         )
     return name
@@ -171,6 +445,22 @@ def _clean_kind(value: str | None) -> str:
             status_code=422,
         )
     return kind
+
+
+CIRCLE_MAX_CUSTOM_TYPES = 3
+
+
+def _clean_custom_type_label(value: str | None, kind: str) -> str | None:
+    label = " ".join(unicodedata.normalize("NFKC", value or "").split())
+    if not label:
+        return None
+    if kind != "other" or len(label) > 32 or label.casefold() in {"family", "friends", "other"}:
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_TYPE_INVALID",
+            "Choose Family or Friends, or name a custom type using up to 32 characters.",
+            status_code=422,
+        )
+    return label
 
 
 class OneLocationCircleService:
@@ -265,6 +555,10 @@ class OneLocationCircleService:
         Postgres is the shared coordination tier today. This row-lock seam can
         later move to a Redis/Memorystore distributed lock without changing the
         Circle API contract.
+
+        NO KEY UPDATE still serializes membership changes and blocks deletion,
+        while allowing the KEY SHARE checks from Circle chat-event foreign keys.
+        FOR UPDATE here would deadlock reciprocal member additions.
         """
 
         actor = _first(
@@ -274,7 +568,7 @@ class OneLocationCircleService:
                     SELECT user_id
                     FROM actor_profiles
                     WHERE user_id = :user_id
-                    FOR UPDATE
+                    FOR NO KEY UPDATE
                     """
                 ),
                 {"user_id": user_id},
@@ -288,27 +582,44 @@ class OneLocationCircleService:
             )
 
     @staticmethod
-    def _assert_user_circle_capacity(conn: Any, *, user_id: str) -> None:
-        count_row = _first(
+    def _lock_invitees(conn: Any, *, user_ids: list[str]) -> None:
+        """Lock every person about to be added, in a fixed order.
+
+        One statement rather than a call per person, so the order is the
+        statement's and not the caller's; and taken before the connection rows
+        because `accept_member_invite` locks a profile before a connection, and
+        two paths that disagree about that order deadlock on the one pair they
+        have in common.
+
+        Keep this compatible with the KEY SHARE checks made by membership and
+        chat-event foreign keys when another person holds their own profile lock.
+
+        A missing profile is someone who has not finished setting up One. They
+        are not named: which of your connections has finished onboarding is
+        their business, not the business of whoever is adding them.
+        """
+
+        if not user_ids:
+            return
+        rows = _all(
             conn.execute(
                 text(
                     """
-                    SELECT COUNT(*) AS circle_count
-                    FROM one_location_circle_memberships membership
-                    JOIN one_location_circles circle
-                      ON circle.id = membership.circle_id
-                     AND circle.status = 'active'
-                    WHERE membership.user_id = :user_id
-                      AND membership.status = 'active'
+                    SELECT user_id
+                    FROM actor_profiles
+                    WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+                    ORDER BY user_id
+                    FOR NO KEY UPDATE
                     """
                 ),
-                {"user_id": user_id},
+                {"user_ids": sorted(user_ids)},
             )
         )
-        if int((count_row or {}).get("circle_count") or 0) >= CIRCLE_MAX_PER_USER:
+        ready = {str(row.get("user_id") or "") for row in rows}
+        if any(user_id not in ready for user_id in user_ids):
             raise OneLocationCircleError(
-                "LOCATION_CIRCLE_LIMIT_REACHED",
-                f"You can belong to up to {CIRCLE_MAX_PER_USER} Circles.",
+                "LOCATION_CIRCLE_INVITEE_NOT_READY",
+                "Someone you selected has not finished setting up One.",
                 status_code=409,
             )
 
@@ -320,35 +631,92 @@ class OneLocationCircleService:
         # of truth. Owner-only capabilities follow the canonical Circle owner.
         is_owner = bool(owner_user_id and viewer_user_id == owner_user_id)
         role = "owner" if is_owner else "member"
+        is_system = bool(row.get("is_system") or False)
+        is_trusted = str(row.get("system_kind") or "") == "trusted"
+        name = str(row.get("name") or "")
+        # A system Circle is one person's private emergency list, but everyone
+        # on it is a member of it, so it appears in THEIR Circles list too --
+        # under the same product-chosen name as their own. Saying whose it is
+        # turns three identical rows back into three distinct ones.
+        if is_system and not is_owner:
+            owner_name = _human_display_name(row.get("owner_display_name"), owner_user_id)
+            name = f"{owner_name}'s {name}" if owner_name else f"Shared {name}"
         return {
             "id": str(row.get("id") or ""),
-            "name": str(row.get("name") or ""),
+            "name": name,
+            "photoUrl": row.get("photo_url") or None,
             "kind": str(row.get("kind") or "other"),
+            **(
+                {"customTypeLabel": row["custom_type_label"]}
+                if is_owner
+                and not is_system
+                and not is_trusted
+                and row.get("kind") == "other"
+                and isinstance(row.get("custom_type_label"), str)
+                and 0 < len(row["custom_type_label"]) <= 32
+                else {}
+            ),
             "role": role,
+            "isSystem": is_system,
+            # Which product-managed Circle this is. Trusted keeps a stable marker
+            # for the product-provided container, but its membership is curated by
+            # the owner through the same paths as every other Circle.
+            "systemKind": str(row.get("system_kind") or "") or None,
             "memberCount": int(row.get("member_count") or 0),
             "memberLimit": int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "viewerCapabilities": {
-                # Invite authority is intentionally separate from location,
-                # SMS, rename, removal, and deletion authority.
-                "canInviteMembers": True,
-                "canViewInviteCode": True,
-                "canRotateInviteCode": is_owner,
+                # Both doors into a Circle are the owner's. Trusted uses this
+                # ordinary manual membership path too; add operations still
+                # validate that each selected person is an active connection.
+                "canInviteMembers": is_owner,
+                # A join code a member can hand out is the same hole with a
+                # link attached: whoever redeems it lands in the owner's Circle
+                # just the same. A system Circle has no code at all.
+                "canViewInviteCode": is_owner and not is_system and not is_trusted,
+                "canRotateInviteCode": is_owner and not is_system and not is_trusted,
                 "canManageCircle": is_owner,
                 "canModerateInvites": is_owner,
+                # The ONLY thing a system Circle takes away. It is provisioned
+                # by the product and depended on by SOS, so it is not the
+                # owner's to delete -- every other owner power still applies:
+                # rename, add members, remove members.
+                #
+                # Deliberately no roster restriction. An emergency Circle is a
+                # group that should know it is a group: if something happens to
+                # the owner, the people on that list are the ones who may need
+                # to reach each other, and a roster only the owner can read is
+                # useless at exactly the moment it is needed. So membership is
+                # visible here on the same terms as any other Circle.
+                #
+                # Note this is visibility, not connection: seeing a name in a
+                # roster is not a connection edge. `_connect_member_to_circle`
+                # still only ever pairs a joiner with whoever invited them, so
+                # members are listed together without being introduced.
+                "canDeleteCircle": is_owner and not is_system and not is_trusted,
+                "canLeaveCircle": not is_owner,
             },
         }
 
     @staticmethod
     def _member_payload(row: dict[str, Any]) -> dict[str, Any]:
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        # "Circle member" was standing in for a name the database could have
+        # produced: an account with no Google profile name still has an email,
+        # and everyone in this roster is someone the viewer shares a Circle
+        # with. The generic word is kept for the account that resolves to
+        # nothing at all.
+        display_name = label_from_identity_row(row, fallback="")
+        relationship = str(row.get("relationship") or "none")
         key_id = str(row.get("key_id") or "").strip()
         public_key_jwk = _json_object(row.get("public_key_jwk"))
         can_receive_location = bool(key_id and public_key_jwk)
         return {
             "userId": str(row.get("user_id") or ""),
             "displayName": display_name or "Circle member",
+            "publicPersonRef": str(row.get("public_person_ref") or "") or None,
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "role": str(row.get("role") or "member"),
             "joinedAt": _iso(row.get("joined_at")),
@@ -363,6 +731,18 @@ class OneLocationCircleService:
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at")),
             "canReceiveLocation": can_receive_location,
+            # Being in the same Circle is not being connected -- a joiner is
+            # paired with whoever invited them and nobody else. Surfacing the
+            # relationship here is what lets the roster offer the introduction
+            # the Circle deliberately does not make by itself.
+            "relationship": relationship,
+            # 'self' and 'connected' have nothing to request; the two pending
+            # states already have a request in flight. Phone verification is
+            # required for the same reason it is everywhere else a connection
+            # can start.
+            "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
+            "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -376,8 +756,10 @@ class OneLocationCircleService:
             "circleKind": str(row.get("circle_kind") or "other"),
             "inviterUserId": str(row.get("inviter_user_id") or ""),
             "inviterDisplayName": inviter_name or "A Circle member",
+            "inviterPhotoUrl": str(row.get("inviter_photo_url") or "").strip() or None,
             "inviteeUserId": str(row.get("invitee_user_id") or ""),
             "inviteeDisplayName": invitee_name or "Connection",
+            "inviteePhotoUrl": str(row.get("invitee_photo_url") or "").strip() or None,
             "status": str(row.get("status") or "pending"),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
@@ -386,13 +768,20 @@ class OneLocationCircleService:
 
     @staticmethod
     def _eligible_connection_payload(row: dict[str, Any]) -> dict[str, Any]:
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        # Everyone in this list is already a connection of the viewer, so the
+        # email handle is a name about someone they chose. "Connection" was
+        # the placeholder that hid it.
+        display_name = label_from_identity_row(row, fallback="")
         return {
             "connectionId": str(row.get("connection_id") or ""),
             "userId": str(row.get("user_id") or ""),
             "displayName": display_name or "Connection",
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "connectedAt": _iso(row.get("connected_at")),
+            "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -466,26 +855,42 @@ class OneLocationCircleService:
     def list_circles(self, *, user_id: str) -> list[dict[str, Any]]:
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.created_at, c.updated_at,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
+                  c.system_kind,
+                  c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
                   COUNT(active_members.user_id) AS member_count
                 FROM one_location_circle_memberships mine
                 JOIN one_location_circles c
                   ON c.id = mine.circle_id
                  AND c.status = 'active'
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
                 WHERE mine.user_id = :user_id
                   AND mine.status = 'active'
-                GROUP BY c.id, mine.role
+                  AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
+                GROUP BY c.id, mine.role, owner_identity.display_name
                 ORDER BY c.updated_at DESC, c.created_at DESC
-                """,
+                """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
                 {"user_id": user_id},
             )
-            return [self._circle_summary(row) for row in (result.data or [])]
+            circles = [self._circle_summary(row) for row in (result.data or [])]
+            photo_budget = 2_000_000
+            for circle in circles:
+                photo = circle["photoUrl"]
+                size = len(photo.encode("utf-8")) if photo else 0
+                if size > photo_budget:
+                    circle["photoUrl"] = None
+                else:
+                    photo_budget -= size
+            return circles
         except OneLocationCircleError:
             raise
         except Exception as exc:
@@ -495,10 +900,14 @@ class OneLocationCircleService:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
             summary_result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.created_at, c.updated_at,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
+                  c.system_kind,
+                  c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
                   active_code.id AS code_id,
                   active_code.circle_id AS code_circle_id,
                   active_code.code_hash,
@@ -506,10 +915,13 @@ class OneLocationCircleService:
                   active_code.metadata AS code_metadata,
                   COUNT(active_members.user_id) AS member_count
                 FROM one_location_circles c
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
                 JOIN one_location_circle_memberships mine
                   ON mine.circle_id = c.id
                  AND mine.user_id = :user_id
                  AND mine.status = 'active'
+                 AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
@@ -527,10 +939,11 @@ class OneLocationCircleService:
                 WHERE c.id = CAST(:circle_id AS UUID)
                   AND c.status = 'active'
                 GROUP BY
-                  c.id, mine.role, active_code.id, active_code.circle_id,
+                  c.id, mine.role, owner_identity.display_name,
+                  active_code.id, active_code.circle_id,
                   active_code.code_hash, active_code.expires_at,
                   active_code.metadata
-                """,
+                """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
                 {"user_id": user_id, "circle_id": cleaned_circle_id},
             )
             summary_row = next(iter(summary_result.data or []), None)
@@ -541,14 +954,62 @@ class OneLocationCircleService:
                     status_code=404,
                 )
             members_result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
                   membership.user_id, membership.role, membership.joined_at,
-                  identity.display_name, identity.photo_url,
+                  identity.display_name, identity.email, identity.photo_url,
                   identity.custom_photo_url, identity.phone_verified,
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
-                  recipient_key.created_at AS key_created_at
+                  recipient_key.created_at AS key_created_at,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = membership.user_id
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria,
+                  EXISTS (
+                    SELECT 1
+                    FROM connections contact_connection
+                    JOIN connection_origins contact_origin
+                      ON contact_origin.connection_id = contact_connection.id
+                     AND contact_origin.status = 'active'
+                     AND contact_origin.origin_kind = 'contact_sync'
+                     AND contact_origin.source_ref = :viewer_user_id
+                    WHERE contact_connection.status = 'active'
+                      AND (
+                        (contact_connection.user_a_id = :viewer_user_id
+                         AND contact_connection.user_b_id = membership.user_id)
+                        OR
+                        (contact_connection.user_b_id = :viewer_user_id
+                         AND contact_connection.user_a_id = membership.user_id)
+                      )
+                  ) AS connected_from_contacts,
+                  CASE
+                    WHEN membership.user_id = :viewer_user_id THEN 'self'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connections c
+                      WHERE c.status = 'active'
+                        AND c.user_a_id = LEAST(:viewer_user_id, membership.user_id)
+                        AND c.user_b_id = GREATEST(:viewer_user_id, membership.user_id)
+                    ) THEN 'connected'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = :viewer_user_id
+                        AND cr.addressee_user_id = membership.user_id
+                    ) THEN 'pending_outgoing'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = membership.user_id
+                        AND cr.addressee_user_id = :viewer_user_id
+                    ) THEN 'pending_incoming'
+                    ELSE 'none'
+                  END AS relationship
                 FROM one_location_circle_memberships membership
                 LEFT JOIN actor_identity_cache identity
                   ON identity.user_id = membership.user_id
@@ -567,12 +1028,12 @@ class OneLocationCircleService:
                 ORDER BY
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
-                """,
-                {"circle_id": cleaned_circle_id},
+                """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
+                {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
-            circle["activeInviteCode"] = self._invite_code_payload(
+            invite_code_payload = self._invite_code_payload(
                 {
                     "id": summary_row.get("code_id"),
                     "circle_id": summary_row.get("code_circle_id"),
@@ -583,8 +1044,25 @@ class OneLocationCircleService:
                 if summary_row.get("code_id")
                 else None
             )
+            # Withheld from anyone the payload already says must not see it.
+            #
+            # This used to be attached unconditionally, so the live twelve
+            # character code -- the whole secret, in plaintext -- reached every
+            # active member of the Circle in the detail response, while
+            # `canViewInviteCode` merely stopped the screen from drawing it. A
+            # capability flag on top of the data it is meant to withhold is a
+            # instruction, not a control: the code was one request away for
+            # anybody already inside the Circle.
+            #
+            # Minting was closed to non-owners two commits into this stack.
+            # Reading is the other half of handing something out.
+            can_view_code = bool((circle.get("viewerCapabilities") or {}).get("canViewInviteCode"))
+            circle["activeInviteCode"] = invite_code_payload if can_view_code else None
+            # Derived from what actually exists, not from what this viewer may
+            # see -- otherwise a member's response would claim the owner needs
+            # to rotate a code that is perfectly healthy.
             circle["inviteCodeNeedsOwnerRotation"] = bool(
-                summary_row.get("code_id") and circle["activeInviteCode"] is None
+                summary_row.get("code_id") and invite_code_payload is None
             )
             return circle
         except OneLocationCircleError:
@@ -592,65 +1070,282 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("detail", exc) from exc
 
+    def get_circle_overview(self, *, user_id: str, circle_id: str) -> dict[str, Any]:
+        """Return Circle metadata and capabilities without materializing its roster."""
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        try:
+            result = self._db.execute_raw(
+                f"""
+                SELECT
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
+                  c.metadata->>'customTypeLabel' AS custom_type_label,
+                  c.system_kind, c.created_at, c.updated_at,
+                  c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
+                  active_code.id AS code_id,
+                  active_code.circle_id AS code_circle_id,
+                  active_code.code_hash,
+                  active_code.expires_at AS code_expires_at,
+                  active_code.metadata AS code_metadata,
+                  (SELECT COUNT(*) FROM one_location_circle_memberships active_member
+                   WHERE active_member.circle_id = c.id
+                     AND active_member.status = 'active') AS member_count
+                FROM one_location_circles c
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
+                JOIN one_location_circle_memberships mine
+                  ON mine.circle_id = c.id
+                 AND mine.user_id = :user_id
+                 AND mine.status = 'active'
+                 AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
+                LEFT JOIN LATERAL (
+                  SELECT code.id, code.circle_id, code.code_hash,
+                         code.expires_at, code.metadata
+                  FROM one_location_circle_invite_codes code
+                  WHERE code.circle_id = c.id
+                    AND code.status = 'active'
+                    AND code.expires_at > NOW()
+                  ORDER BY code.created_at DESC
+                  LIMIT 1
+                ) active_code ON TRUE
+                WHERE c.id = CAST(:circle_id AS UUID)
+                  AND c.status = 'active'
+                """,  # nosec B608 # Only static Trusted aliases; owner inputs remain bound.
+                {"user_id": user_id, "circle_id": cleaned_circle_id},
+            )
+            row = next(iter(result.data or []), None)
+            if not row:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+                )
+            circle = self._circle_summary(dict(row))
+            invite_code = self._invite_code_payload(
+                {
+                    "id": row.get("code_id"),
+                    "circle_id": row.get("code_circle_id"),
+                    "code_hash": row.get("code_hash"),
+                    "expires_at": row.get("code_expires_at"),
+                    "metadata": row.get("code_metadata"),
+                }
+                if row.get("code_id")
+                else None
+            )
+            can_view = bool((circle.get("viewerCapabilities") or {}).get("canViewInviteCode"))
+            circle["activeInviteCode"] = invite_code if can_view else None
+            circle["inviteCodeNeedsOwnerRotation"] = bool(row.get("code_id") and not invite_code)
+            return circle
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("overview", exc) from exc
+
+    def list_circle_members_page(
+        self,
+        *,
+        user_id: str,
+        circle_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return one authorized, searchable roster page with page-local annotations.
+
+        Search mirrors `_member_payload`'s visible label. Hidden email domains
+        and raw identity values are intentionally absent from normalized_name.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        query_match = people_query_match_params(normalized_query)
+        offset = (normalized_page - 1) * normalized_limit
+        try:
+            result = self._db.execute_raw(
+                f"""
+                WITH authorized_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN one_location_circle_memberships viewer
+                    ON viewer.circle_id = circle.id
+                   AND viewer.user_id = :viewer_user_id
+                   AND viewer.status = 'active'
+                  WHERE circle.id = CAST(:circle_id AS UUID)
+                    AND circle.status = 'active'
+                    AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="circle", membership="viewer", viewer="viewer_user_id")}
+                ), candidates AS (
+                  SELECT membership.user_id, membership.role, membership.joined_at,
+                         identity.display_name, identity.email, identity.photo_url,
+                         identity.custom_photo_url, identity.phone_verified,
+                         profile.public_person_ref,
+                         EXISTS (
+                           SELECT 1
+                           FROM ria_profiles ria_annotation
+                           WHERE ria_annotation.user_id = membership.user_id
+                             AND {RIA_VERIFIED_STATUS_SQL}
+                         ) AS is_ria,
+                         LOWER(CASE
+                           WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
+                            AND BTRIM(identity.display_name) <> membership.user_id
+                            AND LOWER(BTRIM(identity.display_name)) NOT LIKE 'ria:%'
+                            AND BTRIM(identity.display_name) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                            AND NOT (
+                              POSITION('@' IN BTRIM(identity.display_name)) = 0
+                              AND POSITION(' ' IN BTRIM(identity.display_name)) = 0
+                              AND LENGTH(BTRIM(identity.display_name)) >= 20
+                            ) THEN BTRIM(identity.display_name)
+                           WHEN POSITION('@' IN BTRIM(COALESCE(identity.email, ''))) > 1
+                            AND LOWER(BTRIM(SPLIT_PART(identity.email, '@', 1))) NOT LIKE 'ria:%'
+                            AND BTRIM(SPLIT_PART(identity.email, '@', 1)) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                            AND NOT (
+                              POSITION(' ' IN BTRIM(SPLIT_PART(identity.email, '@', 1))) = 0
+                              AND LENGTH(BTRIM(SPLIT_PART(identity.email, '@', 1))) >= 20
+                            ) THEN BTRIM(SPLIT_PART(identity.email, '@', 1))
+                           ELSE 'Circle member'
+                         END) AS normalized_name
+                  FROM authorized_circle circle
+                  JOIN one_location_circle_memberships membership
+                    ON membership.circle_id = circle.id
+                   AND membership.status = 'active'
+                  LEFT JOIN actor_identity_cache identity
+                    ON identity.user_id = membership.user_id
+                  LEFT JOIN actor_profiles profile
+                    ON profile.user_id = membership.user_id
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
+                  WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
+                ), total AS (
+                  SELECT COUNT(*)::BIGINT AS total_count,
+                         EXISTS (SELECT 1 FROM authorized_circle) AS authorized
+                  FROM filtered
+                ), page_rows AS (
+                  SELECT * FROM filtered
+                  ORDER BY match_rank, normalized_name, user_id
+                  OFFSET :offset LIMIT :limit
+                )
+                SELECT page_rows.*,
+                       recipient_key.key_id, recipient_key.public_key_jwk,
+                       recipient_key.algorithm,
+                       recipient_key.created_at AS key_created_at,
+                       total.total_count, total.authorized,
+                       CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1 FROM connections contact_connection
+                         JOIN connection_origins contact_origin
+                           ON contact_origin.connection_id = contact_connection.id
+                          AND contact_origin.status = 'active'
+                          AND contact_origin.origin_kind = 'contact_sync'
+                          AND contact_origin.source_ref = :viewer_user_id
+                         WHERE contact_connection.status = 'active'
+                           AND contact_connection.user_a_id = LEAST(:viewer_user_id, page_rows.user_id)
+                           AND contact_connection.user_b_id = GREATEST(:viewer_user_id, page_rows.user_id)
+                       ) END AS connected_from_contacts,
+                       CASE
+                         WHEN page_rows.user_id = :viewer_user_id THEN 'self'
+                         WHEN EXISTS (SELECT 1 FROM connections connected
+                           WHERE connected.status = 'active'
+                             AND connected.user_a_id = LEAST(:viewer_user_id, page_rows.user_id)
+                             AND connected.user_b_id = GREATEST(:viewer_user_id, page_rows.user_id))
+                           THEN 'connected'
+                         WHEN EXISTS (SELECT 1 FROM connection_requests pending_out
+                           WHERE pending_out.status = 'pending'
+                             AND pending_out.requester_user_id = :viewer_user_id
+                             AND pending_out.addressee_user_id = page_rows.user_id)
+                           THEN 'pending_outgoing'
+                         WHEN EXISTS (SELECT 1 FROM connection_requests pending_in
+                           WHERE pending_in.status = 'pending'
+                             AND pending_in.requester_user_id = page_rows.user_id
+                             AND pending_in.addressee_user_id = :viewer_user_id)
+                           THEN 'pending_incoming'
+                         ELSE 'none'
+                       END AS relationship
+                FROM total
+                LEFT JOIN page_rows ON TRUE
+                LEFT JOIN LATERAL (
+                  SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
+                  FROM one_location_recipient_keys key
+                  WHERE key.user_id = page_rows.user_id AND key.status = 'active'
+                  ORDER BY key.created_at DESC LIMIT 1
+                ) recipient_key ON TRUE
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id
+                """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
+                {
+                    "circle_id": cleaned_circle_id,
+                    "viewer_user_id": user_id,
+                    "query": normalized_query,
+                    **query_match,
+                    "offset": offset,
+                    "limit": normalized_limit,
+                },
+            )
+            rows = list(result.data or [])
+            if not rows or not bool(rows[0].get("authorized")):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+                )
+            total_count = int(rows[0].get("total_count") or 0)
+            items = [self._member_payload(row) for row in rows if row.get("user_id")]
+            return {
+                "items": items,
+                "page": normalized_page,
+                "hasMore": offset + len(items) < total_count,
+                "totalCount": total_count,
+            }
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("members_page", exc) from exc
+
     def create_circle(
         self,
         *,
         owner_user_id: str,
         name: str,
         kind: str | None = None,
+        custom_type_label: str | None = None,
     ) -> dict[str, Any]:
         cleaned_name = _clean_name(name)
         cleaned_kind = _clean_kind(kind)
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind)
         try:
             with self._db.engine.begin() as conn:
-                self._lock_user_circle_memberships(
+                circle_id = self.create_circle_in_transaction(
                     conn,
-                    user_id=owner_user_id,
-                )
-                self._assert_user_circle_capacity(
-                    conn,
-                    user_id=owner_user_id,
-                )
-                circle_row = _first(
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO one_location_circles (
-                              owner_user_id, name, kind, status, member_limit,
-                              created_at, updated_at, metadata
-                            )
-                            VALUES (
-                              :owner_user_id, :name, :kind, 'active',
-                              :member_limit, NOW(), NOW(), '{}'::jsonb
-                            )
-                            RETURNING id
-                            """
-                        ),
-                        {
-                            "owner_user_id": owner_user_id,
-                            "name": cleaned_name,
-                            "kind": cleaned_kind,
-                            "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
-                        },
-                    )
-                )
-                circle_id = str((circle_row or {}).get("id") or "")
-                if not circle_id:
-                    raise RuntimeError("circle insert returned no id")
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO one_location_circle_memberships (
-                          circle_id, user_id, role, status, joined_at, updated_at,
-                          metadata
-                        )
-                        VALUES (
-                          CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
-                          NOW(), NOW(), '{}'::jsonb
-                        )
-                        """
-                    ),
-                    {"circle_id": circle_id, "user_id": owner_user_id},
+                    owner_user_id=owner_user_id,
+                    name=cleaned_name,
+                    kind=cleaned_kind,
+                    **({"custom_type_label": cleaned_type} if cleaned_type else {}),
                 )
             logger.info(
                 "one_location.circle_created owner=%s",
@@ -662,6 +1357,860 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("create", exc) from exc
 
+    def create_circle_in_transaction(
+        self,
+        conn: Any,
+        *,
+        owner_user_id: str,
+        name: str,
+        kind: str | None = None,
+        reuse_existing: bool = False,
+        custom_type_label: str | None = None,
+    ) -> str:
+        """Existing circle mutation with a caller-owned transaction and receipt."""
+        cleaned_name = _clean_name(name)
+        cleaned_kind = _clean_kind(kind)
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind)
+        # Serializes this person's create/join against itself. There
+        # is no ceiling left to check -- a person may belong to as many
+        # Circles as people put them in.
+        self._lock_user_circle_memberships(
+            conn,
+            user_id=owner_user_id,
+        )
+        if cleaned_type:
+            self._check_custom_type_limit(conn, owner_user_id, cleaned_type)
+        if reuse_existing:
+            existing = _first(
+                conn.execute(
+                    text("""SELECT c.id FROM one_location_circles c
+                JOIN one_location_circle_memberships m ON m.circle_id=c.id
+                WHERE m.user_id=:user AND m.status='active' AND c.status='active'
+                  AND c.owner_user_id=:user AND c.kind=:kind
+                  AND LOWER(TRIM(c.name))=LOWER(:name) ORDER BY c.created_at,c.id LIMIT 1"""),
+                    {"user": owner_user_id, "name": cleaned_name, "kind": cleaned_kind},
+                )
+            )
+            if existing:
+                return str(existing["id"])
+        circle_row = _first(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circles (
+                      owner_user_id, name, kind, status, member_limit,
+                      created_at, updated_at, metadata
+                    )
+                    VALUES (
+                      :owner_user_id, :name, :kind, 'active',
+                      :member_limit, NOW(), NOW(), CAST(:metadata AS JSONB)
+                    )
+                    RETURNING id
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "name": cleaned_name,
+                    "kind": cleaned_kind,
+                    "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                    "metadata": json.dumps(
+                        {"customTypeLabel": cleaned_type} if cleaned_type else {}
+                    ),
+                },
+            )
+        )
+        circle_id = str((circle_row or {}).get("id") or "")
+        if not circle_id:
+            raise RuntimeError("circle insert returned no id")
+        conn.execute(
+            text(
+                """
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                VALUES (
+                  CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
+                  NOW(), NOW(), '{}'::jsonb
+                )
+                """
+            ),
+            {"circle_id": circle_id, "user_id": owner_user_id},
+        )
+        return circle_id
+
+    @staticmethod
+    def _find_trusted_circle_id(conn: Any, owner_user_id: str) -> str:
+        row = _first(
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_circles
+                    WHERE owner_user_id = :owner_user_id
+                      AND system_kind = 'trusted'
+                      AND status = 'active'
+                    ORDER BY created_at, id
+                    LIMIT 1
+                    """
+                ),
+                {"owner_user_id": owner_user_id},
+            )
+        )
+        return str((row or {}).get("id") or "")
+
+    def _insert_trusted_circle(self, conn: Any, owner_user_id: str) -> str:
+        created = _first(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circles (
+                      owner_user_id, name, kind, status, member_limit,
+                      is_system, system_kind, created_at, updated_at, metadata
+                    )
+                    VALUES (
+                      :owner_user_id, :name, 'other', 'active',
+                      :member_limit, false, 'trusted', NOW(), NOW(), '{}'::jsonb
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "name": TRUSTED_SYSTEM_CIRCLE_NAME,
+                    "member_limit": TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT,
+                },
+            )
+        )
+        circle_id = str((created or {}).get("id") or "")
+        if not circle_id:
+            # Lost the race with a concurrent bootstrap. Migration 163's partial
+            # unique index on (owner_user_id, system_kind) is what made the
+            # second INSERT a no-op rather than a duplicate; the winner's Circle
+            # is the one that exists.
+            circle_id = self._find_trusted_circle_id(conn, owner_user_id)
+        if not circle_id:
+            raise RuntimeError("trusted circle insert returned no id")
+        conn.execute(
+            text(
+                """
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                VALUES (
+                  CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
+                  NOW(), NOW(), '{}'::jsonb
+                )
+                ON CONFLICT (circle_id, user_id) DO NOTHING
+                """
+            ),
+            {"circle_id": circle_id, "user_id": owner_user_id},
+        )
+        return circle_id
+
+    def ensure_trusted_system_circle(
+        self, *, owner_user_id: str, summary_only: bool = False
+    ) -> dict[str, Any]:
+        """Find or create the caller's empty, manually curated Trusted Circle.
+
+        This is container provisioning only. It never reads the connection
+        graph and never creates, restores, or changes a membership. New
+        connections remain in the general Connections list until the owner
+        explicitly adds them through the ordinary Circle membership API.
+        Existing memberships are deliberately left intact.
+        """
+
+        owner = str(owner_user_id or "").strip()
+        if not owner:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "A signed-in owner is required.",
+                status_code=403,
+            )
+
+        try:
+            with self._db.engine.begin() as conn:
+                circle_id = self._find_trusted_circle_id(conn, owner)
+                if not circle_id:
+                    circle_id = self._insert_trusted_circle(conn, owner)
+            if summary_only:
+                return self.get_circle_overview(user_id=owner, circle_id=circle_id)
+            return self.get_circle(user_id=owner, circle_id=circle_id)
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("trusted", exc) from exc
+
+    def ensure_sms_system_circle(self, *, owner_user_id: str) -> dict[str, Any]:
+        """Find-or-create this owner's SMS Circle and fold their contacts into it.
+
+        Issue #5426: emergency SMS contacts stop being a private table
+        (`one_location_sms_contacts`, migration 116) and become a real Circle on
+        the Circles surface -- one the owner manages like any other, except it
+        cannot be deleted, because SOS reads its roster.
+
+        Idempotent by construction, because this runs on every bootstrap and
+        potentially from more than one device at once:
+
+          * The Circle is found before it is created, and migration 159's
+            partial unique index makes "two system Circles for one owner"
+            unrepresentable if two calls race.
+          * Only contacts with NO membership row are inserted. A contact who was
+            migrated and then deliberately removed carries a 'removed' row, so
+            removing someone sticks instead of being undone on next login.
+
+        `one_location_sms_contacts` is read, never emptied. It stays for one
+        release as the record of who each owner picked, so backing this change
+        out cannot lose anybody's emergency contacts.
+        """
+
+        owner = str(owner_user_id or "").strip()
+        if not owner:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "A signed-in owner is required.",
+                status_code=403,
+            )
+
+        migrated: list[dict[str, Any]] = []
+        try:
+            with self._db.engine.begin() as conn:
+                circle_id = self._find_system_circle_id(conn, owner)
+                if not circle_id:
+                    circle_id = self._insert_system_circle(conn, owner)
+                else:
+                    # Only a name this product chose. An owner who renamed
+                    # theirs keeps it -- the rename heals our default, it does
+                    # not overwrite a person's decision.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circles
+                            SET name = :name, updated_at = NOW()
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND name = ANY(:legacy_names)
+                            """
+                        ),
+                        {
+                            "circle_id": circle_id,
+                            "name": SMS_SYSTEM_CIRCLE_NAME,
+                            "legacy_names": list(SMS_SYSTEM_CIRCLE_LEGACY_NAMES),
+                        },
+                    )
+                    # Older Circles can carry the ordinary hundred or the
+                    # previous ten-member ceiling. Reconcile either value on
+                    # bootstrap; migration 363 also updates existing active
+                    # SMS Circles before the new backend serves them.
+                    #
+                    # Changing a ceiling never removes anybody: member_limit is
+                    # read when someone is ADDED, so an owner already over eleven
+                    # keeps everyone they have and simply cannot add more.
+                    # Evicting people from an emergency list to satisfy a
+                    # number chosen afterwards would be the wrong way round.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circles
+                            SET member_limit = :member_limit, updated_at = NOW()
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND member_limit <> :member_limit
+                            """
+                        ),
+                        {
+                            "circle_id": circle_id,
+                            "member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT,
+                        },
+                    )
+                migrated = self._migrate_sms_contacts_into_circle(conn, owner, circle_id)
+
+                # The owner invited every one of them, so the pair recorded is
+                # owner <-> contact and nothing else. Contacts are never
+                # introduced to each other -- see `_connect_member_to_circle`,
+                # which pairs a joiner with their inviter only.
+                for row in migrated:
+                    contact_id = str(row.get("user_id") or "").strip()
+                    if not contact_id or contact_id == owner:
+                        continue
+                    for kind, source_circle in (
+                        ("circle_member", None),
+                        ("named_circle", circle_id),
+                    ):
+                        ensure_connection_origin(
+                            conn,
+                            user_a_id=owner,
+                            user_b_id=contact_id,
+                            kind=kind,
+                            source_circle_id=source_circle,
+                        )
+
+            if migrated:
+                logger.info(
+                    "one_location.sms_system_circle_migrated owner=%s count=%d",
+                    redact_log_field("user_id", owner),
+                    len(migrated),
+                )
+            return self.get_circle(user_id=owner, circle_id=circle_id)
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("ensure_system", exc) from exc
+
+    def set_sms_contact(
+        self,
+        *,
+        owner_user_id: str,
+        contact_user_id: str,
+        added: bool,
+        operation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Keep the emergency roster, legacy mirror and command receipt atomic."""
+        action = "location.add_emergency_contact" if added else "location.remove_emergency_contact"
+        with self._db.engine.begin() as conn:
+            receipt = None
+            if operation_id:
+                from hushh_mcp.services.location_command_effect_receipts import CommandEffectReceipt
+
+                receipt = CommandEffectReceipt(
+                    conn,
+                    owner=owner_user_id,
+                    operation=operation_id,
+                    action=action,
+                    terms={"recipientId": contact_user_id},
+                )
+                prior = receipt.claim()
+                if prior:
+                    return {"changed": False, "receipt": prior}
+            circle_id = self._find_system_circle_id(
+                conn, owner_user_id
+            ) or self._insert_system_circle(conn, owner_user_id)
+            conn.execute(
+                text(
+                    "SELECT id FROM one_location_circles WHERE id=CAST(:circle AS UUID) FOR UPDATE"
+                ),
+                {"circle": circle_id},
+            )
+            self._migrate_sms_contacts_into_circle(conn, owner_user_id, circle_id)
+            member = _first(
+                conn.execute(
+                    text("""SELECT status FROM one_location_circle_memberships
+                WHERE circle_id=CAST(:circle AS UUID) AND user_id=:contact FOR UPDATE"""),
+                    {"circle": circle_id, "contact": contact_user_id},
+                )
+            )
+            active = bool(member and member.get("status") == "active")
+            changed = added != active
+            if added and not active:
+                result = self.create_member_invites(
+                    actor_user_id=owner_user_id,
+                    circle_id=circle_id,
+                    invitee_user_ids=[contact_user_id],
+                    _connection=conn,
+                    _emit_notifications=False,
+                )
+                if contact_user_id not in result.get("addedUserIds", []):
+                    raise OneLocationCircleError(
+                        "LOCATION_SMS_CONTACT_UPDATE_FAILED",
+                        "The emergency contact was not added.",
+                        status_code=409,
+                    )
+            elif not added and active:
+                self._end_membership(
+                    actor_user_id=owner_user_id,
+                    circle_id=circle_id,
+                    target_user_id=contact_user_id,
+                    status="removed",
+                    _connection=conn,
+                    _emit_notifications=False,
+                )
+            if not added:
+                conn.execute(
+                    text(
+                        "DELETE FROM one_location_sms_contacts WHERE owner_user_id=:owner AND contact_user_id=:contact"
+                    ),
+                    {"owner": owner_user_id, "contact": contact_user_id},
+                )
+            outcome = {"operation_id": operation_id, "changed": changed, "added": added}
+            return {"changed": changed, "receipt": receipt.save(outcome) if receipt else None}
+
+    @staticmethod
+    def _find_system_circle_id(conn: Any, owner_user_id: str) -> str:
+        row = _first(
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_circles
+                    WHERE owner_user_id = :owner_user_id
+                      AND is_system
+                      -- Say which system Circle. `is_system` alone was
+                      -- unambiguous while there was one kind; it is not any
+                      -- more, and this lookup feeds `ensure_sms_system_circle`,
+                      -- which renames what it finds and sets its member_limit
+                      -- to 11. Picking the wrong row here hands SOS the wrong
+                      -- roster.
+                      --
+                      -- A trusted Circle is deliberately NOT `is_system` (see
+                      -- migration 163), so this predicate is belt as well as
+                      -- braces -- but the ORDER BY is not: without it the row
+                      -- returned was whatever Postgres reached first.
+                      AND system_kind = 'sms'
+                      AND status = 'active'
+                    ORDER BY created_at, id
+                    LIMIT 1
+                    """
+                ),
+                {"owner_user_id": owner_user_id},
+            )
+        )
+        return str((row or {}).get("id") or "")
+
+    def _insert_system_circle(self, conn: Any, owner_user_id: str) -> str:
+        created = _first(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circles (
+                      owner_user_id, name, kind, status, member_limit,
+                      is_system, system_kind, created_at, updated_at, metadata
+                    )
+                    VALUES (
+                      :owner_user_id, :name, 'other', 'active',
+                      :member_limit, true, 'sms', NOW(), NOW(), '{}'::jsonb
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "name": SMS_SYSTEM_CIRCLE_NAME,
+                    "member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT,
+                },
+            )
+        )
+        circle_id = str((created or {}).get("id") or "")
+        if not circle_id:
+            # Lost the race with a concurrent bootstrap; the winner's Circle is
+            # the one both callers should use.
+            circle_id = self._find_system_circle_id(conn, owner_user_id)
+        if not circle_id:
+            raise RuntimeError("system circle insert returned no id")
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                VALUES (
+                  CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
+                  NOW(), NOW(), '{}'::jsonb
+                )
+                ON CONFLICT (circle_id, user_id) DO NOTHING
+                """
+            ),
+            {"circle_id": circle_id, "user_id": owner_user_id},
+        )
+        return circle_id
+
+    @staticmethod
+    def _migrate_sms_contacts_into_circle(
+        conn: Any, owner_user_id: str, circle_id: str
+    ) -> list[dict[str, Any]]:
+        return _all(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circle_memberships (
+                      circle_id, user_id, role, status, joined_at, updated_at,
+                      metadata
+                    )
+                    SELECT
+                      CAST(:circle_id AS UUID), sms.contact_user_id,
+                      'member', 'active', NOW(), NOW(),
+                      jsonb_build_object('migratedFrom', 'sms_contacts')
+                    FROM one_location_sms_contacts sms
+                    WHERE sms.owner_user_id = :owner_user_id
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_memberships m
+                        WHERE m.circle_id = CAST(:circle_id AS UUID)
+                          AND m.user_id = sms.contact_user_id
+                      )
+                    ON CONFLICT (circle_id, user_id) DO NOTHING
+                    RETURNING user_id
+                    """
+                ),
+                {"circle_id": circle_id, "owner_user_id": owner_user_id},
+            )
+        )
+
+    @staticmethod
+    def _check_custom_type_limit(
+        conn: Any, owner: str, label: str, exclude_circle_id: str | None = None
+    ) -> None:
+        row = (
+            _first(
+                conn.execute(
+                    text("""
+            SELECT COUNT(DISTINCT LOWER(BTRIM(metadata->>'customTypeLabel'))) AS type_count,
+              COALESCE(BOOL_OR(LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)), FALSE) AS already_exists
+            FROM one_location_circles
+            WHERE owner_user_id = :owner AND status = 'active' AND kind = 'other'
+              AND NOT is_system AND system_kind IS NULL
+              AND NULLIF(BTRIM(metadata->>'customTypeLabel'), '') IS NOT NULL
+              AND id IS DISTINCT FROM CAST(:exclude_circle_id AS UUID)
+        """),
+                    {"owner": owner, "label": label, "exclude_circle_id": exclude_circle_id},
+                )
+            )
+            or {}
+        )
+        if int(row.get("type_count") or 0) >= CIRCLE_MAX_CUSTOM_TYPES and not row.get(
+            "already_exists"
+        ):
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_TYPE_LIMIT",
+                "You can keep up to 3 custom types. Delete a type before adding another.",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _lock_custom_type_rows(
+        conn: Any, owner: str, *, circle_id: str | None = None, label: str | None = None
+    ) -> list[dict[str, Any]]:
+        # Legacy join paths lock Circle before owner. NOWAIT avoids waiting in
+        # the inverse order while this operation holds the existing owner lock.
+        try:
+            return _all(
+                conn.execute(
+                    text("""
+                SELECT id FROM one_location_circles
+                WHERE owner_user_id = :owner AND status = 'active'
+                  AND NOT is_system AND system_kind IS NULL
+                  AND (CAST(:circle_id AS UUID) IS NULL OR id = CAST(:circle_id AS UUID))
+                  AND (CAST(:label AS TEXT) IS NULL OR (kind = 'other' AND
+                    LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)))
+                ORDER BY id FOR UPDATE NOWAIT
+            """),
+                    {"owner": owner, "circle_id": circle_id, "label": label},
+                )
+            )
+        except Exception as exc:
+            original = getattr(exc, "orig", exc)
+            if (
+                getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+            ) == "55P03":
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_BUSY",
+                    "This Circle is being updated. Try again.",
+                    status_code=409,
+                ) from exc
+            raise
+
+    def delete_custom_type(self, *, owner_user_id: str, label: str) -> dict[str, Any]:
+        cleaned = _clean_custom_type_label(label, "other")
+        if not cleaned:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_TYPE_INVALID", "Choose a custom type to delete.", status_code=422
+            )
+        try:
+            with self._db.engine.begin() as conn:
+                self._lock_user_circle_memberships(conn, user_id=owner_user_id)
+                rows = self._lock_custom_type_rows(conn, owner_user_id, label=cleaned)
+                if not rows:
+                    return {"updatedCircleCount": 0}
+                result = conn.execute(
+                    text("""
+                    UPDATE one_location_circles
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) - 'customTypeLabel', updated_at = NOW()
+                    WHERE owner_user_id = :owner AND status = 'active' AND kind = 'other'
+                      AND NOT is_system AND system_kind IS NULL
+                      AND LOWER(BTRIM(metadata->>'customTypeLabel')) = LOWER(:label)
+                    RETURNING id
+                """),
+                    {"owner": owner_user_id, "label": cleaned},
+                )
+                return {"updatedCircleCount": len(_all(result))}
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("delete_custom_type", exc) from exc
+
+    def _update_circle_row(
+        self,
+        connection: Any,
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        name: str | None,
+        kind: str | None,
+        custom_type_label: str | None = None,
+    ) -> dict[str, Any]:
+        if kind is not None and connection is not None:
+            self._lock_user_circle_memberships(connection, user_id=owner_user_id)
+            if not self._lock_custom_type_rows(connection, owner_user_id, circle_id=circle_id):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_OWNER_REQUIRED",
+                    "Only the Circle owner can change its type.",
+                    status_code=403,
+                )
+            if custom_type_label:
+                self._check_custom_type_limit(
+                    connection, owner_user_id, custom_type_label, circle_id
+                )
+        statement = """
+                UPDATE one_location_circles
+                SET name = COALESCE(:name, name),
+                    kind = COALESCE(:kind, kind),
+                    metadata = CASE WHEN :kind IS NULL THEN metadata
+                      ELSE (COALESCE(metadata, '{}'::jsonb) - 'customTypeLabel') || CAST(:type_metadata AS JSONB) END,
+                    updated_at = NOW()
+                WHERE id = CAST(:circle_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'active'
+                RETURNING id, name
+                """
+        params = {
+            "circle_id": circle_id,
+            "owner_user_id": owner_user_id,
+            "name": name,
+            "kind": kind,
+            "type_metadata": json.dumps(
+                {"customTypeLabel": custom_type_label} if custom_type_label else {}
+            ),
+        }
+        result = (
+            connection.execute(text(statement), params)
+            if connection is not None
+            else self._db.execute_raw(statement, params)
+        )
+        row = _first(result) if connection is not None else next(iter(result.data or []), None)
+        if row is None:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "Only the Circle owner can make this change.",
+                status_code=403,
+            )
+        return row
+
+    @staticmethod
+    def _active_circle_user_ids(conn: Any, circle_id: str) -> list[str]:
+        """Capture the exact notification audience inside the mutation lock."""
+
+        return [
+            user_id
+            for row in _all(
+                conn.execute(
+                    text(
+                        """
+                        SELECT user_id
+                        FROM one_location_circle_memberships
+                        WHERE circle_id = CAST(:circle_id AS UUID)
+                          AND status = 'active'
+                        ORDER BY joined_at ASC, user_id ASC
+                        """
+                    ),
+                    {"circle_id": circle_id},
+                )
+            )
+            if (user_id := str(row.get("user_id") or "").strip())
+        ]
+
+    def _notify_circle_roster_changed(
+        self,
+        *,
+        circle_id: str,
+        member_user_id: str,
+        change: str,
+        extra_user_ids: tuple[str, ...] = (),
+        skip_user_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Best-effort post-commit sync for every viewer of the changed roster."""
+
+        recipients = {user_id for user_id in extra_user_ids if user_id}
+        try:
+            rows = (
+                self._db.execute_raw(
+                    """
+                SELECT user_id
+                FROM one_location_circle_memberships
+                WHERE circle_id = CAST(:circle_id AS UUID)
+                  AND status = 'active'
+                """,
+                    {"circle_id": circle_id},
+                ).data
+                or []
+            )
+            recipients.update(str(row.get("user_id") or "").strip() for row in rows)
+        except Exception:  # noqa: BLE001 - notifications cannot undo a committed mutation
+            logger.warning(
+                "circle.roster_sync_audience_failed circle_id=%s", circle_id, exc_info=True
+            )
+
+        recipients.difference_update(skip_user_ids)
+        recipients.discard("")
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_roster_changed_push
+        except Exception:  # noqa: BLE001 - a committed mutation cannot be undone by delivery
+            logger.warning("circle.roster_sync_unavailable circle_id=%s", circle_id, exc_info=True)
+            return
+
+        for user_id in sorted(recipients):
+            try:
+                send_circle_roster_changed_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    member_user_id=member_user_id,
+                    change=change,
+                )
+            except Exception:  # noqa: BLE001 - attempt remaining recipients
+                logger.warning("circle.roster_sync_failed circle_id=%s", circle_id, exc_info=True)
+
+    @staticmethod
+    def _notify_circle_renamed(
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        circle_name: str,
+        affected_user_ids: Iterable[str],
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_renamed_push
+
+        except Exception:
+            logger.exception("circle.notify_renamed_import_failed circle_id=%s", circle_id)
+            return
+
+        for user_id in dict.fromkeys(affected_user_ids):
+            try:
+                send_circle_renamed_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    circle_name=circle_name,
+                    # The owner already saw their action succeed. Their other
+                    # devices need the data wake-up, not a banner about their
+                    # own rename.
+                    show_alert=user_id != owner_user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "circle.notify_renamed_failed circle_id=%s user_id=%s",
+                    circle_id,
+                    redact_log_field("user_id", user_id),
+                )
+
+    @staticmethod
+    def _notify_circle_deleted(
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        circle_name: str,
+        affected_user_ids: Iterable[str],
+        cancelled_invites: Iterable[dict[str, Any]] = (),
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_deleted_push
+
+        except Exception:
+            logger.exception("circle.notify_deleted_import_failed circle_id=%s", circle_id)
+            return
+
+        for user_id in dict.fromkeys(affected_user_ids):
+            try:
+                send_circle_deleted_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    circle_name=circle_name,
+                    show_alert=user_id != owner_user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "circle.notify_deleted_failed circle_id=%s user_id=%s",
+                    circle_id,
+                    redact_log_field("user_id", user_id),
+                )
+
+        try:
+            from hushh_mcp.services.push_notifications import (
+                send_circle_member_invite_cancelled_push,
+            )
+
+            for invite in cancelled_invites:
+                invitee_user_id = str(invite.get("invitee_user_id") or "").strip()
+                invite_id = str(invite.get("id") or "").strip()
+                if not invitee_user_id or not invite_id:
+                    continue
+                try:
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=invitee_user_id,
+                        circle_id=circle_id,
+                        circle_name=circle_name,
+                        invite_id=invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_deleted_invite_failed circle_id=%s invite_id=%s",
+                        circle_id,
+                        invite_id,
+                    )
+        except Exception:
+            logger.exception("circle.notify_deleted_invites_import_failed circle_id=%s", circle_id)
+
+    def update_circle_photo(
+        self, *, owner_user_id: str, circle_id: str, photo_url: str | None
+    ) -> dict[str, Any]:
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        try:
+            photo = validate_circle_photo(photo_url)
+        except ValueError as exc:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_PHOTO_INVALID", str(exc), status_code=422
+            ) from exc
+        with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn, user_ids=[owner_user_id]
+            )
+            updated = _first(
+                conn.execute(
+                    text("""
+              UPDATE one_location_circles SET photo_url = :photo, updated_at = now()
+              WHERE id = CAST(:circle AS uuid) AND owner_user_id = :owner AND status = 'active'
+                AND NOT is_system AND system_kind IS NULL
+                AND EXISTS (SELECT 1 FROM one_location_circle_memberships membership
+                  WHERE membership.circle_id = one_location_circles.id
+                    AND membership.user_id = :owner AND membership.status = 'active')
+              RETURNING id
+            """),
+                    {"circle": cleaned_circle_id, "owner": owner_user_id, "photo": photo},
+                )
+            )
+            if not updated:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_OWNER_REQUIRED",
+                    "Only the Circle owner can change this photo.",
+                    status_code=403,
+                )
+            for recipient in self._active_circle_user_ids(conn, cleaned_circle_id):
+                # No image, name or personal profile in the doorbell.
+                conn.execute(
+                    text("SELECT pg_notify('one_user_state_changed', :event)"),
+                    {
+                        "event": json.dumps(
+                            {
+                                "user_id": recipient,
+                                "type": "location_circle_photo_updated",
+                                "circle_id": cleaned_circle_id,
+                                "message_id": str(uuid.uuid4()),
+                            }
+                        )
+                    },
+                )
+        return self.get_circle_overview(user_id=owner_user_id, circle_id=cleaned_circle_id)
+
     def update_circle(
         self,
         *,
@@ -669,41 +2218,94 @@ class OneLocationCircleService:
         circle_id: str,
         name: str | None = None,
         kind: str | None = None,
+        custom_type_label: str | None = None,
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         cleaned_circle_id = _clean_circle_id(circle_id)
         cleaned_name = _clean_name(name) if name is not None else None
         cleaned_kind = _clean_kind(kind) if kind is not None else None
+        cleaned_type = _clean_custom_type_label(custom_type_label, cleaned_kind or "")
         if cleaned_name is None and cleaned_kind is None:
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_UPDATE_EMPTY",
                 "Change the Circle name or type before saving.",
                 status_code=422,
             )
-        try:
-            result = self._db.execute_raw(
-                """
-                UPDATE one_location_circles
-                SET name = COALESCE(:name, name),
-                    kind = COALESCE(:kind, kind),
-                    updated_at = NOW()
-                WHERE id = CAST(:circle_id AS UUID)
-                  AND owner_user_id = :owner_user_id
-                  AND status = 'active'
-                RETURNING id
-                """,
-                {
-                    "circle_id": cleaned_circle_id,
-                    "owner_user_id": owner_user_id,
-                    "name": cleaned_name,
-                    "kind": cleaned_kind,
-                },
-            )
-            if not (result.data or []):
+        affected_user_ids: list[str] = []
+        renamed_circle_name = cleaned_name or ""
+        if command_operation_id is not None or command_binding is not None:
+            if kind is not None or custom_type_label is not None or cleaned_name is None:
                 raise OneLocationCircleError(
-                    "LOCATION_CIRCLE_OWNER_REQUIRED",
-                    "Only the Circle owner can make this change.",
-                    status_code=403,
+                    "LOCATION_CIRCLE_COMMAND_REVIEW_REQUIRED",
+                    "Review a circle rename without changing its type.",
+                    status_code=409,
                 )
+            with self._db.engine.begin() as conn:
+                receipt, previous, _ = begin_circle_command(
+                    conn,
+                    owner=owner_user_id,
+                    action="location.rename_circle",
+                    operation=command_operation_id,
+                    binding=command_binding,
+                    circle_id=cleaned_circle_id,
+                    new_name=cleaned_name,
+                )
+                if previous is not None:
+                    return {"operationReceipt": previous}
+                if receipt is None or command_operation_id is None:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_COMMAND_REVIEW_REQUIRED",
+                        "Review this circle operation again.",
+                        status_code=409,
+                    )
+                updated_row = self._update_circle_row(
+                    conn,
+                    owner_user_id=owner_user_id,
+                    circle_id=cleaned_circle_id,
+                    name=cleaned_name,
+                    kind=None,
+                )
+                affected_user_ids = self._active_circle_user_ids(conn, cleaned_circle_id)
+                renamed_circle_name = str(updated_row.get("name") or cleaned_name or "")
+                command_result = save_circle_command(
+                    receipt,
+                    operation=command_operation_id,
+                    action="location.rename_circle",
+                    circle_id=cleaned_circle_id,
+                    result="renamed",
+                )
+            _submit_circle_lifecycle_notification(
+                self._notify_circle_renamed,
+                owner_user_id=owner_user_id,
+                circle_id=cleaned_circle_id,
+                circle_name=renamed_circle_name,
+                affected_user_ids=tuple(affected_user_ids),
+            )
+            return command_result
+        try:
+            with self._db.engine.begin() as conn:
+                updated_row = self._update_circle_row(
+                    conn,
+                    owner_user_id=owner_user_id,
+                    circle_id=cleaned_circle_id,
+                    name=cleaned_name,
+                    kind=cleaned_kind,
+                    custom_type_label=cleaned_type,
+                )
+                if cleaned_name is not None:
+                    affected_user_ids = self._active_circle_user_ids(conn, cleaned_circle_id)
+                    renamed_circle_name = str(updated_row.get("name") or cleaned_name)
+
+            if cleaned_name is not None:
+                _submit_circle_lifecycle_notification(
+                    self._notify_circle_renamed,
+                    owner_user_id=owner_user_id,
+                    circle_id=cleaned_circle_id,
+                    circle_name=renamed_circle_name,
+                    affected_user_ids=tuple(affected_user_ids),
+                )
+
             return self.get_circle(
                 user_id=owner_user_id,
                 circle_id=cleaned_circle_id,
@@ -735,7 +2337,8 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit
+                              id, owner_user_id, member_limit, is_system,
+                              system_kind
                             FROM one_location_circles circle
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -772,6 +2375,43 @@ class OneLocationCircleService:
                         "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
                         "Only an active Circle member can access its invite code.",
                         status_code=403,
+                    )
+                # A code is a way into the Circle, so it belongs to whoever
+                # decides who gets in. A member who could hand one out could
+                # put a stranger to the owner inside the owner's sharing scope
+                # without the owner ever seeing the decision -- the same hole
+                # that adding had, with a link attached.
+                if str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_OWNER_REQUIRED",
+                        "Only the Circle owner can share this Circle's invite code.",
+                        status_code=403,
+                    )
+                # A system Circle has no code, and now the server says so too.
+                #
+                # `_circle_summary` has always reported
+                # `canViewInviteCode: is_owner and not is_system`, under a
+                # comment reading "A system Circle has no code at all." It had
+                # one: this SELECT did not read `is_system` and nothing below
+                # checked it, so the flag was a claim the UI made and the API
+                # did not keep. An owner reaching this endpoint directly -- or
+                # `bootstrap_first_circle`, which picks the most recently
+                # updated owned Circle and is therefore often pointed at the
+                # SMS Circle -- could mint a bearer code that joins a stranger
+                # into the emergency roster.
+                #
+                # It has been harmless only because SOS resolves its recipients
+                # from `one_location_sms_contacts` rather than from the roster.
+                # That changes in this same commit, which is why this guard is
+                # in it and comes first.
+                # Asked of `system_kind` as well as the flag: Trusted is not
+                # `is_system`, and a bearer code into it is a code into the
+                # whole list of people you are connected to.
+                if _is_product_managed(circle_row):
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_SYSTEM_NO_CODE",
+                        "This Circle is managed for you and cannot be shared with a code.",
+                        status_code=409,
                     )
                 if rotate and str(circle_row.get("owner_user_id") or "") != actor_user_id:
                     raise OneLocationCircleError(
@@ -886,12 +2526,151 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("create_code", exc) from exc
 
+    def bootstrap_signup_contacts_circle(self, *, user_id: str) -> dict[str, Any]:
+        """Bind one empty shared circle to the owner's enrolled signup journey.
+
+        This uses the same Postgres lifecycle authority as root setup. The row
+        lock is the distributed idempotency mechanism; no process-local cache
+        or Redis mirror is authoritative. Membership writes remain vault gated.
+        """
+        owner = str(user_id or "").strip()
+        if not owner:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED", "Sign in first.", status_code=401
+            )
+        with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[owner])
+            # Use circle membership coordination before locking lifecycle state,
+            # matching the existing owner create/delete lock order.
+            self._lock_user_circle_memberships(conn, user_id=owner)
+            state = _first(
+                conn.execute(
+                    text("""
+                SELECT initial_contacts_welcome_acknowledged, initial_contacts_circle_id
+                FROM vault_keys WHERE user_id=:owner FOR UPDATE
+            """),
+                    {"owner": owner},
+                )
+            )
+            if not state or state.get("initial_contacts_welcome_acknowledged") is not False:
+                raise OneLocationCircleError(
+                    "INITIAL_CONTACTS_CLOSED",
+                    "Initial contacts setup is unavailable.",
+                    status_code=409,
+                )
+            circle_id = str(state.get("initial_contacts_circle_id") or "")
+            if circle_id:
+                circle = _first(
+                    conn.execute(
+                        text("""
+                    SELECT id,name FROM one_location_circles
+                    WHERE id=CAST(:circle AS UUID) AND owner_user_id=:owner
+                      AND status='active' AND NOT is_system AND system_kind IS NULL
+                """),
+                        {"circle": circle_id, "owner": owner},
+                    )
+                )
+                if not circle:
+                    raise OneLocationCircleError(
+                        "INITIAL_CONTACTS_CIRCLE_UNAVAILABLE",
+                        "Your Contacts circle is no longer available.",
+                        status_code=409,
+                    )
+                name = str(circle.get("name") or "Contacts")
+            else:
+                circle_id = self.create_circle_in_transaction(
+                    conn, owner_user_id=owner, name="Contacts", kind="other"
+                )
+                conn.execute(
+                    text("""
+                    UPDATE vault_keys SET initial_contacts_circle_id=CAST(:circle AS UUID)
+                    WHERE user_id=:owner
+                """),
+                    {"circle": circle_id, "owner": owner},
+                )
+                name = "Contacts"
+        # Code failure cannot orphan a new circle: retry uses the durable ref.
+        invite = self.create_invite_code(actor_user_id=owner, circle_id=circle_id, rotate=False)
+        return {"circleId": circle_id, "circleName": name, "code": str(invite.get("code") or "")}
+
+    def bootstrap_first_circle(
+        self,
+        *,
+        user_id: str,
+        name: str,
+    ) -> dict[str, Any]:
+        """Find-or-create the caller's own first Circle and return its live code.
+
+        Onboarding needs a shareable code before the vault exists, and the three
+        round trips the client used to make (list, create, mint) each required a
+        vault owner token. This composes them server-side so onboarding can ask
+        once, authenticated by Firebase alone.
+
+        Deliberately the narrowest possible surface: it takes no circle id, so it
+        can only ever act on a Circle the caller already owns or one it creates
+        for them, and it never rotates -- a caller who already owns a Circle gets
+        that Circle and the code it is already sharing. Every other Circle route
+        keeps its vault-owner gate.
+        """
+
+        # `list_circles` is ordered `updated_at DESC`, and
+        # `ensure_sms_system_circle` stamps `updated_at` on every rename and
+        # limit-heal -- so the most recently updated owned Circle is routinely
+        # the SMS Circle. Onboarding would then name it, mint a code for it and
+        # invite the person's friends into their emergency roster. Skipping
+        # system Circles here is the half of that fix that keeps onboarding
+        # pointed at a Circle the person actually made; `create_invite_code`
+        # refusing them is the half that holds for every other caller.
+        #
+        # `isSystem` alone stopped being that test when Trusted arrived. Trusted
+        # is deliberately NOT `is_system` -- the commit before this one explains
+        # why -- so for anyone whose only owned Circle is Trusted, this picked
+        # it, and `create_invite_code` then refused it and onboarding failed
+        # outright rather than giving them a first Circle. Product-managed is
+        # `systemKind`, and that is what this asks now.
+        owned = next(
+            (
+                circle
+                for circle in self.list_circles(user_id=user_id)
+                if str(circle.get("role") or "") == "owner"
+                and not bool(circle.get("isSystem"))
+                and not str(circle.get("systemKind") or "").strip()
+            ),
+            None,
+        )
+        circle = owned or self.create_circle(
+            owner_user_id=user_id,
+            name=name,
+            kind="family",
+        )
+        circle_id = str(circle.get("id") or "")
+        if not circle_id:
+            raise RuntimeError("Circle bootstrap resolved no circle id.")
+        invite = self.create_invite_code(
+            actor_user_id=user_id,
+            circle_id=circle_id,
+            rotate=False,
+        )
+        return {
+            "circleId": circle_id,
+            "circleName": str(circle.get("name") or name),
+            "code": str(invite.get("code") or ""),
+        }
+
     def resolve_invite_code(
         self,
         *,
         user_id: str,
         code: str,
     ) -> dict[str, Any]:
+        return self._preview_invite_code(user_id=user_id, code=code)
+
+    def preview_public_invite_code(self, *, code: str) -> dict[str, str]:
+        """Link-holder presentation only; never membership or sharing authority."""
+        preview = self._preview_invite_code(user_id=None, code=code)
+        return {"name": preview["name"], "ownerDisplayName": preview["ownerDisplayName"]}
+
+    def _preview_invite_code(self, *, user_id: str | None, code: str) -> dict[str, Any]:
         normalized_code = normalize_circle_code(code)
         code_hash = self._code_hash(normalized_code)
         try:
@@ -899,6 +2678,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   circle.name, circle.kind, code.expires_at,
+                  circle.owner_user_id,
                   identity.display_name AS owner_display_name,
                   COUNT(membership.user_id) AS member_count,
                   BOOL_OR(
@@ -918,9 +2698,11 @@ class OneLocationCircleService:
                   AND code.status = 'active'
                   AND code.expires_at > NOW()
                   AND code.use_count < code.max_uses
+                  AND NOT circle.is_system
+                  AND circle.system_kind IS NULL
                 GROUP BY
                   circle.id, circle.name, circle.kind, code.expires_at,
-                  identity.display_name
+                  circle.owner_user_id, identity.display_name
                 """,
                 {"code_hash": code_hash, "user_id": user_id},
             )
@@ -934,7 +2716,10 @@ class OneLocationCircleService:
             return {
                 "name": str(row.get("name") or ""),
                 "kind": str(row.get("kind") or "other"),
-                "ownerDisplayName": str(row.get("owner_display_name") or "A Circle owner"),
+                "ownerDisplayName": (
+                    _human_display_name(row.get("owner_display_name"), row.get("owner_user_id"))
+                    or "A Circle owner"
+                ),
                 "memberCount": int(row.get("member_count") or 0),
                 "expiresAt": _iso(row.get("expires_at")),
                 "alreadyMember": bool(row.get("already_member")),
@@ -976,16 +2761,42 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT id, owner_user_id, member_limit, status
-                            FROM one_location_circles
-                            WHERE id = CAST(:circle_id AS UUID)
-                            FOR UPDATE
+                            SELECT
+                              circle.id, circle.name, circle.owner_user_id,
+                              circle.member_limit, circle.status,
+                              circle.is_system, circle.system_kind,
+                              joiner.user_id,
+                              joiner.display_name,
+                              joiner.email
+                            FROM one_location_circles circle
+                            LEFT JOIN actor_identity_cache joiner
+                              ON joiner.user_id = :user_id
+                            WHERE circle.id = CAST(:circle_id AS UUID)
+                            FOR UPDATE OF circle
                             """
                         ),
-                        {"circle_id": circle_id},
+                        {"circle_id": circle_id, "user_id": user_id},
                     )
                 )
                 if not circle_row or str(circle_row.get("status") or "") != "active":
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_CODE_INVALID",
+                        "That Circle code is invalid or no longer available.",
+                        status_code=404,
+                    )
+                # Refusing to MINT a code for a system Circle stops new ones.
+                # It does nothing about the codes already out there: until this
+                # commit `create_invite_code` never read `is_system`, so any
+                # code `bootstrap_first_circle` handed out for an SMS Circle is
+                # live, valid for 72 hours, and redeemable by whoever holds it.
+                # Closing only the minting side would leave the emergency
+                # roster open to every code already shared.
+                #
+                # Reported as CODE_INVALID rather than a new state: from the
+                # holder's side it is a code that does not work, and naming the
+                # Circle's kind would tell a stranger something about a roster
+                # they have no business knowing exists.
+                if _is_product_managed(circle_row):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_CODE_INVALID",
                         "That Circle code is invalid or no longer available.",
@@ -1055,7 +2866,6 @@ class OneLocationCircleService:
                 if existing and str(existing.get("status") or "") == "active":
                     joined = False
                 else:
-                    self._assert_user_circle_capacity(conn, user_id=user_id)
                     count_row = _first(
                         conn.execute(
                             text(
@@ -1158,13 +2968,76 @@ class OneLocationCircleService:
                     ),
                     {"circle_id": circle_id, "user_id": user_id},
                 )
+                if joined:
+                    inviter_user_id = str(invite_row.get("created_by_user_id") or "")
+                    if inviter_user_id and inviter_user_id != user_id:
+                        joiner_label = _identity_label(
+                            user_id=user_id,
+                            display_name=circle_row.get("display_name"),
+                            email=circle_row.get("email"),
+                        )
+                        _record_circle_event(
+                            conn,
+                            owner_user_id=inviter_user_id,
+                            actor_user_id=user_id,
+                            event_type="location_circle_code_joined",
+                            metadata={
+                                "invite_id": str(invite_row.get("id") or ""),
+                                "circle_id": circle_id,
+                                "circle_name": str(circle_row.get("name") or ""),
+                                "counterpart_label": joiner_label,
+                            },
+                        )
             logger.info(
                 "one_location.circle_joined member=%s joined=%s",
                 redact_log_field("user_id", user_id),
                 joined,
             )
+            circle = self.get_circle(user_id=user_id, circle_id=circle_id)
+            if joined:
+                # Best effort, and deliberately after the transaction: the
+                # membership is already durable, so a push failure must never
+                # undo a join that succeeded. Sending inside the transaction
+                # would also notify on a row that could still roll back.
+                inviter_user_id = str(invite_row.get("created_by_user_id") or "")
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_code_joined_push,
+                    )
+
+                    # The joiner is now a member, so their display name is
+                    # already in the detail payload -- no second lookup, and no
+                    # raw identifier in a notification body.
+                    joiner_name = next(
+                        (
+                            str(member.get("displayName") or "").strip()
+                            for member in (circle.get("members") or [])
+                            if str(member.get("userId") or "") == user_id
+                        ),
+                        "",
+                    )
+                    if inviter_user_id and inviter_user_id != user_id:
+                        send_circle_code_joined_push(
+                            inviter_user_id=inviter_user_id,
+                            joiner_display_name=joiner_name or "Someone",
+                            circle_id=circle_id,
+                            circle_name=str(circle.get("name") or ""),
+                        )
+                except Exception:
+                    logger.warning(
+                        "one_location.circle_joined_push_failed circle=%s",
+                        circle_id,
+                        exc_info=True,
+                    )
+                self._notify_circle_roster_changed(
+                    circle_id=circle_id,
+                    member_user_id=user_id,
+                    change="added",
+                    extra_user_ids=(user_id,),
+                    skip_user_ids=(inviter_user_id,),
+                )
             return {
-                "circle": self.get_circle(user_id=user_id, circle_id=circle_id),
+                "circle": circle,
                 "joined": joined,
             }
         except OneLocationCircleError:
@@ -1248,7 +3121,7 @@ class OneLocationCircleService:
                     status_code=403,
                 )
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT DISTINCT
                   connection.id AS connection_id,
                   CASE
@@ -1257,8 +3130,26 @@ class OneLocationCircleService:
                     ELSE connection.user_a_id
                   END AS user_id,
                   connection.created_at AS connected_at,
-                  identity.display_name, identity.photo_url,
-                  identity.custom_photo_url
+                  identity.display_name, identity.email, identity.photo_url,
+                  identity.custom_photo_url,
+                  EXISTS (
+                    SELECT 1
+                    FROM connection_origins contact_origin
+                    WHERE contact_origin.connection_id = connection.id
+                      AND contact_origin.status = 'active'
+                      AND contact_origin.origin_kind = 'contact_sync'
+                      AND contact_origin.source_ref = :actor_user_id
+                  ) AS connected_from_contacts,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = CASE
+                      WHEN connection.user_a_id = :actor_user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -1315,7 +3206,7 @@ class OneLocationCircleService:
                       AND invite.expires_at > NOW()
                   )
                 ORDER BY identity.display_name NULLS LAST
-                """,
+                """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
@@ -1326,6 +3217,189 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("list_eligible_connections", exc) from exc
+
+    def list_eligible_direct_connections_page(
+        self,
+        *,
+        actor_user_id: str,
+        circle_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Bounded form of eligible connections; legacy complete reads stay intact.
+
+        Search mirrors `_eligible_connection_payload` (safe name/email handle),
+        so hidden email domains cannot be probed through an empty/non-empty page.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        query_match = people_query_match_params(normalized_query)
+        offset = (normalized_page - 1) * normalized_limit
+        try:
+            result = self._db.execute_raw(
+                f"""
+                WITH authorized_circle AS (
+                  SELECT circle.id, circle.owner_user_id
+                  FROM one_location_circles circle
+                  JOIN one_location_circle_memberships actor_membership
+                    ON actor_membership.circle_id = circle.id
+                   AND actor_membership.user_id = :actor_user_id
+                   AND actor_membership.status = 'active'
+                  WHERE circle.id = CAST(:circle_id AS UUID)
+                    AND circle.status = 'active'
+                ), candidates AS (
+                  SELECT DISTINCT
+                    connection.id AS connection_id,
+                    CASE WHEN connection.user_a_id = :actor_user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END AS user_id,
+                    connection.created_at AS connected_at,
+                    identity.display_name, identity.email, identity.photo_url,
+                    identity.custom_photo_url,
+                    LOWER(CASE
+                      WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
+                       AND BTRIM(identity.display_name) <> CASE
+                         WHEN connection.user_a_id = :actor_user_id
+                         THEN connection.user_b_id ELSE connection.user_a_id END
+                       AND LOWER(BTRIM(identity.display_name)) NOT LIKE 'ria:%'
+                       AND BTRIM(identity.display_name) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                       AND NOT (
+                         POSITION('@' IN BTRIM(identity.display_name)) = 0
+                         AND POSITION(' ' IN BTRIM(identity.display_name)) = 0
+                         AND LENGTH(BTRIM(identity.display_name)) >= 20
+                       ) THEN BTRIM(identity.display_name)
+                      WHEN POSITION('@' IN BTRIM(COALESCE(identity.email, ''))) > 1
+                       AND LOWER(BTRIM(SPLIT_PART(identity.email, '@', 1))) NOT LIKE 'ria:%'
+                       AND BTRIM(SPLIT_PART(identity.email, '@', 1)) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                       AND NOT (
+                         POSITION(' ' IN BTRIM(SPLIT_PART(identity.email, '@', 1))) = 0
+                         AND LENGTH(BTRIM(SPLIT_PART(identity.email, '@', 1))) >= 20
+                       ) THEN BTRIM(SPLIT_PART(identity.email, '@', 1))
+                      ELSE 'Connection'
+                    END) AS normalized_name
+                  FROM authorized_circle circle
+                  JOIN connections connection
+                    ON connection.status = 'active'
+                   AND (:actor_user_id IN (connection.user_a_id, connection.user_b_id))
+                  JOIN connection_origins origin
+                    ON origin.connection_id = connection.id AND origin.status = 'active'
+                  LEFT JOIN actor_identity_cache identity
+                    ON identity.user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                               THEN connection.user_b_id
+                                               ELSE connection.user_a_id END
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                                    THEN connection.user_b_id
+                                                    ELSE connection.user_a_id END
+                      AND (
+                        membership.status = 'active'
+                        OR (membership.status = 'removed'
+                            AND circle.owner_user_id <> :actor_user_id)
+                      )
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM one_location_circle_member_invites invite
+                    WHERE invite.circle_id = circle.id
+                      AND invite.invitee_user_id = CASE WHEN connection.user_a_id = :actor_user_id
+                                                       THEN connection.user_b_id
+                                                       ELSE connection.user_a_id END
+                      AND invite.status = 'pending' AND invite.expires_at > NOW()
+                  )
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
+                  WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
+                ), total AS (
+                  SELECT COUNT(*)::BIGINT AS total_count,
+                         EXISTS (SELECT 1 FROM authorized_circle) AS authorized
+                  FROM filtered
+                ), page_rows AS (
+                  SELECT * FROM filtered
+                  ORDER BY match_rank, normalized_name, user_id, connection_id
+                  OFFSET :offset LIMIT :limit
+                )
+                SELECT page_rows.*, total.total_count, total.authorized,
+                       CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1 FROM connection_origins contact_origin
+                         WHERE contact_origin.connection_id = page_rows.connection_id
+                           AND contact_origin.status = 'active'
+                           AND contact_origin.origin_kind = 'contact_sync'
+                           AND contact_origin.source_ref = :actor_user_id
+                       ) END AS connected_from_contacts,
+                       CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1
+                         FROM ria_profiles ria_annotation
+                         WHERE ria_annotation.user_id = page_rows.user_id
+                           AND {RIA_VERIFIED_STATUS_SQL}
+                       ) END AS is_ria
+                FROM total LEFT JOIN page_rows ON TRUE
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id, page_rows.connection_id
+                """,  # nosec B608 # RIA_VERIFIED_STATUS_SQL is a static module constant.
+                {
+                    "circle_id": cleaned_circle_id,
+                    "actor_user_id": actor_user_id,
+                    "query": normalized_query,
+                    **query_match,
+                    "offset": offset,
+                    "limit": normalized_limit,
+                },
+            )
+            rows = list(result.data or [])
+            if not rows or not bool(rows[0].get("authorized")):
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
+                    "Only an active Circle member can invite people.",
+                    status_code=403,
+                )
+            total_count = int(rows[0].get("total_count") or 0)
+            items = [
+                self._eligible_connection_payload(row) for row in rows if row.get("connection_id")
+            ]
+            return {
+                "items": items,
+                "page": normalized_page,
+                "hasMore": offset + len(items) < total_count,
+                "totalCount": total_count,
+            }
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("list_eligible_connections_page", exc) from exc
 
     def get_remaining_invite_capacity(
         self,
@@ -1340,7 +3414,7 @@ class OneLocationCircleService:
             result = self._db.execute_raw(
                 """
                 SELECT
-                  circle.owner_user_id, circle.member_limit,
+                  circle.owner_user_id, circle.member_limit, circle.system_kind,
                   (
                     SELECT COUNT(*)
                     FROM one_location_circle_memberships membership
@@ -1361,15 +3435,6 @@ class OneLocationCircleService:
                           AND membership.status = 'active'
                       )
                   ) AS pending_invite_count
-                  ,
-                  (
-                    SELECT COUNT(*)
-                    FROM one_location_circle_member_invites invite
-                    WHERE invite.circle_id = circle.id
-                      AND invite.inviter_user_id = :actor_user_id
-                      AND invite.status = 'pending'
-                      AND invite.expires_at > NOW()
-                  ) AS actor_pending_invite_count
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -1387,7 +3452,7 @@ class OneLocationCircleService:
             if not row:
                 raise OneLocationCircleError(
                     "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
-                    "Only an active Circle member can invite people.",
+                    "Only an active Circle member can see this Circle's room.",
                     status_code=403,
                 )
             reserved = int(row.get("active_member_count") or 0) + int(
@@ -1395,16 +3460,17 @@ class OneLocationCircleService:
             )
             circle_remaining = max(
                 0,
-                int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT) - reserved,
+                (
+                    SMS_SYSTEM_CIRCLE_MEMBER_LIMIT
+                    if row.get("system_kind") == "sms"
+                    else int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
+                )
+                - reserved,
             )
-            if str(row.get("owner_user_id") or "") == actor_user_id:
-                return circle_remaining
-            actor_remaining = max(
-                0,
-                CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT
-                - int(row.get("actor_pending_invite_count") or 0),
-            )
-            return min(circle_remaining, actor_remaining)
+            # Only the owner can add anyone, so the only ceiling left is the
+            # Circle's own. A member asking gets the same number; they simply
+            # have no way to spend it.
+            return circle_remaining
         except OneLocationCircleError:
             raise
         except Exception as exc:
@@ -1417,8 +3483,9 @@ class OneLocationCircleService:
         circle_id: str | None = None,
         direction: str = "incoming",
         expire_stale: bool = True,
+        require_complete: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return pending incoming invites or authorized outgoing invites."""
+        """Return UI invitations, or complete read-only participant source inventory."""
 
         if direction not in {"incoming", "outgoing"}:
             raise OneLocationCircleError(
@@ -1428,7 +3495,7 @@ class OneLocationCircleService:
             )
         cleaned_circle_id = _clean_circle_id(circle_id) if circle_id is not None else None
         try:
-            if expire_stale:
+            if expire_stale and not require_complete:
                 self._db.execute_raw(
                     """
                     UPDATE one_location_circle_member_invites
@@ -1442,7 +3509,19 @@ class OneLocationCircleService:
                     """,
                     {"user_id": user_id},
                 )
-            if direction == "incoming":
+            if require_complete:
+                result = self._db.execute_raw(
+                    """
+                    SELECT invite.*, CASE WHEN invite.status='pending' AND invite.expires_at<=NOW() THEN 'expired' ELSE invite.status END AS status, circle.name AS circle_name,circle.kind AS circle_kind
+                    FROM one_location_circle_member_invites invite
+                    JOIN one_location_circles circle ON circle.id=invite.circle_id
+                    WHERE (invite.invitee_user_id=:user_id OR invite.inviter_user_id=:user_id OR circle.owner_user_id=:user_id)
+                      AND (CAST(:circle_id AS UUID) IS NULL OR invite.circle_id=CAST(:circle_id AS UUID))
+                    ORDER BY invite.created_at DESC,invite.id
+                    """,
+                    {"user_id": user_id, "circle_id": cleaned_circle_id},
+                )
+            elif direction == "incoming":
                 result = self._db.execute_raw(
                     """
                     SELECT
@@ -1451,6 +3530,8 @@ class OneLocationCircleService:
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
                       inviter.display_name AS inviter_display_name,
+                      COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                      COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                       invitee.display_name AS invitee_display_name
                     FROM one_location_circle_member_invites invite
                     JOIN one_location_circles circle
@@ -1476,6 +3557,8 @@ class OneLocationCircleService:
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
                       inviter.display_name AS inviter_display_name,
+                      COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                      COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                       invitee.display_name AS invitee_display_name
                     FROM one_location_circle_member_invites invite
                     JOIN one_location_circles circle
@@ -1525,6 +3608,8 @@ class OneLocationCircleService:
                   invite.created_at, invite.responded_at,
                   circle.name AS circle_name, circle.kind AS circle_kind,
                   inviter.display_name AS inviter_display_name,
+                  COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                  COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                   invitee.display_name AS invitee_display_name
                 FROM one_location_circle_member_invites invite
                 JOIN one_location_circles circle
@@ -1561,8 +3646,18 @@ class OneLocationCircleService:
         actor_user_id: str,
         circle_id: str,
         invitee_user_ids: list[str],
+        operation_id: str | None = None,
+        command_directive_id: str | None = None,
+        batch_index: int = 0,
+        batch_count: int = 1,
+        membership_batch_id: str | None = None,
+        _connection: Any = None,
+        _emit_notifications: bool = True,
+        signup_insert_only: bool = False,
     ) -> dict[str, Any]:
-        """Atomically reserve and create targeted invitations for direct connections."""
+        """Atomically add eligible connections, with optional command batch receipt."""
+
+        from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 
         cleaned_circle_id = _clean_circle_id(circle_id)
         cleaned_invitee_user_ids = list(
@@ -1580,18 +3675,46 @@ class OneLocationCircleService:
                 "You are already in this Circle.",
                 status_code=422,
             )
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=CIRCLE_MEMBER_INVITE_TTL_HOURS)
-        created_invite_ids: list[str] = []
-        payloads: list[dict[str, Any]] = []
+        added_user_ids: list[str] = []
+        circle_name = ""
         try:
-            with self._db.engine.begin() as conn:
+            with (
+                nullcontext(_connection) if _connection is not None else self._db.engine.begin()
+            ) as conn:
+                if signup_insert_only:
+                    # Existing Circle writers use shared deletion barriers.
+                    # An exclusive graph gate here would invert their profile
+                    # locks against membership INSERT's shared trigger guards.
+                    AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                        conn, user_ids={actor_user_id, *cleaned_invitee_user_ids}
+                    )
+                receipt = None
+                if operation_id:
+                    from hushh_mcp.services.location_command_membership_receipts import (
+                        MembershipBatchReceipt,
+                    )
+
+                    receipt = MembershipBatchReceipt(
+                        conn,
+                        owner=actor_user_id,
+                        operation_id=operation_id,
+                        batch=batch_index,
+                        circle_id=cleaned_circle_id,
+                        people=cleaned_invitee_user_ids,
+                        batch_count=batch_count,
+                        directive_id=command_directive_id,
+                    )
+                    previous = receipt.claim()
+                    if previous is not None:
+                        return previous
                 circle_row = _first(
                     conn.execute(
                         text(
                             """
                             SELECT
                               circle.id, circle.name, circle.kind,
-                              circle.owner_user_id, circle.member_limit
+                              circle.owner_user_id, circle.member_limit,
+                              circle.is_system, circle.system_kind
                             FROM one_location_circles circle
                             WHERE circle.id = CAST(:circle_id AS UUID)
                               AND circle.status = 'active'
@@ -1608,7 +3731,9 @@ class OneLocationCircleService:
                                 """
                                 SELECT
                                   actor_membership.role,
-                                  actor_identity.display_name AS inviter_display_name
+                                  actor_identity.user_id AS inviter_user_id,
+                                  actor_identity.display_name AS inviter_display_name,
+                                  actor_identity.email AS inviter_email
                                 FROM one_location_circle_memberships actor_membership
                                 LEFT JOIN actor_identity_cache actor_identity
                                   ON actor_identity.user_id = actor_membership.user_id
@@ -1631,12 +3756,54 @@ class OneLocationCircleService:
                 if not circle_row or not actor_membership_row:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
-                        "Only an active Circle member can invite people.",
+                        "Only an active Circle member can add people.",
+                        status_code=403,
+                    )
+                # And of those members, only the owner. Membership in a Circle
+                # is what lets someone receive the owner's location, so the
+                # owner is the only person who may grant it. This is checked
+                # before any capacity, connection or invitation state is read:
+                # a non-owner learns nothing about the Circle by asking.
+                # Trusted intentionally uses this exact path; its roster is no
+                # longer derived from the connection graph.
+                if str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_OWNER_REQUIRED",
+                        "Only the Circle owner can add people to this Circle.",
                         status_code=403,
                     )
                 circle_row["inviter_display_name"] = actor_membership_row.get(
                     "inviter_display_name"
                 )
+                # Profile locks precede lifecycle locks, as in bootstrap, so
+                # two mutual-contact welcomes cannot hold each other's vault
+                # row while waiting for the other's profile.
+                self._lock_invitees(conn, user_ids=cleaned_invitee_user_ids)
+                if signup_insert_only:
+                    state = _first(
+                        conn.execute(
+                            text("""
+                        SELECT initial_contacts_welcome_acknowledged,
+                               initial_contacts_circle_id
+                        FROM vault_keys WHERE user_id=:owner FOR UPDATE
+                    """),
+                            {"owner": actor_user_id},
+                        )
+                    )
+                    if (
+                        not state
+                        or state.get("initial_contacts_welcome_acknowledged") is not False
+                        or str(state.get("initial_contacts_circle_id") or "") != cleaned_circle_id
+                    ):
+                        raise OneLocationCircleError(
+                            "INITIAL_CONTACTS_CLOSED",
+                            "Initial contacts setup is unavailable.",
+                            status_code=409,
+                        )
+                # Before the connection rows below, not after: see
+                # `_lock_invitees`. Everyone named in the request is locked,
+                # including anyone who turns out to be ineligible further
+                # down -- eligibility is decided after the lock, never by it.
                 conn.execute(
                     text(
                         """
@@ -1653,7 +3820,20 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT user_id, status
+                            SELECT
+                              user_id, status,
+                              (
+                                status = 'left'
+                                AND ended_at IS NOT NULL
+                                AND ended_at > NOW() - make_interval(
+                                  hours => :reinvite_cooldown_hours
+                                )
+                              ) AS left_recently,
+                              GREATEST(0, EXTRACT(EPOCH FROM (
+                                ended_at + make_interval(
+                                  hours => :reinvite_cooldown_hours
+                                ) - NOW()
+                              )))::int AS left_recently_remaining_seconds
                             FROM one_location_circle_memberships
                             WHERE circle_id = CAST(:circle_id AS UUID)
                               AND user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
@@ -1664,23 +3844,104 @@ class OneLocationCircleService:
                         {
                             "circle_id": cleaned_circle_id,
                             "invitee_user_ids": cleaned_invitee_user_ids,
+                            "reinvite_cooldown_hours": (CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS),
                         },
                     )
                 )
-                if any(str(row.get("status") or "") == "active" for row in target_membership_rows):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_ALREADY_MEMBER",
-                        "One or more selected connections are already in the Circle.",
-                        status_code=409,
+                # One ineligible person must not take the rest of the batch
+                # down with them.
+                #
+                # These two rules used to reject the whole request: pick
+                # five people, and if a single one had left the Circle
+                # recently, nobody was added and the only explanation was
+                # that "someone" you selected had left. The rules
+                # themselves are right -- an existing member should not be
+                # re-added, and leaving costs a cooldown that binds the
+                # owner too -- but they are about one person each, so they
+                # now remove that person and let the rest through.
+                #
+                # Nothing is relaxed: a blocked person is still blocked,
+                # the same transaction still covers everyone who does get
+                # added, and an add naming only blocked people still fails
+                # loudly rather than silently succeeding with nobody.
+                blocked_reasons: dict[str, str] = {}
+                left_recently_remaining_seconds: list[int] = []
+                for row in target_membership_rows:
+                    blocked_user_id = str(row.get("user_id") or "")
+                    if not blocked_user_id:
+                        continue
+                    if str(row.get("status") or "") == "active":
+                        blocked_reasons[blocked_user_id] = "already_member"
+                    elif signup_insert_only:
+                        blocked_reasons[blocked_user_id] = "previous_membership"
+                    elif bool(row.get("left_recently")):
+                        blocked_reasons[blocked_user_id] = "left_recently"
+                        left_recently_remaining_seconds.append(
+                            int(row.get("left_recently_remaining_seconds") or 0)
+                        )
+                if blocked_reasons:
+                    cleaned_invitee_user_ids = [
+                        user_id
+                        for user_id in cleaned_invitee_user_ids
+                        if user_id not in blocked_reasons
+                    ]
+                if not cleaned_invitee_user_ids:
+                    if signup_insert_only:
+                        result = {
+                            "invites": [],
+                            "createdInviteIds": [],
+                            "addedUserIds": [],
+                            "skippedUserIds": sorted(blocked_reasons),
+                            "skippedReasons": blocked_reasons,
+                        }
+                        if receipt:
+                            receipt.save(result)
+                        return result
+                    # Nobody addable. Report the reason that applies to
+                    # everyone named, so a single-person add still gets
+                    # the precise error it always did.
+                    if all(reason == "already_member" for reason in blocked_reasons.values()):
+                        if receipt:
+                            # A resumed batch may have been completed manually.
+                            # Record that verified no-op under its ORIGINAL
+                            # batch identity; no local inference can settle it.
+                            result = {
+                                "invites": [],
+                                "createdInviteIds": [],
+                                "addedUserIds": [],
+                                "skippedUserIds": sorted(blocked_reasons),
+                                "skippedReasons": blocked_reasons,
+                            }
+                            receipt.save(result)
+                            return result
+                        raise OneLocationCircleError(
+                            "LOCATION_CIRCLE_ALREADY_MEMBER",
+                            "One or more selected connections are already in the Circle.",
+                            status_code=409,
+                        )
+                    # The longest wait among everyone blocked this way, so the
+                    # toast never understates how long the cooldown actually
+                    # runs when more than one person is affected at once.
+                    retry_in = _format_cooldown_remaining(
+                        max(left_recently_remaining_seconds, default=0)
                     )
-                if str(circle_row.get("owner_user_id") or "") != actor_user_id and any(
-                    str(row.get("status") or "") == "removed" for row in target_membership_rows
-                ):
                     raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBERSHIP_REMOVED",
-                        "Only the Circle owner can invite someone they previously removed.",
-                        status_code=403,
+                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
+                        f"They recently left this Circle. You can add them again {retry_in}.",
+                        status_code=429,
                     )
+                # Leaving is that person saying no to this Circle specifically,
+                # and it now costs a cooldown the way declining an invitation
+                # does. Before adding was immediate, putting them back only
+                # produced an invitation they could ignore, so add-leave-add
+                # went nowhere. Now it completes -- so without this, leaving
+                # could be undone the moment it happened, over and over, by
+                # anyone still holding a connection.
+                #
+                # It binds the OWNER too. Every other rule here protects the
+                # Circle from its members; this one protects a person from the
+                # Circle, and the owner is who they are leaving.
+
                 connection_rows = _all(
                     conn.execute(
                         text(
@@ -1778,6 +4039,8 @@ class OneLocationCircleService:
                               circle.name AS circle_name,
                               circle.kind AS circle_kind,
                               inviter.display_name AS inviter_display_name,
+                              COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                              COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                               invitee.display_name AS invitee_display_name
                             FROM one_location_circle_member_invites invite
                             JOIN one_location_circles circle
@@ -1818,30 +4081,36 @@ class OneLocationCircleService:
                 pending_rows = [
                     row for row in existing_rows if str(row.get("status") or "") == "pending"
                 ]
-                existing_by_user_id = {
-                    str(row.get("invitee_user_id") or ""): row for row in pending_rows
-                }
-                if any(
-                    str(row.get("inviter_user_id") or "") != actor_user_id for row in pending_rows
-                ):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_INVITE_ALREADY_PENDING",
-                        "One or more people already have a pending Circle invitation.",
-                        status_code=409,
-                    )
-                new_user_ids = [
-                    user_id
-                    for user_id in cleaned_invitee_user_ids
-                    if user_id not in existing_by_user_id
-                ]
-                if any(
-                    str(row.get("invitee_user_id") or "") in new_user_ids
-                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                # An open invitation used to be a reason to refuse: a second
+                # person tapping invite had nothing to add, so it 409'd. Now
+                # that tap makes them a member -- exactly the outcome accepting
+                # that invitation would have produced -- so the invitation is
+                # retired below instead of standing in the way of itself.
+                pending_invite_ids = [str(row.get("id") or "") for row in pending_rows]
+                # Everyone named here is an active direct connection of the
+                # actor; the check above requires it. So everyone named here is
+                # added, and nobody is left waiting.
+                new_user_ids = list(cleaned_invitee_user_ids)
+                cooldown_invite_rows = [
+                    row
                     for row in existing_rows
-                ):
+                    if str(row.get("invitee_user_id") or "") in new_user_ids
+                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                ]
+                if cooldown_invite_rows:
+                    now = datetime.now(timezone.utc)
+                    responded_at_values = [
+                        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+                        for row in cooldown_invite_rows
+                        if isinstance(value := row.get("updated_at"), datetime)
+                    ]
+                    cooldown_until = max(responded_at_values, default=now) + timedelta(
+                        hours=CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS
+                    )
+                    retry_in = _format_cooldown_remaining((cooldown_until - now).total_seconds())
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_COOLDOWN",
-                        "This person recently responded to a Circle invitation. Try again later.",
+                        f"This person recently responded to a Circle invitation. Try again {retry_in}.",
                         status_code=429,
                     )
                 capacity_row = _first(
@@ -1871,16 +4140,6 @@ class OneLocationCircleService:
                                       AND membership.status = 'active'
                                   )
                               ) AS pending_invite_count
-                              ,
-                              (
-                                SELECT COUNT(*)
-                                FROM one_location_circle_member_invites invite
-                                WHERE invite.circle_id =
-                                      CAST(:circle_id AS UUID)
-                                  AND invite.inviter_user_id = :actor_user_id
-                                  AND invite.status = 'pending'
-                                  AND invite.expires_at > NOW()
-                              ) AS actor_pending_invite_count
                             """
                         ),
                         {
@@ -1892,122 +4151,558 @@ class OneLocationCircleService:
                 reserved_count = int((capacity_row or {}).get("active_member_count") or 0) + int(
                     (capacity_row or {}).get("pending_invite_count") or 0
                 )
-                member_limit = int(circle_row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
+                member_limit = (
+                    SMS_SYSTEM_CIRCLE_MEMBER_LIMIT
+                    if circle_row.get("system_kind") == "sms"
+                    else int(circle_row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
+                )
+                # Owner-only is enforced for every Circle at the top of this
+                # method, which covers the emergency list too.
+                is_system_circle = bool(circle_row.get("is_system"))
+                # Anyone being added who still holds an open invitation is
+                # already inside `reserved_count` -- their invitation reserved
+                # a seat. Counting them again would refuse a Circle with room
+                # in it, on the strength of a seat the same person is about to
+                # occupy for real.
+                already_reserved = len(
+                    {str(row.get("invitee_user_id") or "") for row in pending_rows}
+                )
                 if (
-                    str(circle_row.get("owner_user_id") or "") != actor_user_id
-                    and int((capacity_row or {}).get("actor_pending_invite_count") or 0)
-                    + len(new_user_ids)
-                    > CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT
+                    new_user_ids
+                    and reserved_count + len(new_user_ids) - already_reserved > member_limit
                 ):
                     raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED",
-                        (
-                            "You can have up to "
-                            f"{CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT} pending "
-                            "Circle invitations at a time."
-                        ),
-                        status_code=409,
-                    )
-                if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
-                    raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
-                        "This Circle does not have room for all selected invitations.",
+                        "This Circle does not have room for everyone you selected.",
                         status_code=409,
                     )
-                for invitee_user_id in new_user_ids:
-                    invite_row = _first(
-                        conn.execute(
-                            text(
-                                """
-                                INSERT INTO one_location_circle_member_invites (
-                                  circle_id, inviter_user_id, invitee_user_id,
-                                  status, expires_at, created_at, updated_at,
-                                  metadata
-                                )
-                                VALUES (
-                                  CAST(:circle_id AS UUID), :actor_user_id,
-                                  :invitee_user_id, 'pending', :expires_at,
-                                  NOW(), NOW(), '{}'::jsonb
-                                )
-                                RETURNING
-                                  id, circle_id, inviter_user_id,
-                                  invitee_user_id, status, expires_at,
-                                  created_at, responded_at
-                                """
-                            ),
-                            {
-                                "circle_id": cleaned_circle_id,
-                                "actor_user_id": actor_user_id,
-                                "invitee_user_id": invitee_user_id,
-                                "expires_at": expires_at,
-                            },
-                        )
-                    )
-                    if not invite_row:
-                        raise RuntimeError("Circle member invitation insert returned no row.")
-                    invite_row["circle_name"] = str(circle_row.get("name") or "")
-                    invite_row["circle_kind"] = str(circle_row.get("kind") or "other")
-                    invite_row["inviter_display_name"] = str(
-                        circle_row.get("inviter_display_name") or ""
-                    )
-                    invite_row["invitee_display_name"] = str(
-                        direct_by_user_id[invitee_user_id].get("invitee_display_name") or ""
-                    )
-                    existing_by_user_id[invitee_user_id] = invite_row
-                    created_invite_ids.append(str(invite_row.get("id") or ""))
-                payloads = [
-                    self._member_invite_payload(existing_by_user_id[invitee_user_id])
-                    for invitee_user_id in cleaned_invitee_user_ids
-                ]
-            if created_invite_ids:
-                from hushh_mcp.services.feed_service import FeedService
-                from hushh_mcp.services.push_notifications import (
-                    send_circle_member_invite_push,
+                circle_name = str(circle_row.get("name") or "")
+                adder_label = _identity_label(
+                    user_id=actor_user_id,
+                    display_name=actor_membership_row.get("inviter_display_name"),
+                    email=actor_membership_row.get("inviter_email"),
                 )
-
-                created_ids = set(created_invite_ids)
-                for payload in payloads:
-                    if str(payload.get("id") or "") not in created_ids:
-                        continue
-                    send_circle_member_invite_push(
-                        invitee_user_id=str(payload.get("inviteeUserId") or ""),
-                        inviter_user_id=actor_user_id,
-                        circle_id=cleaned_circle_id,
-                        invite_id=str(payload.get("id") or ""),
+                # Everyone here is already an active connection of the actor,
+                # so nobody here needs to be asked a second time: an invitation
+                # would put a 72-hour wait in front of a membership two people
+                # had already earned the right to. The membership is written
+                # now, and what acceptance used to do happens with it.
+                if new_user_ids:
+                    previous_batch_id = conn.execute(
+                        text("SELECT current_setting('hushh.circle_member_add_batch_id', true)"),
+                        {},
+                    ).scalar()
+                    conn.execute(
+                        text(
+                            "SELECT set_config('hushh.circle_member_add_batch_id', :batch_id, true)"
+                        ),
+                        {
+                            "batch_id": _member_add_event_batch_id(
+                                actor_user_id=actor_user_id,
+                                circle_id=cleaned_circle_id,
+                                operation_id=operation_id,
+                                explicit_batch_id=membership_batch_id,
+                            )
+                        },
                     )
-                    # Feed is a best-effort, post-commit projection: the
-                    # invitation itself is already durable in
-                    # one_location_circle_member_invites, so a feed-write
-                    # failure must never fail the invite that produced it.
-                    try:
-                        FeedService().record_event(
-                            user_id=str(payload.get("inviteeUserId") or ""),
-                            source_domain="location",
-                            event_type="circle_member_invited",
-                            actor_label=str(payload.get("inviterDisplayName") or "") or None,
-                            metadata={
-                                "invite_id": str(payload.get("id") or ""),
-                                "circle_id": cleaned_circle_id,
-                                "circle_name": str(payload.get("circleName") or ""),
-                                "inviter_user_id": actor_user_id,
-                            },
+                for invitee_user_id in sorted(new_user_ids):
+                    # Sorted to match the order `_lock_invitees` already took
+                    # these people in, so the membership writes cannot reorder
+                    # what the locks settled.
+                    membership_write = conn.execute(
+                        text(
+                            """
+                            INSERT INTO one_location_circle_memberships (
+                              circle_id, user_id, role, status, joined_at,
+                              updated_at, ended_at, metadata
+                            )
+                            VALUES (
+                              CAST(:circle_id AS UUID), :user_id, 'member',
+                              'active', NOW(), NOW(), NULL,
+                              jsonb_build_object(
+                                'addedVia', :added_via,
+                                'addedBy', :actor_user_id
+                              )
+                            )
+                            ON CONFLICT (circle_id, user_id) DO NOTHING
+                            RETURNING user_id
+                            """
+                            if signup_insert_only
+                            else """
+                            INSERT INTO one_location_circle_memberships (
+                              circle_id, user_id, role, status, joined_at,
+                              updated_at, ended_at, metadata
+                            )
+                            VALUES (
+                              CAST(:circle_id AS UUID), :user_id, 'member',
+                              'active', NOW(), NOW(), NULL,
+                              jsonb_build_object(
+                                'addedVia', :added_via,
+                                'addedBy', :actor_user_id
+                              )
+                            )
+                            ON CONFLICT (circle_id, user_id) DO UPDATE
+                            SET role = 'member',
+                                status = 'active',
+                                joined_at = NOW(),
+                                ended_at = NULL,
+                                updated_at = NOW(),
+                                metadata =
+                                  one_location_circle_memberships.metadata
+                                  || jsonb_build_object(
+                                    'addedVia', :added_via,
+                                    'addedBy', :actor_user_id
+                                  )
+                            """
+                        ),
+                        {
+                            "circle_id": cleaned_circle_id,
+                            "user_id": invitee_user_id,
+                            "actor_user_id": actor_user_id,
+                            "added_via": (
+                                "sms_system_circle" if is_system_circle else "direct_add"
+                            ),
+                        },
+                    )
+                    if signup_insert_only and not _first(membership_write):
+                        blocked_reasons[invitee_user_id] = "previous_membership"
+                        continue
+                    if is_system_circle:
+                        conn.execute(
+                            text("""INSERT INTO one_location_sms_contacts(owner_user_id,contact_user_id,created_at,updated_at)
+                            VALUES(:owner,:contact,NOW(),NOW()) ON CONFLICT(owner_user_id,contact_user_id) DO NOTHING"""),
+                            {"owner": actor_user_id, "contact": invitee_user_id},
                         )
-                    except Exception:  # noqa: BLE001 - projection cannot roll back the invite
-                        logger.exception("one_location.circle_member_invite_feed_projection_failed")
-            logger.info(
-                "one_location.circle_members_invited actor=%s requested=%s created=%s",
-                redact_log_field("user_id", actor_user_id),
-                len(cleaned_invitee_user_ids),
-                len(created_invite_ids),
-            )
-            return {
-                "invites": payloads,
-                "createdInviteIds": created_invite_ids,
-            }
+                    if not is_system_circle:
+                        # Skipped on a system Circle on purpose: those people
+                        # are the owner's existing contacts, and being on an
+                        # emergency list is not an introduction to the rest of
+                        # it. Everywhere else this is what acceptance wrote --
+                        # the Circle-scoped provenance that lets removal revoke
+                        # exactly what the Circle authorized, and nothing more.
+                        self._connect_member_to_circle(
+                            conn,
+                            circle_id=cleaned_circle_id,
+                            user_id=invitee_user_id,
+                            inviter_user_id=actor_user_id,
+                        )
+                    added_user_ids.append(invitee_user_id)
+                if new_user_ids:
+                    # A reviewed action may share this outer transaction with
+                    # later chunks. Restore the caller's setting before those
+                    # writes; an exception rolls the transaction back instead.
+                    conn.execute(
+                        text(
+                            "SELECT set_config('hushh.circle_member_add_batch_id', :batch_id, true)"
+                        ),
+                        {"batch_id": previous_batch_id or ""},
+                    )
+                if signup_insert_only:
+                    pending_invite_ids = [
+                        str(row.get("id"))
+                        for row in pending_rows
+                        if str(row.get("invitee_user_id")) in added_user_ids
+                    ]
+                if pending_invite_ids:
+                    # Whatever invitation was open for these people, the
+                    # membership it asked for now exists. Marking it accepted
+                    # retires their card truthfully; leaving it pending would
+                    # offer them a decision about something already settled.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circle_member_invites
+                            SET status = 'accepted',
+                                responded_at = NOW(),
+                                updated_at = NOW(),
+                                metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object('resolvedBy', 'direct_add')
+                            WHERE id = ANY(CAST(:invite_ids AS UUID[]))
+                              AND status = 'pending'
+                            """
+                        ),
+                        {"invite_ids": pending_invite_ids},
+                    )
+                for added_user_id in added_user_ids:
+                    if circle_row.get("system_kind") == "sms":
+                        _record_sms_membership_event(
+                            conn,
+                            owner_user_id=actor_user_id,
+                            contact_user_id=added_user_id,
+                            added=True,
+                        )
+                        continue
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=added_user_id,
+                        actor_user_id=actor_user_id,
+                        event_type="circle_member_added",
+                        metadata={
+                            "circle_id": cleaned_circle_id,
+                            "circle_name": circle_name,
+                            "added_by_label": adder_label,
+                            "counterpart_label": adder_label,
+                        },
+                    )
+                logger.info(
+                    "one_location.circle_members_added actor=%s circle_system=%s count=%d",
+                    redact_log_field("user_id", actor_user_id),
+                    is_system_circle,
+                    len(added_user_ids),
+                )
+                result = {
+                    "invites": [],
+                    "createdInviteIds": [],
+                    "addedUserIds": added_user_ids,
+                    "skippedUserIds": sorted(blocked_reasons),
+                    "skippedReasons": dict(blocked_reasons),
+                }
+                if receipt:
+                    receipt.save(result)
+            if added_user_ids and _emit_notifications:
+                self._notify_members_added(
+                    actor_user_id=actor_user_id,
+                    circle_id=cleaned_circle_id,
+                    circle_name=circle_name,
+                    added_user_ids=tuple(added_user_ids),
+                )
+            return result
+
+        except ActionDirectiveAuthorityError:
+            raise OneLocationCircleError(
+                "LOCATION_COMMAND_CHANGED",
+                "The command or its reviewed audience changed. Review the circle.",
+                status_code=409,
+            ) from None
         except OneLocationCircleError:
             raise
         except Exception as exc:
             raise self._safe_db_failure("create_member_invites", exc) from exc
+
+    def _notify_members_added(
+        self,
+        *,
+        actor_user_id: str,
+        circle_id: str,
+        circle_name: str,
+        added_user_ids: tuple[str, ...],
+    ) -> None:
+        """Tell each person they were added, then sync every roster viewer once.
+
+        Only ever called after the membership commit. Notification delivery
+        cannot turn committed membership into a failed mutation response, and
+        each remaining recipient is attempted.
+        """
+        if not added_user_ids:
+            return
+        from hushh_mcp.services.push_notifications import (
+            _lookup_display_name,
+            send_circle_member_added_push,
+        )
+
+        try:
+            adder_label = _lookup_display_name(actor_user_id)
+        except Exception:
+            adder_label = "Your connection"
+        for member_user_id in added_user_ids:
+            try:
+                send_circle_member_added_push(
+                    member_user_id=member_user_id,
+                    added_by_user_id=actor_user_id,
+                    added_by_display_name=adder_label,
+                    circle_id=circle_id,
+                    circle_name=circle_name,
+                )
+            except Exception:
+                logger.warning("one_location.circle_member_notification_failed")
+        self._notify_circle_roster_changed(
+            circle_id=circle_id,
+            member_user_id=added_user_ids[0],
+            change="added",
+            extra_user_ids=(actor_user_id,),
+            skip_user_ids=tuple(added_user_ids),
+        )
+
+    def plan_direct_connection_adds(
+        self,
+        *,
+        actor_user_id: str,
+        circle_id: str,
+    ) -> dict[str, Any]:
+        """Who "all my connections" would add to an owned Circle, read without writing.
+
+        Advisory, for a confirmation card. ``add_direct_connections`` re-checks
+        every rule under locks and rolls back when this read went stale, so the
+        classification here mirrors ``create_member_invites`` rather than
+        replacing it. Each active connection with a live origin is classed as:
+
+        * ``member`` -- already active in the Circle;
+        * ``addable`` -- the add would write them;
+        * ``left_recently`` / ``invite_cooldown`` / ``invite_pending`` /
+          ``not_ready`` -- the add would skip them or refuse the whole batch.
+
+        A pending invitation past its expiry counts as cooling down: the add
+        expires it first, and the expiry itself starts the cooldown.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        try:
+            circle_rows = (
+                self._db.execute_raw(
+                    """
+                    SELECT
+                      circle.id, circle.name, circle.kind, circle.owner_user_id,
+                      circle.member_limit, circle.is_system, circle.system_kind,
+                      (
+                        SELECT COUNT(*)
+                        FROM one_location_circle_memberships membership
+                        WHERE membership.circle_id = circle.id
+                          AND membership.status = 'active'
+                      ) AS active_member_count,
+                      (
+                        SELECT COUNT(*)
+                        FROM one_location_circle_member_invites invite
+                        WHERE invite.circle_id = circle.id
+                          AND invite.status = 'pending'
+                          AND invite.expires_at > NOW()
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM one_location_circle_memberships membership
+                            WHERE membership.circle_id = invite.circle_id
+                              AND membership.user_id = invite.invitee_user_id
+                              AND membership.status = 'active'
+                          )
+                      ) AS pending_invite_count
+                    FROM one_location_circles circle
+                    WHERE circle.id = CAST(:circle_id AS UUID)
+                      AND circle.status = 'active'
+                    """,
+                    {"circle_id": cleaned_circle_id},
+                ).data
+                or []
+            )
+            circle_row = dict(circle_rows[0]) if circle_rows else None
+            if circle_row is None:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
+                    "Only an active Circle member can add people.",
+                    status_code=403,
+                )
+            if str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_OWNER_REQUIRED",
+                    "Only the Circle owner can add people to this Circle.",
+                    status_code=403,
+                )
+            connection_rows = (
+                self._db.execute_raw(
+                    """
+                    WITH direct AS (
+                      SELECT DISTINCT
+                        CASE
+                          WHEN connection.user_a_id = :actor_user_id
+                          THEN connection.user_b_id
+                          ELSE connection.user_a_id
+                        END AS user_id
+                      FROM connections connection
+                      JOIN connection_origins origin
+                        ON origin.connection_id = connection.id
+                       AND origin.status = 'active'
+                      WHERE connection.status = 'active'
+                        AND (
+                          connection.user_a_id = :actor_user_id
+                          OR connection.user_b_id = :actor_user_id
+                        )
+                    )
+                    SELECT
+                      direct.user_id,
+                      identity.display_name,
+                      profile.user_id IS NOT NULL AS has_profile,
+                      membership.status AS membership_status,
+                      COALESCE(
+                        membership.status = 'left'
+                        AND membership.ended_at IS NOT NULL
+                        AND membership.ended_at > NOW() - make_interval(
+                          hours => :reinvite_cooldown_hours
+                        ),
+                        FALSE
+                      ) AS left_recently,
+                      EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_member_invites invite
+                        WHERE invite.circle_id = CAST(:circle_id AS UUID)
+                          AND invite.invitee_user_id = direct.user_id
+                          AND invite.status = 'pending'
+                          AND invite.expires_at > NOW()
+                      ) AS invite_pending,
+                      EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_member_invites invite
+                        WHERE invite.circle_id = CAST(:circle_id AS UUID)
+                          AND invite.invitee_user_id = direct.user_id
+                          AND (
+                            (
+                              invite.status IN ('declined', 'cancelled', 'expired')
+                              AND invite.updated_at > NOW() - make_interval(
+                                hours => :reinvite_cooldown_hours
+                              )
+                            )
+                            OR (invite.status = 'pending' AND invite.expires_at <= NOW())
+                          )
+                      ) AS invite_cooldown
+                    FROM direct
+                    LEFT JOIN actor_identity_cache identity
+                      ON identity.user_id = direct.user_id
+                    LEFT JOIN actor_profiles profile
+                      ON profile.user_id = direct.user_id
+                    LEFT JOIN one_location_circle_memberships membership
+                      ON membership.circle_id = CAST(:circle_id AS UUID)
+                     AND membership.user_id = direct.user_id
+                    WHERE direct.user_id <> :actor_user_id
+                    ORDER BY direct.user_id
+                    """,
+                    {
+                        "circle_id": cleaned_circle_id,
+                        "actor_user_id": actor_user_id,
+                        "reinvite_cooldown_hours": CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS,
+                    },
+                ).data
+                or []
+            )
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("plan_direct_connection_adds", exc) from exc
+
+        connections: list[dict[str, Any]] = []
+        for row in connection_rows:
+            user_id = str(row.get("user_id") or "")
+            if not user_id:
+                continue
+            if str(row.get("membership_status") or "") == "active":
+                status = "member"
+            elif bool(row.get("left_recently")):
+                status = "left_recently"
+            elif bool(row.get("invite_pending")):
+                status = "invite_pending"
+            elif bool(row.get("invite_cooldown")):
+                status = "invite_cooldown"
+            elif not bool(row.get("has_profile")):
+                status = "not_ready"
+            else:
+                status = "addable"
+            connections.append(
+                {
+                    "userId": user_id,
+                    "displayName": str(row.get("display_name") or ""),
+                    "status": status,
+                }
+            )
+        member_limit = (
+            SMS_SYSTEM_CIRCLE_MEMBER_LIMIT
+            if circle_row.get("system_kind") == "sms"
+            else int(circle_row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
+        )
+        return {
+            "circle": {
+                "id": cleaned_circle_id,
+                "name": str(circle_row.get("name") or ""),
+                "kind": str(circle_row.get("kind") or "other"),
+                "isSystem": bool(circle_row.get("is_system")),
+                "systemKind": str(circle_row.get("system_kind") or "") or None,
+                "memberLimit": member_limit,
+                "activeMemberCount": int(circle_row.get("active_member_count") or 0),
+                "reservedCount": int(circle_row.get("active_member_count") or 0)
+                + int(circle_row.get("pending_invite_count") or 0),
+            },
+            "connections": connections,
+        }
+
+    def add_direct_connections(
+        self,
+        *,
+        actor_user_id: str,
+        circle_id: str,
+        user_ids: list[str],
+    ) -> dict[str, Any]:
+        """Add an exact, already reviewed list of connections in ONE transaction.
+
+        Larger than ``create_member_invites``' twenty-person request and never
+        different from it: each chunk of twenty goes through that same method on
+        the same connection, so every owner, connection, profile, cooldown and
+        capacity rule applies unchanged, and capacity counts the chunks already
+        written. A chunk whose people are all members already is an answer, not
+        a failure; any other refusal rolls the whole list back, so the reviewed
+        audience is added completely or not at all. Ids are sorted across chunks
+        so profile locks are always taken in one order. Notifications go out
+        once, after the commit, off the request path.
+        """
+
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        ids = sorted(dict.fromkeys(_clean_user_id(user_id) for user_id in user_ids))
+        if not ids or len(ids) > CIRCLE_DEFAULT_MEMBER_LIMIT:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_BATCH_INVALID",
+                f"Choose between 1 and {CIRCLE_DEFAULT_MEMBER_LIMIT} connections to add.",
+                status_code=422,
+            )
+        added_user_ids: list[str] = []
+        skipped_reasons: dict[str, str] = {}
+        circle_name = ""
+        membership_batch_id = str(uuid.uuid4())
+        try:
+            with self._db.engine.begin() as conn:
+                for start in range(0, len(ids), CIRCLE_MEMBER_ADD_CHUNK):
+                    chunk = ids[start : start + CIRCLE_MEMBER_ADD_CHUNK]
+                    try:
+                        written = self.create_member_invites(
+                            actor_user_id=actor_user_id,
+                            circle_id=cleaned_circle_id,
+                            invitee_user_ids=chunk,
+                            membership_batch_id=membership_batch_id,
+                            _connection=conn,
+                            _emit_notifications=False,
+                        )
+                    except OneLocationCircleError as exc:
+                        if exc.code != "LOCATION_CIRCLE_ALREADY_MEMBER":
+                            raise
+                        skipped_reasons.update(dict.fromkeys(chunk, "already_member"))
+                        continue
+                    added_user_ids.extend(str(item) for item in written.get("addedUserIds") or [])
+                    skipped_reasons.update(
+                        {
+                            str(key): str(value)
+                            for key, value in dict(written.get("skippedReasons") or {}).items()
+                        }
+                    )
+                if added_user_ids:
+                    name_row = _first(
+                        conn.execute(
+                            text(
+                                "SELECT name FROM one_location_circles "
+                                "WHERE id = CAST(:circle_id AS UUID)"
+                            ),
+                            {"circle_id": cleaned_circle_id},
+                        )
+                    )
+                    circle_name = str((name_row or {}).get("name") or "")
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("add_direct_connections", exc) from exc
+        if added_user_ids:
+            _submit_circle_lifecycle_notification(
+                self._notify_members_added,
+                actor_user_id=actor_user_id,
+                circle_id=cleaned_circle_id,
+                circle_name=circle_name,
+                added_user_ids=tuple(added_user_ids),
+            )
+        return {
+            "addedUserIds": added_user_ids,
+            "skippedUserIds": sorted(skipped_reasons),
+            "skippedReasons": skipped_reasons,
+        }
 
     def create_member_invite(
         self,
@@ -2016,17 +4711,23 @@ class OneLocationCircleService:
         circle_id: str,
         invitee_user_id: str,
     ) -> dict[str, Any]:
-        """Compatibility wrapper around the atomic batch invitation contract."""
+        """Compatibility wrapper around the atomic batch add contract.
+
+        Kept for callers that still speak in one person at a time. There is no
+        invitation to hand back any more, so `invite` is None and `added` says
+        what actually happened.
+        """
 
         result = self.create_member_invites(
             actor_user_id=actor_user_id,
             circle_id=circle_id,
             invitee_user_ids=[invitee_user_id],
         )
-        invite = result["invites"][0]
+        added = list(result.get("addedUserIds") or [])
         return {
-            "invite": invite,
-            "created": str(invite.get("id") or "") in set(result.get("createdInviteIds") or []),
+            "invite": None,
+            "created": False,
+            "added": invitee_user_id in added,
         }
 
     def accept_member_invite(
@@ -2034,6 +4735,8 @@ class OneLocationCircleService:
         *,
         user_id: str,
         invite_id: str,
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Accept a targeted invitation and atomically establish Circle origins."""
 
@@ -2041,8 +4744,19 @@ class OneLocationCircleService:
         circle_id = ""
         joined = False
         accepted = False
+        command_result = None
         try:
             with self._db.engine.begin() as conn:
+                receipt, previous, _ = begin_circle_command(
+                    conn,
+                    owner=user_id,
+                    action="location.accept_circle_invite",
+                    operation=command_operation_id,
+                    binding=command_binding,
+                    invite_id=cleaned_invite_id,
+                )
+                if previous is not None:
+                    return {"operationReceipt": previous}
                 invite_locator = _first(
                     conn.execute(
                         text(
@@ -2092,7 +4806,10 @@ class OneLocationCircleService:
                               invite.inviter_user_id, invite.invitee_user_id,
                               invite.status, invite.expires_at,
                               inviter.display_name AS inviter_display_name,
+                              COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                              COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                               invitee.display_name AS invitee_display_name,
+                              invitee.email AS invitee_email,
                               invite.created_at, invite.responded_at
                             FROM one_location_circle_member_invites invite
                             LEFT JOIN actor_identity_cache inviter
@@ -2275,7 +4992,6 @@ class OneLocationCircleService:
                     if existing and str(existing.get("status") or "") == "active":
                         joined = False
                     else:
-                        self._assert_user_circle_capacity(conn, user_id=user_id)
                         count_row = _first(
                             conn.execute(
                                 text(
@@ -2363,6 +5079,65 @@ class OneLocationCircleService:
                     accepted = True
                     invite_row["status"] = "accepted"
                     invite_row["responded_at"] = datetime.now(timezone.utc)
+                    invitee_label = _identity_label(
+                        user_id=user_id,
+                        display_name=invite_row.get("invitee_display_name"),
+                        email=invite_row.get("invitee_email"),
+                    )
+                    _record_circle_event(
+                        conn,
+                        owner_user_id=str(invite_row.get("inviter_user_id") or ""),
+                        actor_user_id=user_id,
+                        event_type="location_circle_member_invite_accepted",
+                        metadata={
+                            "invite_id": cleaned_invite_id,
+                            "circle_id": circle_id,
+                            "circle_name": str(invite_row.get("circle_name") or ""),
+                            "counterpart_label": invitee_label,
+                        },
+                    )
+                if receipt is not None and command_operation_id is not None:
+                    if str(invite_row.get("status") or "") != "accepted":
+                        raise OneLocationCircleError(
+                            "LOCATION_CIRCLE_COMMAND_RESULT_INVALID",
+                            "The invitation result could not be verified.",
+                            status_code=409,
+                        )
+                    command_result = save_circle_command(
+                        receipt,
+                        operation=command_operation_id,
+                        action="location.accept_circle_invite",
+                        circle_id=circle_id,
+                        invite_id=cleaned_invite_id,
+                        result="accepted",
+                    )
+            if accepted:
+                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
+                from hushh_mcp.services.push_notifications import (
+                    send_circle_member_invite_accepted_push,
+                )
+
+                invitee_display_name = str(invite_row.get("invitee_display_name") or "")
+                try:
+                    send_circle_member_invite_accepted_push(
+                        inviter_user_id=inviter_user_id,
+                        invitee_user_id=user_id,
+                        invitee_display_name=invitee_display_name,
+                        circle_id=circle_id,
+                        circle_name=str(invite_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception("circle.notify_invite_accepted_failed")
+                self._notify_circle_roster_changed(
+                    circle_id=circle_id,
+                    member_user_id=user_id,
+                    change="added",
+                    extra_user_ids=(user_id,),
+                    skip_user_ids=(inviter_user_id,),
+                )
+            if command_result is not None:
+                return command_result
             return {
                 "circle": self.get_circle(user_id=user_id, circle_id=circle_id),
                 "invite": self._member_invite_payload(invite_row or {}),
@@ -2374,27 +5149,110 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("accept_member_invite", exc) from exc
 
+    def _decline_invite_row(
+        self, connection: Any, *, user_id: str, invite_id: str
+    ) -> dict[str, Any] | None:
+        statement = """
+                UPDATE one_location_circle_member_invites invite
+                SET status = 'declined', responded_at = NOW(), updated_at = NOW()
+                FROM one_location_circles circle
+                WHERE invite.id = CAST(:invite_id AS UUID)
+                  AND invite.invitee_user_id = :user_id
+                  AND invite.status = 'pending'
+                  AND invite.expires_at > NOW()
+                  AND circle.id = invite.circle_id
+                RETURNING invite.id, invite.circle_id, invite.inviter_user_id,
+                          circle.name AS circle_name
+                """
+        params = {"invite_id": invite_id, "user_id": user_id}
+        if connection is not None:
+            row = connection.execute(text(statement), params).mappings().first()
+        else:
+            row = next(iter(self._db.execute_raw(statement, params).data or []), None)
+        return dict(row) if row else None
+
+    @staticmethod
+    def _notify_invite_declined(
+        *, declined_row: dict[str, Any], user_id: str, cleaned_invite_id: str
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import (
+                send_circle_member_invite_declined_push,
+            )
+            from hushh_mcp.services.requester_identity import (
+                resolve_requester_label,
+            )
+
+            send_circle_member_invite_declined_push(
+                inviter_user_id=str(declined_row.get("inviter_user_id") or ""),
+                invitee_user_id=user_id,
+                invitee_display_name=resolve_requester_label(user_id),
+                circle_id=str(declined_row.get("circle_id") or ""),
+                circle_name=str(declined_row.get("circle_name") or ""),
+                invite_id=cleaned_invite_id,
+            )
+        except Exception:
+            logger.exception(
+                "circle.notify_invite_declined_failed invite_id=%s",
+                cleaned_invite_id,
+            )
+
     def decline_member_invite(
         self,
         *,
         user_id: str,
         invite_id: str,
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         cleaned_invite_id = _clean_invite_id(invite_id)
-        try:
-            result = self._db.execute_raw(
-                """
-                UPDATE one_location_circle_member_invites
-                SET status = 'declined', responded_at = NOW(), updated_at = NOW()
-                WHERE id = CAST(:invite_id AS UUID)
-                  AND invitee_user_id = :user_id
-                  AND status = 'pending'
-                  AND expires_at > NOW()
-                RETURNING id
-                """,
-                {"invite_id": cleaned_invite_id, "user_id": user_id},
+        if command_operation_id is not None or command_binding is not None:
+            with self._db.engine.begin() as conn:
+                receipt, previous, _ = begin_circle_command(
+                    conn,
+                    owner=user_id,
+                    action="location.decline_circle_invite",
+                    operation=command_operation_id,
+                    binding=command_binding,
+                    invite_id=cleaned_invite_id,
+                )
+                if previous is not None:
+                    return {"operationReceipt": previous}
+                declined_row = self._decline_invite_row(
+                    conn, user_id=user_id, invite_id=cleaned_invite_id
+                )
+                if not declined_row:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_INVITE_NOT_AVAILABLE",
+                        "The invitation changed or expired.",
+                        status_code=409,
+                    )
+                if receipt is None or command_operation_id is None:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_COMMAND_REVIEW_REQUIRED",
+                        "Review this circle operation again.",
+                        status_code=409,
+                    )
+                result = save_circle_command(
+                    receipt,
+                    operation=command_operation_id,
+                    action="location.decline_circle_invite",
+                    circle_id=str(declined_row["circle_id"]),
+                    invite_id=cleaned_invite_id,
+                    result="declined",
+                )
+            self._notify_invite_declined(
+                declined_row=declined_row, user_id=user_id, cleaned_invite_id=cleaned_invite_id
             )
-            if result.data or []:
+            return result
+        try:
+            declined_row = self._decline_invite_row(
+                None, user_id=user_id, invite_id=cleaned_invite_id
+            )
+            if declined_row:
+                self._notify_invite_declined(
+                    declined_row=declined_row, user_id=user_id, cleaned_invite_id=cleaned_invite_id
+                )
                 return self.get_member_invite(user_id=user_id, invite_id=cleaned_invite_id)
             existing = self._db.execute_raw(
                 """
@@ -2443,14 +5301,32 @@ class OneLocationCircleService:
                   )
                   AND circle.status = 'active'
                   AND invite.status = 'pending'
-                RETURNING invite.id
+                RETURNING invite.id, invite.circle_id, invite.invitee_user_id,
+                          circle.name AS circle_name
                 """,
                 {
                     "invite_id": cleaned_invite_id,
                     "actor_user_id": actor_user_id,
                 },
             )
-            if result.data or []:
+            cancelled_row = next(iter(result.data or []), None)
+            if cancelled_row:
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_member_invite_cancelled_push,
+                    )
+
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=str(cancelled_row.get("invitee_user_id") or ""),
+                        circle_id=str(cancelled_row.get("circle_id") or ""),
+                        circle_name=str(cancelled_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_invite_cancelled_failed invite_id=%s",
+                        cleaned_invite_id,
+                    )
                 return True
             existing = self._db.execute_raw(
                 """
@@ -2521,6 +5397,15 @@ class OneLocationCircleService:
                     JOIN one_location_circles circle
                       ON circle.id = first_member.circle_id
                      AND circle.status = 'active'
+                     -- Trusted membership is manual, but it remains an
+                     -- ordinary Circle roster rather than an SMS authority
+                     -- source. A live direct connection is checked above.
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = first_member.user_id
+                       OR circle.owner_user_id = second_member.user_id
+                     )
                     WHERE first_member.user_id = sms.owner_user_id
                       AND first_member.status = 'active'
                   )
@@ -2652,6 +5537,136 @@ class OneLocationCircleService:
             params,
         )
 
+    @staticmethod
+    def end_memberships_for_disconnected_pair(
+        conn: Any,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> list[dict[str, str]]:
+        """Take two people out of each other's Circles when they disconnect.
+
+        Runs on the CALLER's connection so it commits or rolls back with the
+        disconnect itself. A membership that outlives the connection is not a
+        stale row: `_lock_share_delivery` permits a delivery when there is an
+        active non-Circle connection origin OR a shared active Circle, so the
+        membership keeps the second arm of that OR true. Someone who removed
+        you as a connection would keep receiving your live location, and -- SOS
+        reads the system Circle's roster -- your address in an emergency.
+
+        End non-owner memberships only in Circles shared by both people,
+        including a third person's shared Circle. Membership in an unrelated
+        Circle cannot authorize delivery between this pair and stays intact.
+        Owners retain their own rows; disconnecting never deletes a Circle.
+
+        `removed`, not `left`: neither of them chose to go. It also means the
+        owner is the only one who can put them back, which is right -- if they
+        reconnect, it is the owner's Circle to re-offer.
+        """
+
+        user_a = str(user_a_id or "").strip()
+        user_b = str(user_b_id or "").strip()
+        if not user_a or not user_b or user_a == user_b:
+            return []
+        ended = _all(
+            conn.execute(
+                text(
+                    """
+                    WITH shared_circles AS MATERIALIZED (
+                      SELECT first_member.circle_id
+                      FROM one_location_circle_memberships first_member
+                      JOIN one_location_circle_memberships second_member
+                        ON second_member.circle_id = first_member.circle_id
+                      WHERE first_member.user_id = :user_a
+                        AND first_member.status = 'active'
+                        AND second_member.user_id = :user_b
+                        AND second_member.status = 'active'
+                    )
+                    UPDATE one_location_circle_memberships membership
+                    SET status = 'removed',
+                        ended_at = NOW(),
+                        updated_at = NOW(),
+                        metadata = COALESCE(membership.metadata, '{}'::jsonb)
+                          || jsonb_build_object('endedBy', 'connection_removed')
+                    FROM one_location_circles circle
+                    WHERE circle.id = membership.circle_id
+                      AND circle.status = 'active'
+                      AND membership.status = 'active'
+                      -- Never the owner's own row. The owner does not leave
+                      -- their Circle by falling out with somebody in it.
+                      AND membership.role = 'member'
+                      AND membership.user_id IN (:user_a, :user_b)
+                      AND membership.circle_id IN (SELECT circle_id FROM shared_circles)
+                    RETURNING
+                      membership.circle_id::text AS circle_id,
+                      membership.user_id AS user_id
+                    """
+                ),
+                {"user_a": user_a, "user_b": user_b},
+            )
+        )
+        if not ended:
+            return []
+        for row in ended:
+            circle_id = str(row.get("circle_id") or "")
+            member_user_id = str(row.get("user_id") or "")
+            if not circle_id or not member_user_id:
+                continue
+            # The same tail `_end_membership` runs, for the same reasons: a
+            # shared bearer code the departing member may already know, the
+            # invitations they authored, the Circle-scoped provenance, and the
+            # grants the Circle authorized.
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_invite_codes
+                    SET status = 'revoked', revoked_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id = CAST(:circle_id AS UUID)
+                      AND status = 'active'
+                    """
+                ),
+                {"circle_id": circle_id},
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_member_invites
+                    SET status = 'cancelled', cancelled_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id = CAST(:circle_id AS UUID)
+                      AND inviter_user_id = :member_user_id
+                      AND status = 'pending'
+                    """
+                ),
+                {"circle_id": circle_id, "member_user_id": member_user_id},
+            )
+            revoke_circle_origins(
+                conn,
+                circle_id=circle_id,
+                member_user_id=member_user_id,
+            )
+            OneLocationCircleService._reconcile_circle_sourced_grants(
+                conn,
+                circle_id=circle_id,
+                member_user_id=member_user_id,
+            )
+            OneLocationCircleService._cleanup_ineligible_sms_contacts(
+                conn,
+                user_id=member_user_id,
+            )
+        logger.info(
+            "one_location.circle_memberships_ended_on_disconnect count=%d",
+            len(ended),
+        )
+        return [
+            {
+                "circleId": str(row.get("circle_id") or ""),
+                "userId": str(row.get("user_id") or ""),
+            }
+            for row in ended
+        ]
+
     def _end_membership(
         self,
         *,
@@ -2659,15 +5674,20 @@ class OneLocationCircleService:
         circle_id: str,
         target_user_id: str,
         status: str,
+        _connection: Any = None,
+        _emit_notifications: bool = True,
+        _reciprocal_trusted: bool = False,
     ) -> None:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
-            with self._db.engine.begin() as conn:
+            with (
+                nullcontext(_connection) if _connection is not None else self._db.engine.begin()
+            ) as conn:
                 circle_row = _first(
                     conn.execute(
                         text(
                             """
-                            SELECT owner_user_id
+                            SELECT owner_user_id, system_kind, name
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -2735,6 +5755,62 @@ class OneLocationCircleService:
                         "Circle member not found.",
                         status_code=404,
                     )
+                # Trusted membership is a mutual designation: removing a
+                # person from the owner's Trusted Circle removes the owner
+                # from that person's Trusted Circle as well. The connection
+                # remains intact; only existing active Trusted memberships change.
+                # A one-way or already-ended reverse membership must not roll
+                # back the owner's valid removal with a recursive 404.
+                if (
+                    not _reciprocal_trusted
+                    and status == "removed"
+                    and circle_row.get("system_kind") == "trusted"
+                ):
+                    counterpart = _first(
+                        conn.execute(
+                            text(
+                                """
+                                SELECT circle.id::text AS circle_id
+                                FROM one_location_circles circle
+                                JOIN one_location_circle_memberships membership
+                                  ON membership.circle_id = circle.id
+                                 AND membership.user_id = :member_user_id
+                                 AND membership.role = 'member'
+                                 AND membership.status = 'active'
+                                WHERE circle.owner_user_id = :owner_user_id
+                                  AND circle.system_kind = 'trusted'
+                                  AND circle.status = 'active'
+                                FOR UPDATE OF circle, membership
+                                """
+                            ),
+                            {
+                                "owner_user_id": target_user_id,
+                                "member_user_id": owner_user_id,
+                            },
+                        )
+                    )
+                    if counterpart:
+                        self._end_membership(
+                            actor_user_id=target_user_id,
+                            circle_id=str(counterpart["circle_id"]),
+                            target_user_id=owner_user_id,
+                            status="removed",
+                            _connection=conn,
+                            _emit_notifications=_emit_notifications,
+                            _reciprocal_trusted=True,
+                        )
+                if circle_row.get("system_kind") == "sms":
+                    _record_sms_membership_event(
+                        conn,
+                        owner_user_id=owner_user_id,
+                        contact_user_id=target_user_id,
+                        added=False,
+                    )
+                    conn.execute(
+                        text("""DELETE FROM one_location_sms_contacts
+                        WHERE owner_user_id=:owner AND contact_user_id=:contact"""),
+                        {"owner": owner_user_id, "contact": target_user_id},
+                    )
                 # A shared bearer code may already be known by the departing
                 # member, so revoke it atomically with the membership change.
                 # Remaining members can ensure a fresh code on their next view.
@@ -2780,10 +5856,119 @@ class OneLocationCircleService:
                     conn,
                     user_id=target_user_id,
                 )
+            if not _emit_notifications:
+                return
+            self._notify_membership_end(
+                owner_user_id=owner_user_id,
+                target_user_id=target_user_id,
+                cleaned_circle_id=cleaned_circle_id,
+                circle_name=str(circle_row.get("name") or ""),
+                status=status,
+            )
         except OneLocationCircleError:
             raise
         except Exception as exc:
             raise self._safe_db_failure("end_membership", exc) from exc
+
+    def _notify_membership_end(
+        self,
+        *,
+        owner_user_id: str,
+        target_user_id: str,
+        cleaned_circle_id: str,
+        circle_name: str,
+        status: str,
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import (
+                send_circle_member_left_push,
+                send_circle_member_removed_push,
+            )
+            from hushh_mcp.services.requester_identity import (
+                resolve_requester_label,
+            )
+
+            if status == "removed":
+                send_circle_member_removed_push(
+                    member_user_id=target_user_id,
+                    circle_id=cleaned_circle_id,
+                    circle_name=circle_name,
+                )
+            elif status == "left":
+                send_circle_member_left_push(
+                    owner_user_id=owner_user_id,
+                    member_user_id=target_user_id,
+                    member_display_name=resolve_requester_label(target_user_id),
+                    circle_id=cleaned_circle_id,
+                    circle_name=circle_name,
+                )
+        except Exception:
+            logger.exception(
+                "circle.notify_end_membership_failed circle_id=%s status=%s",
+                cleaned_circle_id,
+                status,
+            )
+        self._notify_circle_roster_changed(
+            circle_id=cleaned_circle_id,
+            member_user_id=target_user_id,
+            change=status,
+            extra_user_ids=(owner_user_id, target_user_id),
+            skip_user_ids=(target_user_id,) if status == "removed" else (owner_user_id,),
+        )
+
+    def _end_membership_command(
+        self,
+        *,
+        owner: str,
+        circle_id: str,
+        member_id: str,
+        action: str,
+        status: str,
+        operation: str | None,
+        binding: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        with self._db.engine.begin() as conn:
+            receipt, previous, circle = begin_circle_command(
+                conn,
+                owner=owner,
+                action=action,
+                operation=operation,
+                binding=binding,
+                circle_id=circle_id,
+                member_id=member_id,
+            )
+            if previous is not None:
+                return {"operationReceipt": previous}
+            if receipt is None or operation is None or circle is None:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_COMMAND_REVIEW_REQUIRED",
+                    "Review this membership operation again.",
+                    status_code=409,
+                )
+            self._end_membership(
+                actor_user_id=owner,
+                circle_id=circle_id,
+                target_user_id=member_id,
+                status=status,
+                _connection=conn,
+                _emit_notifications=False,
+            )
+            result = save_circle_command(
+                receipt,
+                operation=operation,
+                action=action,
+                circle_id=circle_id,
+                member_id=member_id,
+                result=status,
+            )
+        self._notify_membership_end(
+            owner_user_id=circle["owner_user_id"],
+            target_user_id=member_id,
+            cleaned_circle_id=circle_id,
+            circle_name=circle["name"],
+            status=status,
+        )
+        return result
 
     def remove_member(
         self,
@@ -2791,7 +5976,19 @@ class OneLocationCircleService:
         owner_user_id: str,
         circle_id: str,
         member_user_id: str,
-    ) -> None:
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if command_operation_id is not None or command_binding is not None:
+            return self._end_membership_command(
+                owner=owner_user_id,
+                circle_id=_clean_circle_id(circle_id),
+                member_id=str(member_user_id or "").strip(),
+                action="location.remove_from_circle",
+                status="removed",
+                operation=command_operation_id,
+                binding=command_binding,
+            )
         self._end_membership(
             actor_user_id=owner_user_id,
             circle_id=circle_id,
@@ -2799,7 +5996,24 @@ class OneLocationCircleService:
             status="removed",
         )
 
-    def leave_circle(self, *, user_id: str, circle_id: str) -> None:
+    def leave_circle(
+        self,
+        *,
+        user_id: str,
+        circle_id: str,
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if command_operation_id is not None or command_binding is not None:
+            return self._end_membership_command(
+                owner=user_id,
+                circle_id=_clean_circle_id(circle_id),
+                member_id=user_id,
+                action="location.leave_circle",
+                status="left",
+                operation=command_operation_id,
+                binding=command_binding,
+            )
         self._end_membership(
             actor_user_id=user_id,
             circle_id=circle_id,
@@ -2807,10 +6021,74 @@ class OneLocationCircleService:
             status="left",
         )
 
-    def delete_circle(self, *, owner_user_id: str, circle_id: str) -> None:
+    def _reject_system_circle_delete(self, circle_id: str) -> None:
+        """Refuse deletion of a product-provisioned Circle.
+
+        Deleting the SMS Circle is indistinguishable from silently switching
+        emergency alerts off: nothing looks different until the moment it is
+        needed. Members stay fully manageable -- only the container is fixed.
+        """
+        try:
+            row = _first(
+                self._db.execute_raw(
+                    """
+                    SELECT is_system, system_kind
+                    FROM one_location_circles
+                    WHERE id = CAST(:circle_id AS UUID)
+                      AND status = 'active'
+                    """,
+                    {"circle_id": circle_id},
+                ).data
+                or []
+            )
+        except Exception:
+            # A read failure here must not become a way to delete: fall through
+            # to the statement below, which the trigger still refuses.
+            return
+        if row and str(row.get("system_kind") or "") == "trusted":
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_SYSTEM_PROTECTED",
+                "Trusted is your built-in Circle and cannot be deleted. "
+                "You can add or remove people at any time.",
+                status_code=409,
+            )
+        if row and bool(row.get("is_system")):
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_SYSTEM_PROTECTED",
+                "Your SMS Circle can't be deleted. You can still add or remove its members.",
+                status_code=409,
+            )
+
+    def delete_circle(
+        self,
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        command_operation_id: str | None = None,
+        command_binding: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Soft-delete an owned Circle. System Circles are refused.
+
+        The database refuses this too (migration 159's trigger), and that is
+        the guarantee -- "who may delete this row" is a property of the row, not
+        of whichever code path reached it. This check exists so the API answers
+        with a 409 and a sentence a person can act on, rather than surfacing a
+        raw `restrict_violation` from a trigger as a 500.
+        """
         cleaned_circle_id = _clean_circle_id(circle_id)
+        self._reject_system_circle_delete(cleaned_circle_id)
         try:
             with self._db.engine.begin() as conn:
+                receipt, previous, _ = begin_circle_command(
+                    conn,
+                    owner=owner_user_id,
+                    action="location.delete_circle",
+                    operation=command_operation_id,
+                    binding=command_binding,
+                    circle_id=cleaned_circle_id,
+                )
+                if previous is not None:
+                    return {"operationReceipt": previous}
                 circle_row = _first(
                     conn.execute(
                         text(
@@ -2820,7 +6098,7 @@ class OneLocationCircleService:
                             WHERE id = CAST(:circle_id AS UUID)
                               AND owner_user_id = :owner_user_id
                               AND status = 'active'
-                            RETURNING id
+                            RETURNING id, name
                             """
                         ),
                         {
@@ -2860,17 +6138,20 @@ class OneLocationCircleService:
                     ),
                     {"circle_id": cleaned_circle_id},
                 )
-                conn.execute(
-                    text(
-                        """
-                        UPDATE one_location_circle_member_invites
-                        SET status = 'cancelled', cancelled_at = NOW(),
-                            updated_at = NOW()
-                        WHERE circle_id = CAST(:circle_id AS UUID)
-                          AND status = 'pending'
-                        """
-                    ),
-                    {"circle_id": cleaned_circle_id},
+                cancelled_invite_rows = _all(
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circle_member_invites
+                            SET status = 'cancelled', cancelled_at = NOW(),
+                                updated_at = NOW()
+                            WHERE circle_id = CAST(:circle_id AS UUID)
+                              AND status = 'pending'
+                            RETURNING id, invitee_user_id
+                            """
+                        ),
+                        {"circle_id": cleaned_circle_id},
+                    )
                 )
                 revoke_circle_origins(
                     conn,
@@ -2887,10 +6168,29 @@ class OneLocationCircleService:
                             conn,
                             user_id=member_user_id,
                         )
+                if receipt is not None and command_operation_id is not None:
+                    command_result = save_circle_command(
+                        receipt,
+                        operation=command_operation_id,
+                        action="location.delete_circle",
+                        circle_id=cleaned_circle_id,
+                        result="deleted",
+                    )
+                else:
+                    command_result = None
             logger.info(
                 "one_location.circle_deleted owner=%s",
                 redact_log_field("user_id", owner_user_id),
             )
+            _submit_circle_lifecycle_notification(
+                self._notify_circle_deleted,
+                owner_user_id=owner_user_id,
+                circle_id=cleaned_circle_id,
+                circle_name=str(circle_row.get("name") or ""),
+                affected_user_ids=tuple(str(member.get("user_id") or "") for member in member_rows),
+                cancelled_invites=tuple(dict(invite) for invite in cancelled_invite_rows),
+            )
+            return command_result
         except OneLocationCircleError:
             raise
         except Exception as exc:

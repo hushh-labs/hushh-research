@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, FilePenLine, X } from "lucide-react";
+import { Check, ChevronsUpDown, FilePenLine, X } from "@/components/icons";
 
 import {
   CommandDialog,
@@ -25,10 +25,10 @@ import { cn } from "@/lib/utils";
 
 // 1. Defined standard class names at the top for better maintainability
 const FIELD_TRIGGER_CLASSNAME =
-  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
+  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 const COMMAND_ITEM_CLASSNAME =
-  "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+  "rounded-[18px] border border-transparent px-3 py-3 transition-[background-color,border-color,color,transform] duration-100 ease-out hover:bg-[color:var(--app-accent-surface)] hover:text-foreground data-[selected=true]:bg-[color:var(--app-accent-surface)] data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
 // Mobile: these editors top-anchor the sheet. The offset must clear the iOS
 // status bar / Dynamic Island even on routes where the top shell is hidden
@@ -233,7 +233,7 @@ export function CommandPickerField<T = unknown>({
                           </p>
                         ) : null}
                       </div>
-                      {selected ? <Check className="h-4 w-4 text-primary" aria-hidden="true" /> : null}
+                      {selected ? <Check className="h-4 w-4 text-[color:var(--app-accent)]" aria-hidden="true" /> : null}
                     </>
                   )}
                 </CommandItem>
@@ -258,6 +258,7 @@ export function PopupTextEditorField({
   triggerClassName,
   previewClassName,
   textareaClassName,
+  maxLength,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -270,16 +271,28 @@ export function PopupTextEditorField({
   triggerClassName?: string;
   previewClassName?: string;
   textareaClassName?: string;
+  maxLength?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const textareaId = useId();
+  const characterCountId = useId();
+  const resolvedMaxLength =
+    typeof maxLength === "number" && Number.isFinite(maxLength)
+      ? Math.max(0, Math.trunc(maxLength))
+      : null;
+  const hasCharacterLimit = resolvedMaxLength !== null;
+  const characterCount = hasCharacterLimit
+    ? Math.min(draft.length, resolvedMaxLength)
+    : null;
 
   useEffect(() => {
     if (open) {
-      setDraft(value); // Only sync draft when opening the dialog to avoid overriding user edits
+      setDraft(
+        resolvedMaxLength !== null ? value.slice(0, resolvedMaxLength) : value,
+      ); // Only sync draft when opening the dialog to avoid overriding user edits
     }
-  }, [open, value]);
+  }, [open, resolvedMaxLength, value]);
 
   const preview = value.trim();
 
@@ -291,7 +304,7 @@ export function PopupTextEditorField({
         aria-expanded={open}
         onClick={() => setOpen(true)}
         className={cn(
-          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
           invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80 bg-background hover:border-border",
           triggerClassName
         )}
@@ -336,14 +349,32 @@ export function PopupTextEditorField({
             <Textarea
               id={textareaId}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setDraft(
+                  resolvedMaxLength !== null
+                    ? nextValue.slice(0, resolvedMaxLength)
+                    : nextValue,
+                );
+              }}
               placeholder={placeholder}
+              maxLength={resolvedMaxLength ?? undefined}
+              aria-describedby={hasCharacterLimit ? characterCountId : undefined}
               className={cn(
                 "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
                 invalid ? "border-rose-300 dark:border-rose-500/50" : "",
                 textareaClassName
               )}
             />
+            {hasCharacterLimit ? (
+              <p
+                id={characterCountId}
+                className="mt-2 text-right text-xs leading-5 text-muted-foreground"
+                aria-live="polite"
+              >
+                {characterCount} / {resolvedMaxLength}
+              </p>
+            ) : null}
           </div>
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">

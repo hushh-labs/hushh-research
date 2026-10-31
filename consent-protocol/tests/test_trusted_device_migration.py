@@ -64,6 +64,14 @@ def test_trusted_device_migration_is_release_ordered_and_metadata_only() -> None
             "created_at",
             "last_used_at",
             "revoked_at",
+            # Migration 176: sync channel and seal confirmation.
+            "last_synced_at",
+            "last_sync_cursor",
+            "sealed_at",
+            # Migration 189: liveness heartbeat, the only evidence the agent
+            # is actually running (last_synced_at cannot say that).
+            "last_heartbeat_at",
+            "heartbeat",
         },
         "trusted_device_challenges": {
             "challenge_id",

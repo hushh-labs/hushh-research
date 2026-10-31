@@ -74,6 +74,19 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
   exit 1
 fi
 
+# The proxy launcher needs python-dotenv only when it materializes the
+# short-lived Cloud SQL credential file. Use the managed backend interpreter,
+# never whichever Python happens to be first on the developer's PATH.
+BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ -f "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ]; then
+  BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe"
+fi
+if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+  echo "Missing backend virtual environment: $BACKEND_VENV_PYTHON" >&2
+  echo "Run './bin/hushh bootstrap --mode local' to install backend dependencies." >&2
+  exit 1
+fi
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -105,13 +118,25 @@ PROXY_PORT="${PROXY_PORT:-$DB_PORT}"
 PROXY_CREDENTIALS_FILE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_CREDENTIALS_FILE')"
 PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_ADMIN_CREDENTIALS_JSON')"
 PROXY_CREDENTIALS_TEMP=""
+PROXY_CHILD_PID=""
 
 cleanup_proxy_credentials() {
+  if [ -n "${PROXY_CHILD_PID:-}" ]; then
+    kill "$PROXY_CHILD_PID" 2>/dev/null || true
+    wait "$PROXY_CHILD_PID" 2>/dev/null || true
+    PROXY_CHILD_PID=""
+  fi
   if [ -n "${PROXY_CREDENTIALS_TEMP:-}" ] && [ -f "${PROXY_CREDENTIALS_TEMP:-}" ]; then
     rm -f "$PROXY_CREDENTIALS_TEMP"
   fi
 }
-trap cleanup_proxy_credentials EXIT INT TERM
+if [ "${HUSHH_SUPERVISED_RUNTIME:-}" = "1" ]; then
+  # run_local_fast.sh owns signal ordering; preserve its ignored SIGINT
+  # disposition through this script and the exec'd proxy process.
+  trap cleanup_proxy_credentials EXIT TERM
+else
+  trap cleanup_proxy_credentials EXIT INT TERM
+fi
 
 if [ -z "$INSTANCE" ]; then
   echo "CLOUDSQL_INSTANCE_CONNECTION_NAME is unset in $BACKEND_ENV_FILE." >&2
@@ -149,12 +174,13 @@ proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
 
 if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
   PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
-  python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
+  "$BACKEND_VENV_PYTHON" - "$PROXY_CREDENTIALS_TEMP" "$BACKEND_ENV_FILE" <<'PY'
 import json
 import sys
+from dotenv import dotenv_values
 
 path = sys.argv[1]
-raw = sys.argv[2]
+raw = dotenv_values(sys.argv[2]).get("FIREBASE_ADMIN_CREDENTIALS_JSON")
 data = json.loads(raw)
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(data, fh)
@@ -185,4 +211,7 @@ echo "  ./bin/hushh web --mode local"
 echo
 
 # Run in the foreground so logs stream to this terminal. Ctrl-C stops it.
-exec "${proxy_cmd[@]}"
+# Keep the launcher alive so its EXIT trap removes temporary credentials.
+"${proxy_cmd[@]}" &
+PROXY_CHILD_PID=$!
+wait "$PROXY_CHILD_PID"

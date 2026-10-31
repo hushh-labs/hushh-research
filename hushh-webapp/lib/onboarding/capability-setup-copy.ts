@@ -76,132 +76,118 @@ const SETUP_COPY_BY_ID: Record<
   }
 > = {
   finance: {
-    setupTitle: "Set up your finances",
-    setupBlurb:
-      "Tell One how you like to invest so it can read your portfolio and surface analysis that fits you.",
+    setupTitle: "Set up your money",
+    setupBlurb: "See your money clearly.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
-    introPremise: "A clearer way to understand your money.",
-    introPromise:
-      "One only uses the accounts and preferences you choose to share.",
+    introPremise: "Access your finances in one place.",
+    introPromise: "Only the accounts you share.",
     setupBullets: [
-      "Share how you like to invest in a few quick taps.",
-      "One reads your portfolio and tailors the analysis to you.",
-      "Hand off to a real advisor whenever you want.",
+      "Tell One how you like to invest.",
+      "One reads your portfolio and tailors what it shows you.",
+      "Hand off to a real advisor any time.",
     ],
   },
   gmail: {
-    setupTitle: "Connect Gmail",
-    setupBlurb:
-      "Connect Gmail so One can understand the brands you care about and build a private memory of recent interactions.",
-    actionLabel: "Connect Gmail",
-    resumeActionLabel: "Finish Gmail",
-    introPremise: "Let the details you choose become more useful.",
-    introPromise:
-      "Gmail is connected only with your approval, and you stay in control of what One remembers.",
+    setupTitle: "Connect Mail",
+    setupBlurb: "One learns what you care about.",
+    actionLabel: "Connect Mail",
+    resumeActionLabel: "Finish Mail",
+    introPremise: "Your mail, made useful.",
+    introPromise: "Connected only with your yes.",
     setupBullets: [
-      "Connect Gmail once, with your approval.",
-      "One learns your brand affinities from the interactions you approve.",
-      "Keep a private memory of recent interactions, ready when you need it.",
+      "Connect Mail once, with your yes.",
+      "One learns the brands you care about.",
+      "What it remembers stays private to you.",
     ],
   },
   calendar: {
     setupTitle: "Connect your calendar",
-    setupBlurb:
-      "Connect Google Calendar so One can summarize your schedule, find time, and prepare meeting changes for your approval.",
+    setupBlurb: "One keeps track of your day.",
     actionLabel: "Connect Calendar",
     resumeActionLabel: "Finish Calendar",
-    introPremise: "Understand your schedule.",
-    introPromise:
-      "A clear view of what is ahead, with time for what matters.",
+    introPremise: "Stay ahead of your schedule.",
+    introPromise: "See what's ahead, and make time for what matters.",
     setupBullets: [
       "Connect Google Calendar with the access you choose.",
-      "Ask One for schedule summaries and availability.",
-      "Review every meeting change before it happens.",
+      "Ask One what's on today.",
+      "Approve every meeting change before it happens.",
     ],
   },
   email: {
-    setupTitle: "KYC",
-    setupBlurb:
-      "Choose whether requests you send to one@hushh.ai may prepare responses for your approval.",
+    // "KYC" is an abbreviation nobody meets for the first time and understands.
+    // The row now says what actually happens; the destination keeps the name.
+    setupTitle: "Identity checks",
+    setupBlurb: "Verify with your approval.",
     actionLabel: "Set up KYC",
     resumeActionLabel: "Finish KYC",
-    introPremise: "An identity that moves at your pace.",
-    introPromise:
-      "You decide which details to save and when One may use them to help you.",
+    introPremise: "Replies, ready when you are.",
+    introPromise: "You approve every reply.",
     setupBullets: [
       "Turn drafting on or off any time.",
-      "Every draft stays yours to review before it sends.",
+      "Every draft is yours to review before it sends.",
     ],
   },
   location: {
     setupTitle: "Set up location",
-    setupBlurb:
-      "Set up location so you can share it with the trusted people you choose, whenever you want.",
+    setupBlurb: "Share only when you choose.",
     actionLabel: "Choose location",
     resumeActionLabel: "Finish location",
     introPremise: "Be easier to reach when it matters.",
-    introPromise:
-      "Your location stays private until you choose the people and moment to share it.",
+    introPromise: "Private until you choose to share.",
     setupBullets: [
-      "Choose the trusted people who can receive a location share.",
-      "Start and stop sharing whenever you want.",
-      "Your location stays private unless you choose to share it.",
+      "Pick the people who can see where you are.",
+      "Start and stop sharing any time.",
+      "Private unless you choose to share.",
     ],
   },
   ria: {
-    setupTitle: "Set up RIA",
-    setupBlurb:
-      "Create and verify your advisor profile so One can open the right professional workspace for you.",
+    setupTitle: "Set up your advisor profile",
+    setupBlurb: "Build your advisor workspace.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
     introPremise: "A custom workspace built for you",
     introPromise: "You review every detail.",
     setupBullets: [
       "Verify your advisor or firm credentials.",
-      "Choose the services you offer and review your profile.",
-      "Submit only when the profile is accurate.",
+      "Choose the services you offer.",
+      "Submit only when the profile is right.",
     ],
   },
   pkm: {
     setupTitle: "Save what matters",
-    setupBlurb:
-      "Keep notes and personal details in one private place that only you and One can open.",
+    setupBlurb: "Notes only you can open.",
     actionLabel: "Save what matters",
     resumeActionLabel: "Finish saving",
     setupBullets: [
-      "Save notes and personal details in one place.",
-      "Only you and One can ever open it.",
-      "One recalls what matters exactly when you need it.",
+      "Save notes and details in one place.",
+      "Only you and One can open it.",
+      "One recalls them when you need them.",
     ],
   },
   consent: {
     setupTitle: "Review who has access",
-    setupBlurb:
-      "See every request to use your personal information, approve what you trust, and pull access back any time.",
+    setupBlurb: "Approve or pull back access.",
     actionLabel: "Review access",
     resumeActionLabel: "Review access",
     exploreTitle: "Here's your access center",
-    exploreBlurb:
-      "Nothing to set up. This is where you see and control who can use your personal information.",
+    exploreBlurb: "Nothing to set up. See and control who can use your data.",
     exploreBullets: [
-      "Every request to use your personal information shows up here.",
+      "Every request to use your data shows up here.",
       "Approve what you trust, decline the rest.",
-      "Pull access back at any time, instantly.",
+      "Pull access back any time, instantly.",
     ],
   },
   "connected-systems": {
-    setupTitle: "CRM",
-    setupBlurb:
-      "Find your CRM record or approve creating one from your verified identity.",
+    setupTitle: "Connect your CRM",
+    setupBlurb: "Find records with your approval.",
     actionLabel: "Set up CRM",
     resumeActionLabel: "Finish CRM",
-    introPremise: "Start with the record that already knows you.",
-    introPromise:
-      "One looks for your record before creating anything, and you approve every change.",
+    introPremise: "Start with the record you already have.",
+    introPromise: "Nothing changes without your yes.",
     setupBullets: [
       "One looks for your record first, then creates one if needed.",
-      "Nothing happens without your approval.",
+      "Nothing happens without your yes.",
     ],
   },
 };

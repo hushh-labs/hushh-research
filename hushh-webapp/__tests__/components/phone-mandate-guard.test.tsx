@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
@@ -12,6 +12,8 @@ const {
   cacheSubscribeMock,
   bootstrapStateMock,
   getCachedBootstrapStateMock,
+  retrySessionVerificationMock,
+  signOutMock,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
   checkVaultMock: vi.fn(),
@@ -21,6 +23,8 @@ const {
   cacheSubscribeMock: vi.fn(),
   bootstrapStateMock: vi.fn(),
   getCachedBootstrapStateMock: vi.fn(),
+  retrySessionVerificationMock: vi.fn(),
+  signOutMock: vi.fn(),
 }));
 
 let pathnameValue = "/one/profile";
@@ -28,12 +32,19 @@ let searchValue = "";
 let hostnameValue: string | null = "localhost";
 let authValue: {
   user: { uid: string } | null;
+  userId?: string | null;
   loading: boolean;
   phoneNumber: string | null;
+  retrySessionVerification: () => Promise<void>;
+  sessionVerificationRequired: boolean;
+  signOut: () => Promise<void>;
 } = {
   user: { uid: "user-1" },
   loading: false,
   phoneNumber: null,
+  retrySessionVerification: retrySessionVerificationMock,
+  sessionVerificationRequired: false,
+  signOut: signOutMock,
 };
 
 vi.mock("next/navigation", () => ({
@@ -45,7 +56,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => authValue,
+  useAuth: () => ({ ...authValue, userId: authValue.userId === undefined ? authValue.user?.uid ?? null : authValue.userId }),
 }));
 
 vi.mock("@/lib/hooks/use-hostname", () => ({
@@ -96,9 +107,19 @@ vi.mock("@/lib/services/cache-service", () => ({
   },
 }));
 
+
+/**
+ * A waiting guard holds the one boot surface on a stage instead of painting
+ * its own loader; its precise internal detail stays on `data-boot-detail`.
+ */
+function bootHold(detail: string): Element | null {
+  return document.querySelector(`[data-boot-detail="${detail}"]`);
+}
+
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    delete window.__HUSHH_NATIVE_TEST__;
     replace.mockReset();
     checkVaultMock.mockReset();
     refreshCurrentUserIdentityMock.mockReset();
@@ -107,6 +128,10 @@ describe("PhoneMandateGuard", () => {
     cacheSubscribeMock.mockReset();
     bootstrapStateMock.mockReset();
     getCachedBootstrapStateMock.mockReset();
+    retrySessionVerificationMock.mockReset();
+    signOutMock.mockReset();
+    retrySessionVerificationMock.mockResolvedValue(undefined);
+    signOutMock.mockResolvedValue(undefined);
     refreshCurrentUserIdentityMock.mockResolvedValue(null);
     peekVaultPresenceMock.mockReturnValue(null);
     peekCachedIdentityMock.mockReturnValue(null);
@@ -123,7 +148,17 @@ describe("PhoneMandateGuard", () => {
       user: { uid: "user-1" },
       loading: false,
       phoneNumber: null,
+      retrySessionVerification: retrySessionVerificationMock,
+      sessionVerificationRequired: false,
+      signOut: signOutMock,
     };
+  });
+
+  it("reads replacement-owner admission without using the Firebase UID for cache ownership", async () => {
+    authValue.userId = "acct_" + "a".repeat(32);
+    render(<PhoneMandateGuard exemptVaultUsers><div>profile content</div></PhoneMandateGuard>);
+    await waitFor(() => expect(bootstrapStateMock).toHaveBeenCalledWith(authValue.userId, expect.anything()));
+    expect(getCachedBootstrapStateMock).not.toHaveBeenCalledWith("user-1");
   });
 
   it("redirects no-vault users without a phone number to the phone mandate", async () => {
@@ -161,6 +196,9 @@ describe("PhoneMandateGuard", () => {
       user: { uid: "user-2" },
       loading: false,
       phoneNumber: null,
+      retrySessionVerification: retrySessionVerificationMock,
+      sessionVerificationRequired: false,
+      signOut: signOutMock,
     };
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
@@ -192,12 +230,39 @@ describe("PhoneMandateGuard", () => {
     );
 
     expect(screen.getByText("profile content")).toBeTruthy();
-    expect(
-      screen.queryByText("Checking phone requirement..."),
-    ).toBeNull();
+    expect(bootHold("Checking phone requirement...")).toBeNull();
     expect(checkVaultMock).not.toHaveBeenCalled();
     expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
     expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
+  it("hides a cached Profile surface while native session liveness is unverified", () => {
+    getCachedBootstrapStateMock.mockReturnValue({
+      hasVault: true,
+      phoneVerified: true,
+    });
+    authValue = {
+      ...authValue,
+      sessionVerificationRequired: true,
+    };
+
+    render(
+      <PhoneMandateGuard exemptVaultUsers>
+        <div>cached private profile</div>
+      </PhoneMandateGuard>,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Reconnect to continue securely" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("cached private profile")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(retrySessionVerificationMock).toHaveBeenCalledTimes(1);
+    expect(signOutMock).toHaveBeenCalledTimes(1);
+    expect(signOutMock).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("uses a late shared-bootstrap cache write without waiting for duplicate checks", async () => {
@@ -218,7 +283,7 @@ describe("PhoneMandateGuard", () => {
       </PhoneMandateGuard>,
     );
 
-    expect(screen.getByText("Checking phone requirement...")).toBeTruthy();
+    expect(bootHold("Checking phone requirement...")).toHaveAttribute("data-boot-stage", "phone");
 
     getCachedBootstrapStateMock.mockReturnValue({
       hasVault: true,
@@ -236,6 +301,9 @@ describe("PhoneMandateGuard", () => {
       user: { uid: "user-3" },
       loading: false,
       phoneNumber: "+16505550101",
+      retrySessionVerification: retrySessionVerificationMock,
+      sessionVerificationRequired: false,
+      signOut: signOutMock,
     };
     render(
       <PhoneMandateGuard>
@@ -254,6 +322,9 @@ describe("PhoneMandateGuard", () => {
       user: { uid: "user-4" },
       loading: false,
       phoneNumber: null,
+      retrySessionVerification: retrySessionVerificationMock,
+      sessionVerificationRequired: false,
+      signOut: signOutMock,
     };
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
@@ -272,12 +343,39 @@ describe("PhoneMandateGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("does not refresh the identity shadow for an automated reviewer", async () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      expectedUserId: "reviewer-user",
+    };
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      phoneVerified: null,
+    });
+
+    render(
+      <PhoneMandateGuard>
+        <div>reviewer content</div>
+      </PhoneMandateGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("reviewer content")).toBeTruthy();
+    });
+    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("keeps RIA onboarding reachable without asking for phone verification again", async () => {
     pathnameValue = "/ria/onboarding";
     authValue = {
       user: { uid: "ria-user" },
       loading: false,
       phoneNumber: null,
+      retrySessionVerification: retrySessionVerificationMock,
+      sessionVerificationRequired: false,
+      signOut: signOutMock,
     };
     render(
       <PhoneMandateGuard>
@@ -292,6 +390,9 @@ describe("PhoneMandateGuard", () => {
   });
 
   it("keeps localhost development users in the app without requiring phone verification", async () => {
+    // Localhost only: Firebase reCAPTCHA cannot complete there, so a forced
+    // screen cannot be passed with a real number (founder-verified 2026-08-20).
+    // The exemption grants nothing server-side.
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     render(
       <PhoneMandateGuard exemptVaultUsers>
@@ -308,34 +409,91 @@ describe("PhoneMandateGuard", () => {
     expect(bootstrapStateMock).not.toHaveBeenCalled();
   });
 
-  it("waits for the client hostname before deciding the localhost phone mandate", async () => {
+  it("still redirects on the dev deployment, even in a development build", async () => {
+    // THE dead-loop regression trip-wire: dev.one.hushh.ai was once in the
+    // bypass set, which suppressed the screen the server requires and stranded
+    // a fresh account at the cloud save's 409 (observed 2026-08-19). Dev asks,
+    // exactly like production; its server-side fictitious-number lane makes the
+    // screen cheap to pass.
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
-    hostnameValue = null;
-    const view = render(
-      <PhoneMandateGuard>
-        <div>setup content</div>
-      </PhoneMandateGuard>,
-    );
-
-    expect(screen.getByText("Checking phone requirement...")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(checkVaultMock).not.toHaveBeenCalled();
-    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
-
-    hostnameValue = "localhost";
-    view.rerender(
-      <PhoneMandateGuard>
-        <div>setup content</div>
-      </PhoneMandateGuard>,
+    hostnameValue = "dev.one.hushh.ai";
+    render(
+      <PhoneMandateGuard exemptVaultUsers>
+        <div>profile content</div>
+      </PhoneMandateGuard>
     );
 
     await waitFor(() => {
-      expect(screen.getByText("setup content")).toBeTruthy();
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Fprofile");
     });
+    expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { hasVault: true, setupCompleted: false, phoneVerified: false },
+    { hasVault: true, setupCompleted: null, phoneVerified: null },
+    { hasVault: false, setupCompleted: true, phoneVerified: false },
+    { hasVault: null, setupCompleted: true, phoneVerified: null },
+  ])("keeps established accounts out of phone onboarding on refresh: %j", async (state) => {
+    pathnameValue = "/";
+    bootstrapStateMock.mockResolvedValue(state);
+    const view = render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    view.unmount();
+    getCachedBootstrapStateMock.mockReturnValue(state);
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
     expect(replace).not.toHaveBeenCalled();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(checkVaultMock).not.toHaveBeenCalled();
     expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
   });
+
+  it("offers recovery on bootstrap failure without inventing a phone requirement", async () => {
+    bootstrapStateMock.mockRejectedValueOnce(new Error("offline"));
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("home content")).toBeNull();
+    bootstrapStateMock.mockResolvedValue({ hasVault: true, phoneVerified: null });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText("home content");
+    expect(bootstrapStateMock).toHaveBeenLastCalledWith("user-1", { force: true });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it.each(["null", "rejected"])("does not turn a %s identity read into phone onboarding", async (failure) => {
+    bootstrapStateMock.mockResolvedValue({ hasVault: false, phoneVerified: null });
+    if (failure === "rejected") refreshCurrentUserIdentityMock.mockRejectedValue(new Error("offline"));
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not let a bootstrap hint override a verified identity", async () => {
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: false, phoneVerified: false });
+    peekCachedIdentityMock.mockReturnValue({ data: { phone_verified: true }, isStale: false });
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect while authentication is still settling", async () => {
+    authValue.loading = true;
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: false, phoneVerified: false });
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await waitFor(() =>
+      expect(bootHold("Checking session...")).toHaveAttribute("data-boot-stage", "session"),
+    );
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not carry the previous owner's admission into a new account", async () => {
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: true, phoneVerified: true });
+    const view = render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    authValue = { ...authValue, user: { uid: "new-user" } };
+    view.rerender(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Fprofile"));
+    expect(screen.queryByText("home content")).toBeNull();
+  });
+
 });

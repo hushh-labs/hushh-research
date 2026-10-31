@@ -1,60 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
+
 import pytest
 
 from api.routes.kai import market_insights
+from hushh_mcp.services import market_insights_cache as cache_module
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
-
-
-class _FakeEntry:
-    def __init__(self, payload, updated_at_ts: float, fresh_until_ts: float, stale_until_ts: float):
-        self.payload = payload
-        self.updated_at_ts = updated_at_ts
-        self.fresh_until_ts = fresh_until_ts
-        self.stale_until_ts = stale_until_ts
-
-    def is_fresh(self, now_ts: float | None = None) -> bool:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return now <= self.fresh_until_ts
-
-    def is_stale_servable(self, now_ts: float | None = None) -> bool:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return now <= self.stale_until_ts
-
-    def age_seconds(self, now_ts: float | None = None) -> int:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return max(0, int(now - self.updated_at_ts))
-
-
-class _FakeStore:
-    def __init__(self) -> None:
-        self.entries: dict[str, _FakeEntry] = {}
-
-    async def get_entry(self, cache_key: str):
-        return self.entries.get(cache_key)
-
-    async def set_entry(
-        self,
-        *,
-        cache_key: str,
-        payload,
-        fresh_ttl_seconds: int,
-        stale_ttl_seconds: int,
-        provider_status=None,
-    ) -> None:
-        from time import time
-
-        now = time()
-        self.entries[cache_key] = _FakeEntry(
-            payload,
-            updated_at_ts=now,
-            fresh_until_ts=now + fresh_ttl_seconds,
-            stale_until_ts=now + stale_ttl_seconds,
-        )
-
-
-async def _payload_fetcher():
-    return {"rows": [{"symbol": "AAPL"}], "provider_status": {"quote:AAPL": "ok"}}
+from tests.helpers.market_public_cache import (  # noqa: F401
+    _FakeEntry,
+    _FakeStore,
+    _payload_fetcher,
+    regular_session_clock,
+)
 
 
 @pytest.mark.asyncio
@@ -101,6 +60,53 @@ async def test_public_module_reads_back_from_l2_when_l1_is_cold(monkeypatch):
     assert fetch_count["count"] == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["memory", "postgres"])
+@pytest.mark.parametrize("failure", [False, True])
+async def test_fresh_degraded_quotes_retry_without_losing_fallback(monkeypatch, tier, failure):
+    now = datetime.fromisoformat("2026-07-14T14:00:00+00:00").timestamp()
+    monkeypatch.setattr(market_insights, "time", lambda: now)
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    store, cache = _FakeStore(), MarketInsightsCache()
+    key = "quotes:AAPL"
+    degraded = {"rows": [], "provider_status": {"quote:AAPL": "failed"}}
+    if tier == "memory":
+        cache.seed_entry(key, degraded, now - 1)
+    else:
+        store.entries[key] = _FakeEntry(degraded, now - 1, now + 1800, now + 3600)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    calls = []
+
+    async def fetch():
+        calls.append(True)
+        if failure:
+            raise RuntimeError("provider unavailable")
+        return {"rows": [{"symbol": "AAPL", "price": 100}], "provider_status": {"quote:AAPL": "ok"}}
+
+    result = await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+        serve_stale_while_revalidate=False,
+    )
+    assert calls == [True]
+    assert result[1] is failure
+    if failure:
+        assert result[0] == degraded
+    else:
+        assert result[0]["rows"][0]["price"] == 100
+        await market_insights._get_or_refresh_public_module(
+            key=key,
+            fresh_ttl_seconds=600,
+            stale_ttl_seconds=1800,
+            fetcher=fetch,
+            serve_stale_while_revalidate=False,
+        )
+        assert calls == [True]
+
+
 def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalization():
     baseline_user_a = market_insights._market_home_cache_key(
         user_id="user_a",
@@ -128,8 +134,8 @@ def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalizat
     )
 
     assert baseline_user_a == baseline_user_b
-    assert baseline_user_a.startswith("home:baseline:")
-    assert personalized_user_a.startswith("home:user_a:")
+    assert baseline_user_a.startswith("home:v6:baseline:")
+    assert personalized_user_a.startswith("home:v6:user_a:")
 
 
 def test_repair_quote_symbol_normalizes_known_provider_aliases():
@@ -138,8 +144,15 @@ def test_repair_quote_symbol_normalizes_known_provider_aliases():
     assert market_insights._repair_quote_symbol("MSFT") == ("MSFT", False)
 
 
-def test_market_overview_includes_all_four_supported_benchmark_proxies():
-    quote = {"price": 100.0, "change_percent": 1.25, "fetched_at": "2026-07-16T00:00:00Z"}
+def test_market_overview_uses_index_levels_and_provider_quote_evidence():
+    quote = {
+        "price": 7712.57,
+        "change_percent": 1.25,
+        "quoted_at": "2026-10-20T20:45:45Z",
+        "fetched_at": "2026-10-21T01:00:00Z",
+        "is_delayed": True,
+        "sparkline": [7700, 7712.57],
+    }
     overview = market_insights._build_market_overview(
         quote,
         quote,
@@ -164,9 +177,12 @@ def test_market_overview_includes_all_four_supported_benchmark_proxies():
     )
 
     by_label = {row["label"]: row for row in overview}
-    assert by_label["DOW 30"]["symbol"] == "DIA"
-    assert by_label["Russell 2000"]["symbol"] == "IWM"
-    assert by_label["DOW 30"]["value"] == 100.0
+    assert [row["symbol"] for row in overview[:4]] == ["^GSPC", "^IXIC", "^DJI", "^RUT"]
+    assert by_label["NASDAQ Composite"]["symbol"] == "^IXIC"
+    assert by_label["Dow Jones"]["value"] == 7712.57
+    assert by_label["Dow Jones"]["as_of"] == quote["quoted_at"]
+    assert by_label["Dow Jones"]["is_delayed"] is True
+    assert by_label["Dow Jones"]["sparkline"] == [7700, 7712.57]
     assert by_label["Russell 2000"]["delta_pct"] == 1.25
 
 
@@ -179,9 +195,9 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
         key = str(kwargs["key"])
         if key.startswith("home:"):
             return await kwargs["fetcher"](), False, 0, "live", False
-        if key.startswith("quotes:"):
+        if key.startswith(("quotes:", "indices:")):
             raise RuntimeError("quote provider unavailable")
-        if key == "macro:us":
+        if key == "macro:v2:us":
             return (
                 {
                     "vix": {
@@ -202,7 +218,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
             )
         if key == "movers:v2:us":
             return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
-        if key == "sectors:us":
+        if key == "sectors:v2:us":
             return ([], "partial"), False, 0, "live", False
         if key.startswith("sparklines:"):
             return {}, False, 0, "live", False
@@ -248,7 +264,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
     )
 
     assert payload["stale"] is True
-    assert payload["provider_status"]["quote:AAPL"] == "failed"
+    assert {payload["provider_status"][f"quote:{s}"] for s in ("AAPL", "^GSPC")} == {"failed"}
     assert payload["watchlist"][0]["symbol"] == "AAPL"
     assert payload["watchlist"][0]["degraded"] is True
     assert payload["movers"]["degraded"] is True
@@ -293,3 +309,160 @@ async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monk
         "personalized": False,
         "warm_source": "startup",
     }
+
+
+@pytest.mark.asyncio
+async def test_company_facts_require_matching_identity_before_provider_work(monkeypatch):
+    from fastapi import HTTPException
+
+    called = []
+
+    async def public_module(**kwargs):
+        called.append(kwargs["key"])
+        return {"symbol": "AAPL", "market_cap": 100}, False, 0, "live", False
+
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", public_module)
+    with pytest.raises(HTTPException) as error:
+        await market_insights.get_market_company_facts("owner", "AAPL", "someone-else")
+    assert error.value.status_code == 403
+    assert called == []
+    result = await market_insights.get_market_company_facts("owner", "AAPL", "owner")
+    assert result["facts"]["AAPL"]["market_cap"] == 100
+    assert called == ["company_facts:v1:AAPL"]
+
+
+@pytest.mark.asyncio
+async def test_company_facts_bound_provider_work_during_background_stale_refresh(monkeypatch):
+    pending = []
+    gate = asyncio.Event()
+    running = 0
+    peak = 0
+
+    async def fetch_facts(symbol):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await gate.wait()
+        running -= 1
+        return {"symbol": symbol}
+
+    async def stale_module(**kwargs):
+        pending.append(asyncio.create_task(kwargs["fetcher"]()))
+        return {"symbol": kwargs["key"].split(":")[-1]}, True, 60, "memory", True
+
+    monkeypatch.setattr(market_insights, "fetch_market_company_facts", fetch_facts)
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", stale_module)
+    result = await market_insights.get_market_company_facts(
+        "owner", "AAPL,MSFT,NVDA,GOOG,AMZN,META,TSLA,AVGO", "owner"
+    )
+    gate.set()
+    await asyncio.gather(*pending)
+    assert len(result["facts"]) == 8
+    assert peak == 4
+    assert all(row["stale"] for row in result["facts"].values())
+
+
+@pytest.mark.asyncio
+async def test_sector_periods_use_distinct_observed_session_closes(monkeypatch):
+    async def histories(symbols):
+        return {
+            symbols[0]: [{"t": 1791849600 + day * 86400, "p": 100 + day * 2} for day in range(6)]
+        }
+
+    monkeypatch.setattr(market_insights, "fetch_market_session_history", histories)
+    rows, status = await market_insights._fetch_sector_rotation_snapshot("public", None)
+    assert status == "partial"
+    assert rows[0]["change_pct"] == pytest.approx((110 / 108 - 1) * 100)
+    assert rows[0]["change_1w_pct"] == pytest.approx(10)
+    assert rows[0]["period_start_1d"] != rows[0]["period_start_1w"]
+    assert rows[0]["basis"] == "Sector ETF price return"
+
+
+@pytest.mark.asyncio
+async def test_stock_history_closed_backfill_cache_fences_and_stale_fallback(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from api.routes.kai import price_history
+    from hushh_mcp.market_data.ports import bind_market_data_provider
+
+    now = [datetime.fromisoformat("2026-07-19T16:00:00+00:00").timestamp()]
+    monkeypatch.setattr(cache_module.time, "time", lambda: now[0])
+    monkeypatch.setattr(market_insights, "time", lambda: now[0])
+    cache, store = MarketInsightsCache(), _FakeStore()
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    supported = {"exchange": "Nasdaq"}
+    monkeypatch.setattr(
+        price_history,
+        "get_symbol_master_service",
+        lambda: SimpleNamespace(get_ticker_metadata=lambda _: supported),
+    )
+
+    from tests.helpers.market_public_cache import RecordedHistoryProvider
+
+    provider = RecordedHistoryProvider(now)
+    with bind_market_data_provider(provider):
+        with pytest.raises(HTTPException) as error:
+            await price_history.get_stock_price_history("owner", "AAPL", "another-owner")
+        assert error.value.status_code == 403
+        supported["exchange"] = "NSE"
+        with pytest.raises(HTTPException) as error:
+            await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert error.value.status_code == 422 and provider.calls == []
+        supported["exchange"] = "Nasdaq"
+        first, second = await asyncio.gather(
+            *[price_history.get_stock_price_history("owner", "AAPL", "owner") for _ in range(2)]
+        )
+        assert len(provider.calls) == 1 and provider.calls[0].operation == "daily_history"
+        assert first["points"] == second["points"] and not first["unavailable"]
+        assert first["currency"] == "USD" and first["interval"] == "1d"
+        assert list(store.entries) == ["stock_history:v1:AAPL:1mo"]
+        # Monday before opening retains Sunday's backfill; cold L1 also reuses L2.
+        now[0] = datetime.fromisoformat("2026-07-20T13:29:00+00:00").timestamp()
+        monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+        cached = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert cached["cached"] and cached["retrieved_at"] == first["retrieved_at"]
+        assert len(provider.calls) == 1
+        for edge in ("2026-07-20T13:30:00+00:00", "2026-07-20T20:01:00+00:00"):
+            now[0] = datetime.fromisoformat(edge).timestamp()
+            refreshed = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+            assert not refreshed["stale"]
+        assert len(provider.calls) == 3
+        # Next opening fails: keep actual saved points and provenance, not a new stamp.
+        now[0] = datetime.fromisoformat("2026-07-21T13:30:00+00:00").timestamp()
+        provider.fail = True
+        fallback = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert (
+            fallback["stale"] and fallback["cached"] and fallback["points"] == refreshed["points"]
+        )
+        assert (
+            fallback["source"] == refreshed["source"]
+            and fallback["retrieved_at"] == refreshed["retrieved_at"]
+        )
+        unavailable = await price_history.get_stock_price_history("owner", "MSFT", "owner")
+        assert (
+            unavailable["unavailable_reason"] == "provider_unavailable"
+            and unavailable["points"] == []
+        )
+
+
+def test_daily_snapshot_keeps_only_real_observations():
+    from hushh_mcp.market_data.history import daily_history_snapshot
+    from hushh_mcp.market_data.ports import MarketDataUnavailable
+
+    points = [
+        {"t": 3, "p": 230},
+        {"t": 2, "p": 231},
+        {"t": 3, "p": 232},
+        {"t": 4, "p": float("nan")},
+        {"t": True, "p": 5},
+        {"t": 5, "p": -1},
+    ]
+    assert daily_history_snapshot(points, source="recorded")["points"] == [
+        {"t": 2.0, "p": 231.0},
+        {"t": 3.0, "p": 232.0},
+    ]
+    with pytest.raises(MarketDataUnavailable, match="insufficient_observations"):
+        daily_history_snapshot(points[:1], source="recorded")

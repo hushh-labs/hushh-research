@@ -1,10 +1,28 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel, Field
+import logging
+from typing import Any, Literal
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, validator
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, get_rate_limit_key, limiter
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one", tags=["Connections"])
 
@@ -14,10 +32,27 @@ def _service() -> ConnectionsService:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    if isinstance(exc, ConnectionsError):
+    if isinstance(
+        exc,
+        (ConnectionsError, DirectoryIdentityUnavailableError, ActorIdentitySyncUnavailableError),
+    ):
+        # Expected, and already carries a code the client can act on.
         return HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
         )
+    # Everything else was invisible.
+    #
+    # Every route on this surface funnels unexpected failures through here and
+    # returned a bare 500 with nothing written down, so accepting a connection
+    # failed three times in a row and left no trace at all -- the request log
+    # showed `500 server_error` and the application log showed nothing. The
+    # person sees "That didn't go through. Try again.", retries, and produces
+    # another silent 500.
+    #
+    # The response body stays deliberately opaque: this surface deals in who
+    # knows whom, and an exception string can carry user ids or SQL. The
+    # traceback goes to the log, where it belongs.
+    logger.exception("connections_request_failed error=%s", type(exc).__name__)
     return HTTPException(status_code=500, detail="Connections request failed.")
 
 
@@ -38,25 +73,248 @@ class LinkCircleInviteBody(BaseModel):
     peer_user_id: str
 
 
+class UpdateVoicePreferencesBody(BaseModel):
+    share_scopes_from_last_request: bool
+
+
+class ContactSyncLookup(BaseModel):
+    lookup_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+    last4: str = Field(..., min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
+
+
+class ContactSyncBody(BaseModel):
+    lookups: list[ContactSyncLookup] = Field(default_factory=list, max_length=1000)
+    # Initial signup recovery must never undo a person's explicit disconnect.
+    context: Literal["explicit", "signup"] = "explicit"
+
+    @validator("lookups")
+    def unique_lookup_proofs(cls, lookups: list[ContactSyncLookup]) -> list[ContactSyncLookup]:
+        lookup_ids = [lookup.lookup_id for lookup in lookups]
+        proofs = [(lookup.hash.lower(), lookup.last4) for lookup in lookups]
+        if len(lookup_ids) != len(set(lookup_ids)) or len(proofs) != len(set(proofs)):
+            raise ValueError("Contact-sync lookup ids and proofs must be unique.")
+        return lookups
+
+
+def _directory_daily_budget_key(request: Request) -> str:
+    # Refreshing the visible directory must not consume deliberate search's
+    # daily allowance. Both modes remain bounded, with one shared minute cap.
+    mode = "search" if request.query_params.get("query", "").strip() else "browse"
+    return f"{get_rate_limit_key(request)}:directory:{mode}"
+
+
+def _directory_daily_limit(key: str) -> str:
+    # slowapi passes the bucket key built above, so the budget follows the mode.
+    if key.endswith(":directory:browse"):
+        return RateLimits.ONE_CONNECT_DIRECTORY_BROWSE_DAILY
+    return RateLimits.ONE_CONNECT_DIRECTORY_READ_DAILY
+
+
 @router.get("/connections/directory")
+@limiter.limit(
+    _directory_daily_limit,
+    key_func=_directory_daily_budget_key,
+)
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
 def connections_directory(
-    query: str = Query(default=""),
+    request: Request,
+    # Bounded like the information-scope search below it. A name is short; an
+    # unbounded query string is just an unbounded LIKE pattern to build.
+    query: str = Query(default="", max_length=160),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    # Which half of the directory to page through. Defaults to "all", so every
+    # caller that predates the advisor split keeps the list it already had.
+    audience: str = Query(default="all", pattern="^(all|people|ria)$"),
+    name_only: bool = Query(default=False),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    del request
+    try:
+        return _service().search_directory(
+            firebase_uid,
+            query=query,
+            page=page,
+            limit=limit,
+            audience=audience,
+            name_only=name_only,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/mutuals")
+@limiter.limit(_directory_daily_limit, key_func=_directory_daily_budget_key)
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
+def list_mutual_connections(
+    request: Request,
+    response: Response,
+    person_ref: UUID = Query(...),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    del request
+    response.headers["Cache-Control"] = "private, no-store"
     try:
-        return _service().search_directory(firebase_uid, query=query, page=page, limit=limit)
+        return _service().list_mutual_connections_page(
+            firebase_uid,
+            person_ref=str(person_ref),
+            page=page,
+            limit=limit,
+        )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
 
 @router.get("/connections")
-def list_connections(firebase_uid: str = Depends(require_firebase_auth)):
+def list_connections(
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    query: str | None = Query(default=None, max_length=160),
+    audience: str | None = Query(default=None, pattern="^(all|ria)$"),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
     try:
-        return {"items": _service().list_connections(firebase_uid)}
+        response.headers["Cache-Control"] = "private, no-store"
+        service = _service()
+        if all(value is None for value in (page, limit, query, audience)):
+            # Compatibility contract: the old no-parameter route remains the
+            # complete array until every caller has migrated to pagination.
+            return {"items": service.list_connections(firebase_uid)}
+        return service.list_connections_page(
+            firebase_uid,
+            page=page or 1,
+            limit=limit or 50,
+            query=query or "",
+            audience=audience or "all",
+        )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
+
+
+@router.get("/connect/voice-preferences")
+def get_connect_voice_preferences(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        return {"preferences": _service().get_voice_preferences(user_id=firebase_uid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.patch("/connect/voice-preferences")
+def update_connect_voice_preferences(
+    body: UpdateVoicePreferencesBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return {
+            "preferences": _service().update_voice_preferences(
+                user_id=firebase_uid,
+                share_scopes_from_last_request=body.share_scopes_from_last_request,
+            )
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+def _log_contact_sync_result(
+    result: dict[str, Any], lookup_count: int, candidate_count: int
+) -> None:
+    # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
+    # trailing digits, contact name, or response item from this boundary.
+    logger.info(
+        "contact_sync.completed lookup_count=%s candidate_count=%s "
+        "matched_count=%s auto_connected_count=%s "
+        "already_connected_count=%s request_required_count=%s suppressed_count=%s "
+        "indeterminate_count=%s",
+        lookup_count,
+        candidate_count,
+        int(result.get("matchedCount") or 0),
+        int(result.get("autoConnectedCount") or 0),
+        int(result.get("alreadyConnectedCount") or 0),
+        int(result.get("requestRequiredCount") or 0),
+        int(result.get("suppressedCount") or 0),
+        len(result.get("indeterminateLookupIds") or []),
+    )
+
+
+@router.post("/connections/contact-sync")
+@limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH_DAILY)
+@limiter.limit(RateLimits.CONTACT_DISCOVERY_MATCH)
+async def sync_contacts(
+    request: Request,
+    body: ContactSyncBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Match and safely project contact-sourced mutual connections."""
+    del request
+    lookups = [lookup.dict() for lookup in body.lookups]
+    if not lookups:
+        return {
+            "checkedLookupCount": 0,
+            "matchedCount": 0,
+            "autoConnectedCount": 0,
+            "alreadyConnectedCount": 0,
+            "requestRequiredCount": 0,
+            "suppressedCount": 0,
+            "indeterminateLookupIds": [],
+            "items": [],
+        }
+    service = _service()
+    try:
+        sync_started_at = await run_in_threadpool(service.begin_contact_sync)
+        # Authentication background work runs after the response. Guarantee
+        # the requester's verified account evidence is ready in this request too,
+        # so a first contact-sync tap cannot fail merely because no earlier
+        # authenticated response finished its warmup yet.
+        verified_email = await ActorIdentityService().sync_contact_sync_requester_from_firebase(
+            firebase_uid
+        )
+        requester_verification = (
+            {"verified_requester_email": verified_email} if verified_email else {}
+        )
+        # Charge before querying the discovery index. This is intentionally a
+        # Postgres authority rather than an in-process limiter so production
+        # remains bounded across Cloud Run instances without paid Redis infra.
+        await run_in_threadpool(
+            service.reserve_contact_sync_lookup_budget,
+            firebase_uid,
+            len(lookups),
+            **requester_verification,
+        )
+        matches = await RIAIAMService().match_one_network_contact_lookups_exact(
+            firebase_uid,
+            phone_lookups=lookups,
+        )
+        result = await run_in_threadpool(
+            lambda: service.sync_contact_matches(
+                firebase_uid,
+                phone_lookups=lookups,
+                matches=matches,
+                sync_started_at=sync_started_at,
+                allow_reconnect=body.context != "signup",
+                **requester_verification,
+            )
+        )
+        _log_contact_sync_result(result, len(lookups), len(matches))
+        return result
+    except IAMSchemaNotReadyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "IAM_SCHEMA_NOT_READY", "message": "Contact sync is unavailable."},
+        ) from exc
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
+        raise _handle(exc) from None
+    except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
+        # SQLAlchemy includes bound parameters in exception text/tracebacks.
+        # Even a failed proof query must not persist lookup ids, hashes, or
+        # phone digits through the generic connections exception logger.
+        logger.error("contact_sync.failed error=%s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Contact sync failed.") from None
 
 
 @router.get("/connections/{counterpart_user_id}/scope-catalog")
@@ -70,12 +328,25 @@ def connection_scope_catalog(
         raise _handle(exc) from exc
 
 
+@router.get("/connections/{counterpart_user_id}/context")
+def connection_person_context(
+    counterpart_user_id: str = Path(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().get_person_context(firebase_uid, counterpart_user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/connections/{counterpart_user_id}/information-scopes")
 def connection_information_scope_catalog(
     counterpart_user_id: str = Path(..., min_length=1, max_length=128),
     query: str = Query(default="", max_length=160),
     domain: str = Query(default="", max_length=80),
-    limit: int = Query(default=20, ge=1, le=50),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    catalog_revision: str = Query(default="", max_length=64),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -84,7 +355,9 @@ def connection_information_scope_catalog(
             counterpart_user_id,
             query=query,
             domain=domain,
+            page=page,
             limit=limit,
+            catalog_revision=catalog_revision,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -168,13 +441,34 @@ def accept_connection_request(
         raise _handle(exc) from exc
 
 
+class RejectConnectionRequestBody(BaseModel):
+    """Optional. ``block`` also stops the sender from requesting this person again.
+
+    ``report_reason`` reports the request and its message to the Hussh team
+    (Google Play user-generated content policy) and always blocks.
+    """
+
+    block: bool = False
+    report_reason: (
+        Literal["spam", "harassment", "inappropriate", "impersonation", "other"] | None
+    ) = None
+
+
 @router.post("/connections/requests/{request_id}/reject")
 def reject_connection_request(
     request_id: str = Path(...),
+    payload: RejectConnectionRequestBody | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
-        return {"result": _service().reject_request(firebase_uid, request_id)}
+        return {
+            "result": _service().reject_request(
+                firebase_uid,
+                request_id,
+                block=bool(payload and payload.block),
+                report_reason=payload.report_reason if payload else None,
+            )
+        }
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

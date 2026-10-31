@@ -39,6 +39,16 @@ Define canonical scope families and template policy for Investor + RIA consent r
 8. `source_library` is a reserved owner-managed capability boundary, not a
    shareable PKM scope. Every `attr.source_library.*` form is non-discoverable,
    non-requestable, non-issuable, and non-authorizing.
+9. `wallet` is a reserved owner-managed PKM domain that is deliberately
+   shareable, unlike `source_library`: exactly two branch wildcards,
+   `attr.wallet.summary.*` (nickname, brand, last4, expiry, issuing
+   region) and `attr.wallet.secrets.*` (PAN and cardholder
+   name), are externally requestable, and every grant is an explicit owner
+   approval delivered through the encrypted-export path. The domain wildcard,
+   exact-path scopes, and public projection stay closed. Natural-language
+   structuring can never invent or repurpose the domain, and scope display
+   metadata carries a `reserved` indicator so chat and consent surfaces render
+   reserved-domain grants distinctly from ordinary dynamic ones.
 
 ### Source Library object-share boundary
 
@@ -50,7 +60,37 @@ recipient can access the target. Publication and revocation complete only when
 the deterministic filesystem operation succeeds and the resulting artifact
 state is reconciled.
 
+### Finance connection object sharing
+
+Finance sharing uses a curated recipient-encrypted object and an opaque grant
+reference in Messages, separately from `attr.*` scopes. It does not reopen raw
+financial accounts, holdings, transactions, provider records or source artifacts.
+The owner confirms exact sections, selected stocks, dollar visibility, lifetime,
+and an independent default-off model-processing permission for each recipient.
+Snapshot contents are immutable. Ongoing publication replaces only the approved
+projection from the same account/source roster while the owner client is open
+and unlocked. A changed roster requires a new review; it never silently expands
+access. Every read and update rechecks the connection, blocks, recipient key,
+expiry and revocation. Stopping one grant does not stop another recipient.
+
+One accepts shared Finance only after an explicit recipient review action and
+a fresh owner-permission and exact-revision/digest check. Its existing shared
+context boundary prevents tools and memory writes from that turn. Later model
+context and history redact derived turns when access ends or the shared revision
+changes. Private pods read the same authority through nonce-bound signed metadata
+feeds; financial contents are supplied by the recipient only for the review.
+Already copied or previously displayed information cannot be recalled.
+
 ## Display Metadata Contract
+
+Request creation and approval resolve each exact scope through the same canonical
+catalog, including wildcard versus leaf handle provenance, visibility and
+materialization. Commerce approval uses the caller's existing transaction and
+locks; it must not maintain a second SQL interpretation or accept either of two
+different handles. This check applies to free requests as well as paid requests.
+A changed scope or recipient requires a renewed request; failure never authorizes
+an export. Chat and Feed preserve the same authored recovery message while hiding
+raw provider and database errors.
 
 Consent UIs and MCP discovery surfaces should not hand-author labels for dynamic scopes.
 Scope presentation resolves from:
@@ -77,6 +117,50 @@ Origin metadata is diagnostic only. Authorization continues to use the exact can
 scope string, token, grant, registry handle, and consent policy. Existing `attr.*` strings
 and handles are never renamed to insert the origin code. Retired and unknown values remain
 non-authorizing.
+
+### Unavailable versus empty discovery
+
+Manifest-backed discovery must not translate a failed authority read into an
+empty catalog. `DynamicScopeGenerator.get_available_scope_entries` raises
+`ScopeCatalogUnavailableError` when its metadata reads fail; the Connections
+adapter exposes a retryable `INFORMATION_CATALOG_UNAVAILABLE` error (HTTP 503).
+Profile and Chat must describe this as an unsuccessful check, not as the owner
+having no requestable information. A successful catalog read may legitimately
+return no entries after private, internal-only, and exposure rules are applied.
+Neither failure nor emptiness permits relaxing those rules or approving an export.
+
+## Exact encrypted export projection
+
+An approved `attr.*` export keeps the requested machine scope unchanged. Missing
+paths must fail with recoverable feedback; substring or keyword similarity must
+never substitute a different stored field. Domain-wide exports still intersect
+the manifest's externalizable paths with eligible leaves and internal-key
+exclusions before client-side projection and encryption.
+
+Manifest collection markers (`_items` and `_entities`) are path grammar, not
+ordinary field names. Catalog normalization must preserve them so discovery and
+browser-side export traverse the same structure. They never authorize private
+children or bypass the current exposure rules. Safe diagnostics report stages
+and counts only, not scope paths, identities, keys, or decrypted values.
+
+Private or disabled registry sections suppress a domain wildcard; an
+authoritative catalog filtered to empty must not fall back to legacy index
+wildcards. Export preparation rereads current manifest posture. Array projections
+retain item positions, raw private entity keys remain excluded, and a formerly
+scalar leaf that is now a container requires new review rather than sharing its
+subtree. Canonical spelling may resolve to one original key, never to an
+ambiguous collision or a semantically similar field.
+
+### Consumer selection of broad scopes
+
+Profile and Chat may offer a domain or branch wildcard only when the current
+catalog returned that exact eligible scope. Selecting the whole branch is one
+request for that wildcard, not additional requests for every covered child.
+Selecting a narrower child off removes any selected wildcard that would still
+include it. Coverage is determined from server-supplied domain, hierarchy and
+wildcard metadata, never from opaque reference text or a display label. Review
+must call out that a wildcard covers the whole eligible area; approval and
+encrypted export still recheck current manifest exposure.
 
 ## Template Catalog (V1)
 
@@ -116,6 +200,25 @@ Consent and audit metadata for these scopes may include actor ids, request ids,
 grant ids, duration, timestamps, status, and reason codes. It must not include
 coordinates, addresses, map previews, or movement traces.
 
+Standing auto-approval is off by default and names either all currently
+eligible Location contacts or one explicit Circle. The first-party client may
+pre-screen pending requests for responsiveness, but that snapshot is not
+authority. When it submits an automatic approval, the backend verifies that the
+request arrived after the standing rule was enabled, then revalidates the
+requester against the named relationship scope under the same lock that writes
+the grant. An active contact-sync connection is evaluated by the same
+`all_contacts` rule as an active request-accepted connection; the pre-existing
+standing rule and the later location request remain the authority, while the
+connection alone grants no location access. Every approval declares `manual`
+or `automatic`; missing intent is
+rejected so an older automatic client cannot fall through to the manual path.
+A Circle rule is limited to an active, person-created Circle owned by
+the approving user. A relationship removed before the mutation, a pre-existing
+request, or a partial rule fails closed and leaves the request pending. Manual
+owner approval remains a separate explicit-consent path and may answer a direct
+request from a new person. A standing rule never approves `until_stopped`;
+ongoing access always requires an explicit owner decision.
+
 ## One Nearby Presence Capability Scopes
 
 Nearby presence is short-lived workflow state, separate from
@@ -137,6 +240,38 @@ posture, status, and expiry metadata. Plaintext coordinates, exact distance,
 provider place ids, place labels, roster contents, email, phone, and stable
 public user ids are forbidden in nearby-presence persistence, logs, analytics,
 and audit metadata. Peer responses expose none of the encrypted anchor fields.
+
+### One Place Rating Capability Scopes
+
+| Scope | Intended Use |
+| --- | --- |
+| `cap.location.place_rating.publish` | Save the caller's own 1–5 star rating for a place they were recorded at |
+| `cap.location.place_rating.discover` | Read an anonymous per-place average that meets the publication threshold |
+| `cap.location.place_rating.revoke` | Delete the caller's rating and remove it from the average |
+
+**A narrow, named exception to the paragraph above.** A rating cannot exist
+without a durable link between a person and a venue, which nearby presence
+exists to prevent. Rather than leave the contract and the schema disagreeing,
+the exception is stated here and bounded to two tables:
+
+- `one_location_nearby_visits` may hold the provider place id and place label
+  **only inside AES-256-GCM ciphertext**, owner-bound by AAD exactly as the
+  presence anchor is, alongside a server-keyed equality token. Rows expire and
+  are purged. This table also carries the check-in continuity anchor, which the
+  presence row deliberately destroys on checkout.
+- `one_location_place_ratings` may hold a **plaintext** provider place id and
+  place label, permanently. A row is created only when its author accepts
+  `one-location-place-rating-v1`, a named consent that says in words that being
+  at the place is what makes them eligible to rate it.
+
+Everything else in the paragraph above is unchanged, and this exception grants
+nothing further: a rating is private to its author, no read projection may
+return an author identifier of any kind next to a place id, review text is
+never stored server-side, and the only cross-user projection is an anonymous
+count and average, withheld below the publication threshold and reported in
+buckets so that polling cannot recover an individual rating by subtraction.
+Places in health, worship, legal, funeral and shelter categories never carry a
+public average at all.
 
 ### Capability token enforcement
 
@@ -197,6 +332,7 @@ replace specialist scopes or PKM/data scopes.
 | --- | --- |
 | `cap.one.invoke` | Create or resume an Agent One task; grants no private-data read or mutation authority |
 | `agent.kai.analyze` | Invoke Kai for finance, portfolio, market, and RIA/investor analysis |
+| `agent.wallet.manage` | Invoke the Cards specialist for storing, listing, and revealing wallet cards; control-plane only, never a `wallet` data read |
 | `agent.nav.review` | Invoke Nav for privacy, consent, vault, deletion, and scope-review guidance |
 | `agent.kyc.process` | Invoke KYC for identity workflow state and approval-gated KYC processing |
 
@@ -207,6 +343,52 @@ work. First-party in-app compatibility paths may still carry `vault.owner`
 through the token hierarchy; do not use that pattern for external, vendor,
 network, or cross-process specialist boundaries. See
 [Agent Delegation Boundary](./agent-delegation-boundary.md).
+
+## Consent Lifecycle From Agent Chat
+
+One can run the person-to-person lifecycle from chat on the same service
+layer the REST routes use (`hushh_mcp/services/consent_lifecycle_service.py`,
+`information_request_service.py`), never on a second copy of a ledger write.
+
+| Step | Chat surface | Guard |
+|---|---|---|
+| Discover | `discover_person_information` (connections, then the directory) | VAULT_OWNER re-validated; labels and opaque `psr_` refs only |
+| Propose | `propose_information_request(person, fields, purpose, duration_hours)` parks a proposal under an opaque id | fields matched by label or domain; 8 to 500 character purpose; 1 to 720 hours. When every matched item already waits in an open request to the same person it returns `already_pending` with `bundleId` and a `livingCard` descriptor, parks nothing and carries no `proposed` list (which would render a fresh Send); items already waiting are dropped from a partial proposal |
+| Request | `consent.request` with the proposal id | the app's confirmation card authorizes it; the proposal is re-resolved server-side, and the idempotency key is minted from the proposal id so a redelivered directive resolves to the same bundle |
+| Pending | `list_pending_information_requests` | the browser renders each id in `pendingRequestIds` as the existing pending-consent card. For a person-to-person bundle those are the waiting items' ledger request ids: the Consent Center group id `bundle:<uuid>` resolves to nothing (`consent.pending_lookup found=0`, localhost run 4). `cardsShown` is false when no id can be shown, and One then never says a card is on screen |
+| Approve | the owner's tap on that card | never a tool: the export is encrypted under the vault key in the owner's browser |
+| Deny | `consent.deny` with the `requestId` that listing returned | same ledger write as `/api/consent/pending/deny` |
+| What I am sharing | `list_active_grants` parks each live grant under an opaque `g<n>` handle | the raw scope and request id stay server-side; labels only |
+| Revoke | `consent.revoke` with that `g<n>` handle | `_resolved_directive_slots` expands the handle; same ledger write as `/api/consent/revoke` |
+| What I asked for | `list_my_outgoing_information_requests` parks each open sent request under an opaque `r<n>` handle, newest first | bundle ids never reach the model |
+| Cancel | `consent.cancel_request` with that `r<n>` handle, or none at all for the most recent | same write as `/api/one/information-requests/{bundle}/cancel` |
+
+**The app's confirmation card is the authorization, and nothing else is.** All
+four `consent.*` actions are members of `_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS`,
+so each one parks a browser directive through the directive ledger and runs only
+after the person taps the confirmation the app renders. `run_app_action` deletes a
+model-supplied `confirmed` slot before dispatch: a model reporting that it heard a
+yes is not authority. Because of that, One is instructed to read back what it is
+about to do and then run the action, never to collect a spoken yes and then hand
+over to a card that asks the same question again.
+
+`BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS` still exists but is a compatibility seam
+over the service layer, not a pattern to copy, and is no longer executable for
+these ids: `_run_backend_direct_action` returns `blocked` for a ledger-governed id
+and `_execute_backend_direct_mutation` raises rather than run one.
+
+Execution lives in `hushh-webapp/components/agent/global-consent-action-handlers.tsx`,
+mounted app-wide from `hushh-webapp/app/providers.tsx` inside `VaultProvider`
+(the vault key is needed to mint the connector a request is encrypted to). That
+global mount is why the lifecycle completes in the conversation from any screen
+rather than linking out to one. A ledger-governed consent action with no mounted
+handler is not a safe no-op but a dead end, so a test reads the frontend tree and
+fails if any of the four lacks one.
+
+The model never sees a raw `attr.*` scope, a token, or a bundle id: the ids these
+listings return are handles to repeat back to a tool, not identifiers for a person
+or the model to hold. One is told to say nothing was sent, denied, withdrawn, or
+revoked until the action result says so.
 
 ## Duration Policy
 

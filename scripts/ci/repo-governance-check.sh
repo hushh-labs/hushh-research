@@ -7,37 +7,102 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Fail fast on source ownership and modularity before expensive controller/docs checks.
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py --self-test
+python3 .agents/skills/repo-context/scripts/architecture_fitness.py --self-test
+python3 .agents/skills/repo-context/scripts/architecture_fitness.py --baseline docs/reference/quality/architecture-fitness-baseline.json --limit 20
+
 python3 scripts/ci/verify-pr-governance-sections.py
 python3 scripts/ci/verify-protected-pipeline-edits.py
 python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
+python3 scripts/ci/verify-protected-behavior-tests.py
+python3 scripts/ci/verify-protected-behavior-tests.py --self-test
+python3 scripts/ci/live-memory-source-gate.py
+python3 scripts/ci/live-memory-source-gate.py --self-test
+python3 scripts/ci/test_live_memory_pr_context.py
+python3 scripts/ci/test_github_security_authority.py
+python3 scripts/ci/test_github_security_receipt.py
 python3 scripts/ci/verify-pr-base-policy.py --self-test
+python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
+python3 scripts/ci/test_verify_deployment_environment_governance.py
+python3 scripts/ci/test_readiness_exam_workflow.py
+python3 scripts/ci/test_release_cadence.py
+python3 scripts/ci/test_release_cadence_qualification.py
+python3 scripts/ci/test_uat_exact_ci.py
+python3 scripts/ci/test_release_cadence_maintenance.py
+python3 scripts/ci/test_release_cadence_monitor.py
+python3 scripts/ci/test_release_cadence_checkpoint.py
+bash scripts/ci/verify-protocol-ci-parity.sh --self-test
+python3 scripts/ci/test_protocol_manifest_transport.py
+python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
+python3 scripts/ci/test_cloudrun_retention.py
+python3 scripts/ci/test_uat_per_revision_drain.py
+python3 scripts/ci/test_pending_uat_retention_state.py
+python3 scripts/ci/test_retention_preflight_checkpoint.py
+python3 scripts/ci/test_retention_preparing.py
+python3 scripts/ci/test_retention_preflight_evidence.py
+python3 scripts/ci/test_retention_production_evidence.py
+python3 scripts/ci/test_retention_uat_guard_evidence.py
+python3 scripts/ci/test_wait_uat_capacity.py
+python3 scripts/ci/test_runtime_capacity_budget.py
+python3 scripts/ci/test_runtime_capacity_inventory.py
+python3 scripts/ci/test_runtime_capacity_volume.py
+python3 scripts/ci/test_runtime_capacity_isolated.py
+python3 scripts/ci/test_runtime_capacity_route_secrets.py
+python3 scripts/ci/test_production_capacity_bridge.py
+python3 scripts/ci/test_production_capacity_recovery.py
+python3 scripts/ci/test_verify_passkey_domain_associations.py
+python3 scripts/ci/test_verify_prod_places_readiness.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
+# Base Freshness Gate is bounded on PRs into main; this proves it still blocks
+# a stale merge-base or a file main changed after the tested base, and that
+# block mode (merge queue, integration/pr-train) still fails any lag.
+python3 scripts/ci/test_check_main_sync.py
+# The web lanes run as matrices (targeted node/browser legs, Vitest shards);
+# this proves the split still runs every pack, shard and verifier exactly once.
+python3 scripts/ci/test_ui_contract_gate.py
+python3 scripts/ci/test_web_ci_lane_partition.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
+# The offline half of the deploy-identity comparison: does the record that declares
+# who may mint a production deploy token still say what it must? Runs everywhere
+# because it needs no cloud. The live half needs IAM read, which the deploy lane's
+# federated identity deliberately does not have, so it runs from the setup script
+# instead -- with the operator credential that can genuinely see.
+python3 scripts/ci/verify-deploy-identity-provenance.py --record-only
+python3 scripts/ci/test_verify_deploy_identity_provenance.py
+python3 scripts/ci/test_private_native_artifact.py
+node --test scripts/release/dispatch-ios-appstore.test.mjs
+node --test scripts/release/dispatch-android-playstore.test.mjs
+python3 scripts/ci/test_resolve_ios_build_number.py
+# PR Validation only restores the Next.js and Swift package caches; main saves
+# them under the keys the PR lanes look up.
+python3 scripts/ci/test_ci_cache_scopes.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check
 python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py --self-test
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
-python3 .codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --check
-python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
-python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test
-python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
-python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py
-python3 .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
-python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
-python3 .claude/skills/codex-bridge/scripts/route.py --check
-python3 .claude/skills/codex-bridge/scripts/test_route_hook.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
+python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py
+python3 .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py
+python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
+python3 .agents/routing/scripts/route.py --check
+python3 .agents/routing/scripts/test_route_requests.py
 # Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.
 # Offline and fast. The origin-restriction half of this skill needs gcloud and
 # stays out of CI on purpose — run it from the skill before a release.
-bash .claude/skills/client-env-parity/check.sh
+bash .agents/skills/client-env-parity/check.sh
 ./bin/hushh db verify-release-contract
 ./bin/hushh db report-prod-posture
+
+# Every secret bound by deploy/backend.cloudbuild.yaml must be passed by each
+# deploy lane, or recorded as a deliberate omission. An unrecorded gap ships a
+# service missing that environment variable with no error anywhere.
+python3 scripts/ci/check-deploy-secret-coverage.py

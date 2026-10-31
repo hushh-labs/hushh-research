@@ -74,7 +74,6 @@ export const PluginParams = {
     USE_REMOTE_LLM: "useRemoteLLM",
     PREFERRED_LLM_PROVIDER: "preferredLLMProvider",
     REQUIRE_BIOMETRIC_UNLOCK: "requireBiometricUnlock",
-    AUTO_LOCK_TIMEOUT: "autoLockTimeout",
     THEME: "theme",
     HAPTIC_FEEDBACK: "hapticFeedback",
     SHOW_DEBUG_INFO: "showDebugInfo",
@@ -97,6 +96,8 @@ export const PluginNames = {
   SETTINGS: "HushhSettings",
   KEYCHAIN: "HushhKeychain", // Note: iOS uses HushhKeystorePlugin class but jsName is HushhKeychain
   CONTACTS: "HushhContacts",
+  /** Apple system-surface adapter; intentionally unsupported on Android/web. */
+  VOICE_INVOCATION: "HushhVoiceInvocation",
 } as const;
 
 /**

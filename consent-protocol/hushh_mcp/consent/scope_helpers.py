@@ -56,17 +56,39 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     _AGENT_SCOPE_MAP = {
         "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
+        "agent.wallet.manage": ConsentScope.AGENT_WALLET_MANAGE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
         "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
         "agent.kyc.disclose.llm": ConsentScope.AGENT_KYC_DISCLOSE_LLM,
         "cap.location.live.share": ConsentScope.CAP_LOCATION_LIVE_SHARE,
         "cap.location.live.view": ConsentScope.CAP_LOCATION_LIVE_VIEW,
+        "cap.location.command.read": ConsentScope.CAP_LOCATION_COMMAND_READ,
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
+        # The nearby triple has existed in `ConsentScope` and in
+        # `capability_scopes()` since nearby check-in shipped, but never here --
+        # so every one of them raised `Unknown capability scope` the moment
+        # anything tried to resolve it. Declared but unresolvable is worse than
+        # absent: the scope reads as supported everywhere it is listed.
+        "cap.location.nearby.publish": ConsentScope.CAP_LOCATION_NEARBY_PUBLISH,
+        "cap.location.nearby.discover": ConsentScope.CAP_LOCATION_NEARBY_DISCOVER,
+        "cap.location.nearby.revoke": ConsentScope.CAP_LOCATION_NEARBY_REVOKE,
+        "cap.location.place_rating.publish": ConsentScope.CAP_LOCATION_PLACE_RATING_PUBLISH,
+        "cap.location.place_rating.discover": ConsentScope.CAP_LOCATION_PLACE_RATING_DISCOVER,
+        "cap.location.place_rating.revoke": ConsentScope.CAP_LOCATION_PLACE_RATING_REVOKE,
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
+        "cap.contact.discovery": ConsentScope.CAP_CONTACT_DISCOVERY,
+        # Pod data-door READ scopes (keyless pod reads a specialist through the
+        # hub broker). Declared here so they resolve; unresolvable-but-listed is
+        # worse than absent, the exact trap the nearby triple hit above.
+        "cap.email.inbox.view": ConsentScope.CAP_EMAIL_INBOX_VIEW,
+        "cap.calendar.events.view": ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
+        "cap.finance.connections.view": ConsentScope.CAP_FINANCE_CONNECTIONS_VIEW,
+        "cap.puppy.inference": ConsentScope.CAP_PUPPY_INFERENCE,
+        "cap.memory.provider.process": ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
@@ -164,6 +186,8 @@ def get_scope_display_metadata(scope: str) -> dict:
 
     # Dynamic attr.* scopes — resolve via DynamicScopeGenerator + domain contracts
     if generator.is_dynamic_scope(scope):
+        from hushh_mcp.consent.pkm_scope_policy import is_reserved_domain_scope
+
         display_info = generator.get_scope_display_info(scope)
         return {
             "label": display_info["display_name"],
@@ -171,6 +195,10 @@ def get_scope_display_metadata(scope: str) -> dict:
             or f"Access your {display_info['domain']} data",
             "icon_name": display_info["icon_name"],
             "color_hex": display_info["color_hex"],
+            # Owner-managed reserved domains (source_library, wallet)
+            # carry an explicit indicator so chat and consent surfaces never
+            # present a reserved grant as an ordinary dynamic-domain grant.
+            "reserved": is_reserved_domain_scope(scope),
         }
 
     # Static scope metadata
@@ -205,6 +233,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "brain",
             "color_hex": "#D4AF37",
         },
+        "agent.wallet.manage": {
+            "label": "Wallet Management",
+            "description": "Allow the Wallet agent to help you store, list, and reveal your cards on this device",
+            "icon_name": "credit-card",
+            "color_hex": "#B45309",
+        },
         "agent.nav.review": {
             "label": "Nav Scope Review",
             "description": "Allow Nav to review consent, privacy, vault, and scope decisions",
@@ -235,6 +269,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "map-pin",
             "color_hex": "#0F766E",
         },
+        "cap.location.command.read": {
+            "label": "Read Location command context",
+            "description": "Let your private agent read your connections, circles and Location settings to prepare this command; changing them still requires your approval",
+            "icon_name": "map",
+            "color_hex": "#0F766E",
+        },
         "cap.location.live.view": {
             "label": "View Live Location",
             "description": "Allow the approved recipient to fetch encrypted location envelopes",
@@ -259,17 +299,117 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "user-plus",
             "color_hex": "#0F766E",
         },
+        # Without these six, `describe_scope` falls through to the title-cased
+        # handle and the consent surface shows a person the string
+        # "Cap Location Nearby Publish" where a sentence belongs.
+        "cap.location.nearby.publish": {
+            "label": "Appear Nearby",
+            "description": "Show your first name to opted-in people at the same place, for up to two hours",
+            "icon_name": "radio",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.discover": {
+            "label": "See Who Is Nearby",
+            "description": "Read the list of opted-in people checked in at the same place as you",
+            "icon_name": "users-round",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.revoke": {
+            "label": "Check Out",
+            "description": "Stop appearing nearby and clear the place you checked in at",
+            "icon_name": "log-out",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.publish": {
+            "label": "Rate A Place",
+            "description": (
+                "Save your own star rating for a place you were recorded at. "
+                "Your rating is private to you and counts toward an anonymous average"
+            ),
+            "icon_name": "star",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.discover": {
+            "label": "See Place Ratings",
+            "description": "Read the anonymous average rating for a place, never who rated it",
+            "icon_name": "chart-no-axes-column",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.revoke": {
+            "label": "Delete Your Rating",
+            "description": "Remove your rating and take it out of the place's average",
+            "icon_name": "trash-2",
+            "color_hex": "#0F766E",
+        },
+        "cap.contact.discovery": {
+            "label": "Find People You Know",
+            "description": (
+                "Match your address book against Hussh accounts. "
+                "Phone numbers are hashed on your device and never stored"
+            ),
+            "icon_name": "users",
+            "color_hex": "#0F766E",
+        },
+        "cap.email.inbox.view": {
+            "label": "Read Your Email Summary",
+            "description": (
+                "Let your private agent read a summary of your inbox (senders, "
+                "subjects, dates) to answer email questions. Never reads message "
+                "bodies, never sends or changes mail"
+            ),
+            "icon_name": "mail",
+            "color_hex": "#0F766E",
+        },
+        "cap.calendar.events.view": {
+            "label": "Read Your Calendar",
+            "description": (
+                "Let your private agent read your upcoming events (titles and "
+                "times) to answer calendar questions. Never edits, creates, or "
+                "cancels events"
+            ),
+            "icon_name": "calendar",
+            "color_hex": "#0F766E",
+        },
+        "cap.finance.connections.view": {
+            "label": "Read Your Account Connections",
+            "description": (
+                "Let your private agent see which financial accounts are "
+                "connected and their sync status. Never reads balances, holdings, "
+                "or transactions, which stay locked in your vault"
+            ),
+            "icon_name": "link",
+            "color_hex": "#0F766E",
+        },
+        "cap.puppy.inference": {
+            "label": "Puppy One Inference",
+            "description": (
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            "icon_name": "cpu",
+            "color_hex": "#7C3AED",
+        },
+        "cap.memory.provider.process": {
+            "label": "Let Your Cloud Process Agent Memory",
+            "description": (
+                "Allow the memory service in your own cloud project to process what "
+                "your private agent remembers, so it can recall by meaning. Nothing "
+                "leaves your project; withdraw it here at any time"
+            ),
+            "icon_name": "brain",
+            "color_hex": "#0F766E",
+        },
     }
 
     meta = _STATIC_SCOPE_META.get(scope)
     if meta:
-        return meta
+        return {**meta, "reserved": False}
 
     return {
         "label": scope.replace(".", " ").replace("_", " ").title(),
         "description": f"Access: {scope}",
         "icon_name": None,
         "color_hex": None,
+        "reserved": False,
     }
 
 

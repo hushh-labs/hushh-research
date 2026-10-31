@@ -10,9 +10,41 @@
   },
   "actions": [
     {
+      "action_id": "profile.gmail.visit_merchant",
+      "label": "Visit merchant",
+      "meaning": "Opens the selected receipt merchant's reviewed official HTTPS homepage in an external browser, preserving the receipt detail sheet.",
+      "aliases": ["visit merchant", "visit merchant website"],
+      "search_keywords": ["merchant website"],
+      "reachability": {
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Receipts tab is selected",
+          "A receipt detail sheet is open",
+          "The selected merchant has a reviewed official homepage"
+        ]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "External browser activation stays in the selected receipt detail button's local handler.",
+        "intended_handler": "ReceiptMerchantVisit"
+      },
+      "control_ids": ["visit_receipt_merchant"],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/gmail-recent-receipts.tsx",
+        "lib/mail/receipt-merchant-registry.ts"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_receipts",
       "label": "Open Receipts Page",
-      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "meaning": "Opens Mail and restores saved receipts. Eligible connected and unlocked accounts check newer receipts automatically; unavailable processing has an explanation and settings action.",
       "aliases": ["open receipts", "open gmail receipts"],
       "search_keywords": ["receipts", "gmail receipts"],
       "reachability": {
@@ -41,14 +73,41 @@
         "backend_effects": [
           {
             "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
-            "effect": "Reads Gmail connector status on mount."
-          },
-          {
-            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
-            "effect": "Reads paginated receipt items."
+            "effect": "Refreshes Gmail connector status when needed; opening Mail does not scan receipts."
           }
         ]
       },
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.one_gmail_kyc",
+      "label": "Open Mail KYC",
+      "meaning": "Opens Mail directly on its KYC tab, where identity details for KYC replies are managed. Shows the connect entry when Gmail is not connected.",
+      "aliases": ["open kyc", "open mail kyc", "manage my identity details"],
+      "search_keywords": ["kyc", "identity", "mail kyc"],
+      "reachability": {
+        "routes": ["/one/gmail?workspace=kyc"],
+        "screens": ["gmail"],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to Gmail surface on its KYC tab if route is currently outside Gmail scope"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/gmail?workspace=kyc"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/gmail/gmail-page-client.tsx",
+        "components/gmail/gmail-receipts-page.tsx",
+        "components/gmail/mail-kyc-connect-entry.tsx"
+      ],
       "speaker_persona": "one"
     },
     {
@@ -87,7 +146,7 @@
     {
       "action_id": "profile.gmail.sync_now",
       "label": "Sync Gmail Receipts Now",
-      "meaning": "Queues and polls Gmail receipt sync run.",
+      "meaning": "Starts an explicit, bounded scan of receipts in the connected Gmail account after vault-owner validation.",
       "aliases": ["sync gmail receipts", "refresh gmail receipts"],
       "search_keywords": ["gmail sync", "refresh receipts"],
       "reachability": {
@@ -110,12 +169,8 @@
       "expected_effects": {
         "backend_effects": [
           {
-            "api": "POST /api/kai/gmail/sync (proxied)",
-            "effect": "Queues sync job."
-          },
-          {
-            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
-            "effect": "Polls sync run status."
+            "api": "POST /api/kai/gmail/receipts/scan (proxied)",
+            "effect": "Reads and validates a bounded page of owner-authorized Gmail receipts."
           }
         ]
       },
@@ -153,6 +208,86 @@
         ]
       },
       "speaker_persona": "nav"
+    },
+    {
+      "action_id": "profile.gmail.receipt_sync_details",
+      "label": "Receipt update details",
+      "meaning": "Explains actual receipt processing availability. Got it dismisses the explanation without changing connection, hosting or consent.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ]
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "ReceiptSyncToolbar"
+      },
+      "control_ids": [
+        "receipt_sync_details",
+        "receipt_sync_details_ack"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.gmail.restore_saved_receipts",
+      "label": "Open saved receipts again",
+      "meaning": "Retries bounded encrypted device restoration with current owner and vault authority. It does not enable an unavailable provider scan.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ]
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "retryReceiptRestore"
+      },
+      "control_ids": [
+        "restore_saved_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "speaker_persona": "one"
     }
-  ]
+  ],
+  "search": {}
 }

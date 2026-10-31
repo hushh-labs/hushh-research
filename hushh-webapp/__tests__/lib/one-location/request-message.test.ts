@@ -33,4 +33,11 @@ describe("buildOneLocationRequestMessage", () => {
     );
     expect(buildOneLocationRequestMessage(null, "   ")).toBeUndefined();
   });
+
+  it("uses the typed text directly when Other is selected", () => {
+    expect(buildOneLocationRequestMessage("Other", "Running late")).toBe(
+      "Running late",
+    );
+    expect(buildOneLocationRequestMessage("Other", "")).toBe("Other");
+  });
 });

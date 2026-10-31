@@ -1,0 +1,366 @@
+import { expect, test } from "@playwright/test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+import {
+  DURATION_COMPACT_CELL_CLASS,
+  DURATION_COMPACT_GRID_CLASS,
+  DURATION_CELL_CLASS,
+  DURATION_CELL_OFF_CLASS,
+  DURATION_CELL_ON_CLASS,
+} from "../components/one-location/redesign/duration-presets";
+import {
+  PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_SELECT_CLASSNAME,
+  PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
+  PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_ACTIONS_CLASSNAME,
+  SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+} from "../components/one-location/redesign/location-cta-layout";
+import {
+  LOCATION_HEADER_ACTIONS_CLASSNAME,
+  LOCATION_HUB_PAGE_HEADER_CLASSNAME,
+  LOCATION_HEADER_STATUS_CLASSNAME,
+} from "../components/one-location/redesign/location-header-layout";
+import { cn } from "../lib/utils";
+
+const WIDTHS = [320, 360, 393, 430, 600, 768, 1024] as const;
+const STATUS_LABELS = [
+  "Location on",
+  "Location off",
+  "Location blocked",
+] as const;
+
+const COMPACT_CELL_ON_CLASSNAME = cn(
+  DURATION_CELL_CLASS,
+  DURATION_COMPACT_CELL_CLASS,
+  DURATION_CELL_ON_CLASS,
+);
+const COMPACT_CELL_OFF_CLASSNAME = cn(
+  DURATION_CELL_CLASS,
+  DURATION_COMPACT_CELL_CLASS,
+  DURATION_CELL_OFF_CLASS,
+);
+
+async function buildFixture(): Promise<string> {
+  const webappRoot = process.cwd();
+  const { compile } = (await import(
+    path.join(webappRoot, "node_modules/tailwindcss/dist/lib.mjs")
+  )) as {
+    compile: (
+      css: string,
+      options: unknown,
+    ) => Promise<{ build: (classes: string[]) => string }>;
+  };
+
+  const compiler = await compile('@import "tailwindcss";', {
+    base: path.join(webappRoot, "node_modules"),
+    onDependency: () => {},
+    loadStylesheet: async (id: string, base: string) => {
+      const file =
+        id === "tailwindcss"
+          ? path.join(webappRoot, "node_modules/tailwindcss/index.css")
+          : path.resolve(base, id);
+      return {
+        path: file,
+        base: path.dirname(file),
+        content: fs.readFileSync(file, "utf8"),
+      };
+    },
+  });
+
+  const harnessClasses =
+    "p-4 p-5 mx-auto w-full max-w-[560px] flex items-center gap-3 h-11 w-11 " +
+    "min-w-0 flex-1 whitespace-nowrap text-[28px] font-semibold inline-flex justify-center h-8 w-[51px] rounded-full";
+  const classes = [
+    PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+    PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
+    PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+    SHARE_CONFIRM_ACTIONS_CLASSNAME,
+    SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+    PUBLIC_LINK_SELECT_CLASSNAME,
+    DURATION_COMPACT_GRID_CLASS,
+    COMPACT_CELL_ON_CLASSNAME,
+    COMPACT_CELL_OFF_CLASSNAME,
+    LOCATION_HEADER_ACTIONS_CLASSNAME,
+    LOCATION_HUB_PAGE_HEADER_CLASSNAME,
+    LOCATION_HEADER_STATUS_CLASSNAME,
+    harnessClasses,
+  ]
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const compactOptions = ["15 min", "1 hour", "Custom", "Until I stop"]
+    .map(
+      (label, index) =>
+        `<button data-share-option class="${index === 0 ? COMPACT_CELL_ON_CLASSNAME : COMPACT_CELL_OFF_CLASSNAME}">${label}</button>`,
+    )
+    .join("");
+  const headers = STATUS_LABELS.map(
+    (
+      label,
+    ) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
+      <div class="flex items-stretch gap-3 sm:gap-4">
+        <span class="h-11 w-11 shrink-0 self-center rounded-[10px]"></span>
+        <div class="min-w-0 flex-1">
+          <div data-slot="page-header-row" class="flex items-start justify-between gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div data-slot="page-header-copy" class="min-w-0 flex-1">
+              <h1 data-header-title class="whitespace-nowrap text-[28px] font-semibold">Location</h1>
+            </div>
+            <div data-slot="page-header-actions" class="flex w-auto shrink-0 flex-wrap items-center justify-end self-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center">
+              <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
+                <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
+                <button type="button" data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>`,
+  ).join("");
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "location-cta-layout-"));
+  fs.writeFileSync(path.join(dir, "fixture.css"), compiler.build(classes));
+  fs.writeFileSync(
+    path.join(dir, "fixture.html"),
+    `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="fixture.css">
+<style>${productFontStyle()}</style></head><body style="margin:0">
+<main class="p-4">
+  <section data-public-card class="mx-auto w-full max-w-[560px] p-4">
+    <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
+      <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
+        <p>Duration</p>
+        <button data-public-select class="${PUBLIC_LINK_SELECT_CLASSNAME} w-full border">1 hour</button>
+      </div>
+      <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
+    </div>
+  </section>
+  <section data-share-card class="mx-auto w-full max-w-[560px] p-5">
+    <div data-share-options class="${DURATION_COMPACT_GRID_CLASS}">${compactOptions}</div>
+  </section>
+  <div data-share-actions class="${SHARE_CONFIRM_ACTIONS_CLASSNAME}">
+    <button data-share-cta class="${SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Start sharing</button>
+  </div>
+  <div class="mx-auto w-full max-w-[560px]">${headers}</div>
+</main></body></html>`,
+  );
+  return `file://${path.join(dir, "fixture.html")}`;
+}
+
+test.describe("One Location compact CTA layout", () => {
+  for (const width of WIDTHS) {
+    test(`balances link, share and header controls at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1200 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const result = await page.evaluate(() => {
+        const box = (selector: string) =>
+          document
+            .querySelector<HTMLElement>(selector)!
+            .getBoundingClientRect();
+        const publicCard = box("[data-public-card]");
+        const publicCardPaddingLeft = Number.parseFloat(
+          getComputedStyle(
+            document.querySelector<HTMLElement>("[data-public-card]")!,
+          ).paddingLeft,
+        );
+        const publicControls = box("[data-public-controls]");
+        const publicDuration = box("[data-public-duration]");
+        const publicSelect = box("[data-public-select]");
+        const publicCta = box("[data-public-cta]");
+        const shareCard = box("[data-share-card]");
+        const shareOptions = box("[data-share-options]");
+        const shareCells = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-share-option]"),
+        ).map((node) => node.getBoundingClientRect());
+        const shareActions = box("[data-share-actions]");
+        const shareCta = box("[data-share-cta]");
+        const shareCtaBorderRadius = Number.parseFloat(
+          getComputedStyle(
+            document.querySelector<HTMLElement>("[data-share-cta]")!,
+          ).borderRadius,
+        );
+        const headers = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-header]"),
+        ).map((header) => {
+          const actions = header.querySelector<HTMLElement>(
+            "[data-header-actions]",
+          )!;
+          const status = header.querySelector<HTMLElement>(
+            "[data-header-status]",
+          )!;
+          const toggle = header.querySelector<HTMLElement>(
+            "[data-header-switch]",
+          )!;
+          const title = header.querySelector<HTMLElement>(
+            "[data-header-title]",
+          )!;
+          return {
+            header: header.getBoundingClientRect().toJSON(),
+            actions: actions.getBoundingClientRect().toJSON(),
+            toggle: toggle.getBoundingClientRect().toJSON(),
+            status: status.getBoundingClientRect().toJSON(),
+            statusClientWidth: status.clientWidth,
+            statusScrollWidth: status.scrollWidth,
+            statusClientHeight: status.clientHeight,
+            statusScrollHeight: status.scrollHeight,
+            titleClientWidth: title.clientWidth,
+            titleScrollWidth: title.scrollWidth,
+            title: title.getBoundingClientRect().toJSON(),
+          };
+        });
+        return {
+          publicCard: publicCard.toJSON(),
+          publicCardPaddingLeft,
+          publicControls: publicControls.toJSON(),
+          publicControlsPaddingLeft: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-public-controls]")!,
+            ).paddingLeft,
+          ),
+          publicControlsPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-public-controls]")!,
+            ).paddingRight,
+          ),
+          publicDuration: publicDuration.toJSON(),
+          publicSelect: publicSelect.toJSON(),
+          publicCta: publicCta.toJSON(),
+          shareCard: shareCard.toJSON(),
+          shareCardPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-share-card]")!,
+            ).paddingRight,
+          ),
+          shareOptions: shareOptions.toJSON(),
+          shareCells: shareCells.map((value) => value.toJSON()),
+          shareActions: shareActions.toJSON(),
+          shareCta: shareCta.toJSON(),
+          shareCtaBorderRadius,
+          headers,
+          overflow:
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        };
+      });
+
+      expect(result.overflow).toBeLessThanOrEqual(1);
+
+      // The form shares the row gutter: it starts on the card's content edge
+      // and fills it up to the 420px cap, rather than floating centred.
+      expect(result.publicControls.width).toBeCloseTo(
+        Math.min(
+          420,
+          result.publicCard.width - result.publicCardPaddingLeft * 2,
+        ),
+        0,
+      );
+      expect(
+        Math.abs(
+          result.publicControls.left -
+            (result.publicCard.left + result.publicCardPaddingLeft),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(result.publicDuration.width).toBeCloseTo(
+        result.publicControls.width -
+          result.publicControlsPaddingLeft -
+          result.publicControlsPaddingRight,
+        0,
+      );
+      expect(
+        Math.abs(
+          result.publicDuration.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(result.publicSelect.height).toBeCloseTo(48, 0);
+      expect(result.publicSelect.width).toBeCloseTo(
+        result.publicDuration.width,
+        0,
+      );
+      expect(result.publicCta.height).toBeCloseTo(48, 0);
+      expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
+      expect(result.publicCta.width).toBeLessThanOrEqual(244);
+      expect(
+        Math.abs(result.publicCta.left - result.publicDuration.left),
+      ).toBeLessThanOrEqual(1);
+
+      expect(result.shareOptions.width).toBeCloseTo(
+        width < 640
+          ? result.shareCard.width - result.shareCardPaddingRight * 2
+          : 280,
+        0,
+      );
+      expect(
+        Math.abs(
+          result.shareOptions.left -
+            (result.shareCard.left + result.shareCardPaddingRight),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        new Set(result.shareCells.map((cell) => Math.round(cell.top))).size,
+      ).toBe(2);
+      for (const cell of result.shareCells) {
+        expect(cell.height).toBeGreaterThanOrEqual(44);
+        expect(
+          Math.abs(cell.width - result.shareCells[0].width),
+        ).toBeLessThanOrEqual(1);
+      }
+
+      expect(result.shareActions.width).toBeLessThanOrEqual(244.5);
+      expect(result.shareCta.width).toBeCloseTo(result.shareActions.width, 0);
+      expect(result.shareCta.height).toBeCloseTo(50, 0);
+      expect(result.shareCta.width).toBeCloseTo(244, 0);
+      expect(result.shareCtaBorderRadius).toBeGreaterThanOrEqual(
+        result.shareCta.height / 2,
+      );
+      if (width >= 430) {
+        expect(result.shareCta.width).toBeLessThan(result.shareCard.width - 30);
+      }
+
+      for (const header of result.headers) {
+        expect(header.actions.right).toBeLessThanOrEqual(
+          header.header.right + 1,
+        );
+        expect(header.toggle.left).toBeGreaterThanOrEqual(
+          header.actions.left - 1,
+        );
+        expect(header.toggle.right).toBeLessThanOrEqual(
+          header.actions.right + 1,
+        );
+        expect(header.statusScrollWidth).toBeLessThanOrEqual(
+          header.statusClientWidth + 1,
+        );
+        expect(header.statusScrollHeight).toBeLessThanOrEqual(
+          header.statusClientHeight + 1,
+        );
+        expect(header.titleScrollWidth).toBeLessThanOrEqual(
+          header.titleClientWidth + 1,
+        );
+        if (width >= 640) {
+          if (width >= 1024) {
+            expect(
+              header.header.right - header.actions.right,
+            ).toBeLessThanOrEqual(1);
+          } else {
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeGreaterThanOrEqual(16);
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeLessThanOrEqual(32);
+          }
+        }
+        expect(header.toggle.bottom).toBeLessThanOrEqual(header.status.top + 1);
+      }
+    });
+  }
+});

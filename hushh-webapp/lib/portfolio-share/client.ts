@@ -1,3 +1,7 @@
+import { formatCurrency, formatSignedCurrency, formatSignedPercent } from "@/lib/portfolio-share/format";
+import { drawPortfolioReportSummary, type PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+export type { PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+
 import { Capacitor } from "@capacitor/core";
 
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -28,22 +32,6 @@ const SNAPSHOT_COLORS = [
   "#8b5cf6",
   "#ec4899",
 ];
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatSignedCurrency(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
-}
-
-function formatSignedPercent(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
 
 function formatDateLabel(value: string): string {
   const parsed = new Date(value);
@@ -228,17 +216,7 @@ export function buildPortfolioSharePayloadFromDashboardModel(
           pct: Number(row.pct || 0),
         }));
 
-  const performanceHistory = model.history.slice(-24);
-  const performance =
-    performanceHistory.length > 0
-      ? performanceHistory.map((point) => ({
-          label: point.date,
-          value: Number(point.value || 0),
-        }))
-      : [
-          { label: "Start", value: Number(model.hero.beginningValue || 0) },
-          { label: "Current", value: Number(model.hero.endingValue || model.hero.totalValue || 0) },
-        ].filter((point) => point.value > 0);
+  const performance = model.history.slice(-24).map(point => ({ label: point.date, value: point.value }));
 
   return sanitizePortfolioSharePayload({
     schemaVersion: 1,
@@ -255,6 +233,15 @@ export function buildPortfolioSharePayloadFromDashboardModel(
 
 export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promise<Blob> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
+  // Canvas snapshots do not inherit the page's CSS font. Load the same
+  // self-hosted faces before painting so the exported text matches the app.
+  if (document.fonts) {
+    await Promise.all(
+      [400, 600, 700].map((weight) =>
+        document.fonts.load(`${weight} 24px "Plus Jakarta Sans"`),
+      ),
+    );
+  }
   const canvas = document.createElement("canvas");
   canvas.width = SNAPSHOT_WIDTH;
   canvas.height = SNAPSHOT_HEIGHT;
@@ -273,14 +260,14 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
   drawRoundedRect(ctx, 48, 46, SNAPSHOT_WIDTH - 96, 250, 30, "rgba(15, 23, 42, 0.82)");
 
   ctx.fillStyle = "#94a3b8";
-  ctx.font = "600 30px Manrope, system-ui, sans-serif";
+  ctx.font = "400 30px ui-monospace, Menlo, Consolas, monospace";
   ctx.fillText("PORTFOLIO SNAPSHOT", 84, 98);
 
   ctx.fillStyle = "#e2e8f0";
-  ctx.font = "700 72px Manrope, system-ui, sans-serif";
+  ctx.font = '600 72px "Plus Jakarta Sans", system-ui, sans-serif';
   ctx.fillText(formatCurrency(payload.portfolioValue), 84, 178);
 
-  ctx.font = "600 40px Manrope, system-ui, sans-serif";
+  ctx.font = '600 40px "Plus Jakarta Sans", system-ui, sans-serif';
   ctx.fillStyle = payload.dailyChangeValue >= 0 ? "#10b981" : "#fb7185";
   ctx.fillText(
     `${formatSignedCurrency(payload.dailyChangeValue)} (${formatSignedPercent(payload.dailyChangePct)})`,
@@ -290,7 +277,7 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
 
   drawRoundedRect(ctx, 48, 326, SNAPSHOT_WIDTH - 96, 430, 26, "rgba(15, 23, 42, 0.82)");
   ctx.fillStyle = "#cbd5e1";
-  ctx.font = "600 34px Manrope, system-ui, sans-serif";
+  ctx.font = '600 34px "Plus Jakarta Sans", system-ui, sans-serif';
   ctx.fillText("Top Holdings", 84, 380);
 
   const holdings = payload.topHoldings.slice(0, 5);
@@ -301,15 +288,15 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
     const barWidth = Math.max(40, (holding.value / holdingsMaxValue) * 520);
 
     ctx.fillStyle = "#e2e8f0";
-    ctx.font = "700 26px Manrope, system-ui, sans-serif";
+    ctx.font = '600 26px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(holding.symbol, 84, top);
 
     ctx.fillStyle = "#94a3b8";
-    ctx.font = "500 20px Manrope, system-ui, sans-serif";
+    ctx.font = '400 20px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(holding.name.slice(0, 36), 84, top + 26);
 
     ctx.fillStyle = "#cbd5e1";
-    ctx.font = "600 22px Manrope, system-ui, sans-serif";
+    ctx.font = '600 22px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(formatCurrency(holding.value), 710, top);
 
     ctx.fillStyle = "rgba(100, 116, 139, 0.25)";
@@ -319,7 +306,7 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
 
   drawRoundedRect(ctx, 48, 780, SNAPSHOT_WIDTH - 96, 490, 26, "rgba(15, 23, 42, 0.82)");
   ctx.fillStyle = "#cbd5e1";
-  ctx.font = "600 34px Manrope, system-ui, sans-serif";
+  ctx.font = '600 34px "Plus Jakarta Sans", system-ui, sans-serif';
   ctx.fillText("Allocation Mix", 84, 834);
 
   const allocation = prepareAllocationRows(payload.allocationMix.slice(0, 6), payload.portfolioValue);
@@ -328,15 +315,15 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
     const rowY = 886 + index * 62;
     const width = Math.max(24, Math.min(610, entry.pct * 6.1));
     ctx.fillStyle = "#e2e8f0";
-    ctx.font = "600 24px Manrope, system-ui, sans-serif";
+    ctx.font = '600 24px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(entry.label, 84, rowY);
 
     ctx.fillStyle = "#94a3b8";
-    ctx.font = "500 20px Manrope, system-ui, sans-serif";
+    ctx.font = '400 20px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(`${entry.pct.toFixed(1)}%`, 390, rowY);
 
     ctx.fillStyle = "#cbd5e1";
-    ctx.font = "500 20px Manrope, system-ui, sans-serif";
+    ctx.font = '400 20px "Plus Jakarta Sans", system-ui, sans-serif';
     ctx.fillText(formatCurrency(entry.value), 700, rowY);
 
     drawRoundedRect(ctx, 84, rowY + 14, 620, 12, 6, "rgba(100, 116, 139, 0.25)");
@@ -354,7 +341,7 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
   });
 }
 
-export async function generatePortfolioReportPdf(payloadInput: unknown): Promise<Blob> {
+export async function generatePortfolioReportPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<Blob> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -363,32 +350,7 @@ export async function generatePortfolioReportPdf(payloadInput: unknown): Promise
   const left = 44;
   const right = pageWidth - 44;
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(0, 0, pageWidth, doc.internal.pageSize.getHeight(), "F");
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(21);
-  doc.text("Portfolio Report", left, 56);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Generated ${new Date(payload.generatedAt).toLocaleString("en-US")}`, left, 74);
-
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(15, 23, 42);
-  doc.setFontSize(13);
-  doc.text("Portfolio Value", left, 108);
-  doc.setFontSize(28);
-  doc.text(formatCurrency(payload.portfolioValue), left, 138);
-  doc.setFontSize(12);
-  doc.setTextColor(payload.dailyChangeValue >= 0 ? "#059669" : "#dc2626");
-  doc.text(
-    `${formatSignedCurrency(payload.dailyChangeValue)} (${formatSignedPercent(payload.dailyChangePct)})`,
-    left,
-    160
-  );
+  drawPortfolioReportSummary(doc, payload, left, right, context);
 
   let y = 198;
   doc.setTextColor(15, 23, 42);
@@ -515,9 +477,9 @@ export async function sharePortfolioSnapshot(payloadInput: unknown): Promise<Sha
   );
 }
 
-export async function exportPortfolioPdf(payloadInput: unknown): Promise<ShareDelivery> {
+export async function exportPortfolioPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<ShareDelivery> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
-  const blob = await generatePortfolioReportPdf(payload);
+  const blob = await generatePortfolioReportPdf(payload, context);
   return deliverBlob(
     blob,
     `portfolio-report-${Date.now()}.pdf`,

@@ -1,5 +1,9 @@
 "use client";
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
+import { cn } from "@/lib/utils";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,14 +47,15 @@ export function WalletCardConfirmDialog({
         if (!busy) onOpenChange(next);
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent className={cn(profileStyles.accountDialog, destructive && profileStyles.dangerDialog, presentationStyles.walletDialog)}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{body}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel size="sm" disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            size="sm"
             variant={destructive ? "destructive" : "default"}
             disabled={busy}
             onClick={(event) => {

@@ -23,14 +23,13 @@ import {
   Star,
   Trophy,
   Medal,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import {
-  PieChart,
-  Pie,
   Cell,
   BarChart,
   Bar,
@@ -38,7 +37,6 @@ import {
   XAxis,
   YAxis,
   LabelList, // Added LabelList
-  Label,
 } from "recharts";
 import {
   ChartContainer,
@@ -47,6 +45,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
@@ -360,13 +360,13 @@ const RESULT_CHART_COLORS = {
 } as const;
 
 const DETAIL_PANEL_CLASSNAME =
-  "rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-4";
+  "border-t border-border py-4";
 const DETAIL_PANEL_COMPACT_CLASSNAME =
-  "rounded-xl border border-border/50 bg-[color:var(--app-card-surface-default-solid)] p-3";
+  "border-t border-border py-3";
 const DETAIL_PANEL_EMPHASIS_CLASSNAME =
-  "rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-compact)] p-5";
+  "border-t border-border py-4";
 const DETAIL_LABEL_CLASSNAME =
-  "text-[10px] font-semibold uppercase tracking-widest text-foreground/72 dark:text-foreground/76";
+  "text-xs font-medium leading-[18px] text-muted-foreground";
 
 const voteChartConfig = {
   bullish: {
@@ -451,11 +451,11 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tickLine={false}
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
-          <ChartTooltip cursor={false} content={renderVoteTooltip} />
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={renderVoteTooltip} />
           <ChartLegend content={<ChartLegendContent className="text-[11px] font-medium text-foreground/80 dark:text-foreground/80" />} />
-          <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
-          <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
-          <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ChartContainer>
     </ChartPanel>
@@ -490,9 +490,9 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
 
   return (
     <ChartPanel title="Consensus" icon={Target} accentClassName="text-amber-700 dark:text-amber-300">
-      <div className="space-y-3">
-        <div className="flex items-end justify-between gap-3">
-          <div>
+      <div className="space-y-3" data-consensus-summary>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-28 flex-1">
             <p className="text-2xl font-semibold tracking-tight text-foreground">{agreePct}%</p>
             <p className="text-xs text-muted-foreground">Agents align with the final call</p>
           </div>
@@ -500,7 +500,7 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
               Split
             </p>
-            <p className="text-sm font-semibold text-foreground">
+            <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-foreground">
               {agreeCount} agree / {dissentCount} dissent
             </p>
           </div>
@@ -601,7 +601,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
             axisLine={false}
             tickLine={false}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -617,7 +617,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
               />
             }
           />
-          <Bar
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             fill="var(--color-value)"
             radius={[0, 4, 4, 0]}
@@ -670,7 +670,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
             tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
             width={56}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -686,7 +686,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
               />
             }
           />
-          <Bar dataKey="value" radius={8} fill="var(--color-scenario)">
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" radius={8} fill="var(--color-scenario)">
             <LabelList
               dataKey="value"
               position="top"
@@ -698,88 +698,6 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
         </BarChart>
       </ChartContainer>
     </ChartPanel>
-  );
-}
-
-// NEW: Confidence Gauge (Semi-circle Pie)
-function ConfidenceGauge({ confidence }: { confidence: number }) {
-  const normalized = Number.isFinite(confidence)
-    ? Math.max(0, Math.min(1, confidence > 1 ? confidence / 100 : confidence))
-    : 0;
-  const score = Math.round(normalized * 100);
-  const tone =
-    score >= 70
-      ? RESULT_CHART_COLORS.positive
-      : score >= 40
-      ? RESULT_CHART_COLORS.primary
-      : RESULT_CHART_COLORS.negative;
-  const chartData = [
-    { key: "score", name: "Confidence", value: score, fill: "var(--color-score)" },
-    { key: "remaining", name: "Remaining", value: Math.max(0, 100 - score), fill: "var(--color-remaining)" },
-  ];
-  const confidenceChartConfig = {
-    score: {
-      label: "Confidence",
-      color: tone,
-    },
-    remaining: {
-      label: "Remaining",
-      color: "hsl(var(--muted))",
-    },
-  } satisfies ChartConfig;
-
-  return (
-    <div className="w-full">
-      <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
-        <PieChart>
-          <ChartTooltip
-            cursor={false}
-            content={<ChartTooltipContent hideLabel nameKey="name" />}
-          />
-          <Pie
-            data={chartData}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={52}
-            outerRadius={74}
-            strokeWidth={4}
-          >
-            <Cell fill="var(--color-score)" />
-            <Cell fill="var(--color-remaining)" />
-            <Label
-              content={({ viewBox }) => {
-                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                  return (
-                    <text
-                      x={viewBox.cx}
-                      y={viewBox.cy}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                    >
-                      <tspan
-                        x={viewBox.cx}
-                        y={viewBox.cy}
-                        className="fill-foreground text-3xl font-semibold tracking-tighter"
-                      >
-                        {score}%
-                      </tspan>
-                      <tspan
-                        x={viewBox.cx}
-                        y={(viewBox.cy || 0) + 18}
-                        className="fill-muted-foreground text-[10px] uppercase tracking-wider font-semibold"
-                      >
-                        Confidence
-                      </tspan>
-                    </text>
-                  );
-                }
-                return null;
-              }}
-            />
-          </Pie>
-        </PieChart>
-      </ChartContainer>
-    </div>
   );
 }
 
@@ -833,6 +751,9 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
   const isReduce = decisionPresentation.tone === "negative";
 
   const rawCard = result.raw_card;
+  const degraded = Boolean(result.analysis_degraded || rawCard?.analysis_degraded);
+  const degradedAgents = result.degraded_agents || rawCard?.degraded_agents || [];
+
   const pickSourceDisplayLabel = resolvePickSourceLabel(rawCard);
   const sources = useMemo(() => {
     const sourceList: StructuredSource[] = [];
@@ -880,7 +801,8 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
   // Fallback for empty/missing decision to prevent layout shift
   const safeDecision = decisionPresentation.label || "REVIEW";
-  const safeConfidence = result.confidence || 0;
+  const confidence = Number.isFinite(result.confidence) ? result.confidence : 0;
+  const confidencePercent = Math.round(Math.max(0, Math.min(1, confidence > 1 ? confidence / 100 : confidence)) * 100);
   const llmSynthesis = rawCard?.llm_synthesis;
   const synthesisDrivers = (llmSynthesis?.key_drivers || []).filter(Boolean).slice(0, 6);
   const synthesisRisks = (llmSynthesis?.key_risks || []).filter(Boolean).slice(0, 6);
@@ -900,22 +822,25 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </div>
           <Badge
             variant="outline"
-            className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+            className="border-transparent bg-transparent text-xs font-medium text-muted-foreground"
           >
-            COMPLETE
+            {degraded ? "Limited analysis" : "Complete"}
           </Badge>
         </div>
       </MorphyCardHeader>
       
       <MorphyCardContent>
-        <div className="space-y-6">
+        {degraded ? <p role="status" className="mb-3 text-sm text-muted-foreground">
+          Some source information or analysts were unavailable{degradedAgents.length ? `: ${degradedAgents.join(", ")}` : "."}
+        </p> : null}
+        <div className="space-y-4">
         
         {/* HERO SECTION: Decision + Badges */}
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
             
             {/* Renaissance Badge - Positioned prominently if exists */}
             {rawCard?.renaissance_tier && (
-                <div className="animate-in fade-in slide-in-from-top-2  delay-100">
+                <div className="animate-in fade-in slide-in-from-top-2">
                     <RenaissanceBadge tier={rawCard.renaissance_tier} score={rawCard.renaissance_score} />
                 </div>
             )}
@@ -923,25 +848,27 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-all duration-300 hover:scale-[1.02]",
+                "text-lg font-semibold tracking-normal",
                 isBuy
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
+                    ? "text-emerald-700 dark:text-emerald-400"
                     : isReduce
-                    ? "bg-red-500/10 border-red-500/20 text-red-500 shadow-red-500/10"
-                    : "bg-blue-500/10 border-blue-500/20 text-blue-500 shadow-blue-500/10"
+                    ? "text-red-700 dark:text-red-400"
+                    : "text-foreground"
                 )}
             >
                 {safeDecision}
             </div>
 
-            {/* Confidence Gauge - Replacing Linear Progress */}
-            <ConfidenceGauge confidence={safeConfidence} />
+            <span className="ml-auto text-sm text-muted-foreground">
+              <strong className="text-foreground">{confidencePercent}%</strong> confidence
+            </span>
         </div>
+        <p className="text-sm text-muted-foreground">{decisionPresentation.guidance}</p>
 
         <Separator className="bg-primary/10" />
 
         {pickSourceDisplayLabel ? (
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-default-solid)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-4">
             <Badge variant="outline" className="border-accent-border bg-transparent text-accent-strong">
               Debate source
             </Badge>
@@ -963,17 +890,6 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
         {/* KEY INSIGHTS SECTION */}
         <div className="space-y-3">
-            {/* Risk Persona Alignment */}
-            {rawCard?.risk_persona_alignment && (
-            <div className={DETAIL_PANEL_CLASSNAME}>
-                <div className="flex items-center gap-2 mb-2">
-                <Icon icon={Shield} size="sm" className="text-primary" />
-                <span className={DETAIL_LABEL_CLASSNAME}>Risk Alignment</span>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed">{rawCard.risk_persona_alignment}</p>
-            </div>
-            )}
-
             {/* Key Takeaway - Highlight the most important insight */}
             {rawCard?.fundamental_insight?.summary && (
             <div className={cn(DETAIL_PANEL_EMPHASIS_CLASSNAME, "relative overflow-hidden")}>
@@ -990,6 +906,22 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             </div>
             )}
         </div>
+
+        <Accordion type="multiple">
+          <AccordionItem value="rationale">
+            <AccordionTrigger>Rationale &amp; fundamentals</AccordionTrigger>
+            <AccordionContent className="space-y-3">
+            {/* Risk Persona Alignment */}
+            {rawCard?.risk_persona_alignment && (
+            <div className={DETAIL_PANEL_CLASSNAME}>
+                <div className="flex items-center gap-2 mb-2">
+                <Icon icon={Shield} size="sm" className="text-primary" />
+                <span className={DETAIL_LABEL_CLASSNAME}>Risk Alignment</span>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">{rawCard.risk_persona_alignment}</p>
+            </div>
+            )}
+
 
         {/* SECONDARY METRICS GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1087,6 +1019,11 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             <p className="text-sm font-medium leading-relaxed">{rawCard?.debate_digest || result.final_statement}</p>
         </div>
 
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="strategy">
+            <AccordionTrigger>Strategy, risks &amp; action plan</AccordionTrigger>
+            <AccordionContent className="space-y-3">
         {/* LLM SYNTHESIS */}
         {(llmSynthesis?.thesis || llmSynthesis?.horizon_fit || llmSynthesis?.error) && (
           <div className={cn(DETAIL_PANEL_EMPHASIS_CLASSNAME, "space-y-3")}>
@@ -1204,6 +1141,11 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </div>
         )}
 
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="evidence">
+            <AccordionTrigger>Debate evidence &amp; sources</AccordionTrigger>
+            <AccordionContent className="space-y-3">
         {/* DEBATE HIGHLIGHTS */}
         {debateHighlights.length > 0 && (
           <div className={cn(DETAIL_PANEL_CLASSNAME, "space-y-3")}>
@@ -1275,10 +1217,13 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </>
         )}
 
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
         {/* DISCLAIMER */}
         <div className="pt-4">
           <p className="text-[10px] text-muted-foreground/50 text-center leading-relaxed max-w-xs mx-auto">
-            Agent Kai is an educational tool and does not constitute investment advice. Always consult a qualified
+            Agent One is an educational tool and does not constitute investment advice. Always consult a qualified
             financial advisor.
           </p>
         </div>

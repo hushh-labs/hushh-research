@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PR_REVIEW_SCRIPT = REPO_ROOT / ".codex/skills/pr-governance-review/scripts/pr_review_checklist.py"
+PR_REVIEW_SCRIPT = REPO_ROOT / ".agents/skills/pr-governance-review/scripts/pr_review_checklist.py"
 OPERATOR_CONTRACT = (
-    REPO_ROOT / ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md"
+    REPO_ROOT / ".agents/skills/pr-governance-review/references/operator-batch-output-contract.md"
 )
 
 REQUIRED_OPERATOR_CONTRACT_SECTIONS = [
@@ -153,7 +153,7 @@ def main() -> int:
                         f"{PR_REVIEW_SCRIPT.relative_to(REPO_ROOT)}: `{lane}` PR note missing `{item}`"
                     )
 
-        comment_contract = REPO_ROOT / ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
+        comment_contract = REPO_ROOT / ".agents/skills/pr-governance-review/references/comment-and-report-contract.md"
         if not comment_contract.exists():
             errors.append(
                 f"missing PR comment/report contract: {comment_contract.relative_to(REPO_ROOT)}"

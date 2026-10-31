@@ -3,7 +3,7 @@
 **Date:** 2026-07-10
 **Type:** Research + design (findings doc — no code)
 **Repo:** `hushh-research` monorepo (`consent-protocol/` = Python/FastAPI backend + agents; `hushh-webapp/` = Next.js frontend + Capacitor iOS)
-**Status:** Audit complete → ranked proposals → recommended first increment
+**Status:** Historical audit. The custom stream described below was retired on 2026-08-27; Agent One now uses the canonical AG-UI endpoint and ADK-native delegation.
 **Decisions locked with product (2026-07-10):** consent posture = **confirm-before-write**; first-increment ambition = **full parity** (LLM tool-loop like Location).
 
 ---
@@ -12,8 +12,8 @@
 
 ```mermaid
 flowchart LR
-  bar["Agent One chat bar"] --> stream["POST /api/kai/agent/chat/stream"]
-  stream --> classify["classify_specialist_domain"]
+  bar["Agent One chat bar"] --> stream["POST /api/one/agent-chat"]
+  stream --> classify["ADK semantic routing"]
   classify --> conn["agent_connections (A2A)"]
   conn --> chat["ConnectionsChatService"]
   chat --> svc["ConnectionsService + /api/one/connections routes"]
@@ -70,11 +70,11 @@ app/providers.tsx
 **Frontend send path:**
 - UI submit `handleSubmit` (`agent-chat-workspace.tsx:3505`) → `runAgentTurn` (`:2203`) → `streamAgentChat` (`:2926`).
 - Client wrapper `lib/services/agent-chat-client.ts:131` → `ApiService.streamAgentChat` (`:146`).
-- HTTP: `POST /api/kai/agent/chat/stream` (SSE) — `lib/services/api-service.ts:2790`. Body carries `delegateAgentId` / `delegateResult` (`api-service.ts:2786-2787`).
+- HTTP: `POST /api/one/agent-chat` accepts standard AG-UI `RunAgentInput`. ADK owns semantic delegation and AG-UI interruption/resume; there are no custom `delegateAgentId` or `delegateResult` transport switches.
 - (`app/api/one/[...path]/route.ts:36` is the JSON proxy for *other* One routes; chat streaming uses the `kai` proxy.)
 
 **Backend runtime dispatch:**
-- Entry: `consent-protocol/api/routes/kai/agent_chat.py` (line 301) `@router.post("/agent/chat/stream")` → `stream_agent_chat(...)` (lives under the `kai` route module but is the Agent One runtime). A non-streaming sibling path also lands in this module (`resolve_delegate_target` at `agent_chat.py:143`).
+- Historical entry (retired 2026-08-27): the custom Kai-namespaced stream was replaced by the canonical AG-UI endpoint at `consent-protocol/api/routes/one/agent_chat.py`.
 - Delegate selection precedence (`agent_chat.py:312-329`): (1) explicit `delegate_result` `:321`; (2) explicit `delegate_agent_id` `:324`; (3) keyword classifier `:326-327` → `resolve_delegate_target` (`:143`) → `classify_specialist_domain` (`:150`) → gate on `is_wired_specialist` (`:160`, fail-closed).
 - **The router** is a keyword table: `consent-protocol/hushh_mcp/agents/orchestrator/tools.py` (line 150) `classify_specialist_domain`, driven by `_SPECIALIST_ROUTES` (`tools.py:31-190`).
 - **Dispatch seam:** `a2a_dispatch(delegate_agent_id, task)` (`agent_chat.py:400`), streamed back via `specialist_result_to_frames` (`:163`, `:448`). Registry: `adk_bridge/dispatch.py:26` `dispatch()` over `_REGISTRY` (`:15`); `is_wired_specialist` (`:22`). Contract: `adk_bridge/contract.py` (`A2ATask:14`, `SpecialistTurnResult:36`).

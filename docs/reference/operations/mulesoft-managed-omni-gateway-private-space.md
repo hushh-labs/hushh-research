@@ -27,9 +27,14 @@ downstream CRM path is public.
 - `OMNIGATEWAY_CLIENT_ID` and `OMNIGATEWAY_CLIENT_SECRET` are Secret Manager
   values injected into the backend runtime. They authenticate Hussh to Omni
   Gateway as `client_id` and `client_secret` request headers.
+- The external CRM route uses isolated `OMNIGATEWAY_EXT_CRM_CLIENT_ID` and
+  `OMNIGATEWAY_EXT_CRM_CLIENT_SECRET` headers so rotating that integration
+  cannot break the shared gateway route.
 - Each active CRM row in `enterprise_crm_registry` holds encrypted CRM
-  credential fields. MuleSoft-managed rows forward those opaque values to the
-  gateway as tool arguments; Hussh never logs or decrypts them in that path.
+  credential fields. A `managed` connection leaves CRM credential resolution
+  inside MuleSoft. A `dynamic_registry` connection decrypts the bundle only in
+  backend memory and supplies the exact registered values as private tool
+  arguments. Neither profile exposes credentials to the browser or logs them.
 - The generic CRM adapter uses Streamable HTTP MCP. A valid session performs
   `initialize`, retains the returned `Mcp-Session-Id`, then calls `tools/list`
   or the declared tool. No CRM records are needed to prove the handshake.
@@ -65,7 +70,7 @@ update/delete success result through an explicit `isError: false` transport
 policy plus a post-mutation readback.
 
 Hussh maps the public field catalogue with the manifest-owned
-`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.6-flash`. It
+`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.7-flash`. It
 receives only object and field metadata, not CRM records, verified profile
 values, identifiers, credentials, consent material, or vault material. Its
 validated result is cached by schema fingerprint for 24 hours. A mapping failure

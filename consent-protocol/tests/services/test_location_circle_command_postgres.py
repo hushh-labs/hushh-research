@@ -1,0 +1,662 @@
+"""Exercise the existing Circle writers with real command authority and locks."""
+
+import asyncio
+import json
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import text
+
+from hushh_mcp.services import location_command_effect_receipts as receipts
+from hushh_mcp.services import one_location_circle_service as circle_service_module
+from hushh_mcp.services.location_circle_command import circle_effect_terms
+from hushh_mcp.services.one_location_circle_service import (
+    OneLocationCircleError,
+    OneLocationCircleService,
+)
+from tests.services.test_location_command_postgres import db as db  # noqa: F401
+from tests.services.test_location_command_postgres import ready, sms_schema
+
+ACTIONS = [
+    "rename_circle",
+    "remove_from_circle",
+    "leave_circle",
+    "delete_circle",
+    "accept_circle_invite",
+    "decline_circle_invite",
+]
+
+
+@pytest.mark.parametrize(
+    "provenance,admitted",
+    [
+        (None, False),
+        ({}, False),
+        ({"addedVia": "connection", "addedBy": "owner"}, False),
+        ({"addedVia": "unknown", "addedBy": "owner"}, False),
+        ({"addedVia": "direct_add", "addedBy": "other"}, False),
+        ([{"addedVia": "direct_add", "addedBy": "owner"}], False),
+        ({"addedVia": "direct_add", "addedBy": "owner"}, True),
+    ],
+)
+def test_trusted_roster_requires_owner_authored_admission(db, monkeypatch, provenance, admitted):
+    service, binding = circle_fixture(db, monkeypatch, "remove_from_circle")
+    circle_id = binding["circleId"]
+    # The real presentation migration also evolves this adjacent chat table.
+    # Roster readers consume its Circle photo column, not chat content.
+    db.execute_raw("CREATE TABLE circle_chat_messages(id UUID PRIMARY KEY)")
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    db.execute_raw((migrations / "266_circle_chat_presentation.sql").read_text())
+    db.execute_raw("""
+        ALTER TABLE actor_identity_cache ADD COLUMN phone_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE actor_profiles ADD COLUMN public_person_ref TEXT;
+        CREATE TABLE ria_profiles(user_id TEXT, verification_status TEXT);
+        CREATE TABLE one_location_recipient_keys(user_id TEXT, key_id TEXT, public_key_jwk JSONB,
+          algorithm TEXT, status TEXT, created_at TIMESTAMPTZ);
+        UPDATE one_location_circles SET system_kind='trusted';
+    """)
+    db.execute_raw(
+        """UPDATE one_location_circle_memberships SET metadata=CAST(:metadata AS JSONB)
+           WHERE circle_id=CAST(:circle AS UUID) AND user_id='other'""",
+        {
+            "circle": circle_id,
+            "metadata": json.dumps(provenance),
+        },
+    )
+
+    def read_roster(viewer):
+        assert service.get_circle_overview(user_id=viewer, circle_id=circle_id)["memberCount"] == 2
+        assert len(service.get_circle(user_id=viewer, circle_id=circle_id)["members"]) == 2
+        assert (
+            service.list_circle_members_page(user_id=viewer, circle_id=circle_id)["totalCount"] == 2
+        )
+
+    assert len(service.list_circles(user_id="owner")) == 1
+    read_roster("owner")
+    if admitted:
+        assert len(service.list_circles(user_id="other")) == 1
+        read_roster("other")
+    else:
+        assert service.list_circles(user_id="other") == []
+        for reader in (
+            service.get_circle,
+            service.get_circle_overview,
+            service.list_circle_members_page,
+        ):
+            with pytest.raises(OneLocationCircleError) as error:
+                reader(user_id="other", circle_id=circle_id)
+            assert error.value.code == "LOCATION_CIRCLE_NOT_FOUND"
+    # Ordinary Circle admission is unchanged, even without Trusted provenance.
+    db.execute_raw("UPDATE one_location_circles SET system_kind=NULL")
+    assert len(service.list_circles(user_id="other")) == 1
+    read_roster("other")
+
+
+def test_disconnect_preserves_unrelated_rosters_in_real_sql(db, monkeypatch):
+    sms_schema(db)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    db.execute_raw((migrations / "158_one_location_circle_member_limit_100.sql").read_text())
+    db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('third')")
+    service = OneLocationCircleService(db=db, hmac_key="synthetic-circle-key")
+    # These tails have separate coverage. Keep the membership update and
+    # code/invitation cleanup real; no transport or grant fixture is required.
+    monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_, **__: None)
+    monkeypatch.setattr(
+        service.__class__, "_reconcile_circle_sourced_grants", lambda *_, **__: None
+    )
+    monkeypatch.setattr(
+        service.__class__, "_cleanup_ineligible_sms_contacts", lambda *_, **__: None
+    )
+    with db.engine.begin() as conn:
+        circles = {}
+        for name, owner, members in (
+            ("shared", "third", ("owner", "other")),
+            ("unrelated_a", "third", ("owner",)),
+            ("unrelated_b", "third", ("other",)),
+            ("owned", "owner", ("other",)),
+            ("former", "third", ("owner", "other")),
+        ):
+            circle_id = service.create_circle_in_transaction(conn, owner_user_id=owner, name=name)
+            circles[name] = circle_id
+            for member in members:
+                conn.execute(
+                    text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+                  VALUES(CAST(:circle AS UUID),:member,'member','active')"""),
+                    {"circle": circle_id, "member": member},
+                )
+        conn.execute(
+            text("""UPDATE one_location_circle_memberships SET status='left'
+          WHERE circle_id=CAST(:circle AS UUID) AND user_id='other'"""),
+            {"circle": circles["former"]},
+        )
+        ended = service.end_memberships_for_disconnected_pair(
+            conn, user_a_id="owner", user_b_id="other"
+        )
+        assert {(row["circleId"], row["userId"]) for row in ended} == {
+            (circles["shared"], "owner"),
+            (circles["shared"], "other"),
+            (circles["owned"], "other"),
+        }
+        statuses = {
+            (str(row.circle_id), row.user_id): row.status
+            for row in conn.execute(
+                text("SELECT circle_id,user_id,status FROM one_location_circle_memberships")
+            )
+        }
+        assert statuses[(circles["unrelated_a"], "owner")] == "active"
+        assert statuses[(circles["unrelated_b"], "other")] == "active"
+        assert statuses[(circles["owned"], "owner")] == "active"
+        assert statuses[(circles["former"], "owner")] == "active"
+        assert (
+            service.end_memberships_for_disconnected_pair(
+                conn, user_a_id="owner", user_b_id="other"
+            )
+            == []
+        )
+
+
+@pytest.mark.parametrize("reverse_status", [None, "removed", "left", "active"])
+def test_trusted_removal_only_ends_an_active_reverse_membership(db, monkeypatch, reverse_status):
+    service, binding = circle_fixture(db, monkeypatch, "remove_from_circle")
+    circle_id = binding["circleId"]
+    db.execute_raw("UPDATE one_location_circles SET system_kind='trusted'")
+    with db.engine.begin() as conn:
+        counterpart = service.create_circle_in_transaction(
+            conn, owner_user_id="other", name="Other circle"
+        )
+        conn.execute(
+            text("""UPDATE one_location_circles SET system_kind='trusted'
+                    WHERE id=CAST(:circle AS UUID)"""),
+            {"circle": counterpart},
+        )
+        if reverse_status is not None:
+            conn.execute(
+                text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+                  VALUES(CAST(:circle AS UUID),'owner','member',:status)"""),
+                {"circle": counterpart, "status": reverse_status},
+            )
+
+    service.remove_member(owner_user_id="owner", circle_id=circle_id, member_user_id="other")
+
+    rows = db.execute_raw(
+        "SELECT circle_id,user_id,status FROM one_location_circle_memberships"
+    ).data
+    statuses = {(str(row["circle_id"]), row["user_id"]): row["status"] for row in rows}
+    assert statuses[(circle_id, "other")] == "removed"
+    assert statuses[(circle_id, "owner")] == "active"
+    assert statuses[(counterpart, "other")] == "active"
+    expected_reverse = "removed" if reverse_status == "active" else reverse_status
+    assert statuses.get((counterpart, "owner")) == expected_reverse
+    # A reverse no-op must not relax the primary membership boundary.
+    with pytest.raises(OneLocationCircleError) as error:
+        service.remove_member(owner_user_id="owner", circle_id=circle_id, member_user_id="missing")
+    assert error.value.code == "LOCATION_CIRCLE_MEMBER_NOT_FOUND"
+    assert db.execute_raw("SELECT status FROM connections").data[0]["status"] == "active"
+
+
+def circle_fixture(db, monkeypatch, action):
+    sms_schema(db)
+    db.execute_raw("""
+        UPDATE connections SET user_a_id='other',user_b_id='owner';
+        ALTER TABLE connection_requests ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid();
+        CREATE TABLE connection_scope_proposals(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          connection_request_id UUID NOT NULL REFERENCES connection_requests(id), status TEXT NOT NULL DEFAULT 'pending',
+          expires_at TIMESTAMPTZ NOT NULL,resolved_at TIMESTAMPTZ);
+        CREATE TABLE connection_scope_proposal_events(id BIGSERIAL PRIMARY KEY,
+          connection_scope_proposal_id UUID NOT NULL REFERENCES connection_scope_proposals(id),
+          event_type TEXT NOT NULL,actor_user_id TEXT,reason TEXT);
+    """)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for name in (
+        "138_circle_member_connection_origin.sql",
+        "158_one_location_circle_member_limit_100.sql",
+        "159_one_location_circle_invite_max_uses_100.sql",
+    ):
+        db.execute_raw((migrations / name).read_text())
+    # Only delivery transports are replaced; mutation/cleanup/receipt SQL stays real.
+    from hushh_mcp.services import push_notifications
+
+    monkeypatch.setattr(
+        push_notifications, "send_circle_member_invite_accepted_push", lambda **_: None
+    )
+    monkeypatch.setattr(
+        OneLocationCircleService, "_notify_invite_declined", staticmethod(lambda **_: None)
+    )
+    monkeypatch.setattr(
+        OneLocationCircleService, "_notify_membership_end", staticmethod(lambda **_: None)
+    )
+    service = OneLocationCircleService(db=db, hmac_key="synthetic-circle-key")
+    circle_owner = (
+        "other"
+        if action in {"leave_circle", "accept_circle_invite", "decline_circle_invite"}
+        else "owner"
+    )
+    with db.engine.begin() as conn:
+        circle_id = service.create_circle_in_transaction(
+            conn, owner_user_id=circle_owner, name="Goa"
+        )
+    binding = {
+        "owner": "owner",
+        "action": f"location.{action}",
+        "circleId": circle_id,
+        "circleName": "Goa",
+    }
+    if "invite" in action:
+        invitation = db.execute_raw(
+            """INSERT INTO one_location_circle_member_invites(circle_id,inviter_user_id,invitee_user_id,expires_at)
+          VALUES(CAST(:circle AS UUID),'other','owner',NOW()+INTERVAL '1 day') RETURNING id,created_at,expires_at""",
+            {"circle": circle_id},
+        ).data[0]
+        binding.update(
+            inviteId=str(invitation["id"]),
+            inviterId="other",
+            inviteCreatedAt=invitation["created_at"].isoformat(),
+            inviteExpiresAt=invitation["expires_at"].isoformat(),
+        )
+    else:
+        binding["circleUpdatedAt"] = (
+            db.execute_raw(
+                "SELECT updated_at FROM one_location_circles WHERE id=CAST(:circle AS UUID)",
+                {"circle": circle_id},
+            )
+            .data[0]["updated_at"]
+            .isoformat()
+        )
+        if action == "rename_circle":
+            binding["newName"] = "Goa trip"
+        else:
+            member = "owner" if action == "leave_circle" else "other"
+            joined = db.execute_raw(
+                """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+              VALUES(CAST(:circle AS UUID),:member,'member','active') RETURNING joined_at""",
+                {"circle": circle_id, "member": member},
+            ).data[0]["joined_at"]
+            if action == "delete_circle":
+                binding["roster"] = [
+                    {
+                        "userId": row["user_id"],
+                        "role": row["role"],
+                        "joinedAt": row["joined_at"].isoformat(),
+                    }
+                    for row in db.execute_raw(
+                        "SELECT user_id,role,joined_at FROM one_location_circle_memberships"
+                    ).data
+                ]
+            else:
+                binding.update(memberId=member, joinedAt=joined.isoformat())
+    return service, binding
+
+
+async def claim(db, monkeypatch, binding):
+    ledger, _, _, args = await ready(db)
+    monkeypatch.setattr(receipts, "ActionDirectiveStore", lambda: ledger)
+    action = binding["action"]
+    args.update(action={"action_id": action, "execution_policy": "confirm_required"}, slots={})
+    issued = await ledger.issue_command(**args)
+    confirmation = await ledger.confirm(
+        directive_id=issued["directive_id"],
+        user_id="owner",
+        action_id=action,
+        context_revision="context",
+        session_id="command",
+        trusted_activation=True,
+    )
+    result = await ledger.claim_command(
+        **args,
+        confirmation_receipt=confirmation.receipt,
+        effect_request_hmac=ledger._hmac([action, circle_effect_terms(action, binding)]),
+    )
+    return {"command_operation_id": result["operation_id"], "command_binding": binding}
+
+
+def execute(service, binding, command):
+    action = binding["action"].removeprefix("location.")
+    if action == "rename_circle":
+        return service.update_circle(
+            owner_user_id="owner", circle_id=binding["circleId"], name=binding["newName"], **command
+        )
+    if action == "remove_from_circle":
+        return service.remove_member(
+            owner_user_id="owner",
+            circle_id=binding["circleId"],
+            member_user_id=binding["memberId"],
+            **command,
+        )
+    if action == "leave_circle":
+        return service.leave_circle(user_id="owner", circle_id=binding["circleId"], **command)
+    if action == "delete_circle":
+        return service.delete_circle(
+            owner_user_id="owner", circle_id=binding["circleId"], **command
+        )
+    if action == "accept_circle_invite":
+        return service.accept_member_invite(
+            user_id="owner", invite_id=binding["inviteId"], **command
+        )
+    return service.decline_member_invite(user_id="owner", invite_id=binding["inviteId"], **command)
+
+
+def snapshot(db):
+    return {
+        table: db.execute_raw(f"SELECT * FROM {table} ORDER BY 1,2").data
+        for table in (
+            "one_location_circles",
+            "one_location_circle_memberships",
+            "one_location_circle_member_invites",
+            "one_location_circle_invite_codes",
+            "connections",
+            "connection_origins",
+            "one_location_share_grants",
+            "one_location_sms_contacts",
+            "one_location_events",
+        )
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ACTIONS)
+async def test_real_circle_writers_commit_once_and_replay_after_authority_expires(
+    db, monkeypatch, action
+):
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    first, second = await asyncio.gather(
+        *[asyncio.to_thread(execute, service, binding, command) for _ in range(2)]
+    )
+    assert first == second
+    assert first["operationReceipt"]["circle_id"] == binding["circleId"]
+    expected = dict(
+        zip(ACTIONS, ["renamed", "removed", "left", "deleted", "accepted", "declined"], strict=True)
+    )
+    assert first["operationReceipt"]["result"] == expected[action]
+    before = snapshot(db)
+    db.execute_raw("UPDATE one_action_directive_ledger SET expires_at=NOW()-INTERVAL '1 minute'")
+    assert execute(service, binding, command) == first
+    assert snapshot(db) == before
+    if action == "accept_circle_invite":
+        assert db.execute_raw(
+            "SELECT status FROM one_location_circle_memberships WHERE user_id='owner'"
+        ).data == [{"status": "active"}]
+        assert db.execute_raw(
+            "SELECT origin_kind FROM connection_origins ORDER BY origin_kind"
+        ).data == [
+            {"origin_kind": "circle_member"},
+            {"origin_kind": "direct_request"},
+            {"origin_kind": "named_circle"},
+        ]
+        assert len(db.execute_raw("SELECT id FROM one_location_events").data) == 1
+        assert db.execute_raw("SELECT id FROM one_location_share_grants").data == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "notifier_name", "expected_type"),
+    [
+        ("rename_circle", "send_circle_renamed_push", "renamed"),
+        ("delete_circle", "send_circle_deleted_push", "deleted"),
+    ],
+)
+async def test_rename_and_delete_notify_the_exact_locked_roster_after_commit(
+    db, monkeypatch, action, notifier_name, expected_type
+):
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, **kwargs: callback(**kwargs),
+    )
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    if action == "rename_circle":
+        # Rename does not need the roster in its reviewed effect terms, so add
+        # a member after confirmation to prove delivery uses the roster locked
+        # at commit time instead of a stale review-time snapshot.
+        db.execute_raw(
+            """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+            VALUES(CAST(:circle AS UUID),'other','member','active')""",
+            {"circle": binding["circleId"]},
+        )
+    delivered: list[dict] = []
+    from hushh_mcp.services import push_notifications
+
+    monkeypatch.setattr(
+        push_notifications,
+        notifier_name,
+        lambda **kwargs: delivered.append(kwargs) or 1,
+    )
+
+    result = execute(service, binding, command)
+    replay = execute(service, binding, command)
+
+    assert result["operationReceipt"]["result"] == expected_type
+    assert replay == result
+    assert len(delivered) == 2
+    assert {delivery["user_id"] for delivery in delivered} == {"owner", "other"}
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "owner")["show_alert"]
+        is False
+    )
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "other")["show_alert"]
+        is True
+    )
+    assert {delivery["circle_id"] for delivery in delivered} == {binding["circleId"]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ACTIONS)
+async def test_receipt_failure_rolls_back_every_coupled_circle_effect(db, monkeypatch, action):
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    before = snapshot(db)
+
+    def fail(*_):
+        raise RuntimeError("synthetic failure before receipt")
+
+    monkeypatch.setattr(receipts.CommandEffectReceipt, "save", fail)
+    with pytest.raises((RuntimeError, OneLocationCircleError)):
+        execute(service, binding, command)
+    assert snapshot(db) == before
+    assert db.execute_raw("SELECT effect_receipt FROM one_action_directive_ledger").data == [
+        {"effect_receipt": None}
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["owner", "action", "name", "circle", "cancel", "roster", "membership", "invitation"]
+)
+async def test_changed_review_is_rejected_without_effect(db, monkeypatch, change):
+    action = {
+        "roster": "delete_circle",
+        "membership": "remove_from_circle",
+        "invitation": "accept_circle_invite",
+    }.get(change, "rename_circle")
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    if change == "owner":
+        command["command_binding"] = {**binding, "owner": "other"}
+    elif change == "action":
+        command["command_binding"] = {**binding, "action": "location.delete_circle"}
+    elif change == "name":
+        binding["newName"] = "Not reviewed"
+    elif change == "circle":
+        binding["circleId"] = str(uuid4())
+    elif change == "cancel":
+        db.execute_raw("UPDATE one_adk_sessions SET command_status='cancelled'")
+    elif change == "roster":
+        db.execute_raw(
+            "UPDATE one_location_circle_memberships SET status='left' WHERE user_id='other'"
+        )
+    elif change == "membership":
+        db.execute_raw(
+            "UPDATE one_location_circle_memberships SET joined_at=joined_at+INTERVAL '1 second' WHERE user_id='other'"
+        )
+    else:
+        db.execute_raw(
+            "UPDATE one_location_circle_member_invites SET expires_at=expires_at+INTERVAL '1 second'"
+        )
+    before = snapshot(db)
+    with pytest.raises(OneLocationCircleError):
+        execute(service, binding, command)
+    assert snapshot(db) == before
+
+
+@pytest.mark.asyncio
+async def test_expiry_while_acceptance_waits_for_profile_rolls_back_membership_and_receipt(
+    db, monkeypatch
+):
+    service, binding = circle_fixture(db, monkeypatch, "accept_circle_invite")
+    command = await claim(db, monkeypatch, binding)
+    before = snapshot(db)
+    db.execute_raw(
+        "UPDATE one_action_directive_ledger SET expires_at=clock_timestamp()+INTERVAL '2 seconds'"
+    )
+    # Hold a domain lock acquired after the first receipt checks. The expiry
+    # transaction is separate and committed before the blocked writer resumes.
+    with db.engine.begin() as conn:
+        conn.execute(text("SELECT user_id FROM actor_profiles WHERE user_id='owner' FOR UPDATE"))
+        task = asyncio.create_task(asyncio.to_thread(execute, service, binding, command))
+        for _ in range(100):
+            blocked = await asyncio.to_thread(
+                db.execute_raw,
+                "SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%actor_profiles%' AND pid<>pg_backend_pid()",
+            )
+            if blocked.data:
+                break
+            await asyncio.sleep(0.02)
+        else:
+            pytest.fail("The writer did not reach the profile lock")
+        await asyncio.sleep(2.1)
+    with pytest.raises(OneLocationCircleError):
+        await task
+    assert snapshot(db) == before
+    assert db.execute_raw("SELECT effect_receipt FROM one_action_directive_ledger").data == [
+        {"effect_receipt": None}
+    ]
+
+
+def _all_connections_fixture(db, monkeypatch):
+    sms_schema(db)
+    # The same adjacent tables `circle_fixture` exposes: adding a member writes
+    # connection origins, which retire pending requests and scope proposals.
+    db.execute_raw("""
+        ALTER TABLE connection_requests ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid();
+        CREATE TABLE connection_scope_proposals(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          connection_request_id UUID NOT NULL REFERENCES connection_requests(id), status TEXT NOT NULL DEFAULT 'pending',
+          expires_at TIMESTAMPTZ NOT NULL,resolved_at TIMESTAMPTZ);
+        CREATE TABLE connection_scope_proposal_events(id BIGSERIAL PRIMARY KEY,
+          connection_scope_proposal_id UUID NOT NULL REFERENCES connection_scope_proposals(id),
+          event_type TEXT NOT NULL,actor_user_id TEXT,reason TEXT);
+    """)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for name in (
+        "138_circle_member_connection_origin.sql",
+        "158_one_location_circle_member_limit_100.sql",
+        "159_one_location_circle_invite_max_uses_100.sql",
+    ):
+        db.execute_raw((migrations / name).read_text())
+    submitted: list[dict] = []
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, **kwargs: submitted.append(kwargs),
+    )
+    service = OneLocationCircleService(db=db, hmac_key="synthetic-circle-key")
+    with db.engine.begin() as conn:
+        circle_id = service.create_circle_in_transaction(conn, owner_user_id="owner", name="Family")
+    return service, circle_id, submitted
+
+
+def _connect_to_owner(db, user_id: str, *, profile: bool = True) -> None:
+    if profile:
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES(:user)", {"user": user_id})
+    db.execute_raw(
+        "INSERT INTO actor_identity_cache(user_id, display_name) VALUES(:user, :name)",
+        {"user": user_id, "name": user_id.title()},
+    )
+    db.execute_raw(
+        """WITH pair AS (
+             INSERT INTO connections(user_a_id,user_b_id,status,source)
+             VALUES('owner',:user,'active','request') RETURNING id)
+           INSERT INTO connection_origins(connection_id,origin_kind,origin_key)
+           SELECT id,'direct_request','direct_request' FROM pair""",
+        {"user": user_id},
+    )
+
+
+def _active_members(db, circle_id: str) -> set[str]:
+    rows = db.execute_raw(
+        """SELECT user_id FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data
+    return {row["user_id"] for row in rows}
+
+
+def test_adding_all_connections_is_exact_and_all_or_nothing_in_real_sql(db, monkeypatch):
+    """The voice "add all my connections" path against real SQL: the read-only
+    plan classes each connection the way the write will treat them, and an
+    audience larger than one twenty-person request is written in ONE
+    transaction -- a refusal in the second chunk rolls back the first."""
+    service, circle_id, submitted = _all_connections_fixture(db, monkeypatch)
+    friends = [f"friend-{index:02d}" for index in range(22)]
+    for user_id in (*friends, "member-a", "left-b", "cooling-c"):
+        _connect_to_owner(db, user_id)
+    _connect_to_owner(db, "unready-d", profile=False)
+    db.execute_raw(
+        """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status,ended_at)
+           VALUES(CAST(:circle AS UUID),'member-a','member','active',NULL),
+                 (CAST(:circle AS UUID),'left-b','member','left',NOW())""",
+        {"circle": circle_id},
+    )
+    db.execute_raw(
+        """INSERT INTO one_location_circle_member_invites(
+             circle_id,inviter_user_id,invitee_user_id,status,expires_at,updated_at,responded_at)
+           VALUES(CAST(:circle AS UUID),'owner','cooling-c','declined',
+                  NOW()+INTERVAL '1 day',NOW(),NOW())""",
+        {"circle": circle_id},
+    )
+
+    plan = service.plan_direct_connection_adds(actor_user_id="owner", circle_id=circle_id)
+
+    assert {row["userId"]: row["status"] for row in plan["connections"]} == {
+        # The schema fixture's own connection, with a live origin.
+        "other": "addable",
+        **dict.fromkeys(friends, "addable"),
+        "member-a": "member",
+        "left-b": "left_recently",
+        "cooling-c": "invite_cooldown",
+        "unready-d": "not_ready",
+    }
+    assert plan["circle"]["memberLimit"] == 100
+    assert plan["circle"]["reservedCount"] == len(_active_members(db, circle_id))
+
+    # Negative control: "unready-d" sorts into the second chunk, after twenty
+    # memberships were already written in the first. Nobody may stay added.
+    with pytest.raises(OneLocationCircleError) as refused:
+        service.add_direct_connections(
+            actor_user_id="owner", circle_id=circle_id, user_ids=[*friends, "unready-d"]
+        )
+    assert refused.value.code == "LOCATION_CIRCLE_INVITEE_NOT_READY"
+    assert _active_members(db, circle_id) == {"owner", "member-a"}
+    assert submitted == []
+
+    added = service.add_direct_connections(
+        actor_user_id="owner", circle_id=circle_id, user_ids=[*reversed(friends), "member-a"]
+    )
+
+    assert sorted(added["addedUserIds"]) == friends
+    assert added["skippedReasons"] == {"member-a": "already_member"}
+    assert _active_members(db, circle_id) == {"owner", "member-a", *friends}
+    assert len(submitted) == 1
+    assert sorted(submitted[0]["added_user_ids"]) == friends
+    assert submitted[0]["circle_name"] == "Family"
+
+    # A replay adds nobody twice: every chunk is already in, which is an answer.
+    again = service.add_direct_connections(
+        actor_user_id="owner", circle_id=circle_id, user_ids=friends
+    )
+    assert again["addedUserIds"] == []
+    assert set(again["skippedReasons"]) == set(friends)
+    assert set(again["skippedReasons"].values()) == {"already_member"}
+    assert len(submitted) == 1

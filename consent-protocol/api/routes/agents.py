@@ -13,10 +13,12 @@ api.routes.agents.kai_chat                -> POST /api/agents/kai/chat
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from api.middleware import require_vault_owner_token
 from api.models import ChatRequest, ChatResponse, ValidateTokenRequest
 from hushh_mcp.agents.kai.agent import get_kai_agent
+from hushh_mcp.consent.token import validate_token_with_db
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,11 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
     Validate a consent token.
     Used by frontend to verify tokens before performing privileged actions.
     """
-    from hushh_mcp.consent.token import validate_token
-
     try:
-        # Validate signature and expiration
-        valid, reason, token_obj = validate_token(request.token)
+        # Validation is DB-backed so a token revoked by account deletion or on
+        # another Cloud Run instance cannot pass this public introspection
+        # route on signature/expiry alone.
+        valid, reason, token_obj = await validate_token_with_db(request.token)
 
         if not valid:
             # SECURITY: Return generic message, log detailed reason server-side
@@ -67,7 +69,10 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
 
 
 @router.post("/agents/kai/chat", response_model=ChatResponse)
-async def kai_chat(request: ChatRequest):
+async def kai_chat(
+    request: ChatRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
     """
     Handle Kai Financial agent chat messages.
 
@@ -78,12 +83,21 @@ async def kai_chat(request: ChatRequest):
 
     Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
-    logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
+    if token_data.get("user_id") != request.userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    consent_token = str(token_data.get("token") or "").strip()
+    if not consent_token:
+        raise HTTPException(status_code=401, detail="A valid owner token is required")
+
+    # Never log message content; the Privacy Policy promises it is not recorded.
+    logger.info("agents.kai_chat user=%s msg_len=%d", request.userId, len(request.message or ""))
 
     try:
         result = await get_kai_agent().handle_message(
             message=request.message,
             user_id=request.userId,
+            consent_token=consent_token,
             # session_state=request.sessionState # Kai likely manages state in context/memory
         )
 

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Code2,
+  Eye,
   Loader2,
   Lock,
+  PreviewRowIcon,
   ShieldAlert,
   SlidersHorizontal,
-  Sparkles,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -29,7 +30,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -43,6 +44,7 @@ import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   getPersistablePreviewCards,
   getReviewRequiredPreviewCount,
+  isDegradedPreviewCard,
 } from "@/lib/profile/pkm-agent-lab-preview";
 import {
   getDeveloperAccess,
@@ -64,7 +66,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   resolveVaultAvailabilityState,
   resolveVaultCapabilityState,
@@ -107,6 +109,10 @@ type AgentLabPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  };
   sharing_impact?: {
     active_recipient_count: number;
     recipient_labels: string[];
@@ -122,7 +128,6 @@ type AgentLabResponse = {
   agent_name: string;
   model: string;
   used_fallback: boolean;
-  routing_decision?: string;
   error?: string | null;
   intent_frame?: AgentLabIntentFrame;
   merge_decision?: Record<string, unknown>;
@@ -283,7 +288,10 @@ function buildPreviewCards(
   message: string
 ): AgentLabPreviewCard[] {
   if (Array.isArray(response?.preview_cards) && response.preview_cards.length > 0) {
-    return response.preview_cards;
+    return response.preview_cards.map((card) => ({
+      ...card,
+      preview_degraded: card.preview_degraded === true || response.used_fallback === true,
+    }));
   }
   if (!response) return [];
   return [
@@ -319,15 +327,17 @@ function buildPreviewCards(
       candidate_payload: response.candidate_payload,
       structure_decision: response.structure_decision,
       manifest_draft: response.manifest_draft,
+      preview_degraded: response.used_fallback === true,
     },
   ];
 }
 
 export default function PkmAgentLabPageClient() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const vaultCapability = useMemo(
     () =>
       resolveVaultCapabilityState({
@@ -344,8 +354,17 @@ export default function PkmAgentLabPageClient() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading: loading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [
+      hasVault,
+      isVaultUnlocked,
+      loading,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ]
   );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
@@ -395,19 +414,22 @@ export default function PkmAgentLabPageClient() {
 
     async function loadVaultState() {
       if (loading) return;
-      if (!user?.uid) {
+      if (!userId) {
         if (!cancelled) setHasVault(null);
         return;
       }
       try {
-        const nextHasVault = await VaultService.checkVault(user.uid);
+        const nextHasVault = await VaultService.checkVault(userId);
         if (!cancelled) {
           setHasVault(nextHasVault);
+          setVaultCheckFailed(false);
         }
       } catch (nextError) {
         console.warn("[PkmAgentLab] Failed to check vault existence:", nextError);
         if (!cancelled) {
-          setHasVault(false);
+          // A failed read is not an absent vault. Never offer to create a
+          // second vault because the presence request temporarily failed.
+          setVaultCheckFailed(true);
         }
       }
     }
@@ -417,12 +439,12 @@ export default function PkmAgentLabPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [loading, user?.uid]);
+  }, [loading, userId]);
 
   const loadBootstrap = useCallback(
     async (force = false) => {
       if (loading) return;
-      if (!user) {
+      if (!user || !userId) {
         setAccess(null);
         setAccessLoading(false);
         setMetadata(null);
@@ -435,12 +457,12 @@ export default function PkmAgentLabPageClient() {
       setBootstrapLoading(true);
       try {
         const idToken = await user.getIdToken();
-        const nextAccess = await getDeveloperAccess(idToken, { userId: user.uid });
+        const nextAccess = await getDeveloperAccess(idToken, { userId });
         let nextMetadata: PersonalKnowledgeModelMetadata | null = null;
         let nextManifests: Record<string, DomainManifest | null> = {};
         if (vaultAccess.canReadSecureData && vaultOwnerToken) {
           nextMetadata = await PersonalKnowledgeModelService.getMetadata(
-            user.uid,
+            userId,
             force,
             vaultOwnerToken
           ).catch(() => null);
@@ -449,7 +471,7 @@ export default function PkmAgentLabPageClient() {
               nextMetadata.domains.map(async (domain) => [
                 domain.key,
                 await PersonalKnowledgeModelService.getDomainManifest(
-                  user.uid,
+                  userId,
                   domain.key,
                   vaultOwnerToken
                 ).catch(() => null),
@@ -478,7 +500,7 @@ export default function PkmAgentLabPageClient() {
         setBootstrapLoading(false);
       }
     },
-    [loading, user, vaultAccess.canReadSecureData, vaultOwnerToken]
+    [loading, user, userId, vaultAccess.canReadSecureData, vaultOwnerToken]
   );
 
   useEffect(() => {
@@ -489,7 +511,7 @@ export default function PkmAgentLabPageClient() {
     let cancelled = false;
 
     async function loadUpgradeStatus() {
-      if (!user || !vaultAccess.canReadSecureData || !vaultOwnerToken) {
+      if (!user || !userId || !vaultAccess.canReadSecureData || !vaultOwnerToken) {
         if (!cancelled) {
           setUpgradeStatus(null);
           setUpgradeLoading(false);
@@ -500,7 +522,7 @@ export default function PkmAgentLabPageClient() {
       setUpgradeLoading(true);
       try {
         const nextStatus = await PkmUpgradeService.getStatus({
-          userId: user.uid,
+          userId,
           vaultOwnerToken,
           force: naturalRefreshToken > 0,
         });
@@ -526,7 +548,7 @@ export default function PkmAgentLabPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [naturalRefreshToken, user, vaultAccess.canReadSecureData, vaultOwnerToken]);
+  }, [naturalRefreshToken, user, userId, vaultAccess.canReadSecureData, vaultOwnerToken]);
 
   const previewCards = useMemo(
     () => buildPreviewCards(response, message),
@@ -756,7 +778,7 @@ export default function PkmAgentLabPageClient() {
   );
 
   const handleResumeUpgrade = useCallback(async () => {
-    if (!user) return;
+    if (!user || !userId) return;
     if (!vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
       handleVaultAccessRequired(
         "Unlock your vault to continue the Personal Knowledge Model upgrade."
@@ -767,7 +789,7 @@ export default function PkmAgentLabPageClient() {
     try {
       setUpgradeBusy(true);
       await PkmUpgradeOrchestrator.ensureRunning({
-        userId: user.uid,
+        userId,
         vaultKey,
         vaultOwnerToken,
         initiatedBy: "pkm_lab",
@@ -783,6 +805,7 @@ export default function PkmAgentLabPageClient() {
   }, [
     handleVaultAccessRequired,
     user,
+    userId,
     vaultCapability.canMutateSecureData,
     vaultKey,
     vaultOwnerToken,
@@ -814,7 +837,7 @@ export default function PkmAgentLabPageClient() {
   ]);
 
   const handlePreview = useCallback(async () => {
-    if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
+    if (!user || !userId || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
       handleVaultAccessRequired("Unlock your vault before previewing PKM changes.");
       return;
     }
@@ -830,7 +853,7 @@ export default function PkmAgentLabPageClient() {
           Authorization: `Bearer ${vaultOwnerToken}`,
         },
         body: JSON.stringify({
-          user_id: user.uid,
+          user_id: userId,
           message,
           current_domains: domains.map((domain) => domain.key),
           current_manifests: Object.values(manifests).filter(Boolean),
@@ -858,12 +881,13 @@ export default function PkmAgentLabPageClient() {
     manifests,
     message,
     user,
+    userId,
     vaultCapability.canReadSecureData,
     vaultOwnerToken,
   ]);
 
   const persistPreview = useCallback(async () => {
-    if (!user || !vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+    if (!user || !userId || !vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
       handleVaultAccessRequired("Unlock your vault before saving to PKM.");
       return;
     }
@@ -945,7 +969,7 @@ export default function PkmAgentLabPageClient() {
             : null;
 
         const result = await PkmWriteCoordinator.savePreparedDomain({
-          userId: user.uid,
+          userId,
           domain: targetDomain,
           vaultKey,
           vaultOwnerToken,
@@ -1002,6 +1026,7 @@ export default function PkmAgentLabPageClient() {
     message,
     persistableCards,
     user,
+    userId,
     vaultCapability.canMutateSecureData,
     vaultKey,
     vaultOwnerToken,
@@ -1016,7 +1041,7 @@ export default function PkmAgentLabPageClient() {
         exposureEnabled: boolean;
       }>
     ) => {
-      if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
+      if (!user || !userId || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
         handleVaultAccessRequired("Unlock your vault before changing PKM permissions.");
         return;
       }
@@ -1043,7 +1068,7 @@ export default function PkmAgentLabPageClient() {
       void (async () => {
         try {
           const result = await PersonalKnowledgeModelService.updateScopeExposure({
-            userId: user.uid,
+            userId,
             domain: domainKey,
             expectedManifestVersion: manifest.manifest_version,
             revokeMatchingActiveGrants: true,
@@ -1089,6 +1114,7 @@ export default function PkmAgentLabPageClient() {
       loadBootstrap,
       manifests,
       user,
+      userId,
       vaultCapability.canReadSecureData,
       vaultOwnerToken,
     ]
@@ -1108,7 +1134,7 @@ export default function PkmAgentLabPageClient() {
         description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
             options={pkmAgentLabTabOptions}
@@ -1264,17 +1290,20 @@ export default function PkmAgentLabPageClient() {
               <SettingsRow
                 title="No pending preview"
                 description="Describe one new preference or memory below. Kai will draft the PKM capture before anything is encrypted or saved."
-                leading={<Sparkles className="h-4 w-4 text-accent-strong" />}
+                icon={PreviewRowIcon}
+                iconTone="capability"
               />
             ) : (
               previewCards.map((card) => (
                 <SettingsRow
                   key={card.card_id}
                   title={`${titleize(card.target_domain || "general")} capture`}
-                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}${card.sharing_impact?.summary ? ` ${card.sharing_impact.summary}` : ""}`}
+                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}${isDegradedPreviewCard(card) ? " This preview needs to be prepared again before it can be saved." : ""}${card.sharing_impact?.summary ? ` ${card.sharing_impact.summary}` : ""}`}
                   trailing={
                     <Badge variant="secondary">
-                      {card.write_mode === "can_save"
+                      {isDegradedPreviewCard(card)
+                        ? "Retry required"
+                        : card.write_mode === "can_save"
                         ? "Ready"
                         : card.write_mode === "confirm_first"
                           ? "Review"
@@ -1313,7 +1342,7 @@ export default function PkmAgentLabPageClient() {
                         {submitting ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <Sparkles className="mr-2 h-4 w-4" />
+                          <Eye className="mr-2 h-4 w-4" />
                         )}
                         Generate preview
                       </Button>

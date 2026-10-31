@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const vaultMocks = vi.hoisted(() => ({
   checkVault: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: vaultMocks.user, loading: false }),
+  useAuth: () => ({ user: vaultMocks.user, userId: vaultMocks.user?.uid ?? null, loading: false }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -78,6 +78,23 @@ describe("CapabilityVaultPrerequisite", () => {
     expect(vaultMocks.checkVault).not.toHaveBeenCalled();
   });
 
+  it("can render safe route chrome while owner-token state is checked without mounting the capability", () => {
+    vaultMocks.checkVault.mockImplementation(() => new Promise(() => undefined));
+
+    render(
+      <CapabilityVaultPrerequisite
+        capabilityLabel="Gmail"
+        routeKey="/one/gmail"
+        checkingFallback={<div>Checking your Gmail status</div>}
+      >
+        <div>Gmail workspace</div>
+      </CapabilityVaultPrerequisite>,
+    );
+
+    expect(screen.getByText("Checking your Gmail status")).toBeTruthy();
+    expect(screen.queryByText("Gmail workspace")).toBeNull();
+  });
+
   it("retains the Login boundary for unauthenticated direct entry", async () => {
     vaultMocks.user = null;
 
@@ -104,10 +121,10 @@ describe("CapabilityVaultPrerequisite", () => {
     );
 
     await waitFor(() => expect(vaultMocks.checkVault).toHaveBeenCalledWith("user_1"));
-    expect(await screen.findByRole("dialog", { name: /^set up your private vault$/i })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: /^set a lock$/i })).toBeTruthy();
     expect(
       screen.getByRole("dialog", {
-        name: /^set up your private vault$/i,
+        name: /^set a lock$/i,
       }).getAttribute("data-generated-default"),
     ).toBe("true");
     expect(screen.queryByText("Location workspace")).toBeNull();
@@ -126,7 +143,7 @@ describe("CapabilityVaultPrerequisite", () => {
     );
 
     await screen.findByRole("dialog", {
-      name: /^set up your private vault$/i,
+      name: /^set a lock$/i,
     });
     fireEvent.click(screen.getByRole("button", { name: "Complete vault setup" }));
 
@@ -153,8 +170,8 @@ describe("CapabilityVaultPrerequisite", () => {
       </CapabilityVaultPrerequisite>,
     );
 
-    await screen.findByRole("dialog", { name: /^open your private vault$/i });
-    expect(screen.queryByRole("heading", { name: /open your private vault first/i })).toBeNull();
+    await screen.findByRole("dialog", { name: /^unlock one$/i });
+    expect(screen.queryByRole("heading", { name: /unlock one first/i })).toBeNull();
   });
 
   it("retains the capability boundary when the presence check fails and supports retry", async () => {
@@ -167,12 +184,12 @@ describe("CapabilityVaultPrerequisite", () => {
       </CapabilityVaultPrerequisite>,
     );
 
-    expect(await screen.findByText(/could not confirm your vault/i)).toBeTruthy();
+    expect(await screen.findByText(/couldn't confirm your lock/i)).toBeTruthy();
     await act(async () => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
     await waitFor(() => expect(vaultMocks.checkVault).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("dialog", { name: /^set up your private vault$/i })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: /^set a lock$/i })).toBeTruthy();
     expect(screen.queryByText("Location workspace")).toBeNull();
   });
 });

@@ -1,0 +1,976 @@
+"""Member-scoped ciphertext relay. Circle and key locks fence membership/rotation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import text
+
+from db.db_client import get_db
+from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.requester_identity import label_from_identity_row
+
+MAX_SEQUENCE = 9_007_199_254_740_991
+# One catalogue drives both the picker and exact sequence validation. The DB
+# bounds storage; this allowlist rejects text, components and multiple emoji.
+REACTION_EMOJIS = frozenset(
+    entry[0]
+    for category in json.loads(
+        (Path(__file__).resolve().parents[1] / "data/emoji-reactions.v1.json").read_text()
+    )["categories"]
+    for entry in category["entries"]
+)
+_AUTHORIZED = """
+  JOIN circle_chat_recipients r ON r.message_id = m.id AND r.recipient_user_id = :user
+  JOIN one_location_circle_memberships membership ON membership.circle_id = m.circle_id
+    AND membership.user_id = :user AND membership.status = 'active'
+    AND membership.joined_at = r.membership_joined_at
+  LEFT JOIN actor_identity_cache identity ON identity.user_id = m.sender_user_id
+  WHERE m.circle_id = CAST(:circle AS uuid)
+"""
+_VISIBLE = _AUTHORIZED + " AND r.deleted_at IS NULL "
+
+
+class CircleChatError(RuntimeError):
+    def __init__(self, code: str, message: str, status: int = 409):
+        self.code, self.message, self.status = code, message, status
+        super().__init__(message)
+
+
+def _rows(conn: Any, sql: str, params: dict) -> list[dict]:
+    return [dict(row) for row in conn.execute(text(sql), params).mappings()]
+
+
+def _visible_sql(prefix: str, suffix: str = "", *, include_hidden: bool = False) -> str:
+    """Compose authored SQL fragments; callers bind every runtime value separately."""
+    return "".join((prefix, _AUTHORIZED if include_hidden else _VISIBLE, suffix))
+
+
+def _json(value: Any) -> Any:
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _wire(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "sequence": row["sequence"],
+        "clientMessageId": str(row["client_message_id"]),
+        "senderUserId": row["sender_user_id"],
+        "senderName": row.get("sender_name") or "Circle member",
+        **({"senderPhotoUrl": row.get("sender_photo_url")} if "sender_photo_url" in row else {}),
+        **(
+            {
+                "receipt": {
+                    "recipientCount": row["original_recipient_count"],
+                    "readCount": row.get("read_count", 0),
+                }
+            }
+            if "original_recipient_count" in row
+            else {}
+        ),
+        "createdAt": row["created_at"].isoformat(),
+        "ciphertext": row["ciphertext"],
+        "iv": row["iv"],
+        "hasImage": row["image_iv"] is not None,
+        "envelope": _json(row["envelope"]),
+        "reactions": row.get("reactions", []),
+        "revision": row.get("revision", 0),
+        "replyToMessageId": str(row["reply_to_message_id"])
+        if row.get("reply_to_message_id")
+        else None,
+        "editedAt": row["edited_at"].isoformat() if row.get("edited_at") else None,
+        "deletedForEveryoneAt": row["deleted_for_everyone_at"].isoformat()
+        if row.get("deleted_for_everyone_at")
+        else None,
+    }
+
+
+class CircleChatService:
+    def __init__(self, db: Any = None):
+        self.db = db or get_db()
+
+    def _circle(self, conn: Any, user: str, circle: str) -> dict:
+        # Same lock as all join/leave/remove/delete writers. Even reads use it to
+        # fence access loss while assembling an authorized response.
+        rows = _rows(
+            conn,
+            """
+            SELECT c.name, mine.joined_at FROM one_location_circles c
+            JOIN one_location_circle_memberships mine ON mine.circle_id = c.id
+              AND mine.user_id = :user AND mine.status = 'active'
+            WHERE c.id = CAST(:circle AS uuid) AND c.status = 'active'
+              AND NOT c.is_system AND c.system_kind IS NULL
+            FOR UPDATE OF c
+        """,
+            {"user": user, "circle": circle},
+        )
+        if not rows:
+            raise CircleChatError(
+                "CIRCLE_CHAT_UNAVAILABLE", "This circle chat is no longer available.", 404
+            )
+        return rows[0]
+
+    def _roster(self, conn: Any, circle: str, *, lock_keys: bool = False) -> list[dict]:
+        members = _rows(
+            conn,
+            """
+            SELECT user_id, joined_at FROM one_location_circle_memberships
+            WHERE circle_id = CAST(:circle AS uuid) AND status = 'active' ORDER BY user_id
+        """,
+            {"circle": circle},
+        )
+        if lock_keys:
+            for member in members:
+                # Registration can insert identity-bearing events after taking
+                # its key lock. Never wait in the opposite order while holding
+                # account/circle locks: release and let the client review again.
+                acquired = conn.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": f"one-location-recipient-key:{member['user_id']}"},
+                ).scalar()
+                if not acquired:
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_ROSTER_CHANGED",
+                        "Member keys are updating. Review and send again.",
+                    )
+        return _rows(
+            conn,
+            """
+            SELECT membership.user_id, membership.joined_at,
+              NULLIF(identity.display_name, membership.user_id) AS name,
+              key.key_id, key.public_key_jwk
+            FROM one_location_circle_memberships membership
+            LEFT JOIN actor_identity_cache identity ON identity.user_id = membership.user_id
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk FROM one_location_recipient_keys
+              WHERE user_id = membership.user_id AND status = 'active'
+              ORDER BY created_at DESC LIMIT 1
+            ) key ON true
+            WHERE membership.circle_id = CAST(:circle AS uuid) AND membership.status = 'active'
+            ORDER BY membership.user_id
+        """,
+            {"circle": circle},
+        )
+
+    @staticmethod
+    def _roster_version(roster: list[dict]) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                [[r["user_id"], r["joined_at"].isoformat(), r["key_id"]] for r in roster],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+
+    def state(self, user: str, circle: str) -> dict:
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            roster = self._roster(conn, circle)
+            counts = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT count(*) FILTER (WHERE r.read_at IS NULL AND m.deleted_for_everyone_at IS NULL) AS unread, "
+                    "COALESCE(max(m.sequence), 0) AS latest FROM circle_chat_messages m "
+                ),
+                {"user": user, "circle": circle},
+            )[0]
+            prefs = _rows(
+                conn,
+                "SELECT muted FROM circle_chat_preferences "
+                "WHERE circle_id = CAST(:circle AS uuid) AND user_id = :user",
+                {"user": user, "circle": circle},
+            )
+            return {
+                "notificationDevices": _rows(
+                    conn,
+                    """SELECT p.user_id AS "userId",
+                  p.preview_key_id::text AS "keyId", p.preview_public_key AS "publicKey"
+                  FROM user_push_installations p JOIN one_location_circle_memberships member
+                    ON member.user_id=p.user_id AND member.circle_id=CAST(:circle AS uuid) AND member.status='active'
+                  WHERE p.preview_key_id IS NOT NULL AND p.user_id<>:user
+                  ORDER BY p.updated_at DESC LIMIT 500""",
+                    {"circle": circle, "user": user},
+                ),
+                "rosterVersion": self._roster_version(roster),
+                "members": [
+                    {
+                        "userId": r["user_id"],
+                        "name": r["name"] or "Circle member",
+                        "keyId": r["key_id"],
+                        "publicKeyJwk": _json(r["public_key_jwk"]),
+                    }
+                    for r in roster
+                ],
+                "unreadCount": counts["unread"],
+                "latestSequence": counts["latest"],
+                "muted": bool(prefs and prefs[0]["muted"]),
+            }
+
+    def revision(self, user: str, circle: str) -> dict:
+        """Reauthorize every long-poll response without loading keys or content."""
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            row = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT COALESCE(max(m.sequence), 0) AS latest FROM circle_chat_messages m "
+                ),
+                {"user": user, "circle": circle},
+            )[0]
+            return {"latestSequence": row["latest"]}
+
+    def key(self, user: str, circle: str, key: str) -> dict:
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            rows = _rows(
+                conn,
+                _visible_sql(
+                    """SELECT k.key_id, k.public_key_jwk, k.encrypted_private_key_jwk
+                FROM one_location_recipient_keys k WHERE k.user_id = :user AND k.key_id = :key
+                AND k.status IN ('active', 'rotated') AND EXISTS (
+                  SELECT 1 FROM circle_chat_messages m
+            """,
+                    " AND r.key_id = k.key_id)",
+                ),
+                {"user": user, "circle": circle, "key": key},
+            )
+            if not rows or not rows[0]["encrypted_private_key_jwk"]:
+                raise CircleChatError(
+                    "CIRCLE_CHAT_KEY_UNAVAILABLE",
+                    "This device cannot recover the message key.",
+                    404,
+                )
+            return {
+                "keyId": rows[0]["key_id"],
+                "publicKeyJwk": _json(rows[0]["public_key_jwk"]),
+                "encryptedPrivateKeyJwk": _json(rows[0]["encrypted_private_key_jwk"]),
+            }
+
+    def messages(
+        self,
+        user: str,
+        circle: str,
+        *,
+        before: int | None = None,
+        after: int | None = None,
+        limit: int = 40,
+        receipt_after: int | None = None,
+        receipt_through: int | None = None,
+    ) -> dict:
+        params = {
+            "user": user,
+            "circle": circle,
+            "before": before,
+            "after": after,
+            "limit": limit + 1,
+        }
+        with self.db.engine.begin() as conn:
+            membership = self._circle(conn, user, circle)
+            rows = _rows(
+                conn,
+                _visible_sql(
+                    """
+                SELECT m.id, m.sequence, m.client_message_id, m.sender_user_id,
+                  m.created_at, m.ciphertext, m.iv, m.image_iv, r.envelope,
+                  m.revision, m.reply_to_message_id, m.edited_at, m.deleted_for_everyone_at,
+                  NULLIF(identity.display_name, m.sender_user_id) AS sender_name,
+                  COALESCE(NULLIF(BTRIM(identity.custom_photo_url), ''),
+                           NULLIF(BTRIM(identity.photo_url), '')) AS sender_photo_url
+                FROM circle_chat_messages m
+            """,
+                    """
+                AND (:before IS NULL OR m.sequence < :before)
+                AND (:after IS NULL OR m.sequence > :after)
+            """
+                    + (
+                        " ORDER BY m.sequence ASC"
+                        if after is not None
+                        else " ORDER BY m.sequence DESC"
+                    )
+                    + " LIMIT :limit",
+                ),
+                params,
+            )
+            more = len(rows) > limit
+            rows = rows[:limit]
+            rows.sort(key=lambda r: r["sequence"])
+            # Inline avatars may be 300 KiB; serialize a sender only once/page.
+            senders = {
+                r["sender_user_id"]: {
+                    "userId": r["sender_user_id"],
+                    "name": r["sender_name"] or "Circle member",
+                    "photoUrl": r["sender_photo_url"],
+                }
+                for r in rows
+            }
+            # Keep diverse inline profile photos below the native/web JSON
+            # response ceiling. Omitted photos use the shared initials fallback.
+            photo_budget = 2_000_000
+            for sender in senders.values():
+                photo = sender["photoUrl"]
+                size = len(photo.encode("utf-8")) if photo else 0
+                if size > photo_budget:
+                    sender["photoUrl"] = None
+                else:
+                    photo_budget -= size
+            reactions = self._reactions(conn, user, [str(row["id"]) for row in rows])
+            items = [
+                _wire(
+                    {
+                        **{k: v for k, v in r.items() if k != "sender_photo_url"},
+                        "reactions": reactions.get(str(r["id"]), []),
+                    }
+                )
+                for r in rows
+            ]
+            low = (
+                receipt_after
+                if receipt_after is not None
+                else (rows[0]["sequence"] - 1 if rows else 0)
+            )
+            high = max(receipt_through or 0, rows[-1]["sequence"] if rows else 0)
+            receipts = self._receipts(conn, user, circle, low, high) if high > low else []
+            reaction_updates = (
+                self._reaction_updates(conn, user, circle, low, high) if high > low else []
+            )
+            return {
+                "items": items,
+                "replyTargets": self._resolve(
+                    conn,
+                    user,
+                    circle,
+                    [str(r["reply_to_message_id"]) for r in rows if r.get("reply_to_message_id")],
+                ),
+                "hasMore": more,
+                "senders": list(senders.values()),
+                "receipts": receipts,
+                "reactionUpdates": reaction_updates,
+                "events": self._membership_events(conn, user, circle, membership["joined_at"]),
+            }
+
+    @staticmethod
+    def _resolve(conn: Any, user: str, circle: str, ids: list[str]) -> list[dict]:
+        if not ids:
+            return []
+        rows = _rows(
+            conn,
+            _visible_sql(
+                """SELECT m.id, m.sequence, m.client_message_id,
+            m.sender_user_id, m.created_at, m.ciphertext, m.iv, m.image_iv, r.envelope,
+            m.revision, m.reply_to_message_id, m.edited_at, m.deleted_for_everyone_at,
+            NULLIF(identity.display_name, m.sender_user_id) AS sender_name
+            FROM circle_chat_messages m """,
+                " AND m.id = ANY(CAST(:ids AS uuid[]))",
+            ),
+            {"user": user, "circle": circle, "ids": ids},
+        )
+        return [_wire(row) for row in rows]
+
+    def resolve(self, user: str, circle: str, ids: list[str]) -> dict:
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            return {"items": self._resolve(conn, user, circle, ids)}
+
+    def updates(self, user: str, circle: str, ids: list[str]) -> dict:
+        """Bounded metadata only; resolve changed bodies in batches, not every poll."""
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            rows = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.id, m.revision, m.deleted_for_everyone_at, r.deleted_at "
+                    "FROM circle_chat_messages m ",
+                    " AND m.id = ANY(CAST(:ids AS uuid[]))",
+                    include_hidden=True,
+                ),
+                {"user": user, "circle": circle, "ids": ids},
+            )
+            found = {str(row["id"]) for row in rows}
+            return {
+                "states": [
+                    {
+                        "id": str(row["id"]),
+                        "revision": row["revision"],
+                        "hidden": row["deleted_at"] is not None,
+                        "deletedForEveryoneAt": row["deleted_for_everyone_at"].isoformat()
+                        if row["deleted_for_everyone_at"]
+                        else None,
+                    }
+                    for row in rows
+                ],
+                "unavailableIds": [item for item in ids if item not in found],
+            }
+
+    def mutate(
+        self, user: str, circle: str, message: str, payload: dict, *, scope: str = "edit"
+    ) -> dict:
+        with self.db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[user])
+            self._circle(conn, user, circle)
+            rows = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.id, m.sender_user_id, m.ciphertext, m.iv, m.revision, "
+                    "m.deleted_for_everyone_at, r.deleted_at FROM circle_chat_messages m ",
+                    " AND m.id = CAST(:message AS uuid)",
+                    include_hidden=True,
+                ),
+                {"user": user, "circle": circle, "message": message},
+            )
+            if not rows or (rows[0]["deleted_at"] and scope != "me"):
+                raise CircleChatError(
+                    "CIRCLE_CHAT_MESSAGE_UNAVAILABLE", "That message is no longer available.", 404
+                )
+            row = rows[0]
+            params = {"user": user, "circle": circle, "message": message}
+            if scope == "me":
+                conn.execute(
+                    text(
+                        "UPDATE circle_chat_recipients SET deleted_at = COALESCE(deleted_at, now()), "
+                        "push_status = 'suppressed' WHERE message_id = CAST(:message AS uuid) AND recipient_user_id = :user"
+                    ),
+                    params,
+                )
+            else:
+                if row["sender_user_id"] != user:
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_SENDER_REQUIRED", "You can only change your own messages.", 403
+                    )
+                if row["deleted_for_everyone_at"]:
+                    if scope == "everyone":
+                        return {"items": self._resolve(conn, user, circle, [message])}
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_MESSAGE_UNAVAILABLE", "That message was deleted.", 409
+                    )
+                expected = payload["expectedRevision"]
+                if row["revision"] != expected:
+                    if (
+                        scope == "edit"
+                        and row["revision"] == expected + 1
+                        and row["ciphertext"] == payload["ciphertext"]
+                        and row["iv"] == payload["iv"]
+                    ):
+                        return {"items": self._resolve(conn, user, circle, [message])}
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_EDIT_CONFLICT",
+                        "This message changed. Close and open it again.",
+                        409,
+                    )
+                if row["iv"] == payload["iv"]:
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_IV_REUSED", "Encrypt this change again before saving.", 422
+                    )
+                params.update(
+                    ciphertext=payload["ciphertext"], iv=payload["iv"], deleting=scope == "everyone"
+                )
+                conn.execute(
+                    text("""UPDATE circle_chat_messages SET ciphertext = :ciphertext, iv = :iv,
+                    revision = revision + 1, edited_at = CASE WHEN :deleting THEN edited_at ELSE now() END,
+                    deleted_for_everyone_at = CASE WHEN :deleting THEN now() ELSE NULL END,
+                    image_ciphertext = CASE WHEN :deleting THEN NULL ELSE image_ciphertext END,
+                    image_iv = CASE WHEN :deleting THEN NULL ELSE image_iv END,
+                    notification_previews = '{}'::jsonb WHERE id = CAST(:message AS uuid)"""),
+                    params,
+                )
+                conn.execute(
+                    text(
+                        "UPDATE circle_chat_recipients SET push_status = 'suppressed' "
+                        "WHERE message_id = CAST(:message AS uuid) AND push_status IN ('pending', 'leased')"
+                    ),
+                    params,
+                )
+                if scope == "everyone":
+                    conn.execute(
+                        text(
+                            "DELETE FROM circle_chat_reactions WHERE message_id = CAST(:message AS uuid)"
+                        ),
+                        params,
+                    )
+            if scope in {"me", "everyone"}:
+                conn.execute(
+                    text(
+                        "DELETE FROM feed_events WHERE id IN (SELECT feed_event_id FROM circle_chat_recipients "
+                        "WHERE message_id = CAST(:message AS uuid) AND (:all OR recipient_user_id = :user))"
+                    ),
+                    {**params, "all": scope == "everyone"},
+                )
+            recipients = _rows(
+                conn,
+                """SELECT r.recipient_user_id FROM circle_chat_recipients r
+                JOIN one_location_circle_memberships member ON member.circle_id = CAST(:circle AS uuid)
+                AND member.user_id = r.recipient_user_id AND member.status = 'active'
+                AND member.joined_at = r.membership_joined_at WHERE r.message_id = CAST(:message AS uuid)
+                AND (:all OR r.recipient_user_id = :user)""",
+                {**params, "all": scope != "me"},
+            )
+            for recipient in recipients:
+                self._notify(
+                    conn,
+                    recipient["recipient_user_id"],
+                    circle,
+                    message,
+                    "location_circle_chat_mutation",
+                )
+            result = (
+                {"hiddenId": message}
+                if scope == "me"
+                else {"items": self._resolve(conn, user, circle, [message])}
+            )
+        if scope in {"me", "everyone"}:
+            from hushh_mcp.services.chat_notification_state import sync_chat_read
+
+            for recipient in recipients:
+                sync_chat_read(
+                    recipient["recipient_user_id"], circle=circle, message_id=message, db=self.db
+                )
+        return result
+
+    @classmethod
+    def _reaction_updates(
+        cls, conn: Any, user: str, circle: str, after: int, through: int
+    ) -> list[dict]:
+        rows = _rows(
+            conn,
+            _visible_sql(
+                "SELECT m.id FROM circle_chat_messages m ",
+                " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence DESC LIMIT 300",
+            ),
+            {"user": user, "circle": circle, "after": after, "through": through},
+        )
+        ids = [str(row["id"]) for row in rows]
+        reactions = cls._reactions(conn, user, ids)
+        return [
+            {"id": message_id, "reactions": reactions.get(message_id, [])} for message_id in ids
+        ]
+
+    @staticmethod
+    def _reactions(conn: Any, user: str, message_ids: list[str]) -> dict[str, list[dict]]:
+        if not message_ids:
+            return {}
+        rows = _rows(
+            conn,
+            """SELECT message_id, emoji, count(*)::int AS count,
+                bool_or(user_id = :user) AS reacted_by_viewer
+              FROM circle_chat_reactions
+              WHERE message_id = ANY(CAST(:ids AS uuid[]))
+              GROUP BY message_id, emoji ORDER BY emoji""",
+            {"user": user, "ids": message_ids},
+        )
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            result.setdefault(str(row["message_id"]), []).append(
+                {
+                    "emoji": row["emoji"],
+                    "count": row["count"],
+                    "reactedByViewer": row["reacted_by_viewer"],
+                }
+            )
+        return result
+
+    @staticmethod
+    def _membership_events(conn: Any, user: str, circle: str, joined_at: Any) -> list[dict]:
+        rows = _rows(
+            conn,
+            """WITH recent AS (
+                SELECT id, batch_id FROM circle_chat_membership_events
+                WHERE circle_id = CAST(:circle AS uuid) AND created_at >= :joined_at
+                ORDER BY created_at DESC, id DESC LIMIT 200
+              )
+              SELECT event.id, event.kind, event.created_at, event.batch_id,
+                subject.display_name AS subject_name, subject.email AS subject_email,
+                actor.display_name AS actor_name, actor.email AS actor_email,
+                event.subject_user_id, event.actor_user_id
+              FROM circle_chat_membership_events event
+              LEFT JOIN actor_identity_cache subject ON subject.user_id = event.subject_user_id
+              LEFT JOIN actor_identity_cache actor ON actor.user_id = event.actor_user_id
+              WHERE event.circle_id = CAST(:circle AS uuid) AND event.created_at >= :joined_at
+                AND (event.id IN (SELECT id FROM recent)
+                  OR (event.batch_id IS NOT NULL AND event.batch_id IN (
+                    SELECT batch_id FROM recent WHERE batch_id IS NOT NULL)))
+              ORDER BY event.created_at ASC, event.id ASC""",
+            {"circle": circle, "joined_at": joined_at},
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "kind": row["kind"],
+                "batchId": str(row["batch_id"]) if row["batch_id"] else None,
+                "subjectName": label_from_identity_row(
+                    {
+                        "user_id": row["subject_user_id"],
+                        "display_name": row["subject_name"],
+                        "email": row["subject_email"],
+                    },
+                    fallback="A member",
+                ),
+                "actorName": label_from_identity_row(
+                    {
+                        "user_id": row["actor_user_id"],
+                        "display_name": row["actor_name"],
+                        "email": row["actor_email"],
+                    }
+                )
+                or ("You" if row["actor_user_id"] == user else None),
+                "createdAt": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _receipts(conn: Any, user: str, circle: str, after: int, through: int) -> list[dict]:
+        rows = _rows(
+            conn,
+            _visible_sql(
+                """
+            SELECT m.id, m.original_recipient_count,
+              (SELECT count(*) FROM circle_chat_recipients peer
+               WHERE peer.message_id = m.id AND peer.recipient_user_id <> :user
+                 AND peer.read_at IS NOT NULL) AS read_count
+            FROM circle_chat_messages m
+        """,
+                " AND m.sender_user_id = :user AND m.sequence > :after AND m.sequence <= :through "
+                "ORDER BY m.sequence DESC LIMIT 300",
+            ),
+            {"user": user, "circle": circle, "after": after, "through": through},
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "recipientCount": r["original_recipient_count"],
+                "readCount": r["read_count"],
+            }
+            for r in rows
+        ]
+
+    @staticmethod
+    def _sender_identity(conn: Any, row: dict) -> None:
+        identity = _rows(
+            conn,
+            """SELECT NULLIF(display_name, :user) AS name,
+          COALESCE(NULLIF(BTRIM(custom_photo_url), ''), NULLIF(BTRIM(photo_url), '')) AS photo
+          FROM actor_identity_cache WHERE user_id = :user""",
+            {"user": row["sender_user_id"]},
+        )
+        row["sender_name"] = identity[0]["name"] if identity else None
+        row["sender_photo_url"] = identity[0]["photo"] if identity else None
+        row["read_count"] = conn.execute(
+            text(
+                "SELECT count(*) FROM circle_chat_recipients "
+                "WHERE message_id = CAST(:id AS uuid) AND recipient_user_id <> :user AND read_at IS NOT NULL"
+            ),
+            {"id": str(row["id"]), "user": row["sender_user_id"]},
+        ).scalar()
+
+    def send(self, user: str, circle: str, payload: dict) -> dict:
+        # Preserve retry digests written before optional reply metadata existed.
+        if payload.get("replyToMessageId") is None:
+            payload = {key: value for key, value in payload.items() if key != "replyToMessageId"}
+        digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        with self.db.engine.begin() as conn:
+            candidates = _rows(
+                conn,
+                "SELECT user_id FROM one_location_circle_memberships "
+                "WHERE circle_id = CAST(:circle AS uuid) AND status = 'active'",
+                {"circle": circle},
+            )
+            locked_users = {user, *(row["user_id"] for row in candidates)}
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn, user_ids=locked_users
+            )
+            info = self._circle(conn, user, circle)
+            previous = _rows(
+                conn,
+                """SELECT m.*, r.envelope, r.membership_joined_at, r.deleted_at
+                FROM circle_chat_messages m LEFT JOIN circle_chat_recipients r ON r.message_id = m.id
+                  AND r.recipient_user_id = :user
+                WHERE m.circle_id = CAST(:circle AS uuid) AND m.sender_user_id = :user
+                  AND m.client_message_id = CAST(:client AS uuid)""",
+                {"user": user, "circle": circle, "client": payload["clientMessageId"]},
+            )
+            if previous:
+                if previous[0]["deleted_at"]:
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_MESSAGE_UNAVAILABLE",
+                        "That message is no longer available.",
+                        404,
+                    )
+                if (
+                    previous[0]["request_digest"] != digest
+                    or previous[0]["membership_joined_at"] != info["joined_at"]
+                ):
+                    raise CircleChatError(
+                        "CIRCLE_CHAT_RETRY_CONFLICT",
+                        "This message retry changed. Start a new message.",
+                    )
+                self._sender_identity(conn, previous[0])
+                return _wire(previous[0])
+            roster = self._roster(conn, circle, lock_keys=True)
+            if not {row["user_id"] for row in roster}.issubset(locked_users):
+                raise CircleChatError(
+                    "CIRCLE_CHAT_ROSTER_CHANGED", "Circle members changed. Review and send again."
+                )
+            envelopes = payload["recipients"]
+            if (
+                payload["rosterVersion"] != self._roster_version(roster)
+                or len(envelopes) != len(roster)
+                or len({r["userId"] for r in envelopes}) != len(roster)
+                or {(r["userId"], r["envelope"]["recipientKeyId"]) for r in envelopes}
+                != {(r["user_id"], r["key_id"]) for r in roster}
+            ):
+                raise CircleChatError(
+                    "CIRCLE_CHAT_ROSTER_CHANGED", "Circle members changed. Review and send again."
+                )
+            message = str(uuid.uuid4())
+            reply = payload.get("replyToMessageId")
+            targets = self._resolve(conn, user, circle, [reply]) if reply else []
+            if reply and (not targets or targets[0]["deletedForEveryoneAt"]):
+                raise CircleChatError(
+                    "CIRCLE_CHAT_REPLY_UNAVAILABLE",
+                    "The original message is no longer available.",
+                    422,
+                )
+            params = {
+                "id": message,
+                "user": user,
+                "circle": circle,
+                "digest": digest,
+                "client": payload["clientMessageId"],
+                "ciphertext": payload["ciphertext"],
+                "iv": payload["iv"],
+                "image": payload.get("imageCiphertext"),
+                "image_iv": payload.get("imageIv"),
+                "recipient_count": len(roster) - 1,
+                "previews": json.dumps(payload.get("notificationPreviews") or {}),
+                "reply": reply,
+            }
+            row = _rows(
+                conn,
+                """
+                INSERT INTO circle_chat_messages(id, circle_id, sender_user_id, client_message_id,
+                  ciphertext, iv, image_ciphertext, image_iv, request_digest, original_recipient_count, notification_previews, reply_to_message_id)
+                VALUES(CAST(:id AS uuid), CAST(:circle AS uuid), :user, CAST(:client AS uuid),
+                  :ciphertext, :iv, :image, :image_iv, :digest, :recipient_count, CAST(:previews AS jsonb), CAST(:reply AS uuid)) RETURNING *
+            """,
+                params,
+            )[0]
+            by_user = {r["userId"]: r["envelope"] for r in envelopes}
+            for member in roster:
+                recipient = member["user_id"]
+                feed_id = None
+                if recipient != user:
+                    feed = _rows(
+                        conn,
+                        """
+                        INSERT INTO feed_events(user_id, source_domain, event_type, metadata, source_row_id)
+                        VALUES(:recipient, 'location', 'location_circle_message',
+                          CAST(:metadata AS jsonb), :source) RETURNING id
+                    """,
+                        {
+                            "recipient": recipient,
+                            "source": f"circle-chat:{message}:{recipient}",
+                            "metadata": json.dumps(
+                                {"circle_id": circle, "circle_name": info["name"]}
+                            ),
+                        },
+                    )
+                    feed_id = feed[0]["id"]
+                conn.execute(
+                    text("""
+                    INSERT INTO circle_chat_recipients(message_id, recipient_user_id,
+                      membership_joined_at, key_id, envelope, read_at, feed_event_id, push_status, push_due_at)
+                    VALUES(CAST(:message AS uuid), :recipient, :joined, :key, CAST(:envelope AS jsonb),
+                      CASE WHEN :self THEN now() ELSE NULL END, :feed,
+                      CASE WHEN :self THEN 'suppressed' ELSE 'pending' END, now())
+                """),
+                    {
+                        "message": message,
+                        "recipient": recipient,
+                        "joined": member["joined_at"],
+                        "key": member["key_id"],
+                        "envelope": json.dumps(by_user[recipient]),
+                        "self": recipient == user,
+                        "feed": feed_id,
+                    },
+                )
+                self._notify(conn, recipient, circle, message)
+            row["envelope"] = by_user[user]
+            self._sender_identity(conn, row)
+            return _wire(row)
+
+    @staticmethod
+    def _notify(
+        conn: Any, user: str, circle: str, message: str, kind: str = "location_circle_message"
+    ) -> None:
+        conn.execute(
+            text("SELECT pg_notify('one_user_state_changed', :event)"),
+            {
+                "event": json.dumps(
+                    {
+                        "user_id": user,
+                        "type": kind,
+                        "circle_id": circle,
+                        "message_id": f"{kind}:{message}",
+                    }
+                )
+            },
+        )
+
+    def image(self, user: str, circle: str, message: str) -> dict:
+        with self.db.engine.begin() as conn:
+            self._circle(conn, user, circle)
+            rows = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.image_ciphertext, m.image_iv FROM circle_chat_messages m ",
+                    " AND m.id = CAST(:message AS uuid) AND m.image_iv IS NOT NULL AND m.deleted_for_everyone_at IS NULL",
+                ),
+                {"user": user, "circle": circle, "message": message},
+            )
+            if not rows:
+                raise CircleChatError(
+                    "CIRCLE_CHAT_IMAGE_UNAVAILABLE", "Image is no longer available.", 404
+                )
+            return {"ciphertext": rows[0]["image_ciphertext"], "iv": rows[0]["image_iv"]}
+
+    def react(self, user: str, circle: str, message: str, emoji: str, active: bool) -> dict:
+        if emoji not in REACTION_EMOJIS:
+            raise CircleChatError("CIRCLE_CHAT_REACTION_INVALID", "Choose a reaction.", 422)
+        with self.db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[user])
+            self._circle(conn, user, circle)
+            visible = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.id FROM circle_chat_messages m ",
+                    " AND m.id = CAST(:message AS uuid) AND m.deleted_for_everyone_at IS NULL",
+                ),
+                {"user": user, "circle": circle, "message": message},
+            )
+            if not visible:
+                raise CircleChatError(
+                    "CIRCLE_CHAT_REACTION_UNAVAILABLE", "Message is no longer available.", 404
+                )
+            params = {"user": user, "message": message, "emoji": emoji}
+            if active:
+                changed = _rows(
+                    conn,
+                    """INSERT INTO circle_chat_reactions(message_id, user_id, emoji)
+                  VALUES(CAST(:message AS uuid), :user, :emoji)
+                  ON CONFLICT(message_id, user_id, emoji) DO NOTHING RETURNING message_id""",
+                    params,
+                )
+            else:
+                changed = _rows(
+                    conn,
+                    """DELETE FROM circle_chat_reactions
+                  WHERE message_id = CAST(:message AS uuid) AND user_id = :user AND emoji = :emoji
+                  RETURNING message_id""",
+                    params,
+                )
+            reactions = self._reactions(conn, user, [message]).get(message, [])
+            if changed:
+                recipients = _rows(
+                    conn,
+                    """SELECT recipient.recipient_user_id
+                  FROM circle_chat_recipients recipient
+                  JOIN one_location_circle_memberships membership
+                    ON membership.circle_id = CAST(:circle AS uuid)
+                   AND membership.user_id = recipient.recipient_user_id
+                   AND membership.status = 'active'
+                   AND membership.joined_at = recipient.membership_joined_at
+                  WHERE recipient.message_id = CAST(:message AS uuid)""",
+                    {"circle": circle, "message": message},
+                )
+                for recipient in recipients:
+                    self._notify(
+                        conn,
+                        recipient["recipient_user_id"],
+                        circle,
+                        message,
+                        "location_circle_chat_reaction",
+                    )
+            return {"messageId": message, "reactions": reactions}
+
+    def read(self, user: str, circle: str, sequence: int) -> dict:
+        with self.db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[user])
+            self._circle(conn, user, circle)
+            visible = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.id FROM circle_chat_messages m ", " AND m.sequence = :sequence"
+                ),
+                {"user": user, "circle": circle, "sequence": sequence},
+            )
+            if not visible:
+                raise CircleChatError(
+                    "CIRCLE_CHAT_READ_INVALID", "That message is no longer available.", 404
+                )
+            changed = _rows(
+                conn,
+                _visible_sql(
+                    """
+                UPDATE circle_chat_recipients target SET read_at = now(), push_status = 'suppressed'
+                WHERE target.read_at IS NULL AND target.message_id IN (
+                  SELECT m.id FROM circle_chat_messages m
+            """,
+                    " AND m.sequence <= :sequence AND m.deleted_for_everyone_at IS NULL) AND target.recipient_user_id = :user "
+                    "RETURNING feed_event_id, message_id",
+                ),
+                {"user": user, "circle": circle, "sequence": sequence},
+            )
+            for row in changed:
+                if row["feed_event_id"]:
+                    conn.execute(
+                        text(
+                            "UPDATE feed_events SET read_at = COALESCE(read_at, now()) "
+                            "WHERE id = :id AND user_id = :user"
+                        ),
+                        {"id": row["feed_event_id"], "user": user},
+                    )
+            if changed:
+                self._notify(conn, user, circle, str(sequence), "location_circle_chat_read")
+                senders = _rows(
+                    conn,
+                    """SELECT DISTINCT m.sender_user_id FROM circle_chat_messages m
+                  JOIN circle_chat_recipients sender ON sender.message_id = m.id
+                    AND sender.recipient_user_id = m.sender_user_id
+                  JOIN one_location_circle_memberships membership ON membership.circle_id = m.circle_id
+                    AND membership.user_id = m.sender_user_id AND membership.status = 'active'
+                    AND membership.joined_at = sender.membership_joined_at
+                  WHERE m.id = ANY(CAST(:ids AS uuid[])) AND m.sender_user_id <> :user""",
+                    {"ids": [str(row["message_id"]) for row in changed], "user": user},
+                )
+                for sender in senders:
+                    self._notify(
+                        conn,
+                        sender["sender_user_id"],
+                        circle,
+                        f"{user}:{sequence}",
+                        "location_circle_chat_receipts",
+                    )
+        from hushh_mcp.services.chat_notification_state import sync_chat_read
+
+        return {
+            "readThrough": sequence,
+            **sync_chat_read(user, circle=circle, sequence=sequence, db=self.db),
+        }
+
+    def mute(self, user: str, circle: str, muted: bool) -> dict:
+        with self.db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[user])
+            self._circle(conn, user, circle)
+            conn.execute(
+                text("""
+                INSERT INTO circle_chat_preferences(circle_id, user_id, muted)
+                VALUES(CAST(:circle AS uuid), :user, :muted)
+                ON CONFLICT(circle_id, user_id) DO UPDATE SET muted = EXCLUDED.muted
+            """),
+                {"user": user, "circle": circle, "muted": muted},
+            )
+            return {"muted": muted}

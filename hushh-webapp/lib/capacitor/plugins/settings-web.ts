@@ -5,7 +5,7 @@
  * Regulated cutover default: remote sync disabled.
  */
 
-import type { HushhSettingsPlugin, HushhSettingsData } from "../index";
+import type { HushhSettingsPlugin, HushhSettingsData } from "../settings";
 
 const STORAGE_KEY = "hushh_settings";
 
@@ -16,7 +16,6 @@ const DEFAULT_SETTINGS: HushhSettingsData = {
   useRemoteLLM: true,               // DEV: true
   preferredLLMProvider: "openai",
   requireBiometricUnlock: true,
-  autoLockTimeout: 5,
   theme: "system",
   hapticFeedback: true,
   showDebugInfo: true,              // DEV: true
@@ -24,6 +23,8 @@ const DEFAULT_SETTINGS: HushhSettingsData = {
 };
 
 export class HushhSettingsWeb implements HushhSettingsPlugin {
+  async getFeedbackCapabilities() { return { interactionFeedback: false }; }
+  async interactionFeedback() { return { accepted: false }; }
   private cachedSettings: HushhSettingsData | null = null;
 
   async getSettings(): Promise<HushhSettingsData> {

@@ -1,0 +1,42 @@
+/* The slot owns placement and the button owns its one circular surface.
+ * Keep a 44px touch target; the visible 34.32px circle is 22% smaller. */
+.closeSlot,
+.closeSlot:hover {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.action,
+.action:hover {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.action::before {
+  content: "";
+  position: absolute;
+  inset: 4.84px;
+  border: 1px solid var(--app-glass-border);
+  border-radius: 50%;
+  background: var(--app-glass-surface);
+  box-shadow: var(--app-glass-shadow);
+}
+
+.action:hover::before {
+  background: var(--app-shell-surface-bg-hover);
+}
+
+.glyph {
+  transform: none;
+}
+
+.action > .ripple {
+  inset: 4.84px;
+  border-radius: 50%;
+}

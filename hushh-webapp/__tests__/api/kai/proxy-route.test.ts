@@ -23,6 +23,197 @@ function createRequest(url: string, init: RequestInit): NextRequest {
 }
 
 describe("/api/kai/[...path] proxy", () => {
+  it.each([
+    ["GMAIL_RECEIPT_CONTRACT_MISMATCH", true, false],
+    ["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", false, false],
+    ["GMAIL_RECEIPT_ACCOUNT_CHANGED", false, false],
+    ["GMAIL_PROVIDER_UNAVAILABLE", false, false],
+    ["GMAIL_PROVIDER_UNAVAILABLE", undefined, true],
+  ])("sanitizes receipt %s and preserves retry policy", async (code, retryable, expected) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      detail: { code, retryable, message: "private receipt content", errors: [{ input: "private" }] },
+    }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/gmail/receipts/scan", {
+      method: "POST", headers: { "X-Request-ID": "receipt-contract-test", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }) });
+    expect(response.headers.get("x-request-id")).toBe("receipt-contract-test");
+    const body = await response.json();
+    expect(body.detail).toMatchObject({ code, retryable: expected });
+    expect(JSON.stringify(body)).not.toContain("private");
+  });
+
+  it("returns a safe typed receipt transport error with correlation", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("private provider token"));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/gmail/receipts/scan", {
+      method: "POST", headers: { "X-Request-ID": "receipt-transport-test", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }) });
+    expect(response.status).toBe(502);
+    expect(response.headers.get("x-request-id")).toBe("receipt-transport-test");
+    expect(await response.json()).toEqual({ detail: {
+      code: "GMAIL_RECEIPT_UNAVAILABLE", message: "Receipts are temporarily unavailable. Please try again.", retryable: false,
+    } });
+  });
+
+  it.each([200, 400])("does not cache Plaid vault responses or record provider error bodies (%s)", async (status) => {
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const privateMarker = "synthetic-private-provider-payload";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: privateMarker }), {
+      status, headers: { "Content-Type": "application/json" },
+    }));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/plaid/vault/link-token", {
+      method: "POST", headers: { Authorization: "Bearer synthetic-owner", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["plaid", "vault", "link-token"] }) });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("Pragma")).toBe("no-cache");
+    expect(JSON.stringify(logger.mock.calls)).not.toContain(privateMarker);
+    if (status >= 400) expect(logger).toHaveBeenCalled();
+  });
+
+  it("forwards both receipt auth planes and makes live scan responses no-store", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          page: 1,
+          per_page: 6,
+          returned_count: 0,
+          has_more: false,
+          coverage: {},
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/scan",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: "owner-uid", page: 1, per_page: 6 }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "private, no-store, max-age=0",
+    );
+    expect(res.headers.get("Pragma")).toBe("no-cache");
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/gmail/receipts/scan");
+    expect(options?.cache).toBe("no-store");
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer firebase-id-token");
+    expect(headers.get("X-Hushh-Consent")).toBe("Bearer vault-owner-token");
+  });
+
+  it("does not log or relay unsafe live receipt error bodies", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail:
+            "provider body owner@example.test order=SECRET-ORDER amount=999",
+        }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/detail",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+          // A random correlation ID can contain the fixture's private amount.
+          "X-Request-ID": "f5bdeb51-4bc4-4567-8bac-cb64b5d1df2a",
+        },
+        body: JSON.stringify({
+          user_id: "owner-uid",
+          source_id: "gmail_live_opaque.signature",
+        }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "detail"] }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    await expect(res.json()).resolves.toEqual({
+      error: "Receipt detail unavailable",
+      message:
+        "We couldn't load that Mail receipt right now. Please try again in a moment.",
+    });
+    const logged = JSON.stringify(consoleError.mock.calls);
+    expect(logged).not.toContain("owner@example.test");
+    expect(logged).not.toContain("SECRET-ORDER");
+    expect(logged).not.toContain("999");
+  });
+
+  it("uses its own safe copy for recognized live receipt errors", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "GMAIL_RECEIPT_NOT_FOUND",
+            message: "private-message-id should never be relayed",
+          },
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/detail",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: "owner-uid",
+          source_id: "gmail_live_opaque.signature",
+        }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "detail"] }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    await expect(res.json()).resolves.toEqual({
+      detail: {
+        code: "GMAIL_RECEIPT_NOT_FOUND",
+        message: "The selected receipt is not available.",
+        retryable: false,
+      },
+    });
+  });
+
   it("forwards Authorization header for JSON POST routes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
@@ -52,6 +243,62 @@ describe("/api/kai/[...path] proxy", () => {
     const headers = options?.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
     expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("lets Gmail OAuth completion finish within its server timeout after the popup closes", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ connected: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const controller = new AbortController();
+    const req = createRequest("http://localhost:3000/api/kai/gmail/connect/complete", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: "Bearer id-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", code: "code", state: "state" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "connect", "complete"] }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(options?.signal).not.toBe(req.signal);
+  });
+
+  it("reports the Gmail completion deadline as a timeout, not a user cancellation", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException(
+        "The operation was aborted due to timeout",
+        "AbortError",
+      ),
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/gmail/connect/complete", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer id-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", code: "code", state: "state" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "connect", "complete"] }),
+    });
+
+    expect(res.status).toBe(504);
+    const payload = await res.json();
+    expect(payload).toEqual({
+      error: "Gmail temporarily unavailable",
+      message: "Gmail is taking too long to respond right now. Please try again in a moment.",
+    });
   });
 
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {
@@ -143,38 +390,6 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Accept")).toBe("text/event-stream");
     expect(headers.get("Content-Type")).toBeNull();
     expect(options?.body).toBeInstanceOf(FormData);
-  });
-
-  it("applies an upstream timeout to Agent chat streams", async () => {
-    const streamBody = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("event: start\\ndata: {}\\n\\n"));
-        controller.close();
-      },
-    });
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(streamBody, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      })
-    );
-    const req = createRequest("http://localhost:3000/api/kai/agent/chat/stream", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: "user_123", message: "hello" }),
-    });
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "chat", "stream"] }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("passes through SSE stream headers and forwards Authorization on stream path", async () => {

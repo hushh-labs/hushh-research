@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -14,6 +15,7 @@ from hushh_mcp.services.domain_contracts import (
     CURRENT_READABLE_PROJECTION_VERSION,
     CURRENT_READABLE_SUMMARY_VERSION,
     current_domain_contract_version,
+    needs_reserved_branch_migration,
 )
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelIndex,
@@ -181,7 +183,7 @@ class PkmUpgradeService:
         capabilities: list[str] = ["encrypted_payload_structure"]
         summary = manifest.get("summary_projection") if isinstance(manifest, dict) else {}
         summary = summary if isinstance(summary, dict) else {}
-        if manifest.get("paths") or manifest.get("top_level_scope_paths"):
+        if PkmUpgradeService._manifest_has_paths(manifest):
             capabilities.append("manifest_normalization")
         if manifest.get("scope_registry"):
             capabilities.append("scope_registry")
@@ -199,9 +201,20 @@ class PkmUpgradeService:
     def _domain_blockers(manifest: dict[str, Any]) -> list[str]:
         if not manifest:
             return ["missing_manifest"]
-        if not manifest.get("paths") and not manifest.get("top_level_scope_paths"):
+        if not PkmUpgradeService._manifest_has_paths(manifest):
             return ["manifest_has_no_paths"]
         return []
+
+    @staticmethod
+    def _manifest_has_paths(manifest: dict[str, Any]) -> bool:
+        if not isinstance(manifest, dict):
+            return False
+        if manifest.get("paths") or manifest.get("top_level_scope_paths"):
+            return True
+        try:
+            return int(manifest.get("path_count") or 0) > 0
+        except (TypeError, ValueError):
+            return False
 
     def _normalize_run(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(row, dict):
@@ -333,7 +346,8 @@ class PkmUpgradeService:
 
     async def _list_runs(self, user_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id).execute()
+            query = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id)
+            result = await asyncio.to_thread(query.execute)
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to list PKM upgrade runs for %s: %s", user_id, exc)
@@ -341,7 +355,8 @@ class PkmUpgradeService:
 
     async def _list_steps(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id).execute()
+            query = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id)
+            result = await asyncio.to_thread(query.execute)
             rows = [
                 step for step in (self._normalize_step(row) for row in (result.data or [])) if step
             ]
@@ -361,28 +376,53 @@ class PkmUpgradeService:
             latest["steps"] = await self._list_steps(latest["run_id"])
         return latest
 
-    async def build_status(self, user_id: str) -> dict[str, Any]:
-        index = await self.pkm_service.get_index_v2(user_id)
+    async def build_status(
+        self,
+        user_id: str,
+        *,
+        resolved_index: PersonalKnowledgeModelIndex | None = None,
+        domain_manifests: dict[str, dict] | None = None,
+        index: PersonalKnowledgeModelIndex | None = None,
+        manifest_headers: list[dict[str, Any]] | None = None,
+        legacy_client: bool = False,
+    ) -> dict[str, Any]:
+        """Upgrade status for ``user_id`` as ``legacy_client`` should see it.
+
+        A legacy client (no ``x-hushh-client-version`` on the upgrade routes)
+        predates the reserved-branch relocation. It is never offered an upgrade
+        whose only reason is the missing relocation marker: its upgrade would
+        be a copy that never stamps the marker, so it would run on every
+        entry without moving anything.
+        """
+        index = resolved_index or index or await self.pkm_service.get_index_v2(user_id)
+        manifests_by_domain = {
+            self._clean_text(row.get("domain")): dict(row)
+            for row in (manifest_headers or [])
+            if isinstance(row, dict) and self._clean_text(row.get("domain"))
+        }
+        if domain_manifests is not None:
+            manifests_by_domain = {
+                self._clean_text(domain): dict(manifest)
+                for domain, manifest in domain_manifests.items()
+                if self._clean_text(domain) and isinstance(manifest, dict)
+            }
         available_domains = list(index.available_domains) if index else []
         if not available_domains:
-            try:
-                rows = (
-                    self.db.table("pkm_manifests")
-                    .select("domain")
-                    .eq("user_id", user_id)
-                    .execute()
-                    .data
-                    or []
-                )
-                available_domains = sorted(
-                    {
-                        self._clean_text(row.get("domain")) or ""
-                        for row in rows
-                        if self._clean_text(row.get("domain"))
-                    }
-                )
-            except Exception:
-                available_domains = []
+            if domain_manifests is not None or manifest_headers is not None:
+                available_domains = sorted(manifests_by_domain)
+            else:
+                try:
+                    query = self.db.table("pkm_manifests").select("domain").eq("user_id", user_id)
+                    rows = (await asyncio.to_thread(query.execute)).data or []
+                    available_domains = sorted(
+                        {
+                            self._clean_text(row.get("domain")) or ""
+                            for row in rows
+                            if self._clean_text(row.get("domain"))
+                        }
+                    )
+                except Exception:
+                    available_domains = []
 
         # A user with no pkm_index row yet has nothing to be "behind" on: treat
         # them as already current instead of manufacturing a permanent
@@ -392,6 +432,12 @@ class PkmUpgradeService:
             getattr(index, "model_version", None),
             CURRENT_PKM_MODEL_VERSION,
         )
+        if domain_manifests is None and manifest_headers is None and available_domains:
+            # Standalone status uses the same bounded batch as metadata reads,
+            # not three SQL round trips per domain on every app-entry check.
+            manifests_by_domain = await self.pkm_service.get_domain_manifests(
+                user_id, available_domains, raise_on_error=True
+            )
         domain_states: list[dict[str, Any]] = []
         domain_summaries = index.domain_summaries if index else {}
         for domain in sorted(available_domains):
@@ -400,7 +446,9 @@ class PkmUpgradeService:
                 if isinstance(domain_summaries.get(domain), dict)
                 else {}
             )
-            manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            manifest = manifests_by_domain.get(domain)
+            if manifest is None:
+                manifest = {}
             summary_projection = (
                 manifest.get("summary_projection") if isinstance(manifest, dict) else {}
             )
@@ -448,8 +496,12 @@ class PkmUpgradeService:
                 CURRENT_READABLE_PROJECTION_VERSION
             ):
                 future_reasons.append("future_readable_projection_version")
+            needs_reserved_migration = not legacy_client and needs_reserved_branch_migration(
+                domain, summary_projection
+            )
             needs_upgrade = (
-                current_domain_version < target_domain_version
+                needs_reserved_migration
+                or current_domain_version < target_domain_version
                 or current_readable_version < target_readable_version
                 or self._semantic_version(current_pkm_contract_version)
                 < self._semantic_version(CURRENT_PKM_CONTRACT_VERSION)
@@ -559,6 +611,8 @@ class PkmUpgradeService:
         self,
         user_id: str,
         status_payload: dict[str, Any],
+        *,
+        legacy_client: bool = False,
     ) -> dict[str, Any]:
         upgradable_domains = status_payload.get("upgradable_domains") or []
         if upgradable_domains:
@@ -594,7 +648,7 @@ class PkmUpgradeService:
                 user_id,
             )
             return status_payload
-        return await self.build_status(user_id)
+        return await self.build_status(user_id, legacy_client=legacy_client)
 
     async def start_or_resume_run(
         self,
@@ -602,8 +656,9 @@ class PkmUpgradeService:
         *,
         initiated_by: str = "unlock_warm",
         mode: str = "real",
+        legacy_client: bool = False,
     ) -> dict[str, Any]:
-        status_payload = await self.build_status(user_id)
+        status_payload = await self.build_status(user_id, legacy_client=legacy_client)
         if status_payload.get("upgrade_status") == "client_update_required":
             return status_payload
         latest_run = status_payload.get("run")
@@ -621,12 +676,14 @@ class PkmUpgradeService:
                         "p_step_rows": JsonParam([]),
                     },
                 )
-            return await self.build_status(user_id)
+            return await self.build_status(user_id, legacy_client=legacy_client)
 
         upgradable_domains = status_payload.get("upgradable_domains") or []
         if not upgradable_domains:
             if mode == "real":
-                return await self._maybe_reconcile_current_index(user_id, status_payload)
+                return await self._maybe_reconcile_current_index(
+                    user_id, status_payload, legacy_client=legacy_client
+                )
             return status_payload
 
         if mode != "real":
@@ -655,7 +712,7 @@ class PkmUpgradeService:
                 "p_step_rows": JsonParam(step_rows),
             },
         )
-        return await self.build_status(user_id)
+        return await self.build_status(user_id, legacy_client=legacy_client)
 
     async def mark_run_status(
         self,
@@ -698,13 +755,14 @@ class PkmUpgradeService:
         domain: str,
         source_content_revision: int,
         source_manifest_revision: int,
+        legacy_client: bool = False,
     ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
         if runs[0].get("user_id") != user_id:
             raise PermissionError("PKM upgrade run is not owned by authenticated user.")
-        status_payload = await self.build_status(user_id)
+        status_payload = await self.build_status(user_id, legacy_client=legacy_client)
         domain_state = next(
             (
                 entry
@@ -778,7 +836,8 @@ class PkmUpgradeService:
 
     async def _list_runs_for_run_id(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_runs").select("*").eq("run_id", run_id).execute()
+            query = self.db.table("pkm_upgrade_runs").select("*").eq("run_id", run_id)
+            result = await asyncio.to_thread(query.execute)
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to fetch PKM upgrade run %s: %s", run_id, exc)
@@ -827,7 +886,9 @@ class PkmUpgradeService:
         updated_step = payload if isinstance(payload, dict) else None
         return updated_step
 
-    async def complete_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
+    async def complete_run(
+        self, run_id: str, *, user_id: str, legacy_client: bool = False
+    ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
@@ -852,7 +913,7 @@ class PkmUpgradeService:
         index.model_version = CURRENT_PKM_MODEL_VERSION
         index.last_upgraded_at = now
         await self.pkm_service.upsert_index_v2(index)
-        return await self.build_status(run["user_id"])
+        return await self.build_status(run["user_id"], legacy_client=legacy_client)
 
     async def fail_run(
         self,
@@ -861,6 +922,7 @@ class PkmUpgradeService:
         user_id: str,
         last_error: str | None = None,
         error_context: dict[str, Any] | None = None,
+        legacy_client: bool = False,
     ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
@@ -903,7 +965,7 @@ class PkmUpgradeService:
             status="failed",
             last_error=last_error,
         )
-        return await self.build_status(runs[0]["user_id"])
+        return await self.build_status(runs[0]["user_id"], legacy_client=legacy_client)
 
 
 _pkm_upgrade_service: PkmUpgradeService | None = None

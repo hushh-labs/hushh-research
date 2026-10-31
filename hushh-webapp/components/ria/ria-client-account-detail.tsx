@@ -19,8 +19,8 @@ import {
   buildRiaClientWorkspaceRoute,
 } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
-import { Database, Loader2, Wallet } from "lucide-react";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { Database, Loader2, Wallet } from "@/components/icons";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 
 function formatStatusLabel(status?: string | null) {
@@ -108,7 +108,7 @@ export function RiaClientAccountDetail({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening account detail routes."
         nativeTest={{
           routeId: "/ria/clients/[userId]/accounts/[accountId]",
@@ -124,7 +124,7 @@ export function RiaClientAccountDetail({
     return (
       <RiaCompatibilityState
         title="Account detail is unavailable in this environment"
-        description="The route is wired, but this environment still needs the full IAM schema before advisor-side account detail can load."
+        description="IAM setup is required here."
         nativeTest={{
           routeId: "/ria/clients/[userId]/accounts/[accountId]",
           marker: "native-route-ria-client-account-detail",
@@ -151,13 +151,12 @@ export function RiaClientAccountDetail({
         authState: user ? "authenticated" : "pending",
         dataState: loading
           ? "loading"
-          : accountBranch
-            ? "loaded"
-            : detailError
-              ? "error"
+          : detailError
+            ? "error"
+            : accountBranch
+              ? "loaded"
               : "empty-valid",
         errorCode: detailError ? "ria_client_account_detail" : null,
-        errorMessage: detailError,
       }}
     >
       {loading ? (
@@ -171,7 +170,7 @@ export function RiaClientAccountDetail({
 
       {!loading && detailError ? (
         <div className="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)]">
-          <p className="text-sm text-red-500">{detailError}</p>
+          <p className="text-sm text-[color:var(--ria-danger-text)]">{detailError}</p>
         </div>
       ) : null}
 
@@ -179,7 +178,7 @@ export function RiaClientAccountDetail({
         <SettingsGroup
           embedded
           title="Account not available"
-          description="The account branch is not part of the current client workspace or has not been approved for this advisor view."
+          description="This branch is not approved."
         >
           <SettingsRow
             title="Return to the client workspace"
@@ -215,7 +214,7 @@ export function RiaClientAccountDetail({
               <SectionHeader
                 eyebrow="Access"
                 title="Approval and branch status"
-                description="Per-account approval remains explicit. This route surfaces what the advisor can currently access for this branch."
+                description="Approved account access."
                 icon={Wallet}
                 accent="ria"
               />
@@ -239,7 +238,7 @@ export function RiaClientAccountDetail({
                 />
                 <SettingsRow
                   title="Grant source"
-                  description={accountBranch.granted_by_bundle_key || "Kai specialized access"}
+                  description={accountBranch.granted_by_bundle_key || "Portfolio + data"}
                 />
               </SettingsGroup>
             </section>
@@ -248,14 +247,14 @@ export function RiaClientAccountDetail({
               <SectionHeader
                 eyebrow="Explorer"
                 title="Readable branch summary"
-                description="This view stays intentionally summary-first until richer account-level explorer payloads are available from the backend."
+                description="Summary-first view."
                 icon={Database}
                 accent="ria"
               />
               <SettingsGroup embedded>
                 <SettingsRow
                   title="Account coverage"
-                  description="This advisor route currently inherits domain-level financial summaries plus explicit branch approval metadata."
+                  description="Approved branch metadata."
                 />
                 <SettingsRow
                   title="Household risk"

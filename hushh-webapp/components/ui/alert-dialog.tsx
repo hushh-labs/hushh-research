@@ -6,6 +6,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types"
 
 // Map the shadcn Button variant used by AlertDialog actions onto the closest
@@ -51,36 +52,49 @@ function AlertDialogPortal({
 
 function AlertDialogOverlay({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+  const overlayRef = useNativeNavigationOverlayRef(ref)
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
         // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
 
 function AlertDialogContent({
   className,
+  overlayClassName,
   size = "default",
+  style,
+  ref,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
+  overlayClassName?: string
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <AlertDialogPortal>
-      <AlertDialogOverlay />
+      <AlertDialogOverlay className={overlayClassName} />
       <AlertDialogPrimitive.Content
+        ref={contentRef}
         data-slot="alert-dialog-content"
         data-size={size}
+        // Inline as well as the class: a caller's className can override the
+        // utility (the native RIA delete confirmation did), the inline value
+        // cannot be. Sourced from the ladder token, never a literal.
+        style={{ zIndex: "var(--z-dialog)", ...style }}
         className={cn(
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 group/alert-dialog-content fixed top-[50%] left-[50%] z-[500] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 group/alert-dialog-content fixed top-[50%] left-[50%] z-(--z-dialog) grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg",
           className
         )}
         {...props}
@@ -176,7 +190,7 @@ function AlertDialogAction({
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
   const ripple = rippleVariantForButtonVariant(variant)
   return (
-    <Button variant={variant} size={size} asChild>
+    <Button variant={variant} size={size} asChild showRipple={false}>
       <AlertDialogPrimitive.Action
         data-slot="alert-dialog-action"
         className={cn("relative isolate overflow-hidden", className)}
@@ -201,7 +215,7 @@ function AlertDialogCancel({
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
   const ripple = rippleVariantForButtonVariant(variant)
   return (
-    <Button variant={variant} size={size} asChild>
+    <Button variant={variant} size={size} asChild showRipple={false}>
       <AlertDialogPrimitive.Cancel
         data-slot="alert-dialog-cancel"
         className={cn("relative isolate overflow-hidden", className)}

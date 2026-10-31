@@ -1,5 +1,69 @@
-import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
-import { ApiService } from "@/lib/services/api-service";
+import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
+import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
+import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
+import { createAgentStreamLiveness } from "./agent-chat-liveness";
+import { AGENT_RESPONSE_REFUSAL_MESSAGE } from "./agent-event-boundary";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
+import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
+import { serverNow } from "@/lib/agent/server-clock";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
+import {
+  parseDriveBatchProgressActivity,
+  type DriveBatchProgress,
+} from "@/lib/agent/drive-batch-progress";
+import { HttpAgent, type AgentSubscriber, type InputContent, type Tool, type UserMessage } from "@ag-ui/client";
+import { Capacitor } from "@capacitor/core";
+import { applyPatch, type Operation } from "fast-json-patch";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
+import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
+import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
+import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
+import { resolveTurnLocation } from "@/lib/agent/turn-location";
+import {
+  QUEUED_INPUT_EVENT,
+  parseQueuedInputNotice,
+  type QueuedInputNotice,
+  type QueuedInputPorts,
+} from "@/lib/agent/agent-chat-live-turn-queue";
+import {
+  ChatKeyUnavailableError,
+  chatKeyRefusalCode,
+  noteChatKeyAccepted,
+  oneChatKeyHeaders,
+  routeChatKeyRefusal,
+} from "@/lib/vault/one-chat-key";
+import {
+  AGENT_TURN_DETACH_REASON,
+  registerAttachedAgentTurn,
+  watchDetachedAgentTurn,
+} from "@/lib/agent/agent-chat-turn-watch";
+import {
+  parseStoredTextAttachments,
+  type AgentTextAttachment,
+} from "@/lib/agent/large-text-attachment";
+import {
+  classifyBackendStrain,
+  type AgentStreamHealthSignal,
+} from "@/lib/agent/agent-chat-slow-notice";
+import {
+  parseAgentActivityExperience,
+  parseAgentToolResultExperience,
+  type AgentStructuredExperience,
+} from "@/lib/agent/agui-structured-experiences";
+import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
+import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
+import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
+import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
 
 export type AgentChatMessage = {
   id: string;
@@ -10,8 +74,108 @@ export type AgentChatMessage = {
   model?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
-  metadata?: { kind?: string; display?: string } | null;
+  metadata?: {
+    kind?: string;
+    display?: string;
+    structuredExperience?: {
+      activityType?: string;
+      content?: unknown;
+    } | null;
+    structuredExperienceId?: string | null;
+    structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+    connectorRead?: ConnectorReadExperience | null;
+    /** Bound history descriptor for the turn's Activity rows (enums and opaque ids only). */
+    turnActivity?: { activityType?: string; content?: unknown } | null;
+    /** Pasted text sent with a user turn, restored as a chip (never as message text). */
+    attachments?: AgentTextAttachment[];
+    /** A message sent while One was working, which joined that reply. */
+    queuedInput?: "joined";
+    /** The information request this outcome chip or continuation answer belongs to. */
+    consentBundleId?: string;
+    /** The server hid this answer because sharing it relied on has ended. */
+    consentAccessEnded?: boolean;
+    /** Whose shared information this answer used, by name and human label only. */
+    consentAccess?: AgentChatConsentAccess;
+  } | null;
 };
+
+/**
+ * `metadata.consentAccess` on an answer that used another person's shared
+ * information (contract C3). Names and human labels only, never values.
+ */
+export type AgentChatConsentAccess = {
+  bundleId: string;
+  state: "live" | "ended";
+  /** Why access ended; null while it is live. */
+  outcome: "revoked" | "expired" | null;
+  personName: string | null;
+  labels: string[];
+};
+
+function endedReason(value: unknown): "revoked" | "expired" | null {
+  return value === "revoked" || value === "expired" ? value : null;
+}
+
+/**
+ * Read `metadata.consentAccess`, falling back to the response's
+ * `consentAccessEnded` map for the reason. Anything malformed reads as absent.
+ */
+export function parseConsentAccess(
+  value: unknown,
+  endedByBundle: Readonly<Record<string, unknown>> = {},
+): AgentChatConsentAccess | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const bundleId = typeof record.bundleId === "string" ? record.bundleId.trim() : "";
+  if (!bundleId) return undefined;
+  const outcome = endedReason(record.outcome) ?? endedReason(endedByBundle[bundleId]);
+  const labels = Array.isArray(record.labels)
+    ? record.labels.filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
+      .map((label) => label.trim().slice(0, 120)).slice(0, 20)
+    : [];
+  const personName = typeof record.personName === "string" && record.personName.trim()
+    ? record.personName.trim().slice(0, 120) : null;
+  return {
+    bundleId,
+    state: record.state === "ended" || outcome ? "ended" : "live",
+    outcome,
+    personName,
+    labels,
+  };
+}
+
+function utf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  // Chunked so a large paste never overflows the argument limit.
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * The AG-UI content of a user turn. Typed text stays the message text; each
+ * pasted attachment rides beside it as a `text/plain` document part, the
+ * protocol's own channel for files, which the agent bridge turns into a
+ * separate model part. A turn without attachments stays a plain string.
+ */
+export function buildAgentUserMessageContent(
+  message: string,
+  attachments: readonly AgentTextAttachment[] = [],
+): UserMessage["content"] {
+  if (attachments.length === 0) return message;
+  const parts: InputContent[] = [];
+  if (message.trim()) parts.push({ type: "text", text: message });
+  for (const attachment of attachments) {
+    parts.push({
+      type: "document",
+      source: { type: "data", value: utf8ToBase64(attachment.text), mimeType: attachment.mimeType },
+      metadata: { filename: attachment.name },
+    });
+  }
+  return parts;
+}
 
 export type AgentChatConversation = {
   id: string;
@@ -20,8 +184,9 @@ export type AgentChatConversation = {
   model?: string | null;
   message_count: number;
   created_at?: string | null;
-  updated_at?: string | null;
-  last_message_at?: string | null;
+  /** ADK session times arrive as epoch seconds; older rows may be ISO strings. */
+  updated_at?: string | number | null;
+  last_message_at?: string | number | null;
 };
 
 export type AgentChatToolEvent = {
@@ -32,11 +197,15 @@ export type AgentChatToolEvent = {
   expiresAt: string | null;
   actionId: string | null;
   label: string;
+  /** App-authored present-tense phrase for the chat header while this call runs. */
+  activity?: string;
   execution: "frontend" | "blocked" | string;
   slots: Record<string, unknown>;
   message: string;
   reason?: string | null;
   status?: string;
+  /** App-authored step tag such as "Read" or "Needs review". */
+  tag?: string;
   requiresConfirmation: boolean;
   trustedActivationRequired: boolean;
   raw: Record<string, unknown>;
@@ -56,51 +225,144 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
+  onBrowserTaskCreated?: () => void;
+  /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
+  onReceiptPrivate?: () => void;
+  /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
+  onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
+  /** Ephemeral native review: never append its references or receipt to history/debug events. */
+  onMcpReview?: (review: {
+    reference: McpCallReviewReference;
+    /** Opaque live Activity ids for the native call and its confirmation step. */
+    activityIds?: readonly string[];
+    conversationId: string;
+    /** Derived chat key header value; the review reads this owner's sealed conversation. */
+    chatKey: string;
+    isCurrent: () => boolean;
+    loadConfiguration?: () => Promise<CustomConnectorConfiguration | undefined>;
+    resume: (approval: McpCallApproval | null, signal?: AbortSignal,
+      /** Fresh handlers for an owner-pod recovery segment; never replay the user turn. */
+      handlers?: AgentChatStreamHandlers) => Promise<void>;
+  }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
   onToolResult?: (payload: AgentChatToolEvent) => void;
+  /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
+  onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
+  /** Provider-authored thought summary only; never raw thoughts or continuation signatures. */
+  onThinkingSummary?: (chunk: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
+  onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
-  onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
-  onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
+  /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
+  onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
+  /** 2-3 next questions One wrote with this answer; only for the latest answer, never stored. */
+  onMessageReaction?: (result: MessageReactionResult) => void;
+  onFollowUpSuggestions?: (suggestions: string[]) => void;
+  /** Owner-only count progress from a server AG-UI activity; never inferred from time. */
+  onDriveBatchProgress?: (progress: DriveBatchProgress, eventId?: string) => void;
+  onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
+  /**
+   * The server's id for this turn's answer (the ADK event id), from the run's
+   * closing messages snapshot. The live bubble is created under a browser id
+   * before the server has one; a rating keyed by that browser id could never
+   * be joined to the turn, or matched after a reload (history uses event ids).
+   */
+  onServerMessageId?: (serverMessageId: string) => void;
+  /** Where messages queued during this turn landed, by client id only. */
+  onQueuedInput?: (notice: QueuedInputNotice) => void;
+  /**
+   * Transport health for the slow-reply notice: bytes, the first visible work,
+   * or server strain from a typed code or status. Never content.
+   */
+  onStreamHealth?: (signal: AgentStreamHealthSignal) => void;
 };
 
-const SSE_OPEN_TIMEOUT_MS = 10_000;
-const SSE_FIRST_MEANINGFUL_TIMEOUT_MS = 25_000;
-const SSE_INACTIVITY_TIMEOUT_MS = 45_000;
-
-async function openAgentChatStream(
-  opener: (signal: AbortSignal) => Promise<Response>,
-  externalSignal?: AbortSignal,
-): Promise<Response> {
-  const controller = new AbortController();
-  const abortFromCaller = () => controller.abort(externalSignal?.reason);
-  externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        controller.abort("agent_chat_open_timeout");
-        reject(new Error("Agent chat did not open in time. Please retry."));
-      }, SSE_OPEN_TIMEOUT_MS);
-    });
-    return await Promise.race([opener(controller.signal), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    externalSignal?.removeEventListener("abort", abortFromCaller);
+/** The last assistant message with content in a messages snapshot: this turn's answer. */
+export function lastAssistantMessageId(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = asRecord(messages[index]);
+    if (!message || message.role !== "assistant") continue;
+    const content = message.content;
+    const hasContent =
+      (typeof content === "string" && content.trim().length > 0) ||
+      (Array.isArray(content) && content.length > 0);
+    const id = typeof message.id === "string" ? message.id.trim() : "";
+    if (hasContent && id) return id;
   }
+  return null;
 }
+
+// Reject legacy reasoning before the SDK stores it, including replay snapshots.
+// Server continuation signatures remain server-owned and never enter this UI.
+const publicOutputSubscriber: Pick<
+  AgentSubscriber,
+  "onEvent" | "onMessagesSnapshotEvent"
+> = {
+  onEvent: ({ event }) => {
+    if (String(event.type).startsWith("REASONING_")) {
+      return { stopPropagation: true };
+    }
+    return undefined;
+  },
+  onMessagesSnapshotEvent: ({ event, messages }) => {
+    if (![...event.messages, ...messages].some((message) => message.role === "reasoning")) {
+      return undefined; // Keep the SDK's normal replay semantics untouched.
+    }
+    const incoming = event.messages
+      .filter((message) => message.role !== "reasoning")
+      .map((message) => {
+        if (message.subagentRunId !== null) return message;
+        const normalized = { ...message };
+        delete normalized.subagentRunId;
+        return normalized;
+      });
+    const byId = new Map(incoming.map((message) => [message.id, message]));
+    // Match SDK replay: retain existing activity when the snapshot omits it,
+    // preserve existing ordering, then append newly observed messages.
+    const preserveActivity = !incoming.some((message) => message.role === "activity");
+    const merged = messages.flatMap((message) => {
+      if (message.role === "reasoning") return [];
+      if (preserveActivity && message.role === "activity") return [message];
+      const replacement = byId.get(message.id);
+      return replacement ? [replacement] : [];
+    });
+    const seen = new Set(merged.map((message) => message.id));
+    return {
+      messages: [...merged, ...incoming.filter((message) => !seen.has(message.id))],
+      stopPropagation: true,
+    };
+  },
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function parseJsonPayload(data: string): Record<string, unknown> {
-  const parsed = JSON.parse(data) as unknown;
-  return asRecord(parsed) || {};
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      return asRecord(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(value);
+}
+
+function unwrapParkedActionResult(value: unknown): Record<string, unknown> | null {
+  const record = parseRecord(value);
+  if (!record) return null;
+  for (const key of ["result", "content", "data"] as const) {
+    const nested = parseRecord(record[key]);
+    if (nested?.status || nested?.directive || nested?.action_id) return nested;
+  }
+  return record;
 }
 
 function readString(record: Record<string, unknown>, key: string): string {
@@ -108,374 +370,1840 @@ function readString(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function readRecord(record: Record<string, unknown>, key: string): Record<string, unknown> {
-  return asRecord(record[key]) || {};
+/**
+ * Server events that show One is working on the turn: answer text, a tool or
+ * agent step, activity, a custom notice, a thought. Run bookkeeping (started,
+ * state and message snapshots) is not work the person is waiting on.
+ */
+const VISIBLE_WORK_EVENT_PREFIXES = ["TEXT_MESSAGE_", "TOOL_CALL_", "ACTIVITY_", "REASONING_", "THINKING_"] as const;
+
+function isVisibleWorkEvent(type: string): boolean {
+  return type === "CUSTOM" || VISIBLE_WORK_EVENT_PREFIXES.some((prefix) => type.startsWith(prefix));
 }
 
-function formatAgentChatErrorMessage(message: string, code?: string): string {
-  if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
-    return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
+const GENERIC_AGENT_CHAT_ERROR =
+  "One couldn't complete that response. Please try again.";
+
+/** Shown when a turn's stream stops before the server said it finished or failed. */
+export const AGENT_CHAT_STREAM_LOST_ERROR =
+  "One lost the connection before finishing that response. Please try again.";
+
+/**
+ * A turn whose stream was lost. The server may still finish and save it, so
+ * the turn's conversation and start time travel with the error: Retry checks
+ * history for this turn before it ever sends the message again.
+ */
+export class AgentChatStreamLostError extends Error {
+  readonly conversationId: string;
+  readonly startedAtMs: number;
+
+  constructor(conversationId: string, startedAtMs: number) {
+    super(AGENT_CHAT_STREAM_LOST_ERROR);
+    this.name = "AgentChatStreamLostError";
+    this.conversationId = conversationId;
+    this.startedAtMs = startedAtMs;
   }
-  if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
-    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.";
+}
+
+export { AGENT_CHAT_STREAM_IDLE_MS } from "./agent-chat-liveness";
+
+type ParkedAppActionDirective = {
+  actionId: string;
+  slots: Record<string, unknown>;
+  needsConfirmation: boolean;
+  trustedActivationRequired: boolean;
+  message: string;
+};
+
+function parseStateActionDirective(
+  path: string,
+  value: unknown,
+  threadId: string,
+): AgentChatToolEvent | null {
+  const record = asRecord(value);
+  if (!record || record.kind !== "action") return null;
+  const payload = asRecord(record.payload);
+  const actionId = String(payload?.actionId || "").trim();
+  const slots = asRecord(payload?.slots);
+  const action = getKaiActionById(actionId);
+  // `pkm.add` is a private-memory tool owned by the chat workspace, not a
+  // navigable Kai action. It intentionally is not generated into the route
+  // gateway, but its parked directive must still reach the local executor.
+  const localMemoryAction = actionId === "pkm.add";
+  if (!actionId || !slots || (!action && !localMemoryAction)) return null;
+
+  const label = action?.label ?? "Add to Memory";
+
+  const needsConfirmation =
+    payload?.needsConfirmation === true || action?.execution_policy === "confirm_required";
+  const trustedActivationRequired =
+    payload?.trustedActivationRequired === true ||
+    action?.activation_policy === "trusted_activation_required";
+  const directiveId = path.slice("/".length);
+  const callId = `${threadId}:state:${directiveId}`;
+  return {
+    callId,
+    directiveId,
+    conversationId: threadId,
+    contextRevision: null,
+    expiresAt: null,
+    actionId,
+    label,
+    execution: "frontend",
+    slots,
+    message: describeDirectiveForOwner(actionId, label, slots, {
+      requiresConfirmation: needsConfirmation || trustedActivationRequired,
+    }),
+    requiresConfirmation: needsConfirmation,
+    trustedActivationRequired,
+    raw: {
+      protocol: "ag-ui",
+      toolName: "pending_directive",
+      args: {},
+      parked: true,
+      statePath: path,
+      // The proposal has already completed server-side. There is no model
+      // interrupt to resume; the browser's visible tap is the sole authority.
+      resume: async () => undefined,
+    },
+  };
+}
+
+/** Reads the directive a run_app_action result carries when it parked an action for the browser. */
+export function parseParkedAppActionDirective(content: unknown): ParkedAppActionDirective | null {
+  const record = unwrapParkedActionResult(content);
+  if (!record) return null;
+  const status = String(record.status || "");
+  const isProposalDirective = status === "proposal_ready";
+  if (
+    status !== "ready_to_run" &&
+    status !== "confirm_pending" &&
+    !isProposalDirective
+  ) return null;
+  const directive = asRecord(record.directive);
+  const actionId = String(
+    directive?.actionId || directive?.action_id || record.action_id || "",
+  ).trim();
+  if (!actionId || (isProposalDirective && actionId !== "consent.request")) return null;
+  const slots = asRecord(directive?.slots || directive?.slot_values) || {};
+  const needsConfirmation =
+    directive?.needsConfirmation === true || directive?.needs_confirmation === true;
+  if (isProposalDirective && !needsConfirmation) return null;
+  return {
+    actionId,
+    slots,
+    needsConfirmation:
+      needsConfirmation || status === "confirm_pending",
+    trustedActivationRequired:
+      directive?.trustedActivationRequired === true ||
+      directive?.trusted_activation_required === true,
+    message: String(record.message || ""),
+  };
+}
+
+/**
+ * list_pending_information_requests answers with request ids only (labels
+ * come from the owner's own pending lookup); the workspace turns each id into
+ * the same card an FCM push would, so approving stays a tap on this device.
+ */
+export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
+  if (toolName !== "list_pending_information_requests") return [];
+  let result: unknown = content;
+  if (typeof result === "string") {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return [];
+    }
   }
+  const record = asRecord(result);
+  if (!record || record.status !== "ok") return [];
+  const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
+  return ids
+    .map((value) => String(value ?? "").trim())
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index)
+    .slice(0, 20);
+}
+
+/**
+ * App-owned presentation for every tool on One's roster: the Activity row's
+ * label and sentence, and the present-tense phrase the chat header shows while
+ * the call runs. Keyed by the server's own tool identity, never by provider
+ * text. A roster tool missing here rendered as a generic "Agent step" row live
+ * and vanished from restored history, so the backend history allowlist
+ * (`_ACTIVITY_TOOLS` in consent-protocol/api/routes/one/agent_chat.py) mirrors
+ * these keys and a backend test holds both to the roster.
+ */
+const SERVER_TOOL_PRESENTATION: Record<
+  string,
+  { label: string; message: string; activity: string }
+> = {
+  discover_person_information: {
+    label: "Available information",
+    message: "Checking what this person makes available to request.",
+    activity: "Checking what they share",
+  },
+  list_pending_information_requests: {
+    label: "Pending requests",
+    message: "Checking what is waiting on you.",
+    activity: "Checking pending requests",
+  },
+  propose_information_request: {
+    label: "Information request",
+    message: "Preparing an information request for your confirmation.",
+    activity: "Preparing a request",
+  },
+  list_my_connections: {
+    label: "Connections",
+    message: "Checking your current connections.",
+    activity: "Checking your connections",
+  },
+  inspect_selected_drive_files: {
+    label: "Google Drive",
+    message: "Checking selected file status.",
+    activity: "Checking Drive files",
+  },
+  inspect_private_connectors: {
+    label: "Connectors",
+    message: "Checking your saved connectors.",
+    activity: "Checking your connectors",
+  },
+  probe_private_connector: {
+    label: "Connectors",
+    message: "Checking that server.",
+    activity: "Checking the server",
+  },
+  discover_workspace_tools: {
+    label: "Connector access",
+    message: "Checking which connected capabilities are available.",
+    activity: "Checking connector access",
+  },
+  read_workspace_tool: {
+    label: "Connected app read",
+    message: "Reading the selected connected capability.",
+    activity: "Reading a connected app",
+  },
+  read_selected_drive_search_result: {
+    label: "Google Drive",
+    message: "Checking the selected file.",
+    activity: "Checking a Drive file",
+  },
+  ask_email_agent: {
+    label: "Gmail",
+    message: "Checking your mail request.",
+    activity: "Checking your Gmail",
+  },
+  ask_documents_agent: {
+    label: "Google Drive",
+    message: "Searching your Drive for this answer.",
+    activity: "Searching your Drive",
+  },
+  ask_connected_systems_agent: {
+    label: "Connected systems",
+    message: "Checking the connected-systems request.",
+    activity: "Checking connected systems",
+  },
+  ask_consent_agent: {
+    label: "Consent",
+    message: "Checking the consent request.",
+    activity: "Checking consent",
+  },
+  list_pending_connection_requests: {
+    label: "Connection requests",
+    message: "Checking your pending connection requests.",
+    activity: "Checking connection requests",
+  },
+  google_search: {
+    label: "Web search",
+    message: "Searching the public web.",
+    activity: "Searching the web",
+  },
+  finance: {
+    label: "Finance",
+    message: "Asking the finance specialist.",
+    activity: "Checking your finances",
+  },
+  wallet: {
+    label: "Wallet",
+    message: "Checking your wallet.",
+    activity: "Checking your wallet",
+  },
+  ask_memory_agent: {
+    label: "Your memory",
+    message: "Checking what One remembers.",
+    activity: "Checking your memory",
+  },
+  read_my_pkm_domain_summary: {
+    label: "Your memory",
+    message: "Reading your memory summary.",
+    activity: "Reading your memory",
+  },
+  add_to_pkm: {
+    label: "Memory",
+    message: "Saving this to your memory.",
+    activity: "Saving to your memory",
+  },
+  read_my_profile_status: {
+    label: "Profile",
+    message: "Checking your profile.",
+    activity: "Checking your profile",
+  },
+  ask_location_agent: {
+    label: "Location",
+    message: "Checking the location request.",
+    activity: "Checking location",
+  },
+  list_my_location_circles: {
+    label: "Location circles",
+    message: "Checking your circles.",
+    activity: "Checking your circles",
+  },
+  get_location_circle_members: {
+    label: "Location circles",
+    message: "Checking circle members.",
+    activity: "Checking circle members",
+  },
+  list_my_location_shares: {
+    label: "Location sharing",
+    message: "Checking who sees your location.",
+    activity: "Checking location sharing",
+  },
+  list_location_shared_with_me: {
+    label: "Location sharing",
+    message: "Checking locations shared with you.",
+    activity: "Checking shared locations",
+  },
+  list_pending_location_requests: {
+    label: "Location requests",
+    message: "Checking location requests waiting on you.",
+    activity: "Checking location requests",
+  },
+  list_my_outgoing_location_requests: {
+    label: "Location requests",
+    message: "Checking location requests you sent.",
+    activity: "Checking sent location requests",
+  },
+  list_information_shared_with_me: {
+    label: "Shared with you",
+    message: "Checking information shared with you.",
+    activity: "Checking what is shared with you",
+  },
+  list_active_grants: {
+    label: "Access grants",
+    message: "Checking who has access.",
+    activity: "Checking access grants",
+  },
+  list_my_outgoing_information_requests: {
+    label: "Sent requests",
+    message: "Checking requests you sent.",
+    activity: "Checking sent requests",
+  },
+  propose_document_request: {
+    label: "Document request",
+    message: "Preparing a document request for your confirmation.",
+    activity: "Preparing a document request",
+  },
+  list_available_models: {
+    label: "Models",
+    message: "Checking available models.",
+    activity: "Checking models",
+  },
+  set_preferred_model: {
+    label: "Models",
+    message: "Updating your preferred model.",
+    activity: "Updating your model",
+  },
+  propose_style_settings: {
+    label: "Writing style",
+    message: "Preparing a writing style change for you to review in Settings.",
+    activity: "Preparing a style change",
+  },
+  calendar_invitations: {
+    label: "Google Calendar",
+    message: "Reading your received invitations.",
+    activity: "Reading invitations",
+  },
+  open_calendar_invitation: {
+    label: "Google Calendar",
+    message: "Preparing your invitation review.",
+    activity: "Reviewing an invitation",
+  },
+  calendar_summary: {
+    label: "Google Calendar",
+    message: "Summarizing your calendar.",
+    activity: "Checking your Calendar",
+  },
+  calendar_events: {
+    label: "Google Calendar",
+    message: "Reading your calendar events.",
+    activity: "Reading your Calendar",
+  },
+  calendar_calendars: {
+    label: "Google Calendar",
+    message: "Finding your calendars.",
+    activity: "Reading your calendars",
+  },
+  calendar_event_detail: {
+    label: "Google Calendar",
+    message: "Reading the event details.",
+    activity: "Reading an event",
+  },
+  calendar_availability: {
+    label: "Google Calendar",
+    message: "Checking your availability.",
+    activity: "Checking availability",
+  },
+  calendar_free_slots: {
+    label: "Google Calendar",
+    message: "Finding free time on your calendar.",
+    activity: "Finding free time",
+  },
+  propose_calendar_event: {
+    label: "Google Calendar",
+    message: "Preparing an event for your confirmation.",
+    activity: "Preparing an event",
+  },
+  propose_calendar_reschedule: {
+    label: "Google Calendar",
+    message: "Preparing a reschedule for your confirmation.",
+    activity: "Preparing a reschedule",
+  },
+  propose_calendar_cancellation: {
+    label: "Google Calendar",
+    message: "Preparing a cancellation for your confirmation.",
+    activity: "Preparing a cancellation",
+  },
+  open_gmail_email_draft: {
+    label: "Gmail",
+    message: "Opening an email draft.",
+    activity: "Drafting an email",
+  },
+  open_gmail_information_request_reply: {
+    label: "Gmail",
+    message: "Opening a reply draft.",
+    activity: "Drafting a reply",
+  },
+  propose_gmail_mailbox_change: {
+    label: "Gmail",
+    message: "Preparing a mailbox change for your confirmation.",
+    activity: "Preparing a mailbox change",
+  },
+  propose_gmail_todo: {
+    label: "Gmail",
+    message: "Preparing email follow-ups for your confirmation.",
+    activity: "Preparing follow-ups",
+  },
+  propose_drive_share: {
+    label: "Google Drive",
+    message: "Preparing a Drive share for your confirmation.",
+    activity: "Preparing a Drive share",
+  },
+  propose_drive_bulk_share: {
+    label: "Google Drive",
+    message: "Preparing saved Drive files for your review.",
+    activity: "Preparing a Drive share",
+  },
+  propose_drive_file_share: {
+    label: "Google Drive",
+    message: "Preparing a Drive share for your confirmation.",
+    activity: "Preparing a Drive share",
+  },
+  propose_drive_file_trash: {
+    label: "Google Drive",
+    message: "Preparing a Drive removal for your confirmation.",
+    activity: "Preparing a Drive removal",
+  },
+  create_drive_file: {
+    label: "Google Drive",
+    message: "Creating a Drive file.",
+    activity: "Creating a Drive file",
+  },
+  copy_drive_file: {
+    label: "Google Drive",
+    message: "Copying a Drive file.",
+    activity: "Copying a Drive file",
+  },
+  move_drive_file: {
+    label: "Google Drive",
+    message: "Moving a Drive file.",
+    activity: "Moving a Drive file",
+  },
+  comment_on_drive_file: {
+    label: "Google Drive",
+    message: "Adding a Drive comment.",
+    activity: "Commenting in Drive",
+  },
+  open_screen: {
+    label: "App navigation",
+    message: "Opening a screen in the app.",
+    activity: "Opening a screen",
+  },
+  run_app_action: {
+    label: "App action",
+    message: "Running an action in the app.",
+    activity: "Working in the app",
+  },
+  propose_app_action: {
+    label: "App action",
+    message: "Preparing an action for your confirmation.",
+    activity: "Preparing an action",
+  },
+  report_no_app_action: {
+    label: "App action",
+    message: "No app action was needed.",
+    activity: "Choosing the next step",
+  },
+  list_app_actions: {
+    label: "App actions",
+    message: "Looking up what One can do here.",
+    activity: "Looking up actions",
+  },
+  start_app_goal: {
+    label: "App task",
+    message: "Starting a task in the app.",
+    activity: "Starting a task",
+  },
+  continue_app_goal: {
+    label: "App task",
+    message: "Continuing the task in the app.",
+    activity: "Continuing the task",
+  },
+  resolve_onboarding_goal: {
+    label: "Setup",
+    message: "Checking your setup goal.",
+    activity: "Checking your setup",
+  },
+  get_current_time: {
+    label: "Time",
+    message: "Checking the current time.",
+    activity: "Checking the time",
+  },
+  get_my_location: {
+    label: "Location",
+    message: "Using your approximate location for this answer.",
+    activity: "Checking your location",
+  },
+  // Rendered as chips under the answer, never as an Activity row; named here so
+  // the roster label guard holds and no surface falls back to "Agent step".
+  suggest_follow_ups: {
+    label: "Follow-up ideas",
+    message: "Suggesting what you could ask next.",
+    activity: "Suggesting next questions",
+  },
+  // ADK's own confirmation step for a reviewed connector call. Live only:
+  // history restores the reviewed call's row, never this envelope.
+  adk_request_confirmation: {
+    label: "Your review",
+    message: "Waiting for your review.",
+    activity: "Waiting for your review",
+  },
+};
+
+const WORKSPACE_PROVIDER_NAMES: Record<string, string> = {
+  gmail: "Gmail",
+  drive: "Google Drive",
+  calendar: "Google Calendar",
+};
+
+/**
+ * Connector setup and reads name the Google product once the call's provider
+ * is known, so "lets connect to Google Drive" reads "Google Drive · Checking
+ * Google Drive access" rather than a generic connector row. Only the fixed
+ * enum above ever labels a step; any other provider value keeps the generic
+ * presentation.
+ */
+function workspaceToolPresentation(
+  toolName: string,
+  provider: unknown,
+): { label: string; message: string; activity: string } | null {
+  const name = typeof provider === "string" ? WORKSPACE_PROVIDER_NAMES[provider] : undefined;
+  if (!name) return null;
+  if (toolName === "discover_workspace_tools") {
+    return { label: name, message: `Checking ${name} access.`, activity: `Checking ${name} access` };
+  }
+  if (toolName === "read_workspace_tool") {
+    return { label: name, message: `Reading ${name}.`, activity: `Reading ${name}` };
+  }
+  return null;
+}
+
+export const TURN_ACTIVITY_TYPE = "one.turn_activity.v1" as const;
+
+/** A restored Activity row: the same app-authored fields the live panel renders. */
+export type RestoredActivityStep = {
+  id: string;
+  label: string;
+  message: string;
+  status: "done" | "waiting" | "blocked";
+  tag?: "Read" | "Needs review" | "Public";
+  provider?: "gmail" | "drive" | "calendar";
+  toolName: string;
+  /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
+  connectorId?: string;
+};
+
+/** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
+function specialistReadMessage(toolName: string, status: unknown, metadataOnly = false): string {
+  const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+  if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  if (status === "input_required") return `${source} needs more detail.`;
+  // The Email specialist read no mail and handed a receipts question back to One.
+  if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
+  return `${source} could not complete that read.`;
+}
+
+/**
+ * Rebuild a turn's Activity rows from the server's bound history descriptor.
+ * Labels and sentences come from the same app-owned table as the live stream;
+ * the descriptor only chooses among them. Unknown tools, statuses, or fields
+ * drop the row rather than render provider text.
+ */
+export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivityStep[] {
+  const record = asRecord(descriptor);
+  if (!record || record.activityType !== TURN_ACTIVITY_TYPE) return [];
+  const steps = asRecord(record.content)?.steps;
+  if (!Array.isArray(steps)) return [];
+  return steps.slice(-10).flatMap((value): RestoredActivityStep[] => {
+    const step = asRecord(value);
+    const id = typeof step?.id === "string" ? step.id.trim().slice(0, 128) : "";
+    const toolName = typeof step?.tool === "string" ? step.tool : "";
+    const rawStatus = step?.status;
+    if (!step || !id || !toolName || (toolName === FOLLOW_UP_TOOL_NAME || toolName === REACTION_TOOL_NAME)) return [];
+    const mcp = /^mcp_[0-9a-f]{40}$/.test(toolName);
+    const presentation = workspaceToolPresentation(toolName, step.provider) ??
+      SERVER_TOOL_PRESENTATION[toolName];
+    if (!mcp && !presentation) return [];
+    if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
+    const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
+    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    if (mcp) {
+      const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
+        ? step.connectorId : undefined;
+      const tag = status === "waiting" && step.review === "required" ? "Needs review"
+        : status === "done" && step.review === "read_only" ? "Read"
+          : status === "done" && step.review === "no_credential" ? "Public" : undefined;
+      return [{
+        id, toolName, label: "Connected tool", status,
+        message: rawStatus === "interrupted" ? "This step did not finish."
+          : status === "done" ? "Connector call finished."
+            : status === "waiting" ? "Waiting for your review." : "Connector call needs attention.",
+        ...(tag ? { tag } : {}),
+        ...(connectorId ? { connectorId } : {}),
+      }];
+    }
+    if (!presentation) return [];
+    let message = presentation.message;
+    if (rawStatus === "interrupted") message = "This step did not finish.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
+    else if (toolName === "probe_private_connector") message = "One checked that server.";
+    else if (toolName === "read_selected_drive_search_result") {
+      message = step.readStatus === "ok" ? "Drive file checked."
+        : step.readStatus === "input_required" ? "Choose the file again."
+          : "Drive file could not be checked.";
+    }
+    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      message = step.readStatus === "status_checked" ? "Drive status checked." : specialistReadMessage(toolName, step.readStatus);
+    }
+    return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
+  });
+}
+
+const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
+  CHAT_KEY_REQUIRED: "Unlock your vault, then try again. If this keeps happening, update or refresh the app.",
+  CHAT_KEY_INVALID: "Unlock your vault, then try again. If this keeps happening, update or refresh the app.",
+  CHAT_KEY_MISMATCH: "Your chat history did not open with this vault. Unlock your vault again, then try again.",
+  CHAT_CONVERSATION_RETIRED: "This conversation is no longer available. Start a new chat.",
+};
+
+export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  if (/^AGENT_(EVENT_(SIZE|DEPTH|COLLECTION)_EXCEEDED|STREAM_(INVALID|PROTOCOL_UNSUPPORTED))$/.test(code || message)) {
+    return AGENT_RESPONSE_REFUSAL_MESSAGE;
+  }
+  // The direct path can refuse before a chat request exists. Its typed boundary
+  // (or exact SDK message) maps to fixed copy, never to transport details.
+  const ownerPodMessage = ownerPodTurnErrorMessage(message, code);
+  if (ownerPodMessage) return ownerPodMessage;
+  // Chat history is sealed with a key derived from the vault. These refusals are
+  // recoverable, so say how; the raw server text is never shown.
+  const chatKeyCode = code && code in CHAT_KEY_REFUSAL_MESSAGES
+    ? code
+    : Object.keys(CHAT_KEY_REFUSAL_MESSAGES).find((candidate) => message.includes(candidate));
+  const chatKeyRefusal = chatKeyCode ? CHAT_KEY_REFUSAL_MESSAGES[chatKeyCode] : undefined;
+  if (chatKeyRefusal) return chatKeyRefusal;
+  const ownerAiMessage = ownerAiRunErrorMessage(code, message); // own-key refusals link to Bring your own AI
+  if (ownerAiMessage) return ownerAiMessage;
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
-    return "Hussh managed Gemini is not available in this environment.";
+    return "Hussh AI is not available in this environment.";
   }
   if (code === "AGENT_RUNTIME_MODEL_UNAVAILABLE") {
-    return "One's configured Gemini model is not available for this runtime.";
+    return "One's configured model is not available for this runtime.";
   }
   if (code === "AGENT_RUNTIME_EMPTY_RESPONSE") {
     return "One did not receive a response from the configured model. Please try again.";
   }
-  return message || "Agent chat failed. Please try again.";
-}
-
-function resolveBrowserTimeZone(): string | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
+  if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
+    return "One's conversation history is temporarily unavailable. Please try again.";
   }
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-  } catch {
-    return undefined;
+  // The server's authored terminal errors (hushh_mcp/one_adk/run_errors.py)
+  // carry a fixed, content-free message; keyed by code, never by that text.
+  const authored = managedChatRunErrorMessage(code);
+  if (authored) return authored;
+  // AG-UI may deliver provider failures as an untyped RunErrorEvent when the
+  // ADK bridge cannot preserve the backend error code. Recognize only the
+  // stable provider markers and keep the raw message out of the transcript.
+  const normalizedMessage = message.toUpperCase();
+  if (
+    normalizedMessage.includes("RESOURCE_EXHAUSTED") ||
+    normalizedMessage.includes("TOO MANY REQUESTS") ||
+    /\b429\b/.test(normalizedMessage)
+  ) {
+    return MODEL_CAPACITY_MESSAGE;
   }
-}
-
-function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
-  return {
-    callId: readString(payload, "call_id"),
-    directiveId: readString(payload, "directive_id") || null,
-    conversationId: readString(payload, "conversation_id") || null,
-    contextRevision: readString(payload, "context_revision") || null,
-    expiresAt: readString(payload, "expires_at") || null,
-    actionId: readString(payload, "action_id") || null,
-    label: readString(payload, "label"),
-    execution: readString(payload, "execution"),
-    slots: readRecord(payload, "slots"),
-    message: readString(payload, "message"),
-    reason: readString(payload, "reason") || null,
-    status: readString(payload, "status") || undefined,
-    requiresConfirmation: payload.requires_confirmation === true,
-    trustedActivationRequired: payload.trusted_activation_required === true,
-    raw: payload,
-  };
-}
-
-export async function confirmAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  trustedActivation: true;
-  vaultOwnerToken: string;
-}): Promise<{ receipt: string; expiresAt: string }> {
-  const response = await ApiService.confirmAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-  const payload = (await response.json()) as { receipt: string; expires_at: string };
-  return { receipt: payload.receipt, expiresAt: payload.expires_at };
-}
-
-export async function consumeAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  receipt: string;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.consumeAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-}
-
-export async function cancelAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  conversationId: string;
-  actionId: string;
-  contextRevision: string;
-  reasonCode: string;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.cancelAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
-}
-
-export async function settleAgentChatAction(input: {
-  directiveId: string;
-  userId: string;
-  receipt: string;
-  actionId: string;
-  contextRevision: string;
-  status: "succeeded" | "failed" | "cancelled";
-  reasonCode: string;
-  routeAfter?: string | null;
-  screenAfter?: string | null;
-  vaultOwnerToken: string;
-}): Promise<void> {
-  const response = await ApiService.settleAgentChatAction(input);
-  if (!response.ok) throw new Error(await readError(response));
+  // AG-UI RunErrorEvent.message may be derived from str(exception). Database
+  // drivers append SQL and bound values there, so unknown runtime text is
+  // never consumer-safe. Only explicitly mapped codes cross this boundary.
+  void message;
+  return GENERIC_AGENT_CHAT_ERROR;
 }
 
 async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
   const detailRecord = record ? asRecord(record.detail) : null;
-  const code = detailRecord ? readString(detailRecord, "code") : record ? readString(record, "code") : "";
+  const code = refusalCode(detailRecord, record ? readString(record, "code") : "");
   const detail = detailRecord
     ? readString(detailRecord, "message")
     : record
       ? readString(record, "detail") || readString(record, "message")
       : "";
-  return detail
+  return detail || code
     ? formatAgentChatErrorMessage(detail, code || undefined)
     : `Agent chat request failed (${response.status})`;
+}
+
+/**
+ * Send one keyed chat-history request. A missing local key or a CHAT_KEY_*
+ * refusal becomes a routed `ChatKeyRefusalError` (chat is treated as locked and
+ * the person is asked to unlock) instead of an error the caller might retry.
+ */
+async function sendWithChatKey(send: () => Promise<Response>): Promise<Response> {
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  let response: Response;
+  try {
+    response = await send();
+  } catch (error) {
+    if (error instanceof ChatKeyUnavailableError) {
+      throw routeChatKeyRefusal("CHAT_KEY_REQUIRED", vaultEpoch);
+    }
+    throw error;
+  }
+  if (response.ok) {
+    noteChatKeyAccepted();
+    return response;
+  }
+  const code = chatKeyRefusalCode(await response.clone().json().catch(() => null));
+  if (code) throw routeChatKeyRefusal(code, vaultEpoch);
+  return response;
+}
+
+export type AgentChatConsentContinuation = {
+  bundleId: string;
+  /** Sent as itself; the server admits it only when the ledger reads the same. */
+  outcome: "granted" | "partially_granted" | "denied" | "expired" | "revoked";
+  sharedInformation?: string;
+};
+
+/**
+ * The person's unsent mail draft as it is on screen, so a follow-up turn can
+ * revise it. It grants nothing: One can only open a replacement review card,
+ * and sending still needs the person's Send click on that card.
+ */
+export type PendingEmailDraftContext = {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  driveFileId?: string;
+  /** A reply to the selected Gmail request; its envelope stays server-derived. */
+  sourceBound: boolean;
+};
+
+/** Start the first catalog read beside memory preparation, without adding a cache. */
+export function prepareAgentChatConnectorConfigurations(input: {
+  userId: string;
+  loadConnectorConfigurations: () => Promise<CustomConnectorConfiguration[]>;
+  signal?: AbortSignal;
+}): () => Promise<CustomConnectorConfiguration[]> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const assertCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!owner || owner.userId !== input.userId ||
+        !isValidatedAuthSessionOwnerCurrent(owner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
+      throw new Error("Your vault session changed. Unlock and try again.");
+    }
+  };
+  const load = async () => {
+    assertCurrent();
+    const configurations = await input.loadConnectorConfigurations();
+    assertCurrent();
+    return configurations;
+  };
+  const preparation = load();
+  // Required memory preparation may fail first. Retain this rejection for its
+  // eventual consumer without creating an unhandled background rejection.
+  void preparation.catch(() => undefined);
+  return async () => {
+    assertCurrent();
+    await preparation;
+    assertCurrent();
+    // Re-enter the existing session cache: settings may have invalidated it
+    // while required memory was preparing. Unchanged records need no new read.
+    return load();
+  };
 }
 
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
+  /** Stable id for this turn's user message, so a resend is recognised as the same one. */
+  messageId?: string;
+  /** Pasted text sent as separate document parts, never folded into `message`. */
+  attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
+  /** Selected Calendar zone for this turn; falls back to the device zone if invalid. */
+  timeZoneOverride?: string;
   vaultOwnerToken: string;
+  /** Unlocked vault key. Only the chat key derived from it is sent. */
+  vaultKey: string;
+  loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
+  /**
+   * The owner's Settings style choices (reserved `identity.communication_preferences`),
+   * sent apart from `pkmContext` so One reads them as standing style, never as recalled data.
+   */
+  communicationPreferences?: OwnerStyleSettings;
+  personSelectionHandle?: string;
+  /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
+  gmailInformationRequestWorkflowId?: string;
+  /**
+   * The follow-up turn after another person answered this person's request.
+   * `sharedInformation` is what this device decrypted from the approved export;
+   * the server admits it only for an approved grant and keeps it for this turn.
+   */
+  consentContinuation?: AgentChatConsentContinuation;
+  /** Exact recipient-decrypted curated Finance object; server rechecks active model authority. */
+  financeShare?: { grantId: string; revision: number; projectionText: string };
+  /**
+   * The turn a "One has something for you" tap starts. Only the opaque feed
+   * row id is sent; the server admits it only for an item it actually pushed.
+   */
+  feedAttention?: { itemId: string };
+  /** One saved Drive result, checked against the current owner and live Drive before use. */
+  driveSearchSelection?: { jobId: string; position: number };
+  pendingEmailDraft?: PendingEmailDraftContext | null;
+  /**
+   * Deprecated compatibility input. Ignored: receipt detail is admitted only
+   * through a current owner-authorized dedicated function continuation.
+   */
+  receiptMemory?: ReceiptCanonicalIndex | null;
   screenContext?: Record<string, unknown> | null;
-  runtimeCredential?: string | null;
-  runtimeCredentialMode?: string | null;
-  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
-  runtimeVertexProject?: string | null;
-  runtimeVertexLocation?: string | null;
-  delegateAgentId?: string | null;
-  delegateResult?: Record<string, unknown>;
+  /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
+  specialistFocus?: "email" | "location" | "information" | "finance";
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
-}): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  const timezone = resolveBrowserTimeZone();
-  const response = await openAgentChatStream((signal) => ApiService.streamAgentChat({
-    userId: input.userId,
-    message: input.message,
-    conversationId: input.conversationId || undefined,
-    vaultOwnerToken: input.vaultOwnerToken,
-    pkmContext: input.pkmContext,
-    screenContext: input.screenContext,
-    ...(timezone ? { timezone } : {}),
-    runtimeCredential: input.runtimeCredential,
-    runtimeCredentialMode: input.runtimeCredentialMode,
-    runtimeCredentialTransport: input.runtimeCredentialTransport,
-    runtimeVertexProject: input.runtimeVertexProject,
-    runtimeVertexLocation: input.runtimeVertexLocation,
-    delegateAgentId: input.delegateAgentId,
-    delegateResult: input.delegateResult,
-    signal,
-  }), input.signal);
-
-  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
-}
-
-/**
- * Shared SSE consumer for the Agent chat event protocol (start / token /
- * tool_* / complete / error). Used by both the vault-gated full chat and the
- * pre-vault informational chat, which speak the exact same wire protocol.
- */
-export async function consumeAgentChatStream(
-  response: Response,
-  handlers: AgentChatStreamHandlers,
-  options?: {
-    signal?: AbortSignal;
-    inactivityTimeoutMs?: number;
-    firstMeaningfulTimeoutMs?: number;
+  /** A keyed native interrupt recovered from the pod; never a new user turn. */
+  resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null };
+}): Promise<{
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  interrupted: boolean;
+  /**
+   * The app stopped reading while the server kept the turn running. The answer
+   * is sealed into history when it settles; the turn watch reattaches to it.
+   */
+  detached: boolean;
+}> {
+  // Last line before the wire. The composer already kept every secret in
+  // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
+  // a turn that still carries a raw one is refused before any request exists.
+  assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
+  const timingPhases = ["wire-start", "response-headers", "first-text"] as const;
+  for (const phase of timingPhases) performance.clearMarks(`hushh:agent-chat:${phase}`);
+  const recordedTimings = new Set<typeof timingPhases[number]>();
+  const markTiming = (phase: typeof timingPhases[number]) => {
+    if (recordedTimings.has(phase)) return;
+    recordedTimings.add(phase);
+    // Fixed names only: no prompt, owner, conversation, key or connector detail.
+    performance.mark(`hushh:agent-chat:${phase}`);
+  };
+  const timezone = chatTurnTimeZone(input.timeZoneOverride);
+  // Closed to the server's schema here, so a stale branch never refuses the turn.
+  const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
+  const threadId = input.conversationId || crypto.randomUUID();
+  const handlers = input.handlers ?? {};
+  const mcpOwner = snapshotValidatedAuthSessionOwner();
+  const mcpVaultEpoch = snapshotVaultSessionEpoch();
+  const ownerSessionCurrent = () => Boolean(
+    mcpOwner && mcpOwner.userId === input.userId &&
+    isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
+    isVaultSessionEpochCurrent(mcpVaultEpoch),
+  );
+  const mcpSessionCurrent = () => ownerSessionCurrent() && !input.signal?.aborted;
+  const recovered = input.resumeMcpReview;
+  if (recovered && (!input.conversationId || input.message || input.attachments?.length ||
+      Date.parse(recovered.reference.expiresAt) <= serverNow() || !mcpSessionCurrent() ||
+      (recovered.approval && (
+        (recovered.approval.directiveId !== recovered.reference.directiveId &&
+          recovered.approval.replacesDirectiveId !== recovered.reference.directiveId) ||
+        recovered.approval.pendingHandle !== recovered.reference.pendingHandle ||
+        recovered.approval.connectorId !== recovered.reference.connectorId ||
+        recovered.approval.toolName !== recovered.reference.toolName ||
+        !/^[A-Za-z0-9_-]{32,128}$/.test(recovered.approval.receipt)
+      )))) throw new Error("The recovered connector review changed or expired.");
+  const turnSessionCurrent = mcpSessionCurrent;
+  const assertTurnSessionCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!turnSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+  };
+  // Owner-authored names from the owner's own vault, keyed by opaque id. The
+  // provider-authored tool name never labels a step: a server can write anything.
+  const connectorNames = new Map<string, string>();
+  const connectorProjection = async () => {
+    if (!input.loadConnectorConfigurations) return {};
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    const configurations = await input.loadConnectorConfigurations();
+    if (!mcpSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
+    const mcpConfigurations = projectCustomConnectorTurnConfigurations(configurations);
+    connectorNames.clear();
+    for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
+    return { mcpConfigurations };
+  };
+  // Callers may have started their catalog read beside Soul preparation. For
+  // other callers, overlap it with the derived key and optional location read.
+  const initialConnectorProjection = connectorProjection();
+  void initialConnectorProjection.catch(() => undefined);
+  const availableActionIds = (() => {
+    const screen = input.screenContext || {};
+    const nested = asRecord(screen.one_voice_context);
+    const rawAvailable = nested?.available_action_ids ?? screen.available_action_ids;
+    const rawExecutable = nested?.executable_action_ids ?? screen.executable_action_ids;
+    return Array.from(
+      new Set([
+        ...(Array.isArray(rawAvailable)
+          ? rawAvailable.filter((value): value is string => typeof value === "string")
+          : []),
+        ...(Array.isArray(rawExecutable)
+          ? rawExecutable.filter((value): value is string => typeof value === "string")
+          : []),
+      ]),
+    );
+  })();
+  const tools: Tool[] = availableActionIds.flatMap((actionId) => {
+    const action = getKaiActionById(actionId);
+    if (!action) return [];
+    const encoded = btoa(unescape(encodeURIComponent(actionId)))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/g, "");
+    return [{
+      name: `hussh_action_${encoded}`,
+      description: `${action.label}: ${action.meaning}`,
+      parameters: action.goal?.slot_schema || { type: "object", properties: {}, additionalProperties: false },
+      metadata: { actionId },
+    }];
+  });
+  tools.push(...RECEIPT_TOOL_DECLARATIONS);
+  // Chat history is sealed with a key derived from the vault key; the server
+  // refuses the turn without it and holds it for this request only.
+  // The coarse position is resolved beside the key so it adds no serial wait.
+  let chatKeyHeaders: Record<string, string>;
+  let turnLocation: Awaited<ReturnType<typeof resolveTurnLocation>>;
+  try {
+    [chatKeyHeaders, turnLocation] = await Promise.all([
+      oneChatKeyHeaders(input.vaultKey),
+      resolveTurnLocation(),
+      initialConnectorProjection,
+    ]);
+  } catch (error) {
+    // A vault-owner token without a vault key is not an unlocked chat. Nothing
+    // is sent; the person is routed to unlock.
+    if (error instanceof ChatKeyUnavailableError) {
+      throw routeChatKeyRefusal("CHAT_KEY_REQUIRED", mcpVaultEpoch, true);
+    }
+    throw error;
   }
-): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  if (!response.ok) {
-    throw new Error(await readError(response));
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error("Agent chat stream did not include a response body.");
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let conversationId = response.headers.get("X-Agent-Conversation-Id");
-  let model = response.headers.get("X-Agent-Model");
-  let text = "";
-  let streamError: string | null = null;
-
-  const handleFrame = (event: string, data: string): boolean => {
-    let payload: Record<string, unknown>;
-    try {
-      payload = parseJsonPayload(data);
-    } catch {
-      streamError = "Agent chat stream returned malformed information. Please retry.";
-      handlers?.onError?.(streamError);
-      return true;
-    }
-    if (event === "start") {
-      conversationId = readString(payload, "conversation_id") || conversationId;
-      model = readString(payload, "model") || model;
-      handlers?.onStart?.({
-        conversationId: conversationId || "",
-        model: model || undefined,
-      });
-      return false;
-    }
-    if (event === "token") {
-      const token = readString(payload, "token");
-      if (token) {
-        text += token;
-        handlers?.onToken?.(token);
-      }
-      return Boolean(readString(payload, "token"));
-    }
-    if (event === "thought") {
-      const thought = readString(payload, "text");
-      if (thought) handlers?.onThought?.(thought);
-      return true;
-    }
-    if (event === "tool_start") {
-      handlers?.onToolStart?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "tool_waiting") {
-      handlers?.onToolWaiting?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "tool_result") {
-      handlers?.onToolResult?.(normalizeToolEvent(payload));
-      return true;
-    }
-    if (event === "complete") {
-      conversationId = readString(payload, "conversation_id") || conversationId;
-      model = readString(payload, "model") || model;
-      handlers?.onComplete?.({
-        conversationId: conversationId || "",
-        model: model || undefined,
-      });
-      return true;
-    }
-    if (event === "error") {
-      streamError = formatAgentChatErrorMessage(
-        readString(payload, "message"),
-        readString(payload, "code") || undefined
-      );
-      handlers?.onError?.(streamError);
-      return true;
-    }
-    if (event === "specialist_directive") {
-      const p = payload as Record<string, unknown>;
-      const directive = (p.directive ?? {}) as Record<string, unknown>;
-      handlers?.onSpecialistDirective?.({
-        delegateAgentId: String(p.delegate_agent_id ?? ""),
-        directive: {
-          kind: (directive.kind === "prompt" ? "prompt" : "action"),
-          payload: (directive.payload ?? {}) as Record<string, unknown>,
+  const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
+        detached || input.signal?.aborted) return;
+    loseStream();
+    agent.abortRun();
+  };
+  const liveness = createAgentStreamLiveness(
+    async (init) => {
+      const caller = init as ApiFetchOptions | undefined;
+      const response = await wakingChatTransport({
+        ...init,
+        beforeDispatch: async () => {
+          await caller?.beforeDispatch?.();
+          assertTurnSessionCurrent();
         },
-        message: String(p.message ?? ""),
-        stateChanged: Boolean(p.state_changed),
-      });
-      return true;
-    }
-    if (event === "sources") {
-      const raw = Array.isArray(payload.sources) ? payload.sources : [];
-      const sources: AgentSource[] = raw
-        .map((entry) => asRecord(entry))
-        .filter((r): r is Record<string, unknown> => r !== null)
-        .map((r) => ({
-          agentId: readString(r, "agent_id"),
-          label: readString(r, "label"),
-          reason: readString(r, "reason"),
-        }));
-      handlers?.onSources?.(sources);
-      return true;
-    }
-    return false;
-  };
-
-  const inactivityTimeoutMs = options?.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
-  const firstMeaningfulTimeoutMs =
-    options?.firstMeaningfulTimeoutMs ?? SSE_FIRST_MEANINGFUL_TIMEOUT_MS;
-  const firstMeaningfulDeadline = Date.now() + firstMeaningfulTimeoutMs;
-  let sawMeaningfulEvent = false;
-
-  // Race each read against an inactivity deadline so a silently dead connection
-  // rejects instead of hanging the UI indefinitely. The watchdog is reset on
-  // every chunk by virtue of being re-armed for the next read.
-  const readWithWatchdog = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<never>((_, reject) => {
-      const waitMs = sawMeaningfulEvent
-        ? inactivityTimeoutMs
-        : Math.max(0, firstMeaningfulDeadline - Date.now());
-      timer = setTimeout(() => {
-        reject(
-          new Error(
-            sawMeaningfulEvent
-              ? "Agent chat stream stalled. Please try again."
-              : "One did not respond in time. Please retry.",
-          ),
-        );
-      }, waitMs);
+        isEffectCurrent: () => {
+          if ((caller?.isEffectCurrent && caller.isEffectCurrent() !== true) || !turnSessionCurrent()) return false;
+          markTiming("wire-start");
+          return true;
+        },
+      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {});
+      markTiming("response-headers");
+      return response;
+    },
+    onLostTransport,
+    () => handlers.onStreamHealth?.({ kind: "bytes" }),
+    onLostTransport,
+  );
+  const agent = new HttpAgent({
+    url: "/api/one/agent-chat",
+    threadId,
+    headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
+    initialMessages: input.resumeMcpReview ? [] : [{
+      id: input.messageId || crypto.randomUUID(),
+      role: "user",
+      content: buildAgentUserMessageContent(input.message, input.attachments),
+    }],
+    fetch: (_url, init) => liveness.fetch(init),
+  });
+  let text = "";
+  let runStarted = false;
+  let failure: Error | null = null;
+  let interrupted = false;
+  let intentionallyStoppedAtConfirmation = false;
+  // Per run: whether the server ended it (RUN_FINISHED or RUN_ERROR), and
+  // whether this client gave up on its stream.
+  let runTerminal = false;
+  let streamLost = false;
+  // Server events seen, and whether one was terminal. The bridge starts the
+  // turn's own task only after RUN_STARTED, so a second event proves a turn is
+  // running server-side and will outlive this stream.
+  let serverEvents = 0;
+  let serverTerminal = false;
+  let detached = false;
+  let stopRequest: Promise<void> | null = null;
+  const stopOnServer = () => {
+    if (!ownerSessionCurrent()) return Promise.resolve();
+    return stopRequest ??= createQueuedInputPorts(() => input.vaultOwnerToken, ownerSessionCurrent)
+    .stop(threadId).then((receipt) => { if (!receipt.stopped) throw new Error(); }).catch(() => {
+      if (!ownerSessionCurrent()) return;
+      failure = new Error("Could not confirm that One stopped. Reconnect before continuing.");
+      handlers.onError?.(failure.message);
     });
-    try {
-      return await Promise.race([reader.read(), timeout]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
   };
-
-  while (true) {
-    if (options?.signal?.aborted) {
-      await reader.cancel();
-      throw new DOMException("Aborted", "AbortError");
+  const startedAtMs = Date.now();
+  let settleTerminalRun: (() => void) | null = null;
+  const terminalRun = new Promise<void>((resolve) => {
+    settleTerminalRun = resolve;
+  });
+  const finishTerminalRun = () => {
+    settleTerminalRun?.();
+    settleTerminalRun = null;
+  };
+  // The stream stopped without the server ending the run: the instance died,
+  // was replaced, or went silent. Fail the turn so the person can retry
+  // instead of watching a working state that nothing will ever settle. A run
+  // this client stopped on purpose (confirmation, detach, cancel) is not lost.
+  const loseStream = () => {
+    if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
+        detached || input.signal?.aborted) return;
+    streamLost = true;
+    failure = new AgentChatStreamLostError(threadId, startedAtMs);
+    handlers.onError?.(failure.message);
+    finishTerminalRun();
+  };
+  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
+    if (input.signal?.aborted || resumeSignal?.aborted) {
+      throw new DOMException("Agent turn cancelled", "AbortError");
     }
-
-    let result: ReadableStreamReadResult<Uint8Array>;
+    assertTurnSessionCurrent();
+    runTerminal = false;
+    streamLost = false;
+    liveness.start();
     try {
-      result = await readWithWatchdog();
-    } catch (error) {
-      await reader.cancel().catch(() => undefined);
-      throw error;
+      await agent.runAgent(parameters, subscriber);
+    } finally {
+      liveness.stop();
     }
-    const { done, value } = result;
-    if (done) break;
-    const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), buffer);
-    buffer = parsed.remainder;
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
+    if (!runTerminal) loseStream();
+  };
+  const stopAfterConfirmation = () => {
+    if (intentionallyStoppedAtConfirmation) return;
+    intentionallyStoppedAtConfirmation = true;
+    interrupted = true;
+    // A parked directive has no AG-UI interrupt to resume. The visible card
+    // owns the next step, so leaving the model run alive would let it repeat
+    // the action or append a second answer while the owner is deciding.
+    handlers.onInterrupt?.({ conversationId: threadId });
+    finishTerminalRun();
+    liveness.stop();
+    void stopOnServer();
+    agent.abortRun();
+  };
+  const toolNames = new Map<string, string>();
+  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
+  let receiptPrivate = false;
+  let receiptReset = false;
+  const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
+  const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
+    isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
+  let reactionShown = false;
+  const toolArgs = new Map<string, Record<string, unknown>>();
+  const interruptsByToolCall = new Map<string, string>();
+  const mcpReviews = new Map<string, {
+    reference: McpCallReviewReference;
+    /** The original MCP call plus the native confirmation activity, if present. */
+    activityIds: readonly string[];
+  }>();
+  // The server streams each native confirmation's projected arguments. A
+  // MESSAGES_SNAPSHOT can already hold the same call, and the AG-UI client then
+  // appends the streamed delta onto the snapshot's copy, which no longer parses.
+  // Parse the confirmation from its own streamed deltas instead.
+  const confirmationArgs = new Map<string, string>();
+  const receiptArgs = new Map<string, string>();
+  const publishedMcpReviews = new Set<string>();
+  const emittedStateDirectivePaths = new Set<string>();
+  const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
+    const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
+    const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
+    const serverPresentation = workspaceToolPresentation(name, args.provider) ??
+      SERVER_TOOL_PRESENTATION[name];
+    const resolvedActionId = typeof actionId === "string" ? actionId : null;
+    // Native MCP identities are opaque digests. Never render their raw name or
+    // provider-authored descriptions as app-owned activity labels.
+    const mcpTool = /^mcp_[0-9a-f]{40}$/.test(name);
+    const label = action?.label || serverPresentation?.label ||
+      (mcpTool ? "Connected tool" : "Agent step");
+    const activity = action?.label || serverPresentation?.activity ||
+      (mcpTool ? "Using a connected tool" : "Working on your request");
+    const requiresConfirmation = action?.execution_policy === "confirm_required";
+    const trustedActivationRequired =
+      action?.activation_policy === "trusted_activation_required";
+    return {
+      callId,
+      directiveId: null,
+      conversationId: threadId,
+      contextRevision: null,
+      expiresAt: null,
+      actionId: resolvedActionId,
+      label,
+      activity,
+      execution: "frontend",
+      slots: args,
+      // The gateway's `meaning` is written for the model and names a category
+      // of action, never this one. The owner confirms a sentence built from the
+      // resolved slots instead. Only a directive that waits on the owner may
+      // say so; most actions run directly and this sentence shows while they do.
+      message: action
+        ? describeDirectiveForOwner(resolvedActionId, label, args, {
+            requiresConfirmation: requiresConfirmation || trustedActivationRequired,
+          })
+        : serverPresentation?.message ||
+          (mcpTool ? "Using a connected tool." : "Completing a step for your request."),
+      requiresConfirmation,
+      trustedActivationRequired,
+      raw: {
+        protocol: "ag-ui",
+        toolName: name,
+        args,
+        resume: async (status: "resolved" | "cancelled", payload?: unknown) => {
+          const interruptId = interruptsByToolCall.get(callId);
+          if (!interruptId) throw new Error("This Agent One action is no longer resumable.");
+          await runUntilTerminal({
+            tools,
+            context: [],
+            forwardedProps: {
+              ...await connectorProjection(),
+              timezone,
+              turnLocation,
+              pkmContext: input.pkmContext,
+              communicationPreferences,
+              personSelectionHandle: input.personSelectionHandle,
+              gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
+              ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+              screenContext: input.screenContext,
+            },
+            resume: [{ interruptId, status, payload }],
+          });
+        },
+      },
+    };
+  };
+  const startReceiptCall = (toolCallId: string, operation: ReceiptFunction, args: unknown) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const admission = receiptCallRequest(operation, receiptArgs.get(toolCallId), args, timezone, receiptSessionCurrent() && receiptCalls.size < 4);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.();
+    // The hub drops schema-invalid calls, so any call reaching here was bound: one it can't admit fails the turn.
+    if (admission.kind !== "admitted") {
+      failure = new Error("Receipt request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun(); finishTerminalRun(); return;
     }
-  }
-
-  const flushed = decoder.decode();
-  if (flushed) {
-    const parsed = parseSSEBlocks(flushed, buffer);
-    buffer = parsed.remainder;
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
+    const { request } = admission;
+    receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
+  };
+  const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
+    onEvent: ({ event }) => {
+      serverEvents += 1;
+      if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      if (event.type === "TOOL_CALL_END") {
+        const id = event.toolCallId;
+        const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
+          // Native snapshots redact arguments and may replace streamed IDs.
+          // Consume the bounded streamed call before the SDK's message lookup.
+          startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+      }
+      if (isVisibleWorkEvent(String(event.type))) handlers.onStreamHealth?.({ kind: "activity" });
+      if (event.type === "REASONING_MESSAGE_CONTENT") {
+        const delta = (event as { delta?: unknown }).delta;
+        const metadata = (event as { metadata?: unknown }).metadata;
+        if (asRecord(metadata)?.husshThoughtSummary === true &&
+            typeof delta === "string" && delta.length > 0) {
+          handlers.onThinkingSummary?.(delta.slice(0, 2048));
+        }
+      }
+      return String(event.type).startsWith("REASONING_")
+        ? { stopPropagation: true }
+        : undefined;
+    },
+    onRunStartedEvent: () => {
+      runStarted = true;
+      noteChatKeyAccepted();
+      handlers.onStart?.({ conversationId: threadId });
+    },
+    onMessagesSnapshotEvent: (snapshot) => {
+      const { event } = snapshot;
+      const serverMessageId = lastAssistantMessageId(event.messages);
+      if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+      return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
+    },
+    onTextMessageContentEvent: ({ event }) => {
+      if (event.delta.length > 0) markTiming("first-text");
+      text += event.delta;
+      handlers.onToken?.(event.delta);
+    },
+    onCustomEvent: ({ event }) => {
+      if (event.name !== QUEUED_INPUT_EVENT) return;
+      const notice = parseQueuedInputNotice(event.value);
+      if (notice) handlers.onQueuedInput?.(notice);
+    },
+    onToolCallStartEvent: ({ event }) => {
+      toolNames.set(event.toolCallId, event.toolCallName);
+      // Follow-ups are chips under the answer, not a step the person waits on.
+      if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
+      if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
+      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
+    },
+    onToolCallArgsEvent: ({ event }) => {
+      const receiptBuffered = receiptArgs.get(event.toolCallId);
+      if (receiptBuffered !== undefined) {
+        const next = receiptBuffered + (event.delta ?? "");
+        receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const buffered = confirmationArgs.get(event.toolCallId);
+      if (buffered === undefined) return;
+      // Bounded like the server projection; an oversized review fails closed.
+      const next = buffered + (event.delta ?? "");
+      if (next.length > 64_000) confirmationArgs.delete(event.toolCallId);
+      else confirmationArgs.set(event.toolCallId, next);
+    },
+    onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
+        startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
+      if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
+      if (toolCallName === "adk_request_confirmation") {
+        const streamed = confirmationArgs.get(event.toolCallId);
+        confirmationArgs.delete(event.toolCallId);
+        let nativeArgs: Record<string, unknown> = toolCallArgs;
+        if (streamed) {
+          try { nativeArgs = asRecord(JSON.parse(streamed)) ?? toolCallArgs; } catch { /* keep client args */ }
+        }
+        const review = parseMcpCallReview(nativeArgs);
+        if (review) {
+          const original = asRecord(nativeArgs.originalFunctionCall);
+          const originalCallId = typeof original?.id === "string" &&
+            original.id.length > 0 && original.id.length <= 256
+            ? original.id
+            : null;
+          mcpReviews.set(event.toolCallId, {
+            reference: review,
+            activityIds: Array.from(new Set([
+              event.toolCallId,
+              ...(originalCallId ? [originalCallId] : []),
+            ])),
+          });
+          // Publish only after RUN_FINISHED supplies the native interrupt id.
+          // Neither pending handles nor private review details enter generic diagnostics.
+          return;
+        }
+        const original = asRecord(nativeArgs.originalFunctionCall);
+        const confirmation = asRecord(nativeArgs.toolConfirmation);
+        if ((typeof original?.name === "string" && original.name.startsWith("mcp_")) ||
+            asRecord(confirmation?.payload)?.kind === "mcp_call_review") {
+          handlers.onError?.("The connector review could not be verified. Please ask again.");
+          return;
+        }
+      }
+      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      toolArgs.set(event.toolCallId, safeArgs);
+      handlers.onToolWaiting?.(
+        toolPayload(event.toolCallId, toolCallName, safeArgs),
+      );
+    },
+    onToolCallResultEvent: ({ event }) => {
+      const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "start_browser_task") {
+        const result = browserTaskProgress(event.content, input.userId);
+        if (result.accepted) handlers.onBrowserTaskCreated?.();
+        handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
+        return;
+      }
+      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (toolName === REACTION_TOOL_NAME) {
+        const result = parseMessageReaction(event.content);
+        if (result && !reactionShown) {
+          reactionShown = true;
+          handlers.onMessageReaction?.(result);
+        }
+        return;
+      }
+      if (toolName === FOLLOW_UP_TOOL_NAME) {
+        // Only the server's `shown` result renders; its text never enters
+        // generic tool payloads, diagnostics, or logs.
+        const suggestions = parseFollowUpSuggestions(event.content);
+        if (suggestions) handlers.onFollowUpSuggestions?.(suggestions);
+        return;
+      }
+      if (/^mcp_[0-9a-f]{40}$/.test(toolName)) {
+        // Connector content belongs to owner presentation/history, never the
+        // generic debug payload or model-authored app-action parser. Approval
+        // references use the separate native interrupt/review contract.
+        const payload = toolPayload(event.toolCallId, toolName);
+        const result = parseRecord(event.content);
+        const outcome = result?.status;
+        const connectorId = result?.connectorId;
+        const connectorName = typeof connectorId === "string" ? connectorNames.get(connectorId) : undefined;
+        if (connectorName) payload.label = connectorName;
+        // A blocked or failed connector call must not render as a completed step.
+        payload.execution = outcome === "ok" || outcome === "review_required" ? "server" : "blocked";
+        if (outcome === "review_required") {
+          payload.status = "waiting";
+          payload.tag = "Needs review";
+        } else if (outcome === "ok" && result?.review === "read_only") {
+          payload.tag = "Read";
+        } else if (outcome === "ok" && result?.review === "no_credential") {
+          // Ran unreviewed because no credential was used, not because it only
+          // read: an unannotated tool on a public server may still change things.
+          payload.tag = "Public";
+        }
+        payload.message = outcome === "ok"
+          ? "Connector call finished."
+          : outcome === "review_required"
+            ? "Waiting for your review."
+            : "Connector call needs attention.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      const workspaceConnectorTool =
+        toolName === "discover_workspace_tools" ||
+        toolName === "read_workspace_tool" ||
+        toolName === "inspect_private_connectors";
+      if (toolName === "read_selected_drive_search_result") {
+        const result = unwrapParkedActionResult(event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        payload.message = result?.status === "ok" ? "Drive file checked."
+          : result?.status === "input_required" ? "Choose the file again."
+            : "Drive file could not be checked.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (toolName === "probe_private_connector") {
+        // Server-authored names and descriptions reach only the parsed card,
+        // never the generic debug payload or the parked-directive parser.
+        const experience = parseAgentToolResultExperience(toolName, event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        payload.message = experience?.type === "one.custom_connector_probe.v1" && experience.status !== "failed"
+          ? "One checked that server." : "That server could not be checked.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) handlers.onStructuredExperience?.(experience, event.toolCallId);
+        return;
+      }
+      // External-read receipts are display-only, even if an invalid result attempts to
+      // smuggle a parked navigation/send directive alongside it.
+      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+        const experience = parseAgentToolResultExperience(toolName, event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        // The row reads the result's own receipt, so a brief card, a receipt card or no card all report the same read.
+        const receipt = asRecord(unwrapParkedActionResult(event.content)?.structured);
+        const own = receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive") ? receipt : null;
+        payload.message = toolName === "inspect_selected_drive_files"
+          ? parseRecord(event.content)?.status === "ok" ? "Drive status checked." : "Drive status could not be checked."
+          : specialistReadMessage(toolName, own?.status, own?.metadata_only === true);
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
+        return;
+      }
+      if (workspaceConnectorTool) {
+        const safeArgs = toolArgs.get(event.toolCallId) || {};
+        const experience = parseAgentToolResultExperience(
+          toolName,
+          event.content,
+          safeArgs,
+        );
+        const payload = toolPayload(event.toolCallId, toolName, safeArgs);
+        payload.execution = "server";
+        payload.message = experience?.type === "one.connector_read.v1"
+          ? experience.status === "ok"
+            ? experience.metadataOnly ? "Drive search finished." : "Drive read finished."
+            : experience.status === "input_required" ? "Drive needs more detail." : "Drive could not complete that read."
+          : toolName === "inspect_private_connectors"
+          ? "One checked your connectors."
+          : "Connector access checked.";
+        payload.raw = {
+          protocol: "ag-ui",
+          toolName,
+          ...(toolName === "inspect_private_connectors" ? {} : { provider: safeArgs.provider }),
+        };
+        handlers.onToolResult?.(payload);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
+        return;
+      }
+      const payload = toolPayload(
+        event.toolCallId,
+        toolName,
+        toolArgs.get(event.toolCallId) || {},
+      );
+      payload.raw.result = event.content;
+      handlers.onToolResult?.(payload);
+      const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
+      if (pendingIds.length > 0) {
+        handlers.onPendingConsentRequests?.(pendingIds);
+      }
+      // A server-side run_app_action parks a directive for the browser. The
+      // text transport surfaces the directive as a frontend tool event, where
+      // the workspace stages it or routes it through the governed executor.
+      const parked = parseParkedAppActionDirective(event.content);
+      if (parked) {
+        const action = getKaiActionById(parked.actionId);
+        const parkedLabel = action?.label || parked.actionId;
+        const parkedRequiresConfirmation =
+          parked.needsConfirmation || action?.execution_policy === "confirm_required";
+        const parkedTrustedActivationRequired =
+          parked.trustedActivationRequired ||
+          action?.activation_policy === "trusted_activation_required";
+        handlers.onToolWaiting?.({
+          callId: `${event.toolCallId}:directive`,
+          directiveId: event.toolCallId,
+          conversationId: threadId,
+          contextRevision: null,
+          expiresAt: null,
+          actionId: parked.actionId,
+          label: parkedLabel,
+          execution: "frontend",
+          slots: parked.slots,
+          // A parked directive that owes no confirmation runs at once in the
+          // workspace, so the sentence may only promise a pause when one is owed.
+          message: action
+            ? describeDirectiveForOwner(parked.actionId, parkedLabel, parked.slots, {
+                requiresConfirmation:
+                  parkedRequiresConfirmation || parkedTrustedActivationRequired,
+              })
+            : parked.message || "One is ready to continue.",
+          requiresConfirmation: parkedRequiresConfirmation,
+          trustedActivationRequired: parkedTrustedActivationRequired,
+          raw: {
+            protocol: "ag-ui",
+            toolName,
+            args: {},
+            parked: true,
+            // The run does not pause for a parked directive; there is no
+            // interrupt to resume. The workspace still needs a resume hook to
+            // treat this like any other staged frontend action.
+            resume: async () => undefined,
+          },
+        });
+        if (parkedRequiresConfirmation || parkedTrustedActivationRequired) {
+          stopAfterConfirmation();
+        }
+      }
+      const experience = parseAgentToolResultExperience(
+        toolName,
+        event.content,
+        toolArgs.get(event.toolCallId),
+      );
+      if (experience) {
+        // Redelivery can assign a new transport message while retaining the
+        // same invocation. One invocation owns one evolving card.
+        const eventId = event.toolCallId.trim() ||
+          (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
+          undefined;
+        handlers.onStructuredExperience?.(experience, eventId);
+      }
+    },
+    onActivitySnapshotEvent: ({ event }) => {
+      const progress = parseDriveBatchProgressActivity(event.activityType, event.content);
+      if (progress) {
+        handlers.onDriveBatchProgress?.(progress, String(event.messageId || "").trim() || undefined);
+      }
+      const experience = parseAgentActivityExperience(
+        event.activityType,
+        event.content,
+      );
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
+    },
+    onActivityDeltaEvent: ({ event, activityMessage }) => {
+      let content: unknown = activityMessage?.content;
+      if (activityMessage && Array.isArray(event.patch)) {
+        try {
+          content = applyPatch(
+            activityMessage.content ?? {},
+            event.patch as Operation[],
+            true,
+            false,
+          ).newDocument;
+        } catch {
+          // The AG-UI client will still apply the patch to its message store.
+          // Do not emit a stale structured card when this delta is malformed.
+          return;
+        }
+      }
+      const progress = parseDriveBatchProgressActivity(
+        activityMessage?.activityType || event.activityType,
+        content,
+      );
+      if (progress) {
+        handlers.onDriveBatchProgress?.(progress, String(event.messageId || "").trim() || undefined);
+      }
+      const experience = parseAgentActivityExperience(
+        activityMessage?.activityType || event.activityType,
+        content,
+      );
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
+    },
+    onStateDeltaEvent: ({ event }) => {
+      const patches = Array.isArray(event.delta) ? event.delta : [];
+      for (const patch of patches) {
+        if (!patch || typeof patch !== "object") continue;
+        const op = patch as { op?: string; path?: string; value?: unknown };
+        if (
+          (op.op === "add" || op.op === "replace") &&
+          typeof op.path === "string" &&
+          op.path.startsWith("/hussh:pending_directive:")
+        ) {
+          const val = op.value as Record<string, unknown> | null;
+          if (
+            val &&
+            typeof val === "object" &&
+            typeof val.delegateAgentId === "string"
+          ) {
+            const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            const directiveEvent: SpecialistDirectiveEvent = {
+              delegateAgentId: val.delegateAgentId,
+              directive: {
+                kind: val.kind === "prompt" ? "prompt" : "action",
+                payload: directivePayload,
+              },
+              message: String(directivePayload.summary || val.message || ""),
+              stateChanged: true,
+            };
+            handlers.onSpecialistDirective?.(directiveEvent);
+            continue;
+          }
+          if (emittedStateDirectivePaths.has(op.path)) continue;
+          const actionEvent = parseStateActionDirective(op.path, op.value, threadId);
+          if (actionEvent) {
+            emittedStateDirectivePaths.add(op.path);
+            handlers.onToolWaiting?.(actionEvent);
+            if (
+              actionEvent.requiresConfirmation ||
+              actionEvent.trustedActivationRequired
+            ) {
+              stopAfterConfirmation();
+            }
+          }
+        }
+      }
+    },
+    onRunFinishedEvent: (params) => {
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
+      runTerminal = true;
+      if (receiptCalls.size) {
+        // Native long-running calls are persisted before RUN_FINISHED. The
+        // outer loop alone submits their value-free replies and resumes.
+        finishTerminalRun();
+        return;
+      }
+      if (params.outcome === "interrupt") {
+        for (const interrupt of params.interrupts) {
+          if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
+        }
+        for (const [callId, review] of mcpReviews) {
+          const interruptId = interruptsByToolCall.get(callId);
+          if (!interruptId || publishedMcpReviews.has(callId)) continue;
+          publishedMcpReviews.add(callId);
+          let attempted = false;
+          handlers.onMcpReview?.({
+            reference: review.reference,
+            activityIds: review.activityIds,
+            conversationId: threadId,
+            chatKey,
+            isCurrent: mcpSessionCurrent,
+            loadConfiguration: input.loadConnectorConfigurations ? async () => {
+              const projection = await connectorProjection();
+              const configuration = projection.mcpConfigurations?.find(item => item.connectorId === review.reference.connectorId);
+              if (review.reference.connectorId.startsWith("custom_") && !configuration) {
+                throw new Error("This connector was removed. Prepare a new request.");
+              }
+              return configuration;
+            } : undefined,
+            resume: async (approval, signal, resumeHandlers) => {
+              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(review.reference.expiresAt) <= serverNow()) {
+                throw new Error("This connector review expired or was already used.");
+              }
+              if (approval && (
+                (approval.directiveId !== review.reference.directiveId && approval.replacesDirectiveId !== review.reference.directiveId) ||
+                approval.connectorId !== review.reference.connectorId ||
+                approval.toolName !== review.reference.toolName ||
+                approval.pendingHandle !== review.reference.pendingHandle ||
+                !/^[A-Za-z0-9_-]{32,128}$/.test(approval.receipt)
+              )) throw new Error("This confirmation does not match the connector review.");
+              // A lost acknowledgement must not cause an automatic second mutation.
+              attempted = true;
+              if (resumeHandlers) {
+                await streamAgentChat({ ...input, message: "", attachments: [], signal,
+                  handlers: resumeHandlers,
+                  resumeMcpReview: { interruptId, reference: review.reference, approval },
+                });
+                return;
+              }
+              const abortResume = () => { liveness.stop(); agent.abortRun(); };
+              input.signal?.addEventListener("abort", abortResume, { once: true });
+              signal?.addEventListener("abort", abortResume, { once: true });
+              try {
+                await runUntilTerminal({
+                  tools, context: [],
+                  forwardedProps: {
+                    ...await connectorProjection(),
+                    timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
+                    personSelectionHandle: input.personSelectionHandle,
+                    gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
+                    ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+                    screenContext: input.screenContext,
+                    ...(approval ? { mcpApproval: {
+                      directiveId: approval.directiveId, connectorId: approval.connectorId,
+                      toolName: approval.toolName, pendingHandle: approval.pendingHandle,
+                      receipt: approval.receipt,
+                    } } : {}),
+                  },
+                  resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
+                }, signal);
+                if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
+                if (failure) throw failure;
+              } finally {
+                input.signal?.removeEventListener("abort", abortResume);
+                signal?.removeEventListener("abort", abortResume);
+              }
+            },
+          });
+        }
+        interrupted = true;
+        handlers.onInterrupt?.({ conversationId: threadId });
+        // The visible confirmation card owns the next step. The resumable
+        // `agent` and subscriber stay alive through the directive's resume
+        // closure, but the initial turn must settle so the workspace stops
+        // showing an indefinite thinking state.
+        finishTerminalRun();
+        return;
+      }
+      handlers.onComplete?.({ conversationId: threadId });
+      finishTerminalRun();
+    },
+    onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure || detached) return;
+      runTerminal = true;
+      if (intentionallyStoppedAtConfirmation) {
+        finishTerminalRun();
+        return;
+      }
+      const refusal = chatKeyRefusalCode(event.code || "");
+      const strain = classifyBackendStrain({ code: event.code });
+      if (strain) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
+      failure = refusal
+        ? routeChatKeyRefusal(refusal, mcpVaultEpoch)
+        : new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
+      handlers.onError?.(failure.message);
+      finishTerminalRun();
+    },
+    onRunFailed: ({ error }) => {
+      // Our own abort of a detached stream is not a failure of the turn, which
+      // is still running server-side. A stream this client already gave up on
+      // was reported once; its abort must not replace that with a second error.
+      if (runTerminal || failure || intentionallyStoppedAtConfirmation || detached || streamLost || input.signal?.aborted) {
+        finishTerminalRun();
+        return;
+      }
+      const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)
+        ?? chatKeyRefusalCode(error.message || "");
+      // @ag-ui/client puts a refused request's HTTP status on the error.
+      const httpStatus = (error as Error & { status?: unknown }).status;
+      const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
+      if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
+      failure = refusal
+        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
+            !runStarted && (error as Error & { status?: number }).status === 403)
+        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      handlers.onError?.(failure.message);
+      finishTerminalRun();
+    },
+  };
+  const abort = () => {
+    // A detach reason means the caller stopped reading (it left the chat); the
+    // server keeps the turn. Any other abort is the caller cancelling.
+    if (input.signal?.reason === AGENT_TURN_DETACH_REASON) detached = true;
+    else void stopOnServer();
+    liveness.stop();
+    agent.abortRun();
+    finishTerminalRun();
+  };
+  input.signal?.addEventListener("abort", abort, { once: true });
+  const unregisterAttached = registerAttachedAgentTurn({
+    ownerId: input.userId,
+    conversationId: threadId,
+    detach: () => {
+      detached = true;
+      liveness.stop();
+      agent.abortRun();
+      finishTerminalRun();
+    },
+  });
+  const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
+  try {
+    await runUntilTerminal({
+      tools,
+      context: [],
+      forwardedProps: {
+        ...await initialConnectorProjection,
+        timezone,
+        turnLocation,
+        pkmContext: input.pkmContext,
+        communicationPreferences,
+        personSelectionHandle: input.personSelectionHandle,
+        gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
+        ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
+        ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+        // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
+        emailDraftContract: 2,
+        screenContext: input.screenContext,
+        ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
+        ...(input.financeShare ? { financeShare: input.financeShare } : {}),
+        ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
+        ...(input.resumeMcpReview?.approval ? { mcpApproval: {
+          directiveId: input.resumeMcpReview.approval.directiveId,
+          connectorId: input.resumeMcpReview.approval.connectorId,
+          toolName: input.resumeMcpReview.approval.toolName,
+          pendingHandle: input.resumeMcpReview.approval.pendingHandle,
+          receipt: input.resumeMcpReview.approval.receipt,
+        } } : {}),
+        ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
+        // Only the native app asks the server for a "One replied" push when it
+        // stops reading; a web tab's closed stream must not wake a phone.
+        notifyOnDetach: Capacitor.isNativePlatform(),
+      },
+      ...(recovered ? { resume: [{ interruptId: recovered.interruptId,
+        status: "resolved" as const, payload: { confirmed: recovered.approval !== null } }] } : {}),
+    });
+    if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
+      const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
+      receiptCalls.clear();
+      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
+      agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
+        content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
+      await runUntilTerminal({ tools, context: [], forwardedProps: {
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
+      } });
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
     }
+    await terminalRun;
+  } catch (error) {
+    // AG-UI reports a failed request to the subscriber, then rejects with the
+    // raw "HTTP 403: {...}" error. The typed, owner-safe failure wins (thrown
+    // below). Aborting our own read of a detached turn may also reject the run;
+    // the turn itself is still running server-side and is reported as detached.
+    if (!failure && !detached) throw error;
+  } finally {
+    unsubscribeReceiptReset();
+    if (receiptPrivate) agent.setMessages([]);
+    input.signal?.removeEventListener("abort", abort);
+    unregisterAttached();
+    await stopRequest;
   }
-
-  if (buffer.trim()) {
-    const parsed = parseSSEBlocks("\n\n", buffer);
-    for (const frame of parsed.events) {
-      sawMeaningfulEvent = handleFrame(frame.event, frame.data) || sawMeaningfulEvent;
-    }
+  const leftTurn = detached && !serverTerminal && !intentionallyStoppedAtConfirmation;
+  // Watch only a turn the server had started (more than RUN_STARTED seen); a
+  // detach before that has nothing to reattach to.
+  if (leftTurn && serverEvents > 1) {
+    watchDetachedAgentTurn({ ownerId: input.userId, conversationId: threadId, startedAtMs });
   }
-
-  if (streamError) {
-    throw new Error(streamError);
-  }
-
-  return { conversationId, model, text };
+  if (failure && !leftTurn) throw failure;
+  return { conversationId: threadId, model: null, text, interrupted, detached: leftTurn };
 }
+
+/** The pre-unlock answer for a private agent, given on this device. */
+export const PRIVATE_AGENT_INTRO_REPLY =
+  "Unlock your private agent to continue. Until then, what you type stays on this device.";
 
 /**
  * Pre-vault informational/navigation-only agent turn.
  *
  * Calls the lower-privilege backend tier that never touches PKM/vault data and
  * is not persisted. Used by the single agent bar before the vault is unlocked,
- * including anonymous onboarding visitors.
+ * including anonymous onboarding visitors. A person whose private agent runs in
+ * their own cloud is answered on this device instead: their words never go to the hub.
  */
 export async function streamAgentIntro(input: {
   message: string;
@@ -483,20 +2211,103 @@ export async function streamAgentIntro(input: {
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
-  const response = await openAgentChatStream((signal) => ApiService.streamAgentIntro({
-    message: input.message,
-    screenContext: input.screenContext,
-    signal,
-  }), input.signal);
-  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
+  const threadId = crypto.randomUUID();
+  const handlers = input.handlers ?? {};
+  const access = await import("./pod-app-access");
+  if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+    handlers.onToken?.(PRIVATE_AGENT_INTRO_REPLY);
+    handlers.onComplete?.({ conversationId: threadId });
+    return { conversationId: null, model: null, text: PRIVATE_AGENT_INTRO_REPLY };
+  }
+  let text = "";
+  let failure: Error | null = null;
+  let runTerminal = false;
+  let streamLost = false;
+  // Same guarantee as a vault turn: a stream that stops without the server
+  // ending the run fails the turn instead of leaving it waiting.
+  const loseStream = () => {
+    if (runTerminal || streamLost || failure || input.signal?.aborted) return;
+    streamLost = true;
+    failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
+    handlers.onError?.(failure.message);
+  };
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || input.signal?.aborted) return;
+    loseStream();
+    agent.abortRun();
+  };
+  const liveness = createAgentStreamLiveness((init) => nativeStreamFetch("/api/one/agent-chat", init), onLostTransport);
+  const agent = new HttpAgent({
+    url: "/api/one/agent-chat",
+    threadId,
+    initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
+    fetch: (_url, init) => liveness.fetch(init),
+  });
+  const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
+    onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
+    onMessagesSnapshotEvent: (snapshot) => {
+      const { event } = snapshot;
+      const serverMessageId = lastAssistantMessageId(event.messages);
+      if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+      return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
+    },
+    onTextMessageContentEvent: ({ event }) => {
+      text += event.delta;
+      handlers.onToken?.(event.delta);
+    },
+    onRunFinishedEvent: () => {
+      if (runTerminal || streamLost || failure) return;
+      runTerminal = true;
+      handlers.onComplete?.({ conversationId: threadId });
+    },
+    onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure) return;
+      runTerminal = true;
+      failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
+      handlers.onError?.(failure.message);
+    },
+    onRunFailed: ({ error }) => {
+      if (runTerminal || streamLost || failure) return;
+      failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      handlers.onError?.(failure.message);
+    },
+  };
+  const abort = () => { liveness.stop(); agent.abortRun(); };
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
+  input.signal?.addEventListener("abort", abort, { once: true });
+  liveness.start();
+  try {
+    await agent.runAgent({
+      tools: [],
+      context: [],
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone() },
+    }, subscriber);
+  } finally {
+    liveness.stop();
+    input.signal?.removeEventListener("abort", abort);
+  }
+  if (!runTerminal) loseStream();
+  if (failure) throw failure;
+  return { conversationId: threadId, model: null, text };
+}
+
+/**
+ * The live-turn queue's transport. Owner-bound by the vault-owner token; no chat
+ * key, because nothing sealed is read. The text is sent once, to the running
+ * turn, and is never written to storage or logged on this device.
+ */
+export function createQueuedInputPorts(getVaultOwnerToken: () => string | null, isCurrent?: () => boolean): QueuedInputPorts {
+  return queuedInputPorts(getVaultOwnerToken, readError, isCurrent);
 }
 
 export async function listAgentChatConversations(input: {
   userId: string;
   vaultOwnerToken: string;
+  vaultKey: string;
   limit?: number;
 }): Promise<AgentChatConversation[]> {
-  const response = await ApiService.listAgentChatConversations(input);
+  const response = await sendWithChatKey(() => ApiService.listAgentChatConversations(input));
   if (!response.ok) {
     throw new Error(await readError(response));
   }
@@ -507,22 +2318,340 @@ export async function listAgentChatConversations(input: {
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
+  vaultKey: string;
   limit?: number;
 }): Promise<AgentChatMessage[]> {
-  const response = await ApiService.getAgentChatHistory(input);
+  const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  const payload = (await response.json()) as { messages?: AgentChatMessage[] };
-  return Array.isArray(payload.messages) ? payload.messages : [];
+  const payload = (await response.json()) as {
+    messages?: Array<Omit<AgentChatMessage, "metadata"> & {
+      metadata?: {
+        kind?: string;
+        display?: string;
+        structuredExperience?: {
+          activityType?: string;
+          content?: unknown;
+        } | null;
+        structuredExperienceId?: string | null;
+        structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+        specialist_read?: unknown;
+        turnActivity?: { activityType?: string; content?: unknown } | null;
+        attachments?: unknown;
+        consentBundleId?: unknown;
+        consentAccessEnded?: unknown;
+        consentAccess?: unknown;
+      } | null;
+    }>;
+    /** Shared requests whose access has ended: {bundle_id: "revoked" | "expired"}. */
+    consentAccessEnded?: unknown;
+  };
+  if (!Array.isArray(payload.messages)) return [];
+  const endedByBundle = payload.consentAccessEnded && typeof payload.consentAccessEnded === "object"
+    && !Array.isArray(payload.consentAccessEnded)
+    ? payload.consentAccessEnded as Record<string, unknown>
+    : {};
+  return payload.messages
+    .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
+    .map((message) => {
+      const attachments = message.role === "user"
+        ? parseStoredTextAttachments(message.metadata?.attachments)
+        : [];
+      const consentAccess = message.role === "assistant"
+        ? parseConsentAccess(message.metadata?.consentAccess, endedByBundle)
+        : undefined;
+      return {
+        id: message.id,
+        conversation_id: message.conversation_id,
+        role: message.role,
+        status: message.status,
+        content: message.content,
+        model: message.model,
+        created_at: message.created_at,
+        completed_at: message.completed_at,
+        metadata: message.metadata
+          ? {
+              kind: message.metadata.kind,
+              display: message.metadata.display,
+              structuredExperience: message.metadata.structuredExperience,
+              structuredExperienceId: message.metadata.structuredExperienceId,
+              structuredExperiences: message.metadata.structuredExperiences,
+              ...(message.role === "assistant" && message.metadata.turnActivity
+                ? { turnActivity: message.metadata.turnActivity } : {}),
+              ...(attachments.length ? { attachments } : {}),
+              ...(typeof message.metadata.consentBundleId === "string" && message.metadata.consentBundleId
+                ? { consentBundleId: message.metadata.consentBundleId } : {}),
+              ...(message.metadata.consentAccessEnded === true ? { consentAccessEnded: true } : {}),
+              ...(consentAccess ? { consentAccess } : {}),
+              connectorRead:
+                message.role === "assistant"
+                  ? parseConnectorReadReceipt(message.metadata.specialist_read)
+                  : null,
+            }
+          : message.metadata,
+      };
+    });
+}
+
+/**
+ * Where a turn the app stopped reading stands. The server keeps it running and
+ * writes its answer into history; ``pending`` stays true until it settles.
+ * Returns only these two flags, so no message text leaves this function.
+ */
+export async function getAgentChatTurnState(input: {
+  conversationId: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<{ pending: boolean; answered: boolean }> {
+  const response = await ApiService.getAgentChatHistory({ ...input, limit: 1 });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const payload = (await response.json()) as {
+    messages?: Array<{ role?: unknown }>;
+    turn?: { pending?: unknown };
+  };
+  const pending = payload.turn?.pending === true;
+  const last = Array.isArray(payload.messages) ? payload.messages[payload.messages.length - 1] : undefined;
+  return { pending, answered: !pending && last?.role === "assistant" };
+}
+
+export type LostAgentTurnOutcome = "pending" | "answered" | "not_answered";
+
+/**
+ * Where a turn whose stream was lost stands, read from the same history
+ * endpoint the turn watch uses. ``answered`` requires the newest exchange to be
+ * this exact message followed by One's reply, so a turn that never reached the
+ * server is not mistaken for an earlier answer. Only the enum leaves here.
+ */
+export async function getLostAgentTurnOutcome(input: {
+  conversationId: string;
+  userMessage: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<LostAgentTurnOutcome> {
+  const response = await ApiService.getAgentChatHistory({
+    conversationId: input.conversationId,
+    vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
+    limit: 2,
+  });
+  // The first turn of a conversation that never reached the server.
+  if (response.status === 404) return "not_answered";
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const payload = (await response.json()) as {
+    messages?: Array<{ role?: unknown; content?: unknown }>;
+    turn?: { pending?: unknown };
+  };
+  if (payload.turn?.pending === true) return "pending";
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const [question, answer] = messages.slice(-2);
+  const sameMessage = question?.role === "user" && typeof question.content === "string" &&
+    question.content.trim() === input.userMessage.trim();
+  return sameMessage && answer?.role === "assistant" ? "answered" : "not_answered";
+}
+
+/**
+ * Requests this conversation already continued after their answer, keyed by
+ * bundle id. Identifiers and outcome words only; no message text is read.
+ */
+export async function getAgentChatConsentOutcomes(input: {
+  conversationId: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<Record<string, string>> {
+  const response = await sendWithChatKey(() => ApiService.getAgentChatHistory({ ...input, limit: 1 }));
+  if (!response.ok) throw new Error(await readError(response));
+  const payload = (await response.json()) as { consentOutcomes?: unknown };
+  const outcomes = payload.consentOutcomes;
+  if (!outcomes || typeof outcomes !== "object" || Array.isArray(outcomes)) return {};
+  return Object.fromEntries(
+    Object.entries(outcomes as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+/** The person's own conversation that sent this request (sealed history, after unlock). */
+export async function findInformationRequestConversation(input: {
+  bundleId: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<string | null> {
+  const response = await sendWithChatKey(async () => ApiService.agentChatRequest(
+    `/api/one/agent-chat/information-requests/${encodeURIComponent(input.bundleId)}/conversation`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.vaultOwnerToken}`,
+        ...(await oneChatKeyHeaders(input.vaultKey)),
+      },
+    },
+  ));
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(await readError(response));
+  const payload = (await response.json()) as { conversationId?: unknown };
+  return typeof payload.conversationId === "string" ? payload.conversationId : null;
+}
+
+/** A receipt the server did not record, with the HTTP status when there was one. */
+export class InformationRequestReceiptError extends Error {
+  readonly status: number | null;
+  constructor(message: string, status: number | null) {
+    super(message);
+    this.name = "InformationRequestReceiptError";
+    this.status = status;
+  }
+}
+
+/**
+ * Whether recording the receipt again can help. The route is idempotent
+ * (`append_event_once` keyed by the source card, and the request's own
+ * idempotency key), so a repeat never makes a second receipt. A card sent
+ * while its turn is still streaming can race the session write (404); the
+ * network, a timeout, a rate limit or a server fault may pass. Any other
+ * refusal (403, 409 recipient mismatch, 422) is final.
+ */
+export function isRetryableReceiptStatus(status: number | null): boolean {
+  if (status === null) return true;
+  return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+/** Waits between receipt attempts: three tries within about four seconds. */
+export const RECEIPT_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+/**
+ * `recordAgentChatInformationRequest`, retried on the failures that can pass.
+ * The request itself already exists; this only makes the chat's history say so.
+ */
+export async function recordAgentChatInformationRequestWithRetry(
+  input: Parameters<typeof recordAgentChatInformationRequest>[0],
+  options: { delaysMs?: readonly number[]; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<AgentStructuredExperience> {
+  const delays = options.delaysMs ?? RECEIPT_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await recordAgentChatInformationRequest(input);
+    } catch (error) {
+      const status = error instanceof InformationRequestReceiptError ? error.status : null;
+      const retryable = error instanceof InformationRequestReceiptError
+        ? isRetryableReceiptStatus(status)
+        : true;
+      if (!retryable || attempt >= delays.length) throw error;
+      await sleep(delays[attempt]!);
+    }
+  }
+}
+
+/** Record only a request locator; the Chat owner derives the history card from its ledger. */
+export async function recordAgentChatInformationRequest(input: {
+  conversationId: string;
+  sourceActivityId: string;
+  bundleId: string;
+  idempotencyKey: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentStructuredExperience> {
+  const response = await sendWithChatKey(async () => ApiService.agentChatRequest(
+    `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.vaultOwnerToken}`,
+        ...(await oneChatKeyHeaders(input.vaultKey)),
+      },
+      body: JSON.stringify({
+        source_activity_id: input.sourceActivityId,
+        bundle_id: input.bundleId,
+        idempotency_key: input.idempotencyKey,
+      }),
+    },
+  ));
+  if (!response.ok) throw new InformationRequestReceiptError(await readError(response), response.status);
+  const payload = (await response.json()) as { descriptor?: { activityType?: string; content?: unknown } };
+  const descriptor = payload.descriptor;
+  const experience = descriptor?.activityType === "one.information_request_review.v1"
+    ? parseAgentActivityExperience(descriptor.activityType, descriptor.content) : null;
+  if (!experience || experience.type !== "one.information_request_review.v1"
+    || experience.phase !== "submitted" || experience.bundleId !== input.bundleId) {
+    throw new InformationRequestReceiptError("The submitted request history could not be verified.", response.status);
+  }
+  return experience;
+}
+
+/**
+ * Ratings this person has given in one conversation, keyed by message id.
+ * Never throws: an opinion about a turn must not stop the turn from loading.
+ */
+export async function getAgentChatFeedback(input: {
+  conversationId: string;
+  vaultOwnerToken: string;
+}): Promise<Record<string, "up" | "down">> {
+  try {
+    // Through the platform-aware transport like every sibling call: a bare
+    // relative fetch resolves against the app's own static files in the
+    // native shell, so ratings never reached the backend on the phones.
+    const response = await ApiService.agentChatRequest(
+      `/api/one/agent-chat/feedback?conversation_id=${encodeURIComponent(input.conversationId)}`,
+      {
+        headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return {};
+    const payload = (await response.json()) as {
+      ratings?: Record<string, "up" | "down">;
+    };
+    return payload.ratings ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Why a person reported an answer. Mirrors the backend's closed enum. */
+export type AgentResponseReportReason =
+  | "offensive"
+  | "harmful"
+  | "inaccurate"
+  | "other";
+
+export async function setAgentChatFeedback(input: {
+  conversationId: string;
+  messageId: string;
+  rating: "up" | "down" | null;
+  vaultOwnerToken: string;
+  /** Flags the answer for team review; the backend records it as "down". */
+  reportReason?: AgentResponseReportReason;
+}): Promise<void> {
+  const response = await ApiService.agentChatRequest("/api/one/agent-chat/feedback", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${input.vaultOwnerToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      conversation_id: input.conversationId,
+      message_id: input.messageId,
+      rating: input.rating,
+      ...(input.reportReason ? { report_reason: input.reportReason } : {}),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
 }
 
 export async function renameAgentChatConversation(input: {
   conversationId: string;
   title: string;
   vaultOwnerToken: string;
+  vaultKey: string;
 }): Promise<AgentChatConversation> {
-  const response = await ApiService.renameAgentChatConversation(input);
+  const response = await sendWithChatKey(() => ApiService.renameAgentChatConversation(input));
   if (!response.ok) {
     throw new Error(await readError(response));
   }

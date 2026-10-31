@@ -37,6 +37,9 @@ describe("onboarding route admission", () => {
     expect(isOnboardingAdmissionExemptRoute("/login")).toBe(true);
     expect(isOnboardingAdmissionExemptRoute("/one/profile")).toBe(true);
     expect(isOnboardingAdmissionExemptRoute("/one/profile/security")).toBe(true);
+    expect(isOnboardingAdmissionExemptRoute("/people/person-ref-scoped")).toBe(
+      true,
+    );
     expect(isOnboardingAdmissionExemptRoute("/marketplace")).toBe(false);
     expect(isOnboardingAdmissionExemptRoute("/ria")).toBe(false);
   });

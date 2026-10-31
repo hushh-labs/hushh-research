@@ -4,18 +4,14 @@ export interface TopShellTab {
   href: string;
 }
 
-import {
-  buildKaiMarketRoute,
-  KAI_MARKET_PATH,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   activeRiaRouteTabFromPath,
   RIA_ROUTE_TABS,
 } from "@/lib/navigation/ria-route-tabs";
 
 export type TopShellTabSetId =
-  "location" | "finance" | "consent" | "ria" | "public";
+  "location" | "connect" | "finance" | "consent" | "ria" | "public";
 
 export interface TopShellTabDefinition {
   id: TopShellTabSetId;
@@ -26,7 +22,8 @@ export interface TopShellTabDefinition {
 }
 
 export interface TopShellTabSet {
-  id: TopShellTabSetId;
+  /** Wallet and Calendar also use local controlled pagers. */
+  id: TopShellTabSetId | "wallet" | "calendar";
   label: string;
   queryParam: "view" | "tab" | null;
   activeValue: string;
@@ -85,6 +82,8 @@ export const TOP_SHELL_TAB_REGISTRY = {
     queryParam: "view",
     defaultValue: "now",
     tabs: [
+      // Keep the authored value `now` so existing links and Kai's
+      // `location.open_now` action continue resolving.
       { value: "now", label: "Now", href: "/one/location" },
       {
         value: "people",
@@ -92,6 +91,20 @@ export const TOP_SHELL_TAB_REGISTRY = {
         href: "/one/location?view=people",
       },
       { value: "links", label: "Links", href: "/one/location?view=links" },
+    ],
+  },
+  connect: {
+    id: "connect",
+    label: "Connect",
+    queryParam: "tab",
+    defaultValue: "all",
+    tabs: [
+      { value: "all", label: "Connections", href: "/one/connect?tab=all" },
+      {
+        value: "circles",
+        label: "Circles",
+        href: "/one/connect?tab=circles",
+      },
     ],
   },
   finance: {
@@ -112,7 +125,7 @@ export const TOP_SHELL_TAB_REGISTRY = {
       },
       {
         value: "analysis",
-        label: "Analysis",
+        label: "Stocks",
         href: buildKaiMarketRoute("analysis"),
       },
     ],
@@ -211,51 +224,49 @@ function resolveSelection(
 }
 
 /**
- * Resolves the one route-owned contextual tab group for the shared top shell.
- * Direct links, shell clicks, and page swipes converge on this same selection.
+ * Resolves the contextual tab group that remains in the fixed top shell.
+ * Location, Connect, Finance, Consent Center, and RIA render their registered
+ * tabs in their route bodies beneath their module headers so the local
+ * hierarchy stays intact while retaining shared tab/swipe state.
  */
 export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
-  const { pathname, searchParams } = splitRouteKey(routeKey);
+  return resolvePublicKnowledgeTopShellTabSet(routeKey);
+}
 
-  if (pathname === "/one/location" && !searchParams.get("action")) {
-    const definition = TOP_SHELL_TAB_REGISTRY.location;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-    };
-  }
+export interface RiaRouteTabSetOptions {
+  /**
+   * Picks is an RIA-only surface. Navigation that knows the person is not a
+   * verified advisor passes `false` so the tab is not offered at all.
+   */
+  includePicks?: boolean;
+}
 
-  if (pathname === KAI_MARKET_PATH) {
-    const definition = TOP_SHELL_TAB_REGISTRY.finance;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-    };
+/**
+ * The one place the RIA tab options apply. The visible tab strip and the
+ * shell's swipe model both go through it, so a tab that is not offered can be
+ * neither seen nor swiped into. A person already on Picks (a link, Search or
+ * One) still sees where they are; the page's verification gate explains the
+ * lock. Other tab sets pass through unchanged.
+ */
+export function applyRiaTabOptions(
+  tabSet: TopShellTabSet,
+  options: RiaRouteTabSetOptions = {},
+): TopShellTabSet {
+  if (
+    tabSet.id !== TOP_SHELL_TAB_REGISTRY.ria.id ||
+    (options.includePicks ?? true) ||
+    tabSet.activeValue === "picks"
+  ) {
+    return tabSet;
   }
+  return { ...tabSet, tabs: tabSet.tabs.filter((tab) => tab.value !== "picks") };
+}
 
-  if (pathname === ROUTES.CONSENTS) {
-    const definition = TOP_SHELL_TAB_REGISTRY.consent;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-      tabs: definition.tabs.map((tab) => ({
-        ...tab,
-        href: buildConsentCenterTabRoute(
-          tab.value as ConsentCenterTab,
-          searchParams,
-        ),
-      })),
-    };
-  }
+export function resolveRiaRouteTabSet(
+  routeKey: string,
+  options: RiaRouteTabSetOptions = {},
+): TopShellTabSet | null {
+  const { pathname } = splitRouteKey(routeKey);
 
   if (
     pathname === ROUTES.RIA_HOME ||
@@ -266,13 +277,13 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
     pathname === ROUTES.RIA_PICKS
   ) {
     const definition = TOP_SHELL_TAB_REGISTRY.ria;
-    return {
-      ...definition,
-      activeValue: activeRiaRouteTabFromPath(pathname),
-    };
+    return applyRiaTabOptions(
+      { ...definition, activeValue: activeRiaRouteTabFromPath(pathname) },
+      options,
+    );
   }
 
-  return resolvePublicKnowledgeTopShellTabSet(routeKey);
+  return null;
 }
 
 /**
@@ -291,14 +302,11 @@ export function resolvePublicKnowledgeTopShellTabSet(
     normalizedPathname === ROUTES.WELCOME &&
     definition.tabs.some((tab) => tab.value === requestedHomeTab)
       ? requestedHomeTab
-      : normalizedPathname === ROUTES.RESEARCH ||
-          normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`)
+      : normalizedPathname === ROUTES.RESEARCH
         ? "research"
-        : normalizedPathname === ROUTES.BLOG ||
-            normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+        : normalizedPathname === ROUTES.BLOG
           ? "blog"
-          : normalizedPathname === ROUTES.DEVELOPERS ||
-              normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`)
+          : normalizedPathname === ROUTES.DEVELOPERS
             ? "developers"
             : null;
 

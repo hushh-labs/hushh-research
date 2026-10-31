@@ -1,13 +1,30 @@
+import type { AutoApproveScope } from "@/lib/one-location/types";
+
+export type { AutoApproveScope } from "@/lib/one-location/types";
+
 /**
  * Non-coordinate state shared by every One Location control surface.
  *
- * Pause and Auto-share are non-sensitive, user-scoped device preferences. The
- * live activity flags are runtime-only mirrors of independent authorities:
+ * Pause is a user-scoped device preference. Auto-approve fields remain only as
+ * a fail-closed compatibility shape; the Postgres preference returned by the
+ * Location API is the sole standing-consent authority. The live activity flags are
+ * runtime-only mirrors of independent authorities:
  * self preview, private grants, and Nearby Check-In presence. No preference
  * creates consent; Nearby and private-share authority remain explicit.
  */
 export type OneLocationControlState = {
-  autoShareEnabled: boolean;
+  /**
+   * Compatibility-only. Always false; read `state.autoApprovePreference`.
+   */
+  autoApproveRequestsEnabled: boolean;
+  /**
+   * Compatibility-only. Always null.
+   */
+  autoApproveScope: AutoApproveScope | null;
+  /**
+   * Compatibility-only. Always null.
+   */
+  autoApproveEnabledAt: string | null;
   paused: boolean;
   selfPreviewEnabled: boolean;
   nearbyPresenceActive: boolean;
@@ -15,9 +32,17 @@ export type OneLocationControlState = {
 };
 
 const PAUSED_PREFERENCE_PREFIX = "one_location_updates_paused_v1:";
-const AUTO_SHARE_PREFERENCE_PREFIX = "one_location_auto_share_v1:";
+/**
+ * Deliberately not the old `one_location_auto_share_v1:` key. That value meant
+ * "keep publishing to approved shares"; reusing it would silently read a
+ * publishing preference as standing permission to approve strangers' requests.
+ */
+const LEGACY_AUTO_APPROVE_PREFERENCE_PREFIX =
+  "one_location_auto_approve_requests_v1:";
 const EMPTY_STATE: OneLocationControlState = {
-  autoShareEnabled: true,
+  autoApproveRequestsEnabled: false,
+  autoApproveScope: null,
+  autoApproveEnabledAt: null,
   paused: false,
   selfPreviewEnabled: false,
   nearbyPresenceActive: false,
@@ -29,6 +54,7 @@ const listenersByUser = new Map<
   string,
   Set<(state: OneLocationControlState) => void>
 >();
+let storageListenerInstalled = false;
 
 function cloneState(state: OneLocationControlState): OneLocationControlState {
   return { ...state };
@@ -36,10 +62,6 @@ function cloneState(state: OneLocationControlState): OneLocationControlState {
 
 function pausedPreferenceKey(userId: string): string {
   return `${PAUSED_PREFERENCE_PREFIX}${userId}`;
-}
-
-function autoSharePreferenceKey(userId: string): string {
-  return `${AUTO_SHARE_PREFERENCE_PREFIX}${userId}`;
 }
 
 function readPausedPreference(userId: string): boolean {
@@ -65,26 +87,31 @@ function writePausedPreference(userId: string, paused: boolean): void {
   }
 }
 
-function readAutoSharePreference(userId: string): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    return window.localStorage.getItem(autoSharePreferenceKey(userId)) !== "0";
-  } catch {
-    return true;
+function notifyControlState(userId: string, state: OneLocationControlState): void {
+  for (const listener of listenersByUser.get(userId) ?? []) {
+    listener(cloneState(state));
   }
 }
 
-function writeAutoSharePreference(userId: string, enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (enabled) {
-      window.localStorage.removeItem(autoSharePreferenceKey(userId));
-    } else {
-      window.localStorage.setItem(autoSharePreferenceKey(userId), "0");
-    }
-  } catch {
-    // The current in-memory preference remains authoritative for this session.
-  }
+function installPausedPreferenceStorageListener(): void {
+  if (storageListenerInstalled || typeof window === "undefined") return;
+  window.addEventListener("storage", (event) => {
+    if (!event.key?.startsWith(PAUSED_PREFERENCE_PREFIX)) return;
+    const userId = event.key.slice(PAUSED_PREFERENCE_PREFIX.length);
+    if (!userId) return;
+    const current = readOneLocationControlState(userId);
+    const paused = event.newValue === "1";
+    const next: OneLocationControlState = {
+      ...current,
+      paused,
+      selfPreviewEnabled: paused ? false : current.selfPreviewEnabled,
+      nearbyPresenceActive: paused ? false : current.nearbyPresenceActive,
+      nearbyCheckedInAt: paused ? null : current.nearbyCheckedInAt,
+    };
+    runtimeByUser.set(userId, next);
+    notifyControlState(userId, next);
+  });
+  storageListenerInstalled = true;
 }
 
 export function readOneLocationControlState(
@@ -95,9 +122,30 @@ export function readOneLocationControlState(
   if (runtime) return cloneState(runtime);
   return {
     ...EMPTY_STATE,
-    autoShareEnabled: readAutoSharePreference(userId),
     paused: readPausedPreference(userId),
   };
+}
+
+/**
+ * The header switch's own on/off truth -- the only derivation of it. Shared by
+ * the Location page (what the switch renders) and by voice (the observed
+ * state it reports after running the same handler a tap runs), so the two can
+ * never disagree. Permission is deliberately not part of it: a blocked device
+ * still reads "on" here and "Location blocked" in the status text.
+ */
+export function deriveLocationEnabled(
+  control: Pick<
+    OneLocationControlState,
+    "paused" | "selfPreviewEnabled" | "nearbyPresenceActive"
+  >,
+  ownerGrants: readonly { status: string }[],
+): boolean {
+  return (
+    !control.paused &&
+    (control.selfPreviewEnabled ||
+      control.nearbyPresenceActive ||
+      ownerGrants.some((grant) => grant.status === "active"))
+  );
 }
 
 export function updateOneLocationControlState(
@@ -110,18 +158,17 @@ export function updateOneLocationControlState(
   const paused = Boolean(updated.paused);
   const nearbyPresenceActive = !paused && Boolean(updated.nearbyPresenceActive);
   const next: OneLocationControlState = {
-    autoShareEnabled: Boolean(updated.autoShareEnabled),
+    autoApproveRequestsEnabled: false,
+    autoApproveScope: null,
+    autoApproveEnabledAt: null,
     paused,
     selfPreviewEnabled: !paused && Boolean(updated.selfPreviewEnabled),
     nearbyPresenceActive,
     nearbyCheckedInAt: nearbyPresenceActive ? updated.nearbyCheckedInAt : null,
   };
   runtimeByUser.set(userId, next);
-  writeAutoSharePreference(userId, next.autoShareEnabled);
   writePausedPreference(userId, next.paused);
-  for (const listener of listenersByUser.get(userId) ?? []) {
-    listener(cloneState(next));
-  }
+  notifyControlState(userId, next);
   return cloneState(next);
 }
 
@@ -129,6 +176,7 @@ export function subscribeOneLocationControlState(
   userId: string,
   listener: (state: OneLocationControlState) => void,
 ): () => void {
+  installPausedPreferenceStorageListener();
   const listeners =
     listenersByUser.get(userId) ??
     new Set<(state: OneLocationControlState) => void>();
@@ -147,9 +195,7 @@ export function clearOneLocationControlRuntime(
   if (!userId) return;
   runtimeByUser.delete(userId);
   const next = readOneLocationControlState(userId);
-  for (const listener of listenersByUser.get(userId) ?? []) {
-    listener(cloneState(next));
-  }
+  notifyControlState(userId, next);
 }
 
 export function clearAllOneLocationControlRuntime(): void {
@@ -157,9 +203,7 @@ export function clearAllOneLocationControlRuntime(): void {
   runtimeByUser.clear();
   for (const userId of userIds) {
     const next = readOneLocationControlState(userId);
-    for (const listener of listenersByUser.get(userId) ?? []) {
-      listener(cloneState(next));
-    }
+    notifyControlState(userId, next);
   }
 }
 
@@ -171,12 +215,12 @@ export function forgetOneLocationControlPreference(
   if (typeof window !== "undefined") {
     try {
       window.localStorage.removeItem(pausedPreferenceKey(userId));
-      window.localStorage.removeItem(autoSharePreferenceKey(userId));
+      window.localStorage.removeItem(
+        `${LEGACY_AUTO_APPROVE_PREFERENCE_PREFIX}${userId}`,
+      );
     } catch {
       // Best-effort account-deletion cleanup for restricted browser storage.
     }
   }
-  for (const listener of listenersByUser.get(userId) ?? []) {
-    listener(cloneState(EMPTY_STATE));
-  }
+  notifyControlState(userId, EMPTY_STATE);
 }

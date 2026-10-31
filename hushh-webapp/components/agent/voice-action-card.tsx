@@ -1,15 +1,23 @@
 "use client";
 
-import { User } from "lucide-react";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { User, X } from "@/components/icons";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import {
+  resolveLocalOnboardingHandler,
+  type LocalOnboardingActionContext,
+} from "@/lib/agent/local-onboarding-actions";
+import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   clearVoiceCard,
+  consumeVoiceConfirmToken,
   readVoiceCard,
   subscribeToVoiceCard,
+  type VoiceCardRequest,
   type VoiceDisambiguationCandidate,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /** The row treatment shared by both shapes: avatar, name, detail beneath. */
 function SubjectRow({
@@ -62,8 +70,48 @@ function SubjectRow({
 export function VoiceActionCard() {
   const card = useSyncExternalStore(subscribeToVoiceCard, readVoiceCard, () => null);
   const disambiguation = card?.kind === "choice" ? card : null;
+  const data = card?.kind === "data" ? card : null;
   const [runningId, setRunningId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+
+  // This card is always raised from a spoken turn, never a tap, so it can
+  // arrive while the bottom chrome is scrolled away. See the matching effect
+  // on pendingConfirmation in agent-bar.tsx for the same reasoning.
+  useEffect(() => {
+    if (card) snapKaiBottomChromeVisible();
+  }, [card]);
+
+  // A `data` card illustrates a spoken readout, so its lifetime should track
+  // the readout, not linger after or vanish before it. There is no explicit
+  // "TTS finished" event to key off -- voiceStatus leaving "speaking" is the
+  // same signal `tts_playing` is already derived from elsewhere in the app
+  // (see AppRuntimeState.voice.tts_playing). Cleared only once speech has
+  // actually been observed for THIS card, so a trace that arrives before
+  // audio starts (the normal case: the tool call resolves before the model
+  // speaks the answer) is not cleared on the "thinking" status that precedes
+  // it.
+  const voiceStatus = useAgentVoiceState((s) => s.status);
+  const dataCardRef = useRef<VoiceCardRequest | null>(null);
+  const hasSpokenRef = useRef(false);
+  useEffect(() => {
+    if (!data) {
+      dataCardRef.current = null;
+      hasSpokenRef.current = false;
+      return;
+    }
+    if (card !== dataCardRef.current) {
+      dataCardRef.current = card;
+      hasSpokenRef.current = voiceStatus === "speaking";
+      return;
+    }
+    if (voiceStatus === "speaking") {
+      hasSpokenRef.current = true;
+      return;
+    }
+    if (hasSpokenRef.current) {
+      clearVoiceCard();
+    }
+  }, [card, data, voiceStatus]);
 
   const choose = useCallback(
     async (candidate: VoiceDisambiguationCandidate) => {
@@ -115,7 +163,12 @@ export function VoiceActionCard() {
     setRunningId(confirm.actionId);
     setFailure(null);
     try {
-      const result = await handler({ ...confirm.slots, confirmed: true });
+      const result = await handler(
+        { ...confirm.slots },
+        {
+          humanConfirmationToken: consumeVoiceConfirmToken(confirm.actionId),
+        } satisfies LocalOnboardingActionContext,
+      );
       if (result.status === "blocked" || result.status === "failed") {
         setFailure(result.summary);
         return;
@@ -172,9 +225,10 @@ export function VoiceActionCard() {
             type="button"
             disabled={busy}
             onClick={() => clearVoiceCard()}
-            className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+            className="relative h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
           >
             Cancel
+            <MaterialRipple variant="none" effect="glass" disabled={busy} />
           </button>
           <button
             type="button"
@@ -184,11 +238,91 @@ export function VoiceActionCard() {
             // primary thing to press, and the safe choice should not have to
             // compete with it. Red text on a red-tinted ground says "this one
             // is the dangerous one" while leaving Cancel equally easy to hit.
-            className="h-12 rounded-full bg-destructive/10 text-[15px] font-semibold text-destructive ring-1 ring-inset ring-destructive/35 transition-colors hover:bg-destructive/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 dark:bg-destructive/[0.18] dark:ring-destructive/45 dark:hover:bg-destructive/25"
+            className="relative h-12 rounded-full bg-destructive/10 text-[15px] font-semibold text-destructive ring-1 ring-inset ring-destructive/35 transition-colors hover:bg-destructive/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 dark:bg-destructive/[0.18] dark:ring-destructive/45 dark:hover:bg-destructive/25"
           >
             {busy ? "Working…" : confirm.confirmLabel}
+            <MaterialRipple variant="none" effect="glass" disabled={busy} />
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (data) {
+    return (
+      <div
+        className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+        data-testid="voice-data-card"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-start justify-between gap-3 pb-2">
+          <p className="text-[13px] font-medium text-muted-foreground">{data.heading}</p>
+          <button
+            type="button"
+            onClick={() => clearVoiceCard()}
+            aria-label="Dismiss"
+            className="relative -m-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
+          >
+            <X className="size-4" />
+            <MaterialRipple variant="none" effect="glass" />
+          </button>
+        </div>
+
+        {data.shape === "list" ? (
+          <ul className="flex flex-col">
+            {data.list.items.map((item, index) => (
+              <li
+                key={item.id}
+                className={
+                  index > 0
+                    ? "flex items-center gap-3 border-t border-border/40 py-2.5"
+                    : "flex items-center gap-3 py-2.5"
+                }
+                data-testid="voice-data-card-row"
+              >
+                <SubjectRow name={item.name} detail={item.detail} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <>
+            {data.summary.fields.length > 0 ? (
+              <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
+                {data.summary.fields.map((field) => (
+                  <div key={field.label} className="contents">
+                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <dd className="truncate text-right text-sm font-medium text-foreground">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {data.summary.breakdowns.map((breakdown, index) => (
+              <div
+                key={breakdown.label}
+                className={
+                  index === 0 && data.summary.fields.length === 0
+                    ? ""
+                    : "mt-2 border-t border-border/40 pt-2"
+                }
+              >
+                <p className="pb-1 text-xs text-muted-foreground">{breakdown.label}</p>
+                <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5">
+                  {breakdown.items.map((item) => (
+                    <div key={item.label} className="contents">
+                      <dt className="text-xs text-muted-foreground">{item.label}</dt>
+                      <dd className="truncate text-right text-sm font-medium text-foreground">
+                        {item.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     );
   }
@@ -239,7 +373,7 @@ export function VoiceActionCard() {
                 // give this the full 48px the decision buttons get without the
                 // list growing taller than the card, but it must not be the
                 // 32px inline control this started as.
-                className="h-11 min-w-[92px] shrink-0 rounded-full bg-black/[0.05] px-4 text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+                className="relative h-11 min-w-[92px] shrink-0 rounded-full bg-black/[0.05] px-4 text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
                 // Two rows share a name, so the name alone cannot say which
                 // button this is. Screen readers get the detail too.
                 aria-label={`${candidate.actionLabel} ${candidate.name}${
@@ -247,6 +381,7 @@ export function VoiceActionCard() {
                 }`}
               >
                 {isRunning ? "Working…" : candidate.actionLabel}
+                <MaterialRipple variant="none" effect="glass" disabled={isDisabled || isRunning} />
               </button>
             </li>
           );
@@ -269,9 +404,10 @@ export function VoiceActionCard() {
         <button
           type="button"
           onClick={() => clearVoiceCard()}
-          className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+          className="relative h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
         >
           Cancel
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       </div>
     </div>

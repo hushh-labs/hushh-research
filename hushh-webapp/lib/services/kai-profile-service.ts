@@ -4,6 +4,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 const FINANCIAL_DOMAIN = "financial";
@@ -785,6 +786,7 @@ export class KaiProfileService {
     vaultKey: string;
     vaultOwnerToken?: string;
     baseFullBlob?: Record<string, unknown>;
+    beforeEffect?: () => Promise<void>;
     onboarding?: {
       completed: boolean;
       skippedPreferences: boolean;
@@ -879,6 +881,7 @@ export class KaiProfileService {
         surface: "web",
         source: "kai_profile_setup_sync",
       },
+      beforeEffect: params.beforeEffect,
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,
@@ -892,10 +895,9 @@ export class KaiProfileService {
       }),
     });
 
-    if (!result.success) {
-      throw new Error("Failed to persist combined financial.profile sync state");
-    }
-
+    if (!result.success) throw result.httpStatus
+      ? new PkmStoreDomainError(result.httpStatus, result.message || "Vault sync failed.")
+      : new Error("Failed to persist combined financial.profile sync state");
     CacheService.getInstance().set(CACHE_KEYS.KAI_PROFILE(params.userId), next, CACHE_TTL.SESSION);
     return next;
   }

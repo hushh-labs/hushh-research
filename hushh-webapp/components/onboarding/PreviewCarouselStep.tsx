@@ -9,7 +9,7 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";

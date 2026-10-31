@@ -43,13 +43,13 @@ PKM structure mutations.
 
 Every canonical PKM preview follows this flow:
 
-1. `Financial Guard Agent`
-   - decide whether the message belongs in governed financial core
-   - decide whether it is sanctioned durable financial memory
-   - keep non-financial and ephemeral requests out of the financial lane
+1. `Memory Segmentation Agent`
+   - select everything the owner stated as exact quotes, with `context_quotes`
+   - account for every other line in `not_memory` (exact duplicates, pure disclaimers)
 
 2. `Memory Intent Agent`
    - classify durable vs ephemeral vs ambiguous
+   - tell a live `command` ("optimize my portfolio") from a memory; pasted material is never a command
    - classify ontology intent
    - classify mutation intent
    - decide whether confirmation is required
@@ -61,7 +61,7 @@ Every canonical PKM preview follows this flow:
    - avoid append-only semantic drift
 
 4. `PKM Structure Agent`
-   - choose the target domain
+   - choose a target domain for everything, or an app-owned branch's `agent_memory` sibling
    - emit the candidate payload
    - emit the structure decision
    - emit the manifest-facing scope plan

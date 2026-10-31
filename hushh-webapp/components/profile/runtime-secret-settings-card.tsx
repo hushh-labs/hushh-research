@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, KeyRound, Loader2, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  EyeIcon as Eye,
+  EyeSlashIcon as EyeOff,
+  KeyIcon as KeyRound,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+} from "@/components/icons";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";

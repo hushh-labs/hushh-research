@@ -1,0 +1,45 @@
+{
+  "provenance": "Fresh full-day Google Explorer response; identity aliases and consistent date shift, not live UAT",
+  "request": {
+    "timeMin": "2030-01-16T18:30:00Z",
+    "timeMax": "2030-01-17T18:30:00Z",
+    "items": [
+      {
+        "id": "calendar-1"
+      },
+      {
+        "id": "calendar-2"
+      },
+      {
+        "id": "calendar-4"
+      },
+      {
+        "id": "calendar-5"
+      }
+    ]
+  },
+  "response": {
+    "kind": "calendar#freeBusy",
+    "timeMin": "2030-01-16T18:30:00.000Z",
+    "timeMax": "2030-01-17T18:30:00.000Z",
+    "calendars": {
+      "calendar-1": {
+        "busy": []
+      },
+      "calendar-2": {
+        "busy": []
+      },
+      "calendar-4": {
+        "busy": []
+      },
+      "calendar-5": {
+        "busy": [
+          {
+            "start": "2030-01-17T17:30:00Z",
+            "end": "2030-01-17T18:00:00Z"
+          }
+        ]
+      }
+    }
+  }
+}

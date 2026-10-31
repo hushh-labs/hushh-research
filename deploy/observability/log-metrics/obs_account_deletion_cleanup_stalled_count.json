@@ -1,0 +1,5 @@
+{
+  "name": "obs_account_deletion_cleanup_stalled_count",
+  "description": "Account deletion provider cleanup paused while due work waited at least ten minutes; enumerated reason only",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND (textPayload=~\"account_deletion\\.cleanup_stalled\" OR jsonPayload.message=~\"account_deletion\\.cleanup_stalled\")"
+}

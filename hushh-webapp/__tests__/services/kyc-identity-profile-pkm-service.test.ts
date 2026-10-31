@@ -1,175 +1,126 @@
-import { describe, expect, it, vi } from "vitest";
-import type { Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/services/pkm-write-coordinator", () => ({
-  PkmWriteCoordinator: {
-    saveMergedDomain: vi.fn(),
-  },
+const mocks = vi.hoisted(() => ({
+  load: vi.fn(), stage: vi.fn(), prepare: vi.fn(), legacy: vi.fn(), structuredWrite: vi.fn(), recover: vi.fn(),
 }));
+vi.mock("@/lib/pkm/markdown-memory", () => ({
+  loadMarkdownMemory: mocks.load, stageMarkdownMemoryFacts: mocks.stage, MARKDOWN_MEMORY_DOMAIN: "one_memory",
+  peekMarkdownMemory: () => null, recoverMarkdownMemorySync: mocks.recover,
+  markdownFactsFromCards: (cards: Array<{ source_text: string; write_mode?: string; preview_degraded?: boolean }>) =>
+    cards.filter(card => card.write_mode !== "do_not_save" && !card.preview_degraded)
+      .map(card => ({ text: card.source_text, section: "Facts" })),
+}));
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/pkm/pkm-natural-language-ingestion")>(),
+  prepareNaturalLanguagePkm: mocks.prepare,
+}));
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: { getStaleFirst: mocks.legacy } }));
+vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain: mocks.structuredWrite } }));
 
-import {
-  KYC_IDENTITY_PKM_DOMAIN,
-  KycIdentityProfileDraftService,
-  KycIdentityProfilePkmService,
-  isValidDateOfBirth,
-} from "@/lib/services/kyc-identity-profile-pkm-service";
-import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { KycIdentityProfilePkmService, isKycIdentityPrefaceComplete, isValidDateOfBirth } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
-describe("KycIdentityProfilePkmService", () => {
-  it("accepts only real past calendar dates of birth", () => {
-    const now = new Date("2026-08-03T12:00:00");
+const session = { userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token" };
 
-    expect(isValidDateOfBirth("1994-04-15", now)).toBe(true);
-    expect(isValidDateOfBirth("2000-02-29", now)).toBe(true);
-    expect(isValidDateOfBirth("1994-02-29", now)).toBe(false);
-    expect(isValidDateOfBirth("2026-08-03", now)).toBe(false);
-    expect(isValidDateOfBirth("2099-01-01", now)).toBe(false);
+describe("KYC intake uses only Soul.md personal memory", () => {
+  afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("user_1");
+    mocks.load.mockResolvedValue({ markdown: "# Soul.md\n", persisted: true });
+    mocks.stage.mockResolvedValue({ success: true, saved: 1, markdown: "# Soul.md\n- A synthetic fact.\n" });
+    mocks.prepare.mockResolvedValue({ cards: [{ source_text: "Studies engineering at Example University.", write_mode: "confirm_first" }] });
+    mocks.legacy.mockResolvedValue(null);
   });
 
-  it("merges the completed identity preface into the encrypted identity domain", async () => {
-    let writtenDomainData: Record<string, unknown> | null = null;
-    let writtenSummary: Record<string, unknown> | null = null;
-
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(async (params) => {
-      const plan = await params.build({
-        currentDomainData: {
-          existing_identity_fact: "preserved",
-          identity_profile: {
-            existing_field: "preserved",
-          },
-        },
-      });
-      writtenDomainData = plan.domainData;
-      writtenSummary = plan.summary;
-      return {
-        saveState: "saved",
-        success: true,
-        fullBlob: {},
-      };
-    });
-
-    await KycIdentityProfilePkmService.saveProfile({
-      userId: "user_1",
-      vaultKey: "vault-key",
-      vaultOwnerToken: "owner-token",
-      profile: {
-        legalName: "Avery Example",
-        dateOfBirth: "1994-04-15",
-        citizenshipCountryCode: "IN",
-        citizenshipCountryName: "India",
-        employmentStatus: "employed",
-      },
-    });
-
-    expect(KYC_IDENTITY_PKM_DOMAIN).toBe("identity");
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: "user_1",
-        domain: "identity",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-        confirmation: expect.objectContaining({
-          confirmedByUser: true,
-          source: "kyc_identity_onboarding",
-        }),
-      }),
-    );
-    expect(writtenDomainData).toMatchObject({
-      existing_identity_fact: "preserved",
-      identity_profile: {
-        existing_field: "preserved",
-        full_name: "Avery Example",
-        legal_name: "Avery Example",
-        date_of_birth: "1994-04-15",
-        citizenship_country_code: "IN",
-        country_of_citizenship: "India",
-        employment_status: "employed",
-        schema_version: 2,
-      },
-    });
-    expect(writtenSummary).toEqual({ identity_profile_updated: true });
+  it("recognizes retained legacy intake markers without rewriting their records", () => {
+    expect(isKycIdentityPrefaceComplete({ freeform_import_completed_at: "2026-08-20T00:00:00Z" })).toBe(true);
+    expect(isKycIdentityPrefaceComplete({ about_me: "legacy profile" })).toBe(true);
+    expect(isKycIdentityPrefaceComplete({ about_me: "" })).toBe(false);
   });
 
-  it("keeps a pre-vault identity draft only in process memory until its encrypted save settles", async () => {
-    KycIdentityProfileDraftService.stage("user_draft", {
-      legalName: "Avery Example",
-      dateOfBirth: "1994-04-15",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
-      saveState: "saved",
-      success: true,
-      fullBlob: {},
-    });
-
-    await expect(
-      KycIdentityProfileDraftService.flushToVault({
-        userId: "user_draft",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-      }),
-    ).resolves.toBe(true);
-    expect(KycIdentityProfileDraftService.hasPending("user_draft")).toBe(false);
+  it("accepts only real past dates and refuses an invalid date before any effect", async () => {
+    expect(isValidDateOfBirth("2000-02-29", new Date("2026-08-03"))).toBe(true);
+    expect(isValidDateOfBirth("2099-01-01", new Date("2026-08-03"))).toBe(false);
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session, profile: { dateOfBirth: "2099-01-01" } })).rejects.toThrow("past date");
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.stage).not.toHaveBeenCalled();
   });
 
-  it("rejects an invalid date before writing the encrypted identity profile", async () => {
-    const callsBefore = (PkmWriteCoordinator.saveMergedDomain as Mock).mock.calls.length;
-
-    await expect(
-      KycIdentityProfilePkmService.saveProfile({
-        userId: "user_1",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-        profile: {
-          legalName: "Avery Example",
-          dateOfBirth: "2099-01-01",
-          citizenshipCountryCode: "IN",
-          citizenshipCountryName: "India",
-          employmentStatus: "employed",
-        },
-      }),
-    ).rejects.toThrow("Date of birth must be a real past date.");
-
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(callsBefore);
+  it("prepares imported facts then stages one flat document, without any structured-domain writes", async () => {
+    await expect(KycIdentityProfilePkmService.saveProfile({
+      ...session, profile: { legalName: "Example Person", aboutMe: "I study engineering at Example University." },
+    })).resolves.toMatchObject({ success: true, message: expect.stringContaining("memory.md") });
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({
+      currentDomains: ["one_memory"], currentManifests: [], source: "kyc_identity_onboarding",
+    }));
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      facts: ["Legal name: Example Person", { text: "Studies engineering at Example University.", section: "Facts" }],
+      completeKycIntake: true,
+    }));
+    expect(mocks.structuredWrite).not.toHaveBeenCalled();
+    expect(mocks.legacy).not.toHaveBeenCalled();
   });
 
-  it("does not retain an invalid pre-vault identity draft", () => {
-    KycIdentityProfileDraftService.stage("user_invalid", {
-      legalName: "Avery Example",
-      dateOfBirth: "2099-01-01",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-
-    expect(KycIdentityProfileDraftService.hasPending("user_invalid")).toBe(false);
+  it("keeps eligible identity numbers locally while preventing passwords from entering model preparation or memory", async () => {
+    const password = ["test-password-", "not-real"].join("");
+    const passport = ["X", "1234567"].join("");
+    const source = `My passport number is ${passport}. My password is ${password}. I study engineering.`;
+    await KycIdentityProfilePkmService.saveProfile({ ...session, profile: { aboutMe: source } });
+    const request = mocks.prepare.mock.calls[0]![0];
+    expect(request.message).not.toContain(passport);
+    expect(request.message).not.toContain(password);
+    const staged = JSON.stringify(mocks.stage.mock.calls[0]![0].facts);
+    expect(staged).toContain(passport);
+    expect(staged).not.toContain(password);
   });
 
-  it("retains an in-memory draft when its encrypted save fails", async () => {
-    KycIdentityProfileDraftService.stage("user_retry", {
-      legalName: "Avery Example",
-      dateOfBirth: "1994-04-15",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
-      saveState: "failed",
-      success: false,
-      message: "retry",
-    });
+  it("does not complete intake when no usable facts or only degraded proposals were prepared", async () => {
+    mocks.prepare.mockResolvedValue({ cards: [{ source_text: "Fallback fact.", preview_degraded: true }] });
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session, profile: { aboutMe: "Thanks for helping." } }))
+      .resolves.toMatchObject({ success: false, message: expect.stringContaining("No private details") });
+    expect(mocks.stage).not.toHaveBeenCalled();
+  });
 
-    await expect(
-      KycIdentityProfileDraftService.flushToVault({
-        userId: "user_retry",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-      }),
-    ).rejects.toThrow("retry");
-    expect(KycIdentityProfileDraftService.hasPending("user_retry")).toBe(true);
-    KycIdentityProfileDraftService.clear("user_retry");
+  it("rejects an owner change while extraction is pending, before staging facts", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.prepare.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saving = KycIdentityProfilePkmService.saveProfile({ ...session, profile: { aboutMe: "I study engineering." } });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    publishValidatedAuthSessionOwner("other-owner");
+    finish({ cards: [{ source_text: "Studies engineering." }] });
+    await expect(saving).rejects.toThrow("session changed");
+    expect(mocks.stage).not.toHaveBeenCalled();
+  });
+
+  it("does not complete or partially save mixed typed fields and an incomplete freeform import", async () => {
+    mocks.prepare.mockResolvedValueOnce({ cards: [], previews: [], sourceCoverage: [{
+      sourceBlockId: "synthetic", disposition: "failed", detectedFactCount: 1, accountedFactCount: 0,
+    }] });
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session,
+      profile: { legalName: "Example Person", aboutMe: "A longer imported profile." },
+    })).resolves.toMatchObject({ success: false, message: expect.stringContaining("full summary") });
+    expect(mocks.stage).not.toHaveBeenCalled();
+  });
+
+  it("reads new intake completion from Soul and uses legacy records only for their old completion signal", async () => {
+    mocks.load.mockResolvedValueOnce({ markdown: "# Soul.md\n", kycIntakeCompletedAt: "2026-10-12T00:00:00Z" });
+    expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
+    expect(mocks.recover).toHaveBeenCalledWith(expect.objectContaining({ ...session, beforeEffect: expect.any(Function) }));
+    expect(mocks.legacy).not.toHaveBeenCalled();
+    mocks.legacy.mockResolvedValueOnce({ data: { identity_profile: { about_me: "Legacy information" } } });
+    expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
+    expect(mocks.structuredWrite).not.toHaveBeenCalled();
+    mocks.load.mockRejectedValueOnce(new Error("Unavailable"));
+    await expect(KycIdentityProfilePkmService.hasCompletedIntake(session)).rejects.toThrow("Unavailable");
+    expect(mocks.legacy).toHaveBeenCalledOnce();
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)("reads intake without replaying historical writes during %s review", async reviewerMutationPolicy => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    mocks.load.mockResolvedValueOnce({ markdown: "# Soul.md\n", kycIntakeCompletedAt: "2026-10-12T00:00:00Z" });
+    expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
+    expect(mocks.load).toHaveBeenCalledWith(session);
+    expect(mocks.recover).not.toHaveBeenCalled();
   });
 });

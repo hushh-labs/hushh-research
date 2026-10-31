@@ -1,0 +1,1516 @@
+"""Live Drive search speaks the Drive MCP query language the way Claude does.
+
+Measured 2026-09-24 against the Drive MCP: a multi-word term is an AND match
+(`fullText contains 'bank statement'` == `'bank' and 'statement'`), file types
+belong in `mimeType` clauses (the tool says never inside title/fullText), Meet
+recordings are `video/mp4` named "... - 2026/09/18 10:00 PDT - Recording", and
+`list_recent_files` returns the same file shape as `search_files`.
+"""
+
+import json
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from pydantic import ValidationError
+
+from hushh_mcp.services import drive_chat_service, drive_live_reader
+from hushh_mcp.services.drive_chat_service import DriveChatService
+from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_long_range_listing import parse_long_range_listing
+from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
+from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
+from hushh_mcp.services.google_drive_mcp_service import _search_metadata
+
+NOW = datetime(2026, 9, 24, 17, 0, tzinfo=UTC)
+
+
+def file(file_id, title, *, mime="application/pdf", modified="2026-09-20T10:00:00Z", created=None):
+    return {
+        "id": file_id,
+        "title": title,
+        "mimeType": mime,
+        "modifiedTime": modified,
+        "createdTime": created or modified,
+        "viewUrl": f"https://drive.google.com/file/d/{file_id}/view",
+    }
+
+
+def reader_with(responses):
+    """responses: {(tool_name, query_or_None): [files]}; unknown calls fail the test."""
+    row = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 7,
+    }
+    calls = []
+
+    async def read(*, user_id, tool_name, arguments):
+        calls.append((tool_name, arguments.get("query"), arguments))
+        key = (tool_name, arguments.get("query"))
+        if key not in responses:
+            raise AssertionError(f"unexpected provider call {key}")
+        pages = responses[key]
+        page = pages if not pages or isinstance(pages[0], dict) else pages[0]
+        payload = {"files": page, "nextPageToken": None}
+        if pages and not isinstance(pages[0], dict):
+            # A list of pages: serve them in order, with a token until the last.
+            index = int(arguments.get("pageToken") or 0)
+            payload = {
+                "files": pages[index],
+                "nextPageToken": str(index + 1) if index + 1 < len(pages) else None,
+            }
+        # The production provider projection runs before the reader sees a page.
+        return ExternalMcpToolResult(False, _search_metadata(payload), False)
+
+    reader = DriveLiveReader(
+        user_id="owner",
+        require_access=AsyncMock(),
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(return_value=(row, {"accessToken": "synthetic"}))
+        ),
+        mcp=SimpleNamespace(read_tool=AsyncMock(side_effect=read)),
+        adapter=SimpleNamespace(get_share_metadata=AsyncMock(), get_metadata=AsyncMock()),
+    )
+    reader.require_current = AsyncMock()
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(False, {"drives": []}, False)
+    )
+    return reader, calls
+
+
+TERM = "(title contains '{0}' or fullText contains '{0}')"
+
+
+async def test_distinct_legacy_terms_remain_required_concepts():
+    both = TERM.format("bank") + " and " + TERM.format("statement")
+    reader, calls = reader_with({("search_files", both): [file("f1", "SBI bank statement.pdf")]})
+    found = await reader.find(query=["bank", "statement"])
+    assert [item["name"] for item in found["matches"]] == ["SBI bank statement.pdf"]
+    assert [call[1] for call in calls] == [both]
+
+
+async def test_equivalent_variants_are_searched_together_even_when_one_has_a_hit():
+    either = (
+        "("
+        + "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
+        + " or "
+        + TERM.format("payslip")
+        + ")"
+    )
+    reader, calls = reader_with(
+        {
+            ("search_files", either): [
+                [file("f1", "salary slip.pdf")],
+                [file("f2", "payslip-aug.pdf")],
+            ]
+        }
+    )
+    found = await reader.find(query=["salary slip"], term_groups=[["salary slip", "payslip"]])
+    assert [item["name"] for item in found["matches"]] == ["salary slip.pdf", "payslip-aug.pdf"]
+    assert [call[1] for call in calls] == [either, either]
+    assert calls[1][2]["pageToken"] == "1"
+
+
+async def test_groups_preserve_institution_and_subject_without_unrelated_or_fallback():
+    query = (
+        "("
+        + TERM.format("Schwab")
+        + " or (title contains 'Charles Schwab' or fullText contains '\"Charles Schwab\"'))"
+        + " and ("
+        + TERM.format("statement")
+        + " or "
+        + TERM.format("statements")
+        + ")"
+    )
+    reader, calls = reader_with({("search_files", query): []})
+    found = await reader.find(
+        query=["Schwab", "statement"],
+        term_groups=[["Schwab", "Charles Schwab"], ["statement", "statements"]],
+    )
+    assert found["matches"] == []
+    assert [call[1] for call in calls] == [query]
+
+
+@pytest.mark.parametrize(
+    "groups", [[[]], [["different"]], [["statement", "STATEMENT"]], [["statement", "bad\nterm"]]]
+)
+async def test_invalid_groups_cannot_reach_drive(groups):
+    reader, calls = reader_with({})
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["statement"], term_groups=groups)
+    assert calls == []
+
+
+async def test_compilation_folder_children_use_validated_parent_scope_and_bound_pages():
+    query = "'meeting-folder' in parents"
+    reader, calls = reader_with(
+        {("search_files", query): [file("gemini-note", "2026-09-23 Notes by Gemini")]}
+    )
+    found = await reader.find_compilation_folder_children(folder_ids=["meeting-folder"])
+    assert [item["file_id"] for item in found["matches"]] == ["gemini-note"]
+    assert calls[0][1] == query
+    assert calls[0][2]["orderBy"] == "createdTime desc"
+    assert calls[0][2]["pageSize"] == 25
+
+
+async def test_owner_title_only_search_excludes_full_text_from_variants():
+    either = "(title contains 'standup' or title contains 'sync')"
+    reader, calls = reader_with({("search_files", either): [file("f2", "Standup sync notes")]})
+    found = await reader.find(query=["standup"], term_groups=[["standup", "sync"]], title_only=True)
+    assert [item["name"] for item in found["matches"]] == ["Standup sync notes"]
+    assert [call[1] for call in calls] == [either]
+    assert all("fullText" not in call[1] for call in calls)
+
+
+async def test_transient_metadata_failure_retries_once_inside_owner_read(monkeypatch):
+    query = "title contains 'Explain For Product'"
+    reader, calls = reader_with({("search_files", query): [file("f1", "Explain For Product")]})
+    original = reader.mcp.read_tool.side_effect
+    attempts = 0
+
+    async def flaky(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise DriveReadError("provider_unavailable", retryable=True)
+        return await original(**kwargs)
+
+    reader.mcp.read_tool.side_effect = flaky
+    sleep = AsyncMock()
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", sleep)
+
+    found = await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert [item["name"] for item in found["matches"]] == ["Explain For Product"]
+    assert [call[1] for call in calls] == [query]
+    assert attempts == 2
+    assert reader.require_access.await_count == 3
+    sleep.assert_awaited_once_with(0.5)
+
+
+async def test_persistent_metadata_failure_stops_after_one_retry(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 2
+
+
+async def test_metadata_retry_rechecks_owner_authority(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    reader.require_access.side_effect = [None, None, PermissionError("owner authority ended")]
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(PermissionError, match="owner authority ended"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 1
+
+
+async def test_metadata_retry_refuses_a_reconnected_drive_grant(monkeypatch):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    first, credential = reader.oauth.current_credential.return_value
+    reader.oauth.current_credential.side_effect = [
+        (first, credential),
+        ({**first, "connection_generation": first["connection_generation"] + 1}, credential),
+    ]
+    monkeypatch.setattr(drive_live_reader.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await reader.find(query=["Explain For Product"], title_only=True)
+
+    assert reader.mcp.read_tool.await_count == 1
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true", []])
+async def test_title_only_requires_a_boolean_before_provider_call(value):
+    reader, calls = reader_with({})
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["standup"], title_only=value)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "kind,clause",
+    [
+        ("pdf", "mimeType = 'application/pdf'"),
+        (
+            "document",
+            "(mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/pdf'"
+            " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')",
+        ),
+        ("video", "mimeType contains 'video/'"),
+        (
+            "spreadsheet",
+            "(mimeType = 'application/vnd.google-apps.spreadsheet'"
+            " or mimeType contains 'spreadsheetml' or mimeType = 'text/csv')",
+        ),
+        ("folder", "mimeType = 'application/vnd.google-apps.folder'"),
+    ],
+)
+async def test_file_kinds_become_mime_clauses_not_title_words(kind, clause):
+    query = TERM.format("budget") + " and " + clause
+    reader, calls = reader_with({("search_files", query): [file("f3", "Budget")]})
+    await reader.find(query=["budget"], file_kind=kind)
+    assert calls[0][1] == query
+    assert "'pdf'" not in calls[0][1] and "'spreadsheet'" not in calls[0][1]
+
+
+async def test_a_file_kind_alone_is_a_bounded_search():
+    reader, calls = reader_with({("search_files", "mimeType = 'application/pdf'"): []})
+    await reader.find(query=[], file_kind="pdf")
+    assert calls[0][1] == "mimeType = 'application/pdf'"
+
+
+async def test_shared_with_me_and_a_day_window_combine():
+    window = "(createdTime >= '2026-09-23T18:30:00Z' and createdTime < '2026-09-24T18:30:00Z')"
+    query = (
+        TERM.format("recording")
+        + " and mimeType contains 'video/' and sharedWithMe = true and "
+        + window
+    )
+    reader, calls = reader_with({("search_files", query): []})
+    await reader.find(
+        query=["recording"],
+        file_kind="video",
+        shared_with_me=True,
+        time_field="createdTime",
+        start_time="2026-09-23T18:30:00Z",
+        end_time="2026-09-24T18:30:00Z",
+    )
+    assert calls[0][1] == query
+
+
+async def test_most_recent_files_use_the_recency_listing():
+    reader, calls = reader_with(
+        {
+            ("list_recent_files", None): [
+                file("n", "Newest notes", modified="2026-09-24T10:00:00Z"),
+                file("o", "Older deck", modified="2026-09-20T10:00:00Z"),
+            ]
+        }
+    )
+    found = await reader.find(query=[], recent=True)
+    assert [item["name"] for item in found["matches"]] == ["Newest notes", "Older deck"]
+    assert calls[0][0] == "list_recent_files"
+    assert calls[0][2]["orderBy"] == "recency"
+    assert calls[0][2]["excludeContentSnippets"] is True
+
+
+async def test_full_text_keeps_provider_relevance_even_when_recent_requested():
+    reader, calls = reader_with(
+        {
+            ("search_files", TERM.format("statement")): [
+                file("a", "Jan statement.pdf", modified="2026-01-31T00:00:00Z"),
+                file("c", "Aug statement.pdf", modified="2026-08-31T00:00:00Z"),
+                file("b", "Mar statement.pdf", modified="2026-03-31T00:00:00Z"),
+            ]
+        }
+    )
+    found = await reader.find(query=["statement"], recent=True)
+    assert [item["name"] for item in found["matches"]][0] == "Jan statement.pdf"
+    assert calls[0][2]["orderBy"] == "modifiedTime desc"
+
+
+async def test_nothing_to_bound_a_search_never_reaches_the_provider():
+    reader, calls = reader_with({})
+    with pytest.raises(Exception, match="narrow_selection_required"):
+        await reader.find(query=[])
+    assert calls == []
+
+
+def test_a_calendar_day_is_the_owners_day_not_a_rolling_window():
+    plan = LiveSearchPlan.model_validate(
+        {
+            "terms": ["recording"],
+            "file_kind": "video",
+            "date_from": "2026-09-24",
+            "date_to": "2026-09-24",
+            "file_time_field": "createdTime",
+            "time_intent": "file_activity",
+        }
+    )
+    assert plan.time_bounds(now_utc=NOW, timezone="Asia/Kolkata") == (
+        "2026-09-23T18:30:00Z",
+        "2026-09-24T18:30:00Z",
+    )
+    assert plan.time_bounds(now_utc=NOW) == ("2026-09-24T00:00:00Z", "2026-09-25T00:00:00Z")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # nothing bounds the search
+        {"date_from": "2026-09-24", "time_intent": "document_coverage"},
+        {"date_from": "2026-09-24", "relative_days": 3, "time_intent": "file_activity"},
+        {"date_from": "2026-09-25", "date_to": "2026-09-24", "time_intent": "file_activity"},
+        {"date_from": "2024-01-01", "date_to": "2026-09-24", "time_intent": "file_activity"},
+        {"date_from": "24/09/2026", "time_intent": "file_activity"},
+        {"file_kind": "spreadsheet'"},
+        {"file_kind": "document", "result_limit": 100},  # missing ordering
+        {"sort": "recent", "result_limit": 0},
+        {"sort": "recent", "result_limit": 1001},
+        {"sort": "recent", "result_limit": True},
+        {"sort": "recent", "result_limit": "100"},
+        {"sort": "recent", "result_limit": 100.0},
+    ],
+)
+def test_plan_rejects_unbounded_or_contradictory_windows(payload):
+    with pytest.raises(ValidationError):
+        LiveSearchPlan.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"sort": "recent"},
+        {"file_kind": "pdf"},
+        {"shared_with_me": True},
+        {"date_from": "2026-09-10", "time_intent": "file_activity"},
+        {"file_kind": "document", "sort": "recent", "result_limit": 100},
+    ],
+)
+def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
+    LiveSearchPlan.model_validate(payload)
+
+
+def test_legacy_frozen_search_plans_do_not_gain_a_silent_result_cap():
+    plan = LiveSearchPlan.model_validate({"file_kind": "document", "sort": "recent"})
+    assert plan.result_limit is None
+    assert plan.model_dump(mode="json")["result_limit"] is None
+
+
+@pytest.mark.parametrize(
+    "question, field",
+    [
+        ("Which files were modified in the last two days?", "modifiedTime"),
+        ("What Drive files were created within the past 2 days?", "createdTime"),
+    ],
+)
+async def test_simple_file_activity_listing_skips_model_and_content(monkeypatch, question, field):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
+    listed = {
+        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+        "name": "Recent budget.pdf",
+        "mime_type": "application/pdf",
+        "modified_time": "2026-09-24T10:00:00Z",
+        "created_time": "2026-09-24T09:00:00Z",
+        "source_ref": "document:" + "a" * 32,
+        "open_url": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view",
+    }
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [listed], "truncated": False}),
+        read_matches=AsyncMock(side_effect=AssertionError("content read")),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(side_effect=AssertionError("model planner reached"))
+    selector = AsyncMock(side_effect=AssertionError("candidate selector reached"))
+    interpreter = AsyncMock(side_effect=AssertionError("content interpreter reached"))
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+        interpreter=interpreter,
+    )
+
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query=question,
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+
+    assert reader.find.await_args.kwargs == {
+        "query": [],
+        "file_kind": "any",
+        "shared_with_me": False,
+        "recent": True,
+        "time_field": field,
+        "start_time": "2026-09-22T17:00:00Z",
+        "end_time": "2026-09-24T17:00:00Z",
+    }
+    assert outcome["status"] == "ok"
+    assert outcome["titles"] == ["Recent budget.pdf"]
+    assert outcome["metadata_only"] is True
+    assert outcome["selection"]["stage"] == "metadata_listing"
+    shown = drive_chat_service._found_files(
+        outcome["files"],
+        truncated=outcome["found_truncated"],
+        time_window=outcome["time_window"],
+        date_field=outcome["date_field"],
+        timezone=outcome["timezone"],
+    )
+    assert "Recent budget" in shown and "2026-09-24" in shown
+    assert "Asia/Kolkata" in shown
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+    interpreter.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Which files were modified in the last two days and what changed?",
+        "Which files were modified in the last two days for the sales team?",
+        "Which file was modified on September 24?",
+    ],
+)
+async def test_ambiguous_file_activity_question_keeps_model_planning(monkeypatch, question):
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": [], "truncated": False}),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "relative_days": 2,
+            "time_intent": "file_activity",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
+        }
+    )
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+    )
+
+    await chat.run_live_query(
+        user_id="owner", consent_token="", query=question, require_access=AsyncMock()
+    )
+
+    planner.assert_awaited_once()
+
+
+async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monkeypatch):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
+    reader = SimpleNamespace(
+        find=AsyncMock(
+            return_value={
+                "matches": [
+                    {
+                        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+                        "name": "Standup - 2026/09/24 10:00 PDT - Recording",
+                        "mime_type": "video/mp4",
+                        "modified_time": "2026-09-24T17:30:00Z",
+                        "created_time": "2026-09-24T17:28:00Z",
+                        "source_ref": "document:" + "a" * 32,
+                        "open_url": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view",
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
+        read_matches=AsyncMock(side_effect=AssertionError("content read")),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", Mock(side_effect=AssertionError))
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={
+                "terms": ["recording"],
+                "term_groups": [["recording", "recordings"]],
+                "file_kind": "video",
+                "shared_with_me": False,
+                "sort": "recent",
+                "date_from": "2026-09-24",
+                "date_to": "2026-09-24",
+                "file_time_field": "createdTime",
+                "time_intent": "file_activity",
+            }
+        ),
+        candidate_selector=AsyncMock(return_value={"selected": ["c1"]}),
+    )
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query="find my recording of 24th september",
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+    kwargs = reader.find.await_args.kwargs
+    assert kwargs["query"] == ["recording"]
+    assert kwargs["term_groups"] == [["recording", "recordings"]]
+    assert kwargs["file_kind"] == "video" and kwargs["recent"] is True
+    assert kwargs["shared_with_me"] is False
+    assert kwargs["title_dates"] == ["2026-09-24"]
+    assert (kwargs["time_field"], kwargs["start_time"], kwargs["end_time"]) == (
+        "createdTime",
+        "2026-09-23T18:30:00Z",
+        "2026-09-24T18:30:00Z",
+    )
+    assert outcome["status"] == "ok" and outcome["titles"] == [
+        "Standup - 2026/09/24 10:00 PDT - Recording"
+    ]
+    assert outcome["selection"] == {
+        "stage": "completed",
+        "candidates": 1,
+        "selected": 1,
+        "mode": "find",
+    }
+    # The owner sees the day the recording was made, in their own window text.
+    text = drive_chat_service._found_files(
+        outcome["files"],
+        truncated=False,
+        time_window=outcome["time_window"],
+        date_field="created_time",
+    )
+    assert "2026-09-24" in text and "Asia/Kolkata" in text
+    json.dumps(outcome)  # the outcome stays plain data
+
+
+async def test_a_meeting_named_for_the_day_is_found_across_timezones():
+    """Meet names recordings in the meeting's zone: "2026/09/10 15:48 PDT" was
+    created at 22:55Z, which is already the 11th in Asia/Kolkata. Drive tokenizes
+    `title contains '2026/09/10'` loosely (it also matched 09/18 and 06/09 on a
+    real Drive), so the title-date search is filtered here to the exact date.
+    """
+    window = "(createdTime >= '2026-09-09T18:30:00Z' and createdTime < '2026-09-10T18:30:00Z')"
+    reader, calls = reader_with(
+        {
+            ("search_files", "mimeType contains 'video/' and " + window): [
+                file("s9", "Standup - 2026/09/09 10:01 PDT - Recording", mime="video/mp4")
+            ],
+            (
+                "search_files",
+                "mimeType contains 'video/' and (title contains '2026/09/10' or fullText contains '\"2026/09/10\"')",
+            ): [
+                file("s18", "Standup - 2026/09/18 10:00 PDT - Recording", mime="video/mp4"),
+                file(
+                    "a10",
+                    "Anoushka and Manish - 2026/09/10 15:48 PDT - Recording",
+                    mime="video/mp4",
+                ),
+                file("j9", "Standup - 2026/06/09 10:02 PDT - Recording", mime="video/mp4"),
+            ],
+        }
+    )
+    found = await reader.find(
+        query=[],
+        file_kind="video",
+        time_field="createdTime",
+        start_time="2026-09-09T18:30:00Z",
+        end_time="2026-09-10T18:30:00Z",
+        title_dates=["2026-09-10"],
+    )
+    names = [item["name"] for item in found["matches"]]
+    assert names == [
+        "Anoushka and Manish - 2026/09/10 15:48 PDT - Recording",
+        "Standup - 2026/09/09 10:01 PDT - Recording",
+    ]
+
+
+async def test_title_dates_are_validated_before_any_provider_call():
+    reader, calls = reader_with({})
+    with pytest.raises(Exception, match="narrow_selection_required"):
+        await reader.find(
+            query=["notes"],
+            time_field="createdTime",
+            start_time="2026-09-09T18:30:00Z",
+            end_time="2026-09-10T18:30:00Z",
+            title_dates=["2026/09/10' or title contains 'x"],
+        )
+    assert calls == []
+
+
+async def test_latest_recording_sorts_by_the_creation_time_the_provider_keeps():
+    reader, _ = reader_with(
+        {
+            (
+                "search_files",
+                "mimeType contains 'video/' and (createdTime >= '2026-08-01T00:00:00Z'"
+                " and createdTime < '2026-09-25T00:00:00Z')",
+            ): [
+                file(
+                    "old",
+                    "Old - Recording",
+                    mime="video/mp4",
+                    modified="2026-09-24T00:00:00Z",
+                    created="2026-09-01T00:00:00Z",
+                ),
+                file(
+                    "new",
+                    "New - Recording",
+                    mime="video/mp4",
+                    modified="2026-09-02T00:00:00Z",
+                    created="2026-09-20T00:00:00Z",
+                ),
+            ]
+        }
+    )
+    found = await reader.find(
+        query=[],
+        file_kind="video",
+        recent=True,
+        time_field="createdTime",
+        start_time="2026-08-01T00:00:00Z",
+        end_time="2026-09-25T00:00:00Z",
+    )
+    # modifiedTime says "old" is newer; createdTime (what the owner asked) says "new".
+    assert [item["name"] for item in found["matches"]] == ["New - Recording", "Old - Recording"]
+    assert found["matches"][0]["created_time"] == "2026-09-20T00:00:00Z"
+
+
+async def test_the_exact_title_date_is_found_on_a_later_page():
+    window = "(createdTime >= '2026-09-09T18:30:00Z' and createdTime < '2026-09-10T18:30:00Z')"
+    noise = [
+        file(f"n{day}", f"Standup - 2026/09/{day:02d} 10:00 PDT - Recording", mime="video/mp4")
+        for day in range(11, 19)
+    ]
+    reader, calls = reader_with(
+        {
+            ("search_files", "mimeType contains 'video/' and " + window): [],
+            (
+                "search_files",
+                "mimeType contains 'video/' and (title contains '2026/09/10' or fullText contains '\"2026/09/10\"')",
+            ): [
+                noise,
+                [file("a10", "Anoushka - 2026/09/10 15:48 PDT - Recording", mime="video/mp4")],
+            ],
+        }
+    )
+    found = await reader.find(
+        query=[],
+        file_kind="video",
+        time_field="createdTime",
+        start_time="2026-09-09T18:30:00Z",
+        end_time="2026-09-10T18:30:00Z",
+        title_dates=["2026-09-10"],
+    )
+    assert [item["name"] for item in found["matches"]] == [
+        "Anoushka - 2026/09/10 15:48 PDT - Recording"
+    ]
+
+
+def test_since_a_day_means_through_today_and_a_long_since_is_bounded_and_shown():
+    since = LiveSearchPlan.model_validate(
+        {
+            "date_from": "2026-09-01",
+            "time_intent": "file_activity",
+            "file_time_field": "createdTime",
+        }
+    )
+    assert since.time_bounds(now_utc=NOW, timezone="Asia/Kolkata") == (
+        "2026-08-31T18:30:00Z",
+        "2026-09-24T18:30:00Z",
+    )
+    assert since.title_dates(now_utc=NOW, timezone="Asia/Kolkata") == []
+    long_since = LiveSearchPlan.model_validate(
+        {"date_from": "2020-01-01", "time_intent": "file_activity"}
+    )
+    start, end = long_since.time_bounds(now_utc=NOW, timezone="UTC")
+    span = datetime.fromisoformat(end.replace("Z", "+00:00")) - datetime.fromisoformat(
+        start.replace("Z", "+00:00")
+    )
+    assert span.days == 366
+
+
+def test_file_dates_show_in_the_owners_timezone():
+    text = drive_chat_service._found_files(
+        [
+            {
+                "name": "Standup - Recording",
+                "mime_type": "video/mp4",
+                "modified_time": "2026-09-23T19:05:00Z",
+                "created_time": "2026-09-23T19:00:00Z",
+                "open_url": "https://drive.google.com/file/d/x/view",
+            }
+        ],
+        truncated=False,
+        date_field="created_time",
+        timezone="Asia/Kolkata",
+    )
+    assert "2026-09-24" in text and "2026-09-23" not in text
+
+
+async def test_a_date_only_listing_states_the_owners_window_and_names_each_file(monkeypatch):
+    """S1: "what did I change on 21 September" lists files, states the owner's
+    own window, and never reads content (metadata-only find)."""
+    open_url = "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view"
+    reader = SimpleNamespace(
+        find=AsyncMock(
+            return_value={
+                "matches": [
+                    {
+                        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+                        "name": "Budget review",
+                        "mime_type": "application/vnd.google-apps.document",
+                        "modified_time": "2026-09-21T05:00:00Z",
+                        "created_time": "2026-09-01T05:00:00Z",
+                        "source_ref": "document:" + "c" * 32,
+                        "open_url": open_url,
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
+        # A spy, not a raising stub: run_live_query's broad except would swallow a raise.
+        read_matches=AsyncMock(),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={
+                "mode": "find",
+                "date_from": "2026-09-21",
+                "date_to": "2026-09-21",
+                "time_intent": "file_activity",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
+            }
+        ),
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message="what did I change on 21 September",
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+    kwargs = reader.find.await_args.kwargs
+    assert kwargs["query"] == []
+    assert kwargs["time_field"] == "modifiedTime"
+    assert (kwargs["start_time"], kwargs["end_time"]) == (
+        "2026-09-20T18:30:00Z",
+        "2026-09-21T18:30:00Z",
+    )
+    assert kwargs["title_dates"] == ["2026-09-21"]
+    text = response["response"]
+    assert text.splitlines()[1] == (
+        "Files modified from 2026-09-21 00:00 through 2026-09-22 00:00 (Asia/Kolkata)."
+    )
+    assert f"1. Budget review · file · 2026-09-21 — [Open in Drive]({open_url})" in text
+    assert reader.read_matches.called is False
+    assert response["structured"]["metadata_only"] is True
+
+
+@pytest.mark.parametrize("time_field", ["modifiedTime", "createdTime"])
+async def test_a_file_date_window_asks_drive_to_rank_by_that_date_before_the_cut(time_field):
+    """S2: the 25-file cut must keep the newest files by the date the owner asked
+    about, so the date-bounded search asks Drive to sort by that field."""
+    window = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-24T00:00:00Z')"
+    reader, calls = reader_with({("search_files", window): [file("w1", "Weekly notes")]})
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+
+    day = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-18T00:00:00Z')"
+    reader, calls = reader_with(
+        {
+            ("search_files", day): [],
+            (
+                "search_files",
+                "(title contains '2026/09/17' or fullText contains '\"2026/09/17\"')",
+            ): [],
+        }
+    )
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-18T00:00:00Z",
+        title_dates=["2026-09-17"],
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+    # The title-date lookup is not a time window; it keeps Drive's own order.
+    assert calls[-1][1] == "(title contains '2026/09/17' or fullText contains '\"2026/09/17\"')"
+    assert "orderBy" not in calls[-1][2]
+
+    # Without a date window the transport keeps its own default order.
+    reader, calls = reader_with({("search_files", "mimeType = 'application/pdf'"): []})
+    await reader.find(query=[], file_kind="pdf")
+    assert "orderBy" not in calls[0][2]
+
+
+@pytest.mark.parametrize(
+    "message, offset_days",
+    [
+        ("share me all my last 30 days standup sync notes i need all 30", 0),
+        (
+            "share me all my last to last 30 days standup sync notes not recent last 30 "
+            "its like 30 before then 30 i need all 30 check my drive",
+            30,
+        ),
+    ],
+)
+async def test_owner_can_list_all_thirty_dated_standups_without_model_selection(
+    monkeypatch, message, offset_days
+):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", FrozenDatetime)
+    days = [(NOW.date() - timedelta(days=offset_days + offset + 1)) for offset in range(30)]
+    older_day = NOW.date() - timedelta(days=offset_days + 31)
+    matches = [
+        {
+            "file_id": f"standup-{index}",
+            "name": f"Team Standup Sync Notes - {day:%Y/%m/%d}",
+            "mime_type": "application/vnd.google-apps.document",
+            "modified_time": "2026-09-24T12:00:00Z",
+            "created_time": f"{day:%Y-%m-%d}T12:00:00Z",
+            "source_ref": "document:" + f"{index:032x}",
+            "open_url": f"https://drive.google.com/open?id=standup-{index}",
+        }
+        for index, day in enumerate(days)
+    ]
+    matches.append(
+        {
+            **matches[0],
+            "file_id": "old-standup",
+            "name": f"Team Standup Sync Notes - {older_day:%Y/%m/%d}",
+            "open_url": "https://drive.google.com/open?id=old-standup",
+        }
+    )
+    reader = SimpleNamespace(
+        find=AsyncMock(return_value={"matches": matches, "truncated": False}),
+        read_matches=AsyncMock(),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    planner = AsyncMock()
+    selector = AsyncMock()
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=planner,
+        candidate_selector=selector,
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message=message,
+        require_access=AsyncMock(),
+        timezone="UTC",
+    )
+    assert response["structured"]["status"] == "ok"
+    assert response["structured"]["metadata_only"] is True
+    assert response["structured"]["owner_compile_available"] is True
+    assert parse_long_range_listing(response["structured"]["owner_compile_query"]) == (
+        parse_long_range_listing(message)
+    )
+    assert "I found 30 candidate files" in response["response"]
+    assert "30. Team Standup Sync Notes" in response["response"]
+    assert f"{older_day:%Y/%m/%d}" not in response["response"]
+    assert len(response["structured"]["sources"]) == 30
+    first_day = NOW.date() - timedelta(days=offset_days + 30)
+    end_day = NOW.date() - timedelta(days=offset_days)
+    assert response["structured"]["owner_compile_window"] == {
+        "start_date": first_day.isoformat(),
+        "end_date": (end_day - timedelta(days=1)).isoformat(),
+        "timezone": "UTC",
+    }
+    assert reader.find.await_count == 3
+    assert any(
+        call.kwargs
+        == {
+            "query": ["standup"],
+            "time_field": "createdTime",
+            "start_time": f"{first_day.isoformat()}T00:00:00Z",
+            "end_time": f"{end_day.isoformat()}T00:00:00Z",
+            "max_results": 100,
+            "title_only": False,
+        }
+        for call in reader.find.await_args_list
+    )
+    assert any(call.kwargs.get("recent") is True for call in reader.find.await_args_list)
+    planner.assert_not_awaited()
+    selector.assert_not_awaited()
+    reader.read_matches.assert_not_awaited()
+
+
+async def test_owner_listing_reaches_date_only_note_in_named_meeting_folder(monkeypatch):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", FrozenDatetime)
+    folder = {
+        "file_id": "meeting-folder",
+        "name": "Hushh Team Sync and Standup",
+        "mime_type": "application/vnd.google-apps.folder",
+    }
+    child = {
+        "file_id": "gemini-note",
+        "name": "2026/09/23 Notes by Gemini",
+        "mime_type": "application/vnd.google-apps.document",
+        "created_time": "2026-09-23T09:00:00Z",
+        "modified_time": "2026-09-23T09:00:00Z",
+        "source_ref": "document:" + "f" * 32,
+        "open_url": "https://drive.google.com/open?id=gemini-note",
+    }
+    agenda = {
+        **child,
+        "file_id": "agenda-file",
+        "name": "2026/09/23 Standup Sync Agenda",
+        "source_ref": "document:" + "e" * 32,
+        "open_url": "https://drive.google.com/open?id=agenda-file",
+    }
+    budget = {
+        **child,
+        "file_id": "budget-file",
+        "name": "2026/09/23 Budget Notes by Gemini",
+        "source_ref": "document:" + "d" * 32,
+        "open_url": "https://drive.google.com/open?id=budget-file",
+    }
+
+    async def find(**kwargs):
+        return {
+            "matches": (
+                [folder]
+                if kwargs.get("file_kind") == "folder"
+                else [agenda]
+                if kwargs.get("recent")
+                else []
+            ),
+            "truncated": False,
+        }
+
+    reader = SimpleNamespace(
+        find=AsyncMock(side_effect=find),
+        find_compilation_folder_children=AsyncMock(
+            return_value={"matches": [child, agenda, budget], "truncated": False}
+        ),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(),
+        candidate_selector=AsyncMock(),
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message="share me all my last 30 days standup sync notes",
+        require_access=AsyncMock(),
+        timezone="UTC",
+    )
+    assert response["structured"]["status"] == "ok"
+    assert response["structured"]["owner_compile_available"] is True
+    assert child["name"] in response["response"]
+    assert agenda["name"] not in response["response"]
+    assert budget["name"] not in response["response"]
+    assert "excluded 2 dated files" in response["response"]
+    assert response["structured"]["truncated"] is True
+    assert response["structured"]["sources"][0]["source_ref"] == child["source_ref"]
+    reader.find_compilation_folder_children.assert_awaited_once_with(folder_ids=["meeting-folder"])
+
+
+async def test_connection_question_does_not_enter_owner_compilation_listing(monkeypatch):
+    parser = Mock(wraps=parse_long_range_listing)
+    monkeypatch.setattr(drive_chat_service, "parse_long_range_listing", parser)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(side_effect=RuntimeError("stop after owner gate")),
+    )
+    outcome = await chat.run_live_query(
+        user_id="owner",
+        consent_token="",
+        query="share me all my last 30 days standup sync notes",
+        require_access=AsyncMock(),
+        require_live=True,
+    )
+    parser.assert_not_called()
+    assert (outcome.get("selection") or {}).get("stage") != "owner_title_date_listing"
+
+
+async def test_exact_title_retrieval_precedes_the_broad_candidate_cap():
+    title = "Explain For Product"
+    reader, calls = reader_with(
+        {
+            ("search_files", "name = 'Explain For Product'"): [file("target", title)],
+            ("search_files", TERM.format("product")): [
+                file(f"noise-{i}", f"Other {i}") for i in range(25)
+            ],
+        }
+    )
+    found = await reader.find(query=["product"], exact_title=title)
+    assert [item["file_id"] for item in found["matches"]] == ["target"]
+    assert found["truncated"] is False
+    assert len(calls) == 1 and "fullText" not in calls[0][1]
+
+
+async def test_exact_name_pagination_keeps_duplicate_names_and_dedupes_only_ids():
+    query = "name = 'Same.pdf'"
+    reader, calls = reader_with(
+        {
+            ("search_files", query): [
+                [],
+                [file("first", "Same.pdf")],
+                [file("first", "Same.pdf"), file("second", "Same.pdf")],
+            ]
+        }
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert [item["file_id"] for item in found["matches"]] == ["first", "second"]
+    assert found["truncated"] is False and len(calls) == 3
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+async def test_exactly_full_terminal_page_is_complete_unless_provider_says_otherwise(incomplete):
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [file(f"f{i}", "Same.pdf") for i in range(25)],
+            "incompleteSearch": incomplete,
+        },
+        False,
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert found["truncated"] is incomplete
+    assert found["incomplete_search"] is incomplete
+    assert found["continuation"] is None
+
+
+async def test_bounded_search_retains_the_exact_query_cursor():
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(
+        False,
+        {
+            "files": [file(f"f{i}", "Same.pdf") for i in range(25)],
+            "nextPageToken": "next",
+        },
+        False,
+    )
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert found["truncated"] is True
+    assert found["continuation"] == {
+        "tool_name": "search_files",
+        "arguments": {
+            "query": "name = 'Same.pdf'",
+            "pageToken": "next",
+        },
+    }
+
+
+async def test_pagination_cycle_cannot_hide_an_incomplete_exact_search():
+    reader, _ = reader_with({})
+    reader.mcp.read_tool.side_effect = [
+        ExternalMcpToolResult(False, {"files": [], "nextPageToken": token}, False)
+        for token in ["a", "b", "a"]
+    ]
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        await reader.find(query=[], exact_title="Same.pdf")
+
+
+async def test_exact_title_missing_from_user_corpus_is_found_in_member_drive():
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": [{"id": "team", "name": "Team"}],
+            },
+            False,
+        )
+    )
+    calls = []
+
+    async def search(*, arguments, **kwargs):
+        calls.append(arguments)
+        assert arguments["query"] == "name = '  Explain For Product  '"
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [file("target", "  Explain For Product  ")]
+                if arguments.get("driveId") == "team"
+                else [],
+            },
+            False,
+        )
+
+    reader.mcp.read_tool.side_effect = search
+    found = await reader.find(query=[], exact_title="  Explain For Product  ")
+    assert [item["file_id"] for item in found["matches"]] == ["target"]
+    assert found["truncated"] is False
+    assert [call.get("driveId") for call in calls] == [None, "team"]
+
+
+async def test_shared_drive_query_dedupes_identity_but_preserves_same_name_ambiguity():
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": [{"id": "team", "name": "Team"}],
+            },
+            False,
+        )
+    )
+
+    async def search(*, arguments, **kwargs):
+        files = [file("one", "Same.pdf")]
+        if arguments.get("driveId"):
+            files.append(file("two", "Same.pdf"))
+        return ExternalMcpToolResult(False, {"files": files}, False)
+
+    reader.mcp.read_tool.side_effect = search
+    found = await reader.find(query=[], exact_title="Same.pdf")
+    assert [item["file_id"] for item in found["matches"]] == ["one", "two"]
+    assert found["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    "drives,next_token", [([], "next-inventory"), ([{"id": f"team-{i}"} for i in range(25)], None)]
+)
+async def test_unfinished_shared_drive_coverage_is_incomplete_even_with_zero_matches(
+    drives, next_token
+):
+    reader, _ = reader_with({})
+    reader._shared_drive_inventory = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {
+                "drives": drives,
+                "nextPageToken": next_token,
+            },
+            False,
+        )
+    )
+    reader.mcp.read_tool.side_effect = None
+    reader.mcp.read_tool.return_value = ExternalMcpToolResult(False, {"files": []}, False)
+    found = await reader.find(query=[], exact_title="Only in another drive")
+    assert found["matches"] == [] and found["truncated"] is True
+    assert found["continuation"] is not None
+    # The inventory and file pages share the original six-page budget.
+    assert reader.mcp.read_tool.await_count + reader._shared_drive_inventory.await_count <= 6
+
+
+async def test_inventory_unavailable_preserves_initial_matches_as_incomplete():
+    reader, _ = reader_with({("search_files", "name = 'Plan'"): [file("one", "Plan")]})
+    reader._shared_drive_inventory = AsyncMock(side_effect=DriveReadError("provider_unavailable"))
+    found = await reader.find(query=[], exact_title="Plan")
+    assert [item["file_id"] for item in found["matches"]] == ["one"]
+    assert found["truncated"] is True and found["continuation"]["tool_name"] == "list_shared_drives"
+
+
+def _semantic_predicate(identity, value, *, kind="content", match="token", negated=False):
+    return {
+        "id": identity,
+        "kind": kind,
+        "value": value,
+        "match": match,
+        "negated": negated,
+        "discovery_terms": [],
+    }
+
+
+def _semantic_expression(*clauses, basis="title_created_modified"):
+    return {
+        "version": 1,
+        "status": "ready",
+        "clauses": [{"predicates": list(clause)} for clause in clauses],
+        "metadata_listing": not clauses,
+        "date_basis": basis,
+        "clarification": None,
+    }
+
+
+def test_semantic_discovery_preserves_boolean_meaning_and_negative_verification():
+    from hushh_mcp.services.drive_request_semantic_plan import (
+        SemanticDrivePlan,
+        compile_semantic_queries,
+        semantic_plan_digest,
+    )
+
+    raw = _semantic_expression(
+        [
+            _semantic_predicate("person", "Arbitrary Unseenname", kind="entity"),
+            _semantic_predicate("topic", "acquisition"),
+            _semantic_predicate("excluded", "obsolete", negated=True),
+        ],
+        [_semantic_predicate("exact", "O'Brien\\plan.pdf", kind="title", match="exact")],
+    )
+    plan = SemanticDrivePlan.model_validate(raw)
+    query = compile_semantic_queries(plan, file_kind="document")[0]["arguments"]["query"]
+    assert "name contains 'Arbitrary'" in query and "fullText contains 'Unseenname'" in query
+    assert "acquisition" not in query  # Semantic meaning is checked against source contents.
+    assert plan.clauses[0].predicates[1].value == "acquisition"
+    assert " or (name = 'O\\'Brien\\\\plan.pdf')" in query
+    # A provider index cannot establish semantic absence. Do not filter out
+    # possible matches with a guessed NOT query, nor lose the real constraint.
+    assert "obsolete" not in query
+    assert plan.clauses[0].predicates[2].negated is True
+    assert semantic_plan_digest(plan) == semantic_plan_digest(dict(reversed(list(raw.items()))))
+    changed = plan.model_copy(deep=True)
+    changed.clauses[0].predicates[2].negated = False
+    assert semantic_plan_digest(changed) != semantic_plan_digest(plan)
+    assert "text/plain" in query  # Reuse the full existing request document MIME family.
+
+
+@pytest.mark.parametrize("basis", ["title_created_modified", "content"])
+def test_semantic_content_or_title_dates_never_become_file_timestamp_filters(basis):
+    from hushh_mcp.services.drive_request_semantic_plan import compile_semantic_queries
+
+    plan = _semantic_expression([_semantic_predicate("name", "Any Person")], basis=basis)
+    arguments = compile_semantic_queries(
+        plan, period_start="2026-09-02", period_end="2026-10-02", timezone="Asia/Kolkata"
+    )[0]["arguments"]
+    assert "createdTime" not in arguments["query"]
+    assert "modifiedTime" not in arguments["query"]
+    assert "orderBy" not in arguments  # Native full-text relevance order is preserved.
+
+
+@pytest.mark.parametrize("basis,field", [("created", "createdTime"), ("modified", "modifiedTime")])
+def test_semantic_explicit_metadata_dates_keep_inclusive_local_calendar_days(basis, field):
+    from hushh_mcp.services.drive_request_semantic_plan import compile_semantic_queries
+
+    plan = _semantic_expression(
+        [_semantic_predicate("title", "Plan.pdf", kind="title")], basis=basis
+    )
+    arguments = compile_semantic_queries(
+        plan, period_start="2026-09-02", period_end="2026-10-02", timezone="Asia/Kolkata"
+    )[0]["arguments"]
+    assert f"{field} >= '2026-09-01T18:30:00Z'" in arguments["query"]
+    assert f"{field} < '2026-10-02T18:30:00Z'" in arguments["query"]
+    assert arguments["orderBy"] == f"{field} desc"
+
+
+def test_semantic_ownership_never_becomes_full_text_or_a_guessed_account():
+    from hushh_mcp.services.drive_request_semantic_plan import (
+        SemanticPlanInputRequired,
+        compile_semantic_queries,
+    )
+
+    owner = _semantic_expression([_semantic_predicate("account", "A Display Name", kind="owner")])
+    with pytest.raises(SemanticPlanInputRequired, match="unresolved_identity"):
+        compile_semantic_queries(owner)
+    query = compile_semantic_queries(
+        owner, resolved_identities={"account": "verified@example.invalid"}
+    )[0]["arguments"]["query"]
+    assert "'verified@example.invalid' in owners" in query
+    assert "fullText" not in query and "Display Name" not in query
+    shared = _semantic_expression(
+        [_semantic_predicate("sharer", "A Display Name", kind="shared_by")]
+    )
+    query = compile_semantic_queries(
+        shared, resolved_identities={"sharer": "verified@example.invalid"}
+    )[0]["arguments"]["query"]
+    assert "sharedWithMe = true" in query
+    assert "owners" not in query and "writers" not in query and "fullText" not in query
+
+
+@pytest.mark.parametrize(
+    "mutation", ["boolean_version", "duplicate_id", "negative_only", "unknown_field"]
+)
+def test_semantic_plan_rejects_ambiguous_or_unversioned_contracts(mutation):
+    from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+
+    raw = _semantic_expression([_semantic_predicate("subject", "new unseen topic")])
+    if mutation == "boolean_version":
+        raw["version"] = True
+    elif mutation == "duplicate_id":
+        raw["clauses"].append(raw["clauses"][0])
+    elif mutation == "negative_only":
+        raw["clauses"][0]["predicates"][0]["negated"] = True
+    else:
+        raw["confirmed"] = True
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(raw)
+
+
+def test_semantic_planner_schema_is_accepted_by_the_actual_google_sdk_converter():
+    # The real managed call rejected numeric Literal enums before reaching
+    # Vertex. Exercise the SDK conversion, not just Pydantic's JSON schema.
+    from google.genai import _transformers, types
+
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    assert isinstance(_transformers.t_schema(None, SemanticLiveSearchModelPlan), types.Schema)
+
+
+def test_semantic_provider_grammar_simplification_preserves_strict_host_limits():
+    from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    provider_schema = SemanticLiveSearchModelPlan.model_json_schema()
+    predicates = provider_schema["$defs"]["SemanticClause"]["properties"]["predicates"]
+    assert "maxItems" not in predicates  # Vertex's bounded-array grammar caused real HTTP 400.
+    too_many = _semantic_expression(
+        *([_semantic_predicate(f"subject_{index}", "arbitrary topic")] for index in range(7))
+    )
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(too_many)
+    too_long = _semantic_expression([_semantic_predicate("subject", "a" * 161)])
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(too_long)
+
+
+async def test_semantic_planner_retains_expression_and_never_falls_back_to_keyword_repair(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_suggestion_service as suggestions
+    from hushh_mcp.services.drive_suggestion_service import plan_semantic_live_search
+
+    expression = _semantic_expression([_semantic_predicate("person", "Unseen Name", kind="entity")])
+    response = {
+        "terms": [],
+        "mode": "find",
+        "file_kind": "any",
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "other",
+        "discovery_clues": ["Unseen Name"],
+        "required_entities": ["Unseen Name"],
+        "expected_document_anatomy": "Substantive discussion of the requested person.",
+        "semantic_query": expression,
+    }
+    planner = AsyncMock(return_value=response)
+    plan = await plan_semantic_live_search(planner, prompt="synthetic request", user_id="synthetic")
+    assert plan.semantic_query.model_dump(mode="json") == expression
+    assert plan.file_kind == "any" and plan.terms == []
+    assert LiveSearchPlan(mode="find", terms=["legacy"]).semantic_query is None
+    planner = AsyncMock(return_value={**response, "semantic_query": {"version": 999}})
+    with pytest.raises(ValidationError):
+        await plan_semantic_live_search(planner, prompt="synthetic request", user_id="synthetic")
+    assert planner.await_count == 2
+
+    # Exercise the production interpreter and real manifest selection. A good
+    # injected plan alone would miss semantic requests using the legacy prompt.
+    built = Mock(return_value=object())
+    legacy_response = {key: value for key, value in response.items() if key != "semantic_query"}
+    legacy_response["terms"] = ["Unseen Name"]
+    run = AsyncMock(side_effect=[response, legacy_response])
+    monkeypatch.setattr(suggestions, "build_single_turn_agent", built)
+    monkeypatch.setattr(suggestions, "run_single_turn", run)
+    original = json.dumps(
+        {
+            "document_request": {
+                "purpose": "Unseen Name and either contracts or tax filings",
+                "periodStart": "2026-09-02",
+                "periodEnd": "2026-10-02",
+            }
+        }
+    )
+    actual = await plan_semantic_live_search(
+        suggestions.interpret_semantic_live_search, prompt=original, user_id="synthetic"
+    )
+    assert actual.semantic_query == plan.semantic_query
+    await suggestions.plan_live_search(
+        suggestions.interpret_live_search, prompt=original, user_id="synthetic"
+    )
+    semantic_call, legacy_call = built.call_args_list
+    assert semantic_call.args[0].id == "agent_documents_request_search"
+    assert semantic_call.kwargs["output_schema"] is suggestions.SemanticLiveSearchModelPlan
+    assert legacy_call.args[0].id == "agent_documents_live_search"
+    assert legacy_call.kwargs["output_schema"] is suggestions.LiveSearchModelPlan
+    assert [call.kwargs["prompt_parts"] for call in run.await_args_list] == [original, original]
+
+
+async def test_semantic_pending_page_resizes_at_the_same_cursor_without_dropping_candidates(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_owner_search_service as search
+
+    monkeypatch.setattr(search, "MAX_CHECKPOINT_BYTES", 4500)
+    calls = []
+
+    async def provider(**kwargs):
+        args = kwargs["arguments"]
+        calls.append((args["pageSize"], args.get("pageToken")))
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    {
+                        "id": f"synthetic_{position}",
+                        "title": "Synthetic " + "a" * 990,
+                        "mimeType": "application/vnd.google-apps.document",
+                        "version": "7",
+                        "capabilities": {"canShare": True},
+                    }
+                    for position in range(args["pageSize"])
+                ],
+                "nextPageToken": "next_from_smaller_page",
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    service = object.__new__(search.DriveOwnerSearchService)
+    service.transport = SimpleNamespace(read_owner_search_page=provider)
+    checkpoint = {
+        "semantic_plan": _semantic_expression(
+            [_semantic_predicate("subject", "topic")], basis="content"
+        ),
+        "semantic_seen": [],
+        "semantic_pending": [],
+        "phase": "user",
+        "arguments": {"query": "fullText contains 'topic'"},
+        "page_token": "original_cursor",
+        "seen_tokens": [],
+        "request_origin_id": "synthetic_request",
+        "request_explicit_dates": True,
+        "request_file_kind": "any",
+        "authority_mode": "trusted_auto",
+        "coverage_counts": {},
+    }
+    job = {"user_id": "synthetic_owner", "checkpoint": checkpoint}
+    queued, files, incomplete, done = await service._page(job)
+    assert calls == [(25, "original_cursor"), (5, "original_cursor"), (1, "original_cursor")]
+    assert len(queued["semantic_pending"]) == 1 and files == []
+    assert queued["page_token"] == "next_from_smaller_page"
+    assert queued["coverage_counts"]["providerRowsScanned"] == 31
+    assert queued["coverage_counts"]["resizedProviderPages"] == 2
+    assert not incomplete and not done
+    assert checkpoint["page_token"] == "original_cursor" and checkpoint["semantic_seen"] == []
+
+
+async def test_semantic_provider_folder_is_discovery_not_a_filename_eligibility_gate():
+    from hushh_mcp.services import drive_owner_search_service as search
+
+    service = object.__new__(search.DriveOwnerSearchService)
+    checkpoint = {
+        "semantic_plan": _semantic_expression([_semantic_predicate("subject", "Any Person")]),
+        "request_file_kind": "any",
+        "authority_mode": "trusted_auto",
+        "coverage_counts": {},
+    }
+    files, incomplete = await service._request_candidates(
+        {"user_id": "synthetic_owner"},
+        checkpoint,
+        [{"id": "folder_001", "title": "Generic Folder", "mimeType": search.FOLDER_MIME}],
+        folder_scoped=False,
+        drive_id=None,
+    )
+    assert checkpoint["folder_queue"] == [{"id": "folder_001"}]
+    assert files == [] and not incomplete  # Discovery itself releases no file or grant.

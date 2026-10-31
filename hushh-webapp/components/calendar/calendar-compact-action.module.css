@@ -1,0 +1,38 @@
+.target {
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+  min-height: 44px;
+  height: auto;
+  min-width: 88px;
+  max-width: 100%;
+  gap: 6px;
+  padding: 0 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-color: color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid)) !important;
+  border-radius: 999px;
+  background-color: var(--app-card-surface-default-solid) !important;
+  box-shadow: none;
+  color: var(--app-accent) !important;
+  white-space: normal;
+  text-align: center;
+}
+
+.target:hover,
+.target:active {
+  background-color: color-mix(in srgb, var(--app-accent) 6%, var(--app-card-surface-default-solid)) !important;
+}
+
+.target:focus-visible,
+.target:focus {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .target { min-width: 78px; padding-inline: 11px; }
+}
+
+@media (max-width: 350px) {
+  .target { min-width: 72px; padding-inline: 9px; }
+}

@@ -8,8 +8,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_vault_owner_token
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.information_chat_service import InformationChatService
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class InformationChatRequest(BaseModel):
 @router.post("/information/chat")
 async def information_chat(
     request: InformationChatRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if not request.message:
         raise HTTPException(status_code=422, detail="message is required")
@@ -42,6 +43,9 @@ async def information_chat(
             conversation_id=request.conversation_id,
         )
         return result
+    except CHAT_KEY_ERRORS:
+        # Refuse with the recoverable chat-key message (app handler), not a 500.
+        raise
     except Exception:
         logger.exception("Information chat turn failed")
         raise HTTPException(status_code=500, detail="Information chat could not be processed")

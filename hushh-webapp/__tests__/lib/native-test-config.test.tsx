@@ -1,7 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { useNativeTestConfig } from "@/lib/testing/native-test";
+import {
+  shouldSkipAmbientIdentityHydrationForAutomation,
+  getNativeTestConfig,
+  getNativeUiTestVaultPassphrase,
+  useNativeTestConfig,
+} from "@/lib/testing/native-test";
 
 describe("useNativeTestConfig", () => {
   afterEach(() => {
@@ -33,4 +38,28 @@ describe("useNativeTestConfig", () => {
       expect(result.current.expectedUserId).toBe("reviewer-user");
     });
   });
+
+  it("skips ambient identity hydration only for explicit reviewer automation", () => {
+    expect(shouldSkipAmbientIdentityHydrationForAutomation()).toBe(false);
+
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+    };
+
+    expect(shouldSkipAmbientIdentityHydrationForAutomation()).toBe(true);
+  });
+  it("strips accidental credentials from explicit human reviewer configuration", () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true, autoReviewerLogin: true, reviewerAuthMode: "human_authenticated",
+      expectedUserId: "human-owner", vaultPassphrase: "synthetic-do-not-inject",
+      reviewerSessionPassphrase: "synthetic-do-not-mint",
+    };
+    expect(getNativeTestConfig()).toMatchObject({
+      reviewerAuthMode: "human_authenticated", expectedUserId: "human-owner",
+      vaultPassphrase: null, reviewerSessionPassphrase: null,
+    });
+    expect(getNativeUiTestVaultPassphrase()).toBeNull();
+  });
+
 });

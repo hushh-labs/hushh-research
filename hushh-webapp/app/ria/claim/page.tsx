@@ -18,7 +18,7 @@ import {
   Loader2,
   ShieldCheck,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -161,7 +161,7 @@ function CodeCells({
 export default function RiaClaimPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
+  const { user, userId, phoneNumber: accountPhone, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const { refresh: refreshPersonaState } = usePersonaState();
   // Arrives pre-filled when the sign-up phone screen recognised this number.
@@ -284,18 +284,18 @@ export default function RiaClaimPage() {
       // Clear the stale pre-claim persona/onboarding-status caches, then force a
       // fresh read — otherwise "Open your profile" can bounce the just-claimed
       // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
-      if (user) {
-        CacheSyncService.onPersonaStateChanged(user.uid);
+      if (userId) {
+        CacheSyncService.onPersonaStateChanged(userId);
         // Claiming completes RIA setup just as the wizard does, so the Setup
         // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
         // the stored set, so pass the union.
         try {
-          const current = await PreVaultUserStateService.bootstrapState(user.uid, {
+          const current = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
           if (!current.setupCapabilityIds.includes("ria")) {
             await PreVaultUserStateService.syncSetupCapabilities(
-              user.uid,
+              userId,
               Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
             );
           }
@@ -310,7 +310,7 @@ export default function RiaClaimPage() {
       }
       await refreshPersonaState({ force: true });
     },
-    [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
+    [firmCrd, phoneDigits, getIdToken, refreshPersonaState, userId],
   );
 
   // The regulator facts shown on the done screen also belong to the person's
@@ -321,17 +321,17 @@ export default function RiaClaimPage() {
   const factsPersistedRef = useRef(false);
   const persistFactsToPkm = useCallback(() => {
     const facts = completeResult?.facts;
-    if (factsPersistedRef.current || !facts || !user) return;
+    if (factsPersistedRef.current || !facts || !userId) return;
     factsPersistedRef.current = true;
     void RiaService.saveRegulatorProfile({
-      userId: user.uid,
+      userId,
       vaultKey,
       vaultOwnerToken,
       facts,
     }).catch(() => {
       // Best-effort by design; the claim itself is already recorded.
     });
-  }, [completeResult, user, vaultKey, vaultOwnerToken]);
+  }, [completeResult, userId, vaultKey, vaultOwnerToken]);
 
   /** Route a verify result onward: complete it, or ask which adviser. */
   const settleVerifyResult = useCallback(
@@ -486,6 +486,14 @@ export default function RiaClaimPage() {
     setError(null);
   }, []);
 
+  const handleBack = useCallback(() => {
+    if (step === "found") {
+      resetToPhone();
+      return;
+    }
+    setStep("found");
+  }, [resetToPhone, step]);
+
   const outcome = lookup?.outcome ?? null;
   const candidates: RiaClaimCandidate[] = lookup?.candidates ?? [];
   const adviserCount = lookup?.current_adviser_count ?? null;
@@ -543,15 +551,15 @@ export default function RiaClaimPage() {
         dataState={nativeDataState}
       />
       <FullscreenFlowShell width="reading" className="px-0">
-        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--app-scroll-bottom-pad)] pt-4">
+        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--ria-onboarding-cta-bottom-clearance,var(--app-scroll-bottom-pad))] pt-4">
           {step !== "phone" && step !== "done" ? (
             <button
               type="button"
-              onClick={() => (step === "found" ? resetToPhone() : setStep("found"))}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 transition-transform active:scale-95"
+              onClick={handleBack}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-muted/40 hover:text-foreground"
               aria-label="Back"
             >
-              <ChevronLeft className="h-5 w-5" />
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             </button>
           ) : null}
 
@@ -568,7 +576,7 @@ export default function RiaClaimPage() {
           </header>
 
           {error ? (
-            <p className="text-[14px] text-red-600 dark:text-red-400" role="alert">
+            <p className="text-[14px] text-[color:var(--ria-danger-text)]" role="alert">
               {error}
             </p>
           ) : null}
@@ -847,14 +855,14 @@ export default function RiaClaimPage() {
                 className={`rounded-[18px] border p-5 ${
                   verified
                     ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)]"
-                    : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)]"
+                    : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08]"
                 }`}
               >
                 <div className="flex items-start gap-3">
                   {verified ? (
                     <CheckCircle2 className="h-6 w-6 shrink-0 text-[#12A150]" />
                   ) : (
-                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold,#C8923A)]" />
+                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold)]" />
                   )}
                   <div className="min-w-0">
                     <p className="text-[16px] font-semibold">
@@ -877,7 +885,7 @@ export default function RiaClaimPage() {
                   data-testid="ria-claim-dossier-line"
                 >
                   Your dossier is on its way to{" "}
-                  {completeResult.dossier.email_masked || "your email"}
+                  {completeResult.dossier.email_masked || "your mail"}
                 </p>
               ) : null}
               {completeResult.facts ? (

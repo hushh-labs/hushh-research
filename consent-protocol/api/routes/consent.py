@@ -23,7 +23,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes.consent_commerce_support import (
+    commit_refreshed_export,
+    is_developer_information_requester,
+    paid_owner_approval,
+)
 from api.utils.firebase_auth import verify_firebase_bearer
+from db.db_client import get_db
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
     get_connector_crypto_profile,
@@ -43,11 +49,23 @@ from hushh_mcp.consent.pkm_scope_policy import (
 )
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
-from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
+from hushh_mcp.consent.token import (
+    issue_token,
+    revoke_token,
+    validate_owner_renewal_proof,
+    validate_token_with_db,
+)
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
-from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_db import ConsentDBService, VaultOwnerRenewalRejected
+from hushh_mcp.services.consent_lifecycle_service import (
+    ConsentLifecycleError,
+    ConsentLifecycleService,
+    identifier_filter_kwargs,
+    owned_consent_identifiers,
+)
+from hushh_mcp.services.environment_enrollment import stamp_environment_enrollment
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -122,26 +140,11 @@ _CONSENT_EXPORT_MAX_RAW_BYTES = max(
 
 
 async def _owned_consent_identifiers(user_id: str) -> list[str]:
-    try:
-        identifiers = await ActorIdentityService().list_account_identifiers(user_id)
-    except Exception as exc:
-        logger.debug(
-            "consent.identifier_expansion_skipped user_id=%s error=%s",
-            user_id,
-            exc,
-        )
-        identifiers = []
-    return identifiers or [user_id]
+    return await owned_consent_identifiers(user_id)
 
 
 def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
-    normalized_user_id = str(user_id or "").strip()
-    normalized_identifiers = [
-        str(item or "").strip() for item in identifiers if str(item or "").strip()
-    ]
-    if set(normalized_identifiers) <= {normalized_user_id}:
-        return {}
-    return {"user_ids": normalized_identifiers}
+    return identifier_filter_kwargs(user_id, identifiers)
 
 
 def _clean_text(value: object | None) -> str:
@@ -518,6 +521,8 @@ class ConsentApprovalPayload(BaseModel):
     # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
     model_config = ConfigDict(extra="forbid")
 
+    modelProcessingAllowed: bool = Field(default=False, strict=True)
+
     version: int = Field(default=1, ge=1, le=2)
 
     userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
@@ -642,6 +647,9 @@ async def approve_consent(
     if token_data["user_id"] != userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
+    from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_owner_decision
+
+    value_epoch = await capture_value_epoch(userId)
     logger.info("consent.approve_requested")
     logger.info("consent.approve_export_attached=%s", bool(encryptedData))
 
@@ -674,30 +682,36 @@ async def approve_consent(
         logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
         raise HTTPException(status_code=400, detail="Invalid consent scope")
 
-    # Optional metadata on pending request (used for expiry hints)
-    metadata = pending_request.get("metadata", {})
+    # Requester metadata never grants model-processing permission.
+    from hushh_mcp.consent.model_processing import owner_model_processing
+
+    raw_metadata = pending_request.get("metadata")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    metadata["model_processing"] = owner_model_processing(_body.modelProcessingAllowed)
     developer_label = (
         metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
     ) or pending_request["developer"]
     connector_public_key = (
         metadata.get("connector_public_key") if isinstance(metadata, dict) else None
     )
-    is_developer_request = bool(
-        connector_public_key
-        or (
-            isinstance(metadata, dict)
-            and (
-                metadata.get("request_source") == "developer_api_v1"
-                or metadata.get("requester_actor_type") == "developer"
-            )
-        )
-    )
+    is_developer_request = is_developer_information_requester(metadata, connector_public_key)
     is_developer_information_request = is_developer_request and requested_scope.startswith("attr.")
     expiry_hours = _resolve_approval_expiry_hours(
         metadata=metadata if isinstance(metadata, dict) else None,
         requested_duration_hours=requested_duration_hours,
         is_developer_request=is_developer_request,
     )
+
+    paid_approval = await paid_owner_approval(
+        subject_user_id,
+        requestId,
+        requested_scope,
+        metadata,
+        expiry_hours,
+        model_processing_allowed=_body.modelProcessingAllowed,
+    )
+    if paid_approval is not None:
+        return paid_approval
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -915,15 +929,29 @@ async def approve_consent(
     # All validation passed - now safe to issue the token.  Scope is passed as
     # the original string (not the enum) so that 'attr.financial.*' is preserved
     # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
-    token = issue_token(
-        user_id=userId,
-        # Keep agent_id aligned with consent_audit so DB revocation checks are
-        # deterministic across Cloud Run instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-        expires_at_ms=exact_expires_at_ms,
-    )
+    try:
+        token = issue_token(
+            user_id=userId,
+            # Keep agent_id aligned with consent_audit so DB revocation checks are
+            # deterministic across Cloud Run instances.
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            expires_in_ms=expiry_hours * 60 * 60 * 1000,
+            expires_at_ms=exact_expires_at_ms,
+        )
+    except ValueError as exc:
+        # A stale or structurally invalid catalog entry must not turn approval
+        # into an opaque server error. Discovery filters these entries, but the
+        # mutation boundary remains defensive for old pending requests and
+        # concurrent catalog changes.
+        logger.warning("consent.scope_not_requestable_on_approval: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "SCOPE_NOT_REQUESTABLE",
+                "message": "This information is no longer requestable. Refresh and try again.",
+            },
+        ) from exc
 
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
@@ -1017,6 +1045,8 @@ async def approve_consent(
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
     granted_event_metadata["approved_duration_hours"] = expiry_hours
+    granted_event_metadata["decision_owner_uid"] = userId
+    granted_event_metadata["owner_decision"] = "approve"
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
     if subject_user_id != userId:
@@ -1041,6 +1071,9 @@ async def approve_consent(
         metadata=granted_event_metadata,
     )
     logger.info("consent.granted_event_saved")
+    await record_owner_decision(
+        user_id=userId, request_id=requestId, generation=value_epoch, decision="approve"
+    )
 
     superseded_scopes: list[str] = []
     superseded_tokens = await service.get_superseded_active_tokens(
@@ -1082,6 +1115,99 @@ async def approve_consent(
             requested_scope,
             superseded_scopes,
         )
+
+    # Notify requester via feed and push notification if this was a person-to-person request
+    bundle_id = str(metadata.get("bundle_id") or "").strip() if isinstance(metadata, dict) else ""
+    requester_user_id = None
+    if bundle_id:
+        try:
+            bundle_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT requester_user_id FROM one_information_request_bundles WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
+                    {"bundle": bundle_id},
+                )
+                .data
+            )
+            if bundle_rows:
+                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+
+    if (
+        not requester_user_id
+        and isinstance(metadata, dict)
+        and metadata.get("requester_actor_type") == "person"
+    ):
+        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
+        if requester_entity_id:
+            try:
+                requester_rows = (
+                    get_db()
+                    .execute_raw(
+                        "SELECT user_id FROM actor_profiles WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
+                        {"ref": requester_entity_id},
+                    )
+                    .data
+                )
+                if requester_rows:
+                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
+
+    if requester_user_id:
+        try:
+            subject_profile_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT public_person_ref, display_name, photo_url FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
+                    {"subject_user_id": userId},
+                )
+                .data
+            )
+            subject_row = subject_profile_rows[0] if subject_profile_rows else {}
+            subject_display_name = (
+                str(subject_row.get("display_name") or "Someone").strip() or "Someone"
+            )
+            subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
+            subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+            scope_desc = get_dynamic_scope_description(requested_scope) or requested_scope
+
+            from hushh_mcp.services.feed_service import FeedService
+            from hushh_mcp.services.push_notifications import send_user_data_push
+
+            FeedService().create_event(
+                user_id=requester_user_id,
+                source_domain="consent",
+                event_type="consent_granted",
+                actor_label=subject_display_name,
+                metadata={
+                    "person_ref": subject_person_ref,
+                    "display_name": subject_display_name,
+                    "counterpart_photo_url": subject_photo_url,
+                    "scope": requested_scope,
+                    "scope_description": scope_desc,
+                    "request_id": requestId,
+                    "bundle_id": bundle_id,
+                },
+                source_row_id=requestId,
+            )
+
+            if subject_person_ref:
+                send_user_data_push(
+                    user_id=requester_user_id,
+                    notification_type="consent_granted",
+                    title=f"{subject_display_name} shared information with you",
+                    body=f"Granted access to {scope_desc}. Tap to view.",
+                    deep_link=f"/people/{subject_person_ref}?section=shared",
+                    notification_tag=f"consent:granted:{requestId}",
+                    notification_category="consent_granted",
+                    data={"person_ref": subject_person_ref, "request_id": requestId},
+                    show_alert=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
+
     return {
         "status": "approved",
         "message": f"Consent granted to {developer_label}",
@@ -1110,35 +1236,13 @@ async def deny_consent(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     logger.info("consent.deny_requested")
-
-    # Get pending request from database
-    service = ConsentDBService()
-    owned_identifiers = await _owned_consent_identifiers(userId)
-    pending_request = await service.get_pending_by_request_id(
-        userId,
-        requestId,
-        **_identifier_filter_kwargs(userId, owned_identifiers),
-    )
-
-    if not pending_request:
-        raise HTTPException(status_code=404, detail="Consent request not found")
-    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
-
-    metadata = pending_request.get("metadata", {})
-    developer_label = (
-        metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
-    ) or pending_request["developer"]
-
-    # Log CONSENT_DENIED to database
-    await service.insert_event(
-        user_id=subject_user_id,
-        agent_id=pending_request["developer"],
-        scope=pending_request["scope"],
-        action="CONSENT_DENIED",
-        request_id=requestId,
-    )
-    logger.info("consent.denied_event_saved")
-    return {"status": "denied", "message": f"Consent denied to {developer_label}"}
+    try:
+        return await ConsentLifecycleService(
+            consent_db=ConsentDBService(), identifiers_resolver=_owned_consent_identifiers
+        ).deny_pending_request(userId, requestId)
+    except ConsentLifecycleError as exc:
+        detail = "Consent request not found" if exc.status_code == 404 else exc.message
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 @router.post("/cancel")
@@ -1200,6 +1304,21 @@ async def get_consent_center_summary(
     return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 
+@router.get("/center/source-fence")
+async def get_consent_source_fence(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        fence = await ConsentCenterService(require_complete=True).source_fence(firebase_uid)
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Consent source inventory unavailable"
+        ) from None
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        {"user_id": firebase_uid, "fence": fence}, headers={"Cache-Control": "private, no-store"}
+    )
+
+
 @router.get("/center/list")
 async def get_consent_center_list(
     actor: str | None = Query(default=None, max_length=50),
@@ -1209,9 +1328,11 @@ async def get_consent_center_list(
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
+    request_view: str = Query(default="received", pattern="^(received|sent)$"),
+    source_read: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = ConsentCenterService()
+    service = ConsentCenterService(require_complete=True) if source_read else ConsentCenterService()
     return await service.list_center(
         firebase_uid,
         actor=actor,
@@ -1221,6 +1342,7 @@ async def get_consent_center_list(
         top=top,
         page=page,
         limit=limit,
+        request_view=request_view,
     )
 
 
@@ -1302,6 +1424,9 @@ async def _issue_or_reuse_vault_owner_token(
 ) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     service = ConsentDBService()
+    if agent_id == "self" or agent_id.startswith("device:"):
+        # Unlocking here is what makes a person discoverable in THIS environment.
+        await stamp_environment_enrollment(user_id)
     active_tokens = await service.get_active_internal_tokens(
         user_id,
         agent_id=agent_id,
@@ -1448,14 +1573,13 @@ async def issue_vault_owner_token(request: Request):
             raise HTTPException(
                 status_code=401, detail="Missing Authorization header with Firebase ID token"
             )
-        # Verify request body
-        body = await request.json()
-        user_id = body.get("userId")
+        from api.utils.vault_owner_request import read_owner_request
 
-        if not user_id:
-            raise HTTPException(status_code=400, detail="userId is required")
+        body, user_id = await read_owner_request(request)
 
-        firebase_uid = verify_firebase_bearer(auth_header)
+        firebase_uid = await run_in_threadpool(
+            verify_firebase_bearer, auth_header, require_independent_signin=True
+        )
 
         # Ensure user is requesting token for their own vault
         if firebase_uid != user_id:
@@ -1463,7 +1587,42 @@ async def issue_vault_owner_token(request: Request):
                 status_code=403, detail="Cannot issue VAULT_OWNER token for another user"
             )
 
-        result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
+        if "renewalOfToken" in body:
+            prior_token = body["renewalOfToken"]
+            if not isinstance(prior_token, str) or not prior_token or len(prior_token) > 8192:
+                raise HTTPException(status_code=400, detail="Invalid renewalOfToken")
+            valid, _, _ = validate_owner_renewal_proof(prior_token, user_id)
+            if not valid:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_OWNER_INVALID",
+                        "message": "Vault owner renewal proof is invalid.",
+                    },
+                )
+            try:
+                result = await ConsentDBService().renew_vault_owner_token(user_id, prior_token)
+                result = {**result, "renewalValidated": True}
+            except VaultOwnerRenewalRejected as exc:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_OWNER_INVALID",
+                        "message": "Vault owner session was revoked. Unlock again to continue.",
+                    },
+                ) from exc
+            except Exception as exc:
+                logger.warning("vault_owner.renewal_unavailable")
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
+                        "message": "Vault session renewal is temporarily unavailable.",
+                    },
+                    headers={"Cache-Control": "no-store", "Retry-After": "30"},
+                ) from exc
+        else:
+            result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
         logger.info("vault_owner.token_issued_or_reused")
         return result
 
@@ -1483,16 +1642,14 @@ async def revoke_consent(
     User revokes an active consent token.
 
     SECURITY: Requires VAULT_OWNER token. User can only revoke their own consent.
-
     This removes access for the app that was previously granted consent.
     For VAULT_OWNER tokens, this effectively locks the vault.
     """
     try:
-        from hushh_mcp.consent.token import revoke_token
-
         body = await request.json()
         userId = body.get("userId")
         scope = body.get("scope")
+        request_id_filter = str(body.get("requestId") or "").strip() or None
 
         if not userId or not scope:
             raise HTTPException(status_code=400, detail="userId and scope are required")
@@ -1502,71 +1659,22 @@ async def revoke_consent(
             raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
         logger.info("consent.revoke_requested scope=%s", scope)
-
-        # Get the active token for this scope from the correct ledger.
-        service = ConsentDBService()
-        owned_identifiers = await _owned_consent_identifiers(userId)
-        active_tokens = await service.get_active_tokens(
-            userId,
-            **_identifier_filter_kwargs(userId, owned_identifiers),
-        )
-        internal_tokens = await service.get_active_internal_tokens(userId)
-        all_active_tokens = [*internal_tokens, *active_tokens]
-        logger.info("consent.revoke_active_token_count=%s", len(all_active_tokens))
-
-        token_to_revoke = None
-        for token in all_active_tokens:
-            if token.get("scope") == scope:
-                token_to_revoke = token
-                break
-
-        if not token_to_revoke:
-            raise HTTPException(
-                status_code=404, detail="No active consent found for the requested scope"
+        try:
+            result = await ConsentLifecycleService(
+                consent_db=ConsentDBService(), identifiers_resolver=_owned_consent_identifiers
+            ).revoke_active_grant(
+                userId,
+                scope=scope,
+                request_id=request_id_filter,
+                export_cache=_consent_exports,
             )
-
-        # CRITICAL: Add the actual token to in-memory revocation set
-        # This ensures validate_token() will reject it immediately
-        original_token = token_to_revoke.get("token_id")
-        if original_token and not original_token.startswith("REVOKED_"):
-            revoke_token(original_token)
-            logger.info("🔒 Token added to in-memory revocation set")
-
-            # Also delete any associated export data
-            await service.delete_consent_export(original_token)
-            if original_token in _consent_exports:
-                del _consent_exports[original_token]
-            logger.info("🗑️ Deleted associated export data")
-
-        # Generate a NEW unique token_id for the REVOKED event
-        # (Cannot reuse original token_id due to UNIQUE constraint on consent_audit table)
-        import time
-
-        revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{scope}"
-        agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
-        request_id = token_to_revoke.get("request_id")
-
-        logger.info("consent.revoke_persist_event")
-
-        # Log REVOKED event to database (link to original request_id for trail)
-        subject_user_id = str(token_to_revoke.get("user_id") or userId).strip() or userId
-        await service.insert_event(
-            user_id=subject_user_id,
-            agent_id=agent_id,
-            scope=scope,
-            action="REVOKED",
-            token_id=revoke_token_id,
-            request_id=request_id,
-            scope_description="Vault owner session" if agent_id == "self" else None,
-        )
-        logger.info("consent.revoked_event_saved scope=%s", scope)
+        except ConsentLifecycleError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         # Return special flag for VAULT_OWNER revocation so client knows to lock vault
-        is_vault_owner = scope == "vault.owner" or scope == "VAULT_OWNER"
-
         return {
-            "status": "revoked",
-            "message": f"Consent for {scope} has been revoked",
-            "lockVault": is_vault_owner,  # Signal client to lock vault
+            "status": result["status"],
+            "message": result["message"],
+            "lockVault": result["lockVault"],  # Signal client to lock vault
         }
 
     except HTTPException:
@@ -1916,22 +2024,8 @@ async def upload_refreshed_export(
             },
         ) from exc
 
-    stored = await service.complete_claimed_consent_export_refresh(
-        user_id=request.userId,
-        claim_id=request.jobClaimId,
-        expected_export_revision=prior_revision,
-        encrypted_data=request.encryptedData,
-        iv=request.encryptedIv,
-        tag=request.encryptedTag,
-        wrapped_key_bundle=wrapped_key_bundle,
-        connector_key_id=wrapped_key_bundle.get("connector_key_id"),
-        connector_wrapping_alg=str(wrapped_key_bundle.get("wrapping_alg") or ""),
-        envelope_aad=request.exportEnvelope.aad.model_dump(mode="json"),
-        envelope_aad_sha256=request.exportEnvelope.aad_sha256,
-        ciphertext_sha256=request.exportEnvelope.ciphertext_sha256,
-        ciphertext_bytes=request.exportEnvelope.ciphertext_bytes,
-        source_content_revision=request.sourceContentRevision,
-        source_manifest_revision=request.sourceManifestRevision,
+    stored = await commit_refreshed_export(
+        service, request, prior_revision, wrapped_key_bundle, existing_export
     )
     if not stored:
         raise HTTPException(
@@ -1972,6 +2066,45 @@ async def fail_export_refresh(
             },
         )
     return {"success": True}
+
+
+@router.get("/receipts/verify")
+async def verify_consent_receipt_chain(
+    firebase_uid: str = Depends(require_firebase_auth),
+    ledger: str = Query("consent", pattern="^(consent|internal)$"),
+    expected_head_seq: int | None = Query(None, ge=0),
+    expected_head_hash: str | None = Query(None, max_length=64),
+) -> Dict[str, Any]:
+    """Verify the owner's tamper-evident audit chain, and say which key vouched.
+
+    WHY THIS ROUTE EXISTS. The chain shipped with `verify_chain` reachable from
+    nothing: no route, no worker, no script. A tamper-evident ledger nobody can
+    verify proves exactly as much as no ledger at all, and it looks healthier
+    while doing it. The Fabric sibling has had `GET /fabric/receipts/verify`
+    since it shipped; this is the same shape for the consent chain.
+
+    THE OWNER IS THE VERIFIER. The chain covers what was done to THIS person's
+    permissions, so the subject is taken from the authenticated identity and is
+    not a parameter. Nobody can ask about anybody else's ledger here.
+
+    HEAD ANCHORING. A prev_hash walk proves every surviving link and nothing about
+    links that no longer exist, so a wiped chain verifies perfectly. The client
+    pins the last head it saw and passes it back; a head that regressed or diverged
+    fails closed.
+
+    `ledger=internal` is the agent's own operations, kept as a separate sequence
+    so the head an owner pins does not advance on every turn.
+    """
+    from hushh_mcp.services.consent_audit_chain_service import (
+        get_consent_audit_chain_service,
+    )
+
+    return await get_consent_audit_chain_service().verify_chain(
+        firebase_uid,
+        expected_head_seq=expected_head_seq,
+        expected_head_hash=expected_head_hash,
+        ledger=ledger,
+    )
 
 
 # Expose _consent_exports for other modules that need it

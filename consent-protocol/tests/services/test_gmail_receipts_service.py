@@ -1,17 +1,45 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
+import hushh_mcp.services.gmail_receipts_service as gmail_receipts_service_module
+from hushh_mcp.services.gmail_receipt_cutover import GmailReceiptStorageCutoverError
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
     ReceiptCandidate,
     _parse_iso,
 )
+from tests.google_oauth_test_support import TransactionEngine
+from tests.google_oauth_test_support import configure_gmail_oauth as _configure_gmail_oauth
+
+
+@pytest.fixture(autouse=True)
+def _enable_legacy_sync_path_for_compatibility_tests(monkeypatch):
+    """Keep retained worker-path tests useful while production stays read-only."""
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: True,
+    )
+    from hushh_mcp.services import owner_placement_guard
+
+    async def shared_fixture_owner(user_id):
+        # These synthetic legacy owners explicitly use Shared. Unknown owners
+        # retain the production refusal; private-boundary cases override this seam.
+        return "shared" if user_id in {"user_123", "user-123"} else "unknown"
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_fixture_owner)
 
 
 def _candidate(**overrides):
@@ -32,108 +60,700 @@ def _candidate(**overrides):
     return base
 
 
-def test_state_token_round_trip():
+@pytest.mark.parametrize(
+    "mode", ["byoc", "hussh_pods", "pending", "unplaced", "unknown", "unreadable"]
+)
+async def test_machine_gmail_paths_refuse_private_or_unknown_owners_before_provider(
+    monkeypatch, mode
+):
+    from hushh_mcp.services import owner_placement_guard
+
     service = GmailReceiptsService()
-    state = service._build_state_token(
-        user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+    updates, provider_calls, dispatched = [], [], []
+    owner = "private-owner"
+
+    async def resolve(_owner):
+        if mode == "unreadable":
+            raise RuntimeError("unreadable")
+        return mode
+
+    async def execute(sql, params=None):
+        updates.append((sql, params or {}))
+        if "SELECT run_id, user_id" in sql:
+            return SimpleNamespace(data=[{"run_id": "private-run", "user_id": owner}])
+        if "SELECT user_id" in sql:
+            return SimpleNamespace(data=[{"user_id": owner}])
+        return SimpleNamespace(data=[])
+
+    def provider(*_a, **_k):
+        provider_calls.append(True)
+        raise AssertionError("private provider/credential access")
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "_fetch_connection_row", provider)
+    monkeypatch.setattr(service, "_refresh_access_token", provider)
+    monkeypatch.setattr(service, "_register_watch", provider)
+    monkeypatch.setattr(service, "_dispatch_sync_run", lambda **kwargs: dispatched.append(kwargs))
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row_by_email",
+        lambda **_k: {
+            "user_id": owner,
+            "status": "connected",
+            "revoked": False,
+        },
     )
-
-    payload = service._verify_state_token(
-        state=state,
-        user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+    refusal_code = (
+        "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        if mode in owner_placement_guard.PRIVATE_MODES
+        else "AGENT_HOSTING_UNAVAILABLE"
     )
-
-    assert payload["uid"] == "user_123"
-    assert payload["redirect_uri"] == "http://localhost:3000/profile/gmail/oauth/return"
-
-
-def test_state_token_invalid_signature_rejected():
-    service = GmailReceiptsService()
-    state = service._build_state_token(
-        user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+    assert (await service.queue_sync(user_id=owner, trigger_source="manual"))[
+        "reason"
+    ] == refusal_code
+    with pytest.raises(GmailApiError) as refusal:
+        await service.reconcile_connection(user_id=owner)
+    assert refusal.value.code == refusal_code
+    with pytest.raises(GmailApiError):
+        await service._ensure_access_token(user_id=owner)
+    await service._run_sync_worker(run_id="private-run", user_id=owner)
+    await service._resume_queued_sync_runs()
+    await service._run_scheduled_sync_once()
+    push = await service.handle_push_notification(
+        {"emailAddress": "owner@example.invalid", "historyId": "2"}
     )
-    broken = f"{state}x"
-
-    with pytest.raises(GmailApiError) as exc_info:
-        service._verify_state_token(
-            state=broken,
-            user_id="user_123",
-            redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
-        )
-
-    assert exc_info.value.status_code == 400
-
-
-def _configure_gmail_oauth(monkeypatch, *, origin: str = "https://uat.one.hushh.ai"):
-    redirect_uri = f"{origin}/profile/gmail/oauth/return"
-    monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
-    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "test-client-id")
-    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_SECRET", "test-client-secret")
-    monkeypatch.setenv("GMAIL_OAUTH_REDIRECT_URI", redirect_uri)
-    return redirect_uri
-
-
-def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
-    redirect_uri = _configure_gmail_oauth(monkeypatch)
-    service = GmailReceiptsService()
-
-    assert service.is_configured() is True
-    assert service._resolve_oauth_redirect_uri(redirect_uri) == redirect_uri
-    assert service._resolve_oauth_redirect_uri(None) == redirect_uri
-
-
-def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
-    _configure_gmail_oauth(monkeypatch)
-    service = GmailReceiptsService()
-
-    with pytest.raises(GmailApiError) as exc_info:
-        service._resolve_oauth_redirect_uri("https://untrusted.example/profile/gmail/oauth/return")
-
-    assert exc_info.value.status_code == 400
-
-
-def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
-    _configure_gmail_oauth(monkeypatch)
-    monkeypatch.setenv(
-        "GMAIL_OAUTH_REDIRECT_URI",
-        "http://localhost:3000/profile/gmail/oauth/return",
+    assert push == {"accepted": True, "handled": False, "reason": refusal_code}
+    assert not provider_calls and not dispatched
+    terminals = [params for sql, params in updates if "status IN ('queued', 'running')" in sql]
+    assert len(terminals) == 2
+    assert all(
+        item["user_id"] == owner
+        and item["status"]
+        == ("canceled" if mode in owner_placement_guard.PRIVATE_MODES else "failed")
+        for item in terminals
     )
+    retired = [params for sql, params in updates if "auto_sync_enabled = FALSE" in sql]
+    assert bool(retired) == (mode in owner_placement_guard.PRIVATE_MODES)
+
+
+@pytest.mark.parametrize("changed_after", [None, "credential", "listing", "metadata", "model"])
+async def test_active_worker_rechecks_placement_after_await_before_next_content_step(
+    monkeypatch, changed_after
+):
+    from hushh_mcp.services import owner_placement_guard
+
     service = GmailReceiptsService()
+    mode, calls, updates = "shared", [], []
 
-    assert service.is_configured() is False
-    with pytest.raises(GmailApiError) as exc_info:
-        service._resolve_oauth_redirect_uri(None)
+    async def resolve(_owner):
+        return mode
 
-    assert exc_info.value.status_code == 503
+    async def execute(sql, params=None):
+        updates.append((sql, params or {}))
+        if "RETURNING run_id" in sql:
+            return SimpleNamespace(data=[{"run_id": "active-run"}])
+        return SimpleNamespace(data=[])
+
+    def returned(stage, value):
+        nonlocal mode
+        calls.append(stage)
+        if changed_after == stage:
+            mode = "byoc"
+        return value
+
+    async def credential(**_k):
+        return returned("credential", ("synthetic-access", {}))
+
+    async def listing(**_k):
+        return returned("listing", {"messages": [{"id": "message-1"}]})
+
+    async def metadata(**_k):
+        return returned("metadata", [{"id": "message-1"}])
+
+    async def model(*_a, **_k):
+        return returned("model", {"is_receipt": True, "confidence": 1})
+
+    async def persist(**_k):
+        calls.append("persist")
+        return True
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "_ensure_access_token", credential)
+    monkeypatch.setattr(service, "_list_messages", listing)
+    monkeypatch.setattr(service, "_get_message_metadata_batch", metadata)
+    monkeypatch.setattr(service, "_candidate_from_message", lambda _m: _candidate())
+    monkeypatch.setattr(
+        service, "_classify_candidate", lambda _c: {"is_receipt": False, "needs_llm": True}
+    )
+    monkeypatch.setattr(service, "_llm_extract_candidate", model)
+    monkeypatch.setattr(
+        service, "_extract_receipt_fields", lambda **_k: {"merchant_name": "Published merchant"}
+    )
+    monkeypatch.setattr(service, "_upsert_receipt", persist)
+    monkeypatch.setattr(service, "_is_connection_sync_active", lambda **_k: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda **_k: True)
+    monkeypatch.setattr(service, "_next_backfill_window", lambda **_k: None)
+    await service._run_sync_worker(run_id="active-run", user_id="user_123")
+    stages = ["credential", "listing", "metadata", "model", "persist"]
+    assert calls == (stages if changed_after is None else stages[: stages.index(changed_after) + 1])
+    if changed_after is None:
+        assert any("status = 'completed'" in sql for sql, _params in updates)
+    else:
+        assert any(params.get("status") == "canceled" for _sql, params in updates)
+        assert not any("status = 'completed'" in sql for sql, _params in updates)
+
+
+async def test_retiring_a_verified_private_cohort_keeps_shared_scheduler_work_reachable(
+    monkeypatch,
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    scheduled, active = [], {**{f"private-{i}": True for i in range(50)}, "user_123": True}
+
+    async def resolve(owner):
+        return "byoc" if owner.startswith("private-") else "shared"
+
+    async def execute(sql, params=None):
+        if "SELECT user_id" in sql:
+            return SimpleNamespace(
+                data=[{"user_id": owner} for owner, enabled in active.items() if enabled][:50]
+            )
+        if "auto_sync_enabled = FALSE" in sql:
+            active[params["user_id"]] = False
+        return SimpleNamespace(data=[])
+
+    async def reconcile(*, user_id, **_k):
+        scheduled.append(user_id)
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "reconcile_connection", reconcile)
+    await service._run_scheduled_sync_once()
+    assert not scheduled
+    await service._run_scheduled_sync_once()
+    assert scheduled == ["user_123"] and active["user_123"] is True
+
+
+async def test_refresh_response_is_discarded_when_owner_moves_to_private_runtime(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    mode, calls = "shared", []
+
+    async def resolve(_owner):
+        return mode
+
+    async def refresh(**_kwargs):
+        nonlocal mode
+        calls.append("refresh")
+        mode = "byoc"
+        return {"access_token": "synthetic-renewed-access"}
+
+    def encrypt(_token):
+        calls.append("encrypt")
+        raise AssertionError("a private owner credential must not be persisted in the hub")
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_k: {"status": "connected"})
+    monkeypatch.setattr(service, "_decrypt_token", lambda *_a: "synthetic-token")
+    monkeypatch.setattr(service, "_refresh_access_token", refresh)
+    monkeypatch.setattr(service, "_encrypt_token", encrypt)
+    with pytest.raises(GmailApiError) as refusal:
+        await service._ensure_access_token(user_id="user_123")
+    assert refusal.value.code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert calls == ["refresh"]
 
 
 @pytest.mark.asyncio
-async def test_connect_boundaries_reject_wrong_redirect_before_oauth_work(monkeypatch):
+async def test_oauth_alias_preserves_signed_callback_and_rejects_other_environment(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    alias = legacy.replace("hushh.ai", "hussh.ai")
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://one.hussh.ai",
+    )
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=alias)
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    assert service._resolve_oauth_redirect_uri(alias) == alias
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=alias
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == alias
+    complete.reset_mock()
+    for invalid in (legacy, "https://one.hussh.ai/one/profile/gmail/oauth/return"):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=state, redirect_uri=invalid
+            )
+    complete.assert_not_awaited()
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai")
+    with pytest.raises(GmailApiError):
+        service._resolve_oauth_redirect_uri(alias)
+
+
+@pytest.mark.asyncio
+async def test_older_client_completes_with_original_signed_callback_after_alias_switch(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai,https://uat.one.hussh.ai")
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=legacy)
+    _configure_gmail_oauth(monkeypatch, origin="https://uat.one.hussh.ai")
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=None
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == legacy
+    complete.reset_mock()
+    for invalid_state in (
+        state + "x",
+        service._build_state_token(
+            user_id="owner", redirect_uri="https://one.hussh.ai/one/profile/gmail/oauth/return"
+        ),
+    ):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=invalid_state, redirect_uri=None
+            )
+    complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_default_connect_requests_read_scope_without_send(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
-    wrong_redirect = "https://untrusted.example/profile/gmail/oauth/return"
+    monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
 
-    with pytest.raises(GmailApiError) as start_error:
-        await service.start_connect(
+    result = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=False,
+    )
+
+    scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" not in scope
+    # A read-only person is never asked for the restricted mailbox-change scope.
+    assert "https://www.googleapis.com/auth/gmail.modify" not in scope
+
+
+@pytest.mark.asyncio
+async def test_modify_is_requested_only_as_its_own_incremental_scope(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
+
+    result = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=True,
+        purpose="modify",
+    )
+
+    query = parse_qs(urlparse(result["authorize_url"]).query)
+    scope = query["scope"][0].split()
+    assert query["include_granted_scopes"] == ["true"]
+    assert "https://www.googleapis.com/auth/gmail.modify" in scope
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" not in scope
+
+
+@pytest.mark.asyncio
+async def test_send_connect_requests_send_scope_incrementally(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
+
+    result = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=True,
+        purpose="send",
+    )
+
+    scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" in scope
+
+
+@pytest.mark.asyncio
+async def test_native_connect_returns_the_public_client_id_and_read_purpose(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+
+    result = await service.start_native_connect()
+
+    assert result == {
+        "configured": True,
+        "server_client_id": "test-client-id",
+        "purpose": "read",
+    }
+
+
+@pytest.mark.asyncio
+async def test_native_connect_exchanges_the_one_time_code_without_a_browser_redirect(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    captured: dict[str, object] = {}
+
+    async def complete_authorized_connect(**kwargs):
+        captured.update(kwargs)
+        return {"connected": True}
+
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete_authorized_connect)
+
+    result = await service.complete_native_connect(
+        user_id="user_123",
+        server_auth_code="one-time-server-code",
+    )
+
+    assert result == {"connected": True}
+    assert captured["user_id"] == "user_123"
+    assert captured["code"] == "one-time-server-code"
+    assert captured["redirect_uri"] == ""
+    assert isinstance(captured["oauth_started_at"], datetime)
+
+
+@pytest.mark.asyncio
+async def test_legacy_readonly_connection_requires_reconnect_for_send(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_read_status_snapshot",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result=(
+                {
+                    "status": "connected",
+                    "revoked": False,
+                    "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+                },
+                None,
+            ),
+        ),
+    )
+
+    status = await service.get_status(user_id="user_123")
+
+    assert status["send_permission_granted"] is False
+    assert status["compose_permission_granted"] is False
+    assert status["send_reconnect_required"] is True
+
+
+def test_compose_uses_separate_explicit_scope_without_sending():
+    scopes = GmailReceiptsService._oauth_scopes_for_purpose("compose")
+    assert "https://www.googleapis.com/auth/gmail.compose" in scopes
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scopes
+    assert "https://www.googleapis.com/auth/gmail.send" not in scopes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("new_sub", "new_scopes", "expected_error"),
+    [
+        (
+            "different-google-account",
+            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
+            "already connected",
+        ),
+        (
+            "same-google-account",
+            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+            "existing Mail permissions",
+        ),
+    ],
+)
+async def test_compose_reconnect_preserves_account_and_prior_scopes(
+    monkeypatch, new_sub, new_scopes, expected_error
+):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_exchange_code",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "scope": new_scopes,
+                "id_token": "synthetic-id",
+            },
+        ),
+    )
+    monkeypatch.setattr(service, "_decode_id_token_claims", lambda _: {"sub": new_sub})
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda **kwargs: {
+            "status": "connected",
+            "google_sub": "same-google-account",
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    async def unexpected_write(*args, **kwargs):
+        raise AssertionError("Rejected reconsent must not replace the connected account")
+
+    monkeypatch.setattr(service, "_execute_raw_async", unexpected_write)
+    with pytest.raises(GmailApiError, match=expected_error):
+        await service._complete_authorized_connect(
             user_id="user_123",
-            redirect_uri=wrong_redirect,
-            login_hint=None,
-            include_granted_scopes=False,
+            code="synthetic-code",
+            redirect_uri="",
+            oauth_started_at=datetime.now(timezone.utc),
         )
 
-    with pytest.raises(GmailApiError) as complete_error:
-        await service.complete_connect(
-            user_id="user_123",
-            code="oauth-code",
-            state="state-token",
-            redirect_uri=wrong_redirect,
-        )
 
-    assert start_error.value.status_code == 400
-    assert complete_error.value.status_code == 400
+@pytest.mark.asyncio
+async def test_send_requires_combined_gmail_scope(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        },
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.assert_send_ready(user_id="user_123")
+
+    assert exc_info.value.code == "GMAIL_SEND_PERMISSION_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_send_ready_accepts_a_connected_account_with_the_granted_send_scope(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": (
+                "https://www.googleapis.com/auth/gmail.readonly "
+                "https://www.googleapis.com/auth/gmail.send"
+            ),
+            "send_enabled": True,
+        },
+    )
+
+    await service.assert_send_ready(user_id="user_123")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "race",
+    [
+        "none",
+        "token_account",
+        "token_generation",
+        "latest_generation",
+        "send_disabled",
+        "scope_removed",
+    ],
+)
+async def test_send_token_is_bound_to_its_actual_account_and_current_grant(monkeypatch, race):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "send_enabled": True,
+        "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+        "google_sub": "reviewed-account",
+        "google_email": "owner@example.com",
+        "send_grant_generation": 4,
+    }
+    token_row, latest = dict(row), dict(row)
+    if race == "token_account":
+        token_row["google_sub"] = "other-account"
+    elif race == "token_generation":
+        token_row["send_grant_generation"] = 5
+    elif race == "latest_generation":
+        latest["send_grant_generation"] = 5
+    elif race == "send_disabled":
+        token_row["send_enabled"] = False
+    elif race == "scope_removed":
+        token_row["scope_csv"] = "https://www.googleapis.com/auth/gmail.readonly"
+    calls = iter([row, latest])
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_: next(calls))
+    refresh = AsyncMock(return_value=("private-access-token", token_row))
+    monkeypatch.setattr(service, "_ensure_access_token", refresh)
+    expected = {
+        "google_sub": "reviewed-account",
+        "grant_generation": 4,
+        "account_label": "owner@example.com",
+    }
+    if race == "none":
+        assert (
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+            == "private-access-token"
+        )
+    else:
+        with pytest.raises(GmailApiError) as refused:
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+        assert refused.value.code in {
+            "GMAIL_SENDER_CHANGED",
+            "GMAIL_SEND_DISABLED",
+            "GMAIL_SEND_PERMISSION_REQUIRED",
+        }
+    refresh.assert_awaited_once_with(user_id="owner")
+
+
+@pytest.mark.asyncio
+async def test_read_token_requires_read_scope_before_token_refresh(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    async def unexpected_token(*, user_id):
+        pytest.fail("Token access must not happen without read permission")
+
+    monkeypatch.setattr(service, "_ensure_access_token", unexpected_token)
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.get_read_access_token(user_id="user_123")
+    assert exc_info.value.code == "GMAIL_READ_PERMISSION_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_read_token_rechecks_scope_after_refresh(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    allowed = {
+        "status": "connected",
+        "revoked": False,
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+    }
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda user_id: allowed)
+
+    async def refreshed_without_scope(*, user_id):
+        return "private-token", {**allowed, "scope_csv": ""}
+
+    monkeypatch.setattr(service, "_ensure_access_token", refreshed_without_scope)
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.get_read_access_token(user_id="user_123")
+    assert exc_info.value.code == "GMAIL_READ_PERMISSION_REQUIRED"
+
+
+def _expired_token_connection(monkeypatch, service: GmailReceiptsService):
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "access_token_ciphertext": "access-envelope",
+        "refresh_token_ciphertext": "refresh-envelope",
+        "access_token_expires_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+    }
+    reauth_calls = []
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_kwargs: row)
+    monkeypatch.setattr(
+        service,
+        "_decrypt_token",
+        lambda ciphertext, *_args: (
+            "refresh-token" if ciphertext == "refresh-envelope" else "expired-access-token"
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_mark_connection_needs_reauth",
+        lambda **kwargs: reauth_calls.append(kwargs),
+    )
+    return reauth_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_status", "provider_error", "expected_code", "reauth_required"),
+    [
+        (429, "rate_limit_exceeded", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (503, "temporarily_unavailable", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (401, "invalid_client", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (400, "invalid_grant", "GMAIL_REAUTH_REQUIRED", True),
+    ],
+)
+async def test_refresh_revokes_only_when_google_invalidates_the_grant(
+    monkeypatch, provider_status, provider_error, expected_code, reauth_required
+):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+    monkeypatch.setattr(service, "_oauth_client_id", lambda: "test-client")
+    monkeypatch.setattr(service, "_oauth_client_secret", lambda: "test-secret")
+
+    real_async_client = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(provider_status, json={"error": provider_error})
+    )
+    monkeypatch.setattr(
+        gmail_receipts_service_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_async_client(transport=transport, **kwargs),
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.status_code == (401 if reauth_required else 503)
+    assert len(reauth_calls) == int(reauth_required)
+
+
+@pytest.mark.asyncio
+async def test_refresh_transport_timeout_preserves_connected_grant(monkeypatch):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+
+    async def timeout(*, refresh_token):
+        raise httpx.ConnectTimeout("provider timed out")
+
+    monkeypatch.setattr(service, "_refresh_access_token", timeout)
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert reauth_calls == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_missing_access_token_preserves_connected_grant(monkeypatch):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+    monkeypatch.setattr(
+        service,
+        "_refresh_access_token",
+        lambda **_kwargs: asyncio.sleep(0, result={"expires_in": 3600}),
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert reauth_calls == []
 
 
 @pytest.mark.asyncio
@@ -249,6 +869,74 @@ def test_classify_candidate_subject_only_becomes_llm_candidate():
     assert result["needs_llm"] is True
 
 
+@pytest.mark.asyncio
+async def test_receipt_cutover_rejects_sync_before_provider_or_database_access(monkeypatch):
+    service = GmailReceiptsService()
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "is_configured",
+        lambda: (_ for _ in ()).throw(AssertionError("must not inspect OAuth")),
+    )
+
+    result = await service.queue_sync(user_id="user_123", trigger_source="manual")
+
+    assert result == {
+        "accepted": False,
+        "reason": "receipt_storage_migration",
+        "message": "Earlier receipt history is read-only. Open Mail to check current receipt updates.",
+        "run": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_receipt_cutover_rejects_a_direct_legacy_receipt_write(monkeypatch):
+    service = GmailReceiptsService()
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    with pytest.raises(GmailReceiptStorageCutoverError):
+        await service._upsert_receipt(
+            user_id="user_123",
+            candidate=_candidate(),
+            extracted={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_receipt_cutover_cancels_queued_legacy_workers_without_gmail_access(monkeypatch):
+    service = GmailReceiptsService()
+    updates: list[tuple[str, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    async def record_update(query: str, params: dict[str, object]):
+        updates.append((query, params))
+        return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(service, "_execute_raw_async", record_update)
+
+    await service._run_sync_worker(run_id="run_123", user_id="user_123")
+
+    assert len(updates) == 1
+    assert "SET status = 'canceled'" in updates[0][0]
+    assert updates[0][1]["run_id"] == "run_123"
+
+
 def test_extract_receipt_fields_prefers_llm_values_when_present():
     service = GmailReceiptsService()
     candidate = _candidate()
@@ -297,12 +985,15 @@ def test_state_and_token_key_require_explicit_config_outside_local_dev(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_complete_connect_returns_status_even_when_initial_queue_sync_fails(
-    monkeypatch, caplog
-):
+async def test_complete_connect_persists_bootstrap_queue_before_deferring_remote_setup(monkeypatch):
     service = GmailReceiptsService()
     redirect_uri = _configure_gmail_oauth(monkeypatch, origin="https://example.com")
-    monkeypatch.setattr(service, "_verify_state_token", lambda **kwargs: {"uid": "user_123"})
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_verify_state_token",
+        lambda **kwargs: {"uid": "user_123", "iat": int(datetime.now(timezone.utc).timestamp())},
+    )
     monkeypatch.setattr(
         service,
         "_exchange_code",
@@ -311,16 +1002,160 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             result={
                 "access_token": "access-token",
                 "refresh_token": "refresh-token",
-                "scope": "gmail.readonly",
+                "scope": (
+                    "https://www.googleapis.com/auth/gmail.readonly "
+                    "https://www.googleapis.com/auth/gmail.send"
+                ),
                 "expires_in": 3600,
                 "id_token": "id-token",
             },
         ),
     )
+
+    async def _unexpected_profile_fetch(*_args, **_kwargs):
+        raise AssertionError("OAuth completion must not wait for a Gmail profile request")
+
+    monkeypatch.setattr(service, "_http_get_json", _unexpected_profile_fetch)
     monkeypatch.setattr(
         service,
-        "_http_get_json",
-        lambda *args, **kwargs: asyncio.sleep(0, result={"emailAddress": "user@example.com"}),
+        "_decode_id_token_claims",
+        lambda id_token: {"sub": "google-sub", "email": "user@example.com"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_encrypt_token",
+        lambda token: {
+            "ciphertext": f"{token}-ciphertext",
+            "iv": f"{token}-iv",
+            "tag": f"{token}-tag",
+        },
+    )
+
+    def _fetch_connection_row(user_id: str):
+        return None
+
+    monkeypatch.setattr(service, "_fetch_connection_row", _fetch_connection_row)
+
+    reconciliation_started = asyncio.Event()
+    allow_reconciliation_to_finish = asyncio.Event()
+    profile_refresh_started = asyncio.Event()
+    allow_profile_refresh_to_finish = asyncio.Event()
+    sync_queued = asyncio.Event()
+
+    async def _refresh_connection_profile(**kwargs):
+        assert kwargs["user_id"] == "user_123"
+        profile_refresh_started.set()
+        await allow_profile_refresh_to_finish.wait()
+
+    async def _reconcile_connection(**kwargs):
+        reconciliation_started.set()
+        await allow_reconciliation_to_finish.wait()
+        return {"connected": True}
+
+    async def _queue_sync(**kwargs):
+        assert kwargs["user_id"] == "user_123"
+        assert kwargs["trigger_source"] == "connect"
+        assert kwargs["sync_mode"] == "bootstrap"
+        sync_queued.set()
+        return {
+            "accepted": True,
+            "run": {
+                "run_id": "gmail_sync_bootstrap",
+                "user_id": "user_123",
+                "trigger_source": "connect",
+                "sync_mode": "bootstrap",
+                "status": "queued",
+            },
+        }
+
+    monkeypatch.setattr(service, "_refresh_connection_profile", _refresh_connection_profile)
+    monkeypatch.setattr(service, "reconcile_connection", _reconcile_connection)
+    monkeypatch.setattr(service, "queue_sync", _queue_sync)
+
+    class _CaptureDb:
+        def __init__(self):
+            self.calls = []
+            self.engine = TransactionEngine(self)
+
+        def execute_raw(self, sql, params=None):
+            self.calls.append((sql, params))
+            if "INSERT INTO kai_gmail_connections" in sql:
+                return SimpleNamespace(data=[{"user_id": "user_123"}])
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+    original_to_thread = asyncio.to_thread
+    offloaded_call_names: list[str] = []
+
+    async def _track_to_thread(func, /, *args, **kwargs):
+        offloaded_call_names.append(getattr(func, "__name__", ""))
+        return await original_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(gmail_receipts_service_module.asyncio, "to_thread", _track_to_thread)
+
+    result = await service.complete_connect(
+        user_id="user_123",
+        code="oauth-code",
+        state="state-token",
+        redirect_uri=redirect_uri,
+    )
+
+    assert result["connected"] is True
+    assert result["connection_state"] == "connected"
+    assert result["sync_state"] == "bootstrap_running"
+    assert result["bootstrap_state"] == "queued"
+    assert result["latest_run"]["run_id"] == "gmail_sync_bootstrap"
+    assert result["send_permission_granted"] is True
+    assert result["watch_status"] == "not_configured"
+    assert sync_queued.is_set()
+    assert not profile_refresh_started.is_set()
+    assert not reconciliation_started.is_set()
+    connection_write = next(
+        params for sql, params in service._db.calls if "INSERT INTO kai_gmail_connections" in sql
+    )
+    assert connection_write["send_enabled"] is True
+    assert "execute_raw" in offloaded_call_names
+
+    await asyncio.wait_for(profile_refresh_started.wait(), timeout=1)
+    allow_profile_refresh_to_finish.set()
+    await asyncio.wait_for(reconciliation_started.wait(), timeout=1)
+    allow_reconciliation_to_finish.set()
+
+
+@pytest.mark.asyncio
+async def test_complete_connect_reports_success_when_only_bootstrap_queueing_fails(monkeypatch):
+    # The Gmail account is already durably connected once the
+    # kai_gmail_connections row is committed. queue_sync() schedules the
+    # *first sync* afterward -- a separate, recoverable concern. A transient
+    # failure there (DB pool contention, a brief Cloud SQL blip) must not be
+    # reported to the caller as a failed OAuth connection: the account really
+    # is connected, and the old behavior (raise 503, abort the response)
+    # left the person told "connection could not be completed" for an
+    # account that had, in fact, connected.
+    service = GmailReceiptsService()
+    redirect_uri = _configure_gmail_oauth(monkeypatch, origin="https://example.com")
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_verify_state_token",
+        lambda **kwargs: {"uid": "user_123", "iat": int(datetime.now(timezone.utc).timestamp())},
+    )
+    monkeypatch.setattr(
+        service,
+        "_exchange_code",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result={
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "scope": (
+                    "https://www.googleapis.com/auth/gmail.readonly "
+                    "https://www.googleapis.com/auth/gmail.send"
+                ),
+                "expires_in": 3600,
+                "id_token": "id-token",
+            },
+        ),
     )
     monkeypatch.setattr(
         service,
@@ -336,16 +1171,76 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             "tag": f"{token}-tag",
         },
     )
-    monkeypatch.setattr(service, "_fetch_connection_row", lambda user_id: None)
+
+    def _fetch_connection_row(user_id: str):
+        return None
+
+    monkeypatch.setattr(service, "_fetch_connection_row", _fetch_connection_row)
+
+    async def _refresh_connection_profile(**_kwargs):
+        pass
+
+    async def _reconcile_connection(**_kwargs):
+        return {"connected": True}
+
+    async def _queue_sync(**_kwargs):
+        raise RuntimeError("db pool exhausted")
+
+    monkeypatch.setattr(service, "_refresh_connection_profile", _refresh_connection_profile)
+    monkeypatch.setattr(service, "reconcile_connection", _reconcile_connection)
+    monkeypatch.setattr(service, "queue_sync", _queue_sync)
+
+    failure_recorded = asyncio.Event()
+
+    async def _record_connect_queue_failure(*, user_id: str, error: Exception):
+        assert user_id == "user_123"
+        failure_recorded.set()
+
+    monkeypatch.setattr(service, "_record_connect_queue_failure", _record_connect_queue_failure)
+
+    async def _get_status(*, user_id: str):
+        assert user_id == "user_123"
+        return {"connected": True, "bootstrap_state": "failed"}
+
+    monkeypatch.setattr(service, "get_status", _get_status)
+
+    class _CaptureDb:
+        def __init__(self):
+            self.engine = TransactionEngine(self)
+
+        def execute_raw(self, sql, params=None):
+            if "INSERT INTO kai_gmail_connections" in sql:
+                return SimpleNamespace(data=[{"user_id": "user_123"}])
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+
+    result = await service.complete_connect(
+        user_id="user_123",
+        code="oauth-code",
+        state="state-token",
+        redirect_uri=redirect_uri,
+    )
+
+    assert result == {"connected": True, "bootstrap_state": "failed"}
+    assert failure_recorded.is_set()
+
+
+@pytest.mark.asyncio
+async def test_post_connect_finisher_does_not_own_bootstrap_queueing(monkeypatch):
+    service = GmailReceiptsService()
+
+    async def _refresh_connection_profile(**_kwargs):
+        return None
+
+    async def _reconcile_connection(**_kwargs):
+        return {"connected": True}
+
+    queue_calls: list[dict[str, object]] = []
 
     async def _queue_sync(**kwargs):
-        raise RuntimeError("queue offline")
-
-    async def _get_status(user_id):
-        return {"user_id": user_id, "status": "connected"}
-
-    monkeypatch.setattr(service, "queue_sync", _queue_sync)
-    monkeypatch.setattr(service, "get_status", _get_status)
+        queue_calls.append(kwargs)
+        return {"accepted": True}
 
     class _CaptureDb:
         def __init__(self):
@@ -356,18 +1251,106 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             return SimpleNamespace(data=[])
 
     service._db = _CaptureDb()
+    monkeypatch.setattr(service, "_refresh_connection_profile", _refresh_connection_profile)
+    monkeypatch.setattr(service, "reconcile_connection", _reconcile_connection)
+    monkeypatch.setattr(service, "queue_sync", _queue_sync)
 
-    with caplog.at_level("WARNING"):
-        result = await service.complete_connect(
-            user_id="user_123",
-            code="oauth-code",
-            state="state-token",
-            redirect_uri=redirect_uri,
-        )
+    await service._finish_connect_after_commit(user_id="user_123")
 
-    assert result == {"user_id": "user_123", "status": "connected"}
-    assert any("gmail.connect.queue_failed" in record.message for record in caplog.records)
-    assert any("INSERT INTO kai_gmail_connections" in sql for sql, _ in service._db.calls)
+    assert queue_calls == []
+    assert service._db.calls == []
+
+
+@pytest.mark.asyncio
+async def test_post_connect_profile_refresh_updates_only_the_active_connection(monkeypatch):
+    service = GmailReceiptsService()
+
+    async def _ensure_access_token(**_kwargs):
+        return "current-access-token", {"user_id": "user_123"}
+
+    async def _http_get_json(url, *, token):
+        assert url.endswith("/users/me/profile")
+        assert token == "current-access-token"
+        return {"emailAddress": "user@example.com", "historyId": "12345"}
+
+    class _CaptureDb:
+        def __init__(self):
+            self.calls = []
+
+        def execute_raw(self, sql, params=None):
+            self.calls.append((sql, params))
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+    monkeypatch.setattr(service, "_ensure_access_token", _ensure_access_token)
+    monkeypatch.setattr(service, "_http_get_json", _http_get_json)
+
+    await service._refresh_connection_profile(user_id="user_123")
+
+    profile_write = next(
+        (sql, params) for sql, params in service._db.calls if "google_email = COALESCE" in sql
+    )
+    assert "status = 'connected'" in profile_write[0]
+    assert "revoked = FALSE" in profile_write[0]
+    assert profile_write[1] == {
+        "user_id": "user_123",
+        "google_email": "user@example.com",
+        "history_id": "12345",
+    }
+
+
+@pytest.mark.asyncio
+async def test_profile_refresh_backfills_a_missing_account_name_from_google_userinfo(monkeypatch):
+    service = GmailReceiptsService()
+    captured: list[tuple[str, str]] = []
+
+    async def _ensure_access_token(**_kwargs):
+        return "current-access-token", {"user_id": "user_123"}
+
+    async def _http_get_json(url, *, token):
+        assert token == "current-access-token"
+        if url.endswith("/users/me/profile"):
+            return {"emailAddress": "user@example.com", "historyId": "12345"}
+        assert url.endswith("/userinfo")
+        return {"sub": "google-sub", "email_verified": True, "name": "Akshat Kumar"}
+
+    async def _execute_raw_async(*_args, **_kwargs):
+        return SimpleNamespace(data=[])
+
+    async def _fill_missing_google_display_name(*, user_id, display_name):
+        captured.append((user_id, display_name))
+
+    monkeypatch.setattr(service, "_ensure_access_token", _ensure_access_token)
+    monkeypatch.setattr(service, "_http_get_json", _http_get_json)
+    monkeypatch.setattr(service, "_execute_raw_async", _execute_raw_async)
+    monkeypatch.setattr(
+        service, "_fill_missing_google_display_name", _fill_missing_google_display_name
+    )
+
+    await service.refresh_owner_identity_profile(user_id="user_123")
+
+    assert captured == [("user_123", "Akshat Kumar")]
+
+
+@pytest.mark.asyncio
+async def test_oauth_name_enrichment_uses_only_the_verified_profile_claim(monkeypatch):
+    service = GmailReceiptsService()
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(service, "_verified_profile_display_name", lambda _token: "Akshat Kumar")
+
+    async def _fill_missing_google_display_name(*, user_id, display_name):
+        captured["user_id"] = user_id
+        captured["display_name"] = display_name
+
+    monkeypatch.setattr(
+        service, "_fill_missing_google_display_name", _fill_missing_google_display_name
+    )
+
+    provider_token = "signed-token"
+    await service._seed_verified_google_display_name(user_id="user_123", id_token=provider_token)
+
+    assert captured == {"user_id": "user_123", "display_name": "Akshat Kumar"}
 
 
 class _FakeTransaction:
@@ -564,7 +1547,7 @@ async def test_queue_sync_recovers_stale_running_run_before_enqueuing_replacemen
     assert result["accepted"] is True
     assert conn.inserted is not None
     assert any(
-        "UPDATE kai_gmail_sync_runs" in query and "status = 'failed'" in query
+        "UPDATE kai_gmail_sync_runs" in query and "status = 'canceled'" in query
         for query, _ in conn.execute_calls
     )
 
@@ -687,9 +1670,13 @@ def test_reconcile_active_runs_cancels_stale_live_task(monkeypatch):
 
     assert canceled["value"] is True
     assert any(
-        "UPDATE kai_gmail_sync_runs" in sql and params.get("status") == "failed"
+        "UPDATE kai_gmail_sync_runs" in sql and params.get("status") == "canceled"
         for sql, params in service._db.calls
         if params
+    )
+    assert any(
+        "UPDATE kai_gmail_connections" in sql and "last_sync_status IN ('queued', 'running')" in sql
+        for sql, _ in service._db.calls
     )
 
 
@@ -728,6 +1715,8 @@ async def test_run_sync_worker_uses_sqlalchemy_safe_json_cast_for_metrics(monkey
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
             captured_sql.append(sql)
+            if "RETURNING run_id" in sql:
+                return SimpleNamespace(data=[{"run_id": "gmail_sync_test"}])
             if "SELECT trigger_source" in sql:
                 return SimpleNamespace(data=[{"trigger_source": "manual"}])
             return SimpleNamespace(data=[])
@@ -764,6 +1753,8 @@ async def test_run_sync_worker_isolates_single_message_failures(monkeypatch):
 
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
+            if "RETURNING run_id" in sql:
+                return SimpleNamespace(data=[{"run_id": "gmail_sync_test"}])
             if "SELECT trigger_source" in sql:
                 return SimpleNamespace(data=[{"trigger_source": "manual"}])
             if "UPDATE kai_gmail_sync_runs" in sql and "status = 'completed'" in sql:
@@ -841,6 +1832,8 @@ async def test_run_sync_worker_cancels_when_connection_becomes_disconnected(monk
 
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
+            if "RETURNING run_id" in sql:
+                return SimpleNamespace(data=[{"run_id": "gmail_sync_test"}])
             if "SELECT trigger_source" in sql:
                 return SimpleNamespace(data=[{"trigger_source": "manual"}])
             if (
@@ -888,8 +1881,21 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     active_run_queries: list[tuple[str, dict | None]] = []
 
     class _CaptureDb:
+        def __init__(self):
+            self.engine = TransactionEngine(self)
+
         def execute_raw(self, sql, params=None):
             active_run_queries.append((sql, params))
+            if "SELECT * FROM kai_gmail_connections" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "refresh_token_ciphertext": None,
+                            "refresh_token_iv": None,
+                            "refresh_token_tag": None,
+                        }
+                    ]
+                )
             if "SELECT run_id" in sql and "kai_gmail_sync_runs" in sql:
                 return SimpleNamespace(
                     data=[
@@ -926,38 +1932,70 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
         and params.get("status") == "canceled"
         for query, params in active_run_queries
     )
+    assert any(
+        "UPDATE kai_gmail_connections" in query and "status = 'disconnected'" in query
+        for query, _ in active_run_queries
+    )
+    assert any(
+        "DELETE FROM kai_receipt_memory_artifacts" in query
+        and "DELETE FROM kai_gmail_receipts" in query
+        and "DELETE FROM kai_gmail_sync_runs" in query
+        for query, _ in active_run_queries
+    )
 
 
+@pytest.mark.parametrize("placement", ["shared", "byoc", "unknown"])
 @pytest.mark.asyncio
-async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch):
+async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch, placement):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value=placement)
+    )
+    monkeypatch.setattr(
+        gmail_receipts_service_module, "receipt_storage_writes_enabled", lambda: False
+    )
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
     monkeypatch.setattr(service, "_watch_enabled", lambda: True)
-    monkeypatch.setattr(service, "_reconcile_active_runs", lambda **kwargs: None)
+    connection_row = {
+        "status": "connected",
+        "revoked": False,
+        "google_email": "user@example.com",
+        "google_sub": "sub_123",
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        "last_sync_at": None,
+        "last_sync_status": "idle",
+        "last_sync_error": None,
+        "auto_sync_enabled": True,
+        "connected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+        "disconnected_at": None,
+        "bootstrap_state": "completed",
+        "watch_status": "active",
+        "watch_expiration_at": datetime(2030, 3, 2, tzinfo=timezone.utc),
+        "status_refreshed_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+        "last_notification_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+        "receipt_total": 12,
+    }
     monkeypatch.setattr(
         service,
-        "_fetch_connection_row",
-        lambda user_id: {
-            "status": "connected",
-            "revoked": False,
-            "google_email": "user@example.com",
-            "google_sub": "sub_123",
-            "scope_csv": "gmail.readonly",
-            "last_sync_at": None,
-            "last_sync_status": "idle",
-            "last_sync_error": None,
-            "auto_sync_enabled": True,
-            "connected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
-            "disconnected_at": None,
-            "bootstrap_state": "completed",
-            "watch_status": "active",
-            "watch_expiration_at": datetime(2030, 3, 2, tzinfo=timezone.utc),
-            "status_refreshed_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
-            "last_notification_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
-            "receipt_total": 12,
-        },
+        "_read_status_snapshot",
+        lambda **kwargs: asyncio.sleep(0, result=(connection_row, None)),
     )
-    monkeypatch.setattr(service, "_latest_sync_run", lambda user_id: None)
+    monkeypatch.setattr(
+        service,
+        "_reconcile_active_runs",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("status must not reconcile sync runs")
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_dispatch_sync_run",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("status must not dispatch sync work")
+        ),
+    )
     monkeypatch.setattr(
         service,
         "_count_receipts",
@@ -976,6 +2014,126 @@ async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch)
     assert status["sync_state"] == "idle"
     assert status["watch_status"] == "active"
     assert status["receipt_counts"]["total"] == 12
+
+    assert status["receipt_storage_mode"] == "legacy_read_only"
+    assert status["receipt_sync_available"] is (placement == "shared")
+    assert status["receipt_history_available"] is (placement == "shared")
+
+
+@pytest.mark.parametrize(
+    "missing", ["scope_csv", "google_sub", "connected_at", "revoked", "configured"]
+)
+@pytest.mark.asyncio
+async def test_live_receipt_capability_requires_current_read_admission(monkeypatch, missing):
+    service = GmailReceiptsService()
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "google_sub": "sub_123",
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        "connected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+    }
+    if missing == "revoked":
+        row["revoked"] = True
+    elif missing != "configured":
+        row[missing] = None
+    monkeypatch.setattr(service, "is_configured", lambda: missing != "configured")
+    monkeypatch.setattr(service, "_read_status_snapshot", AsyncMock(return_value=(row, None)))
+    result = await service.get_status(user_id="user_123")
+    assert result["receipt_sync_available"] is False
+    assert result["receipt_history_available"] is True
+    assert result["receipt_storage_mode"] == "legacy_read_only"
+
+
+@pytest.mark.asyncio
+async def test_status_snapshot_uses_one_async_query_without_loading_credentials(monkeypatch):
+    service = GmailReceiptsService()
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class _Connection:
+        async def fetchrow(self, sql, *params):
+            calls.append((sql, params))
+            return {
+                "connection_user_id": "user_123",
+                "status": "connected",
+                "revoked": False,
+                "google_email": "user@example.com",
+                "google_sub": "sub_123",
+                "scope_csv": "gmail.readonly",
+                "send_enabled": False,
+                "last_sync_at": None,
+                "last_sync_status": "idle",
+                "last_sync_error": None,
+                "auto_sync_enabled": True,
+                "connected_at": None,
+                "disconnected_at": None,
+                "bootstrap_state": "completed",
+                "watch_status": "active",
+                "watch_expiration_at": None,
+                "status_refreshed_at": None,
+                "last_notification_at": None,
+                "receipt_total": 4,
+                "latest_run": {"run_id": "run_123", "status": "completed"},
+            }
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Connection()
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def _get_pool():
+        return _Pool()
+
+    monkeypatch.setattr(gmail_receipts_service_module, "get_pool", _get_pool)
+
+    row, latest_run = await service._read_status_snapshot(user_id="user_123")
+
+    assert row is not None
+    assert row["google_email"] == "user@example.com"
+    assert latest_run == {"run_id": "run_123", "status": "completed"}
+    assert len(calls) == 1
+    assert calls[0][1] == ("user_123",)
+    assert "refresh_token_ciphertext" not in calls[0][0]
+    assert "access_token_ciphertext" not in calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_status_snapshot_times_out_before_the_browser_proxy_deadline(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "_STATUS_SNAPSHOT_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    class _Acquire:
+        async def __aenter__(self):
+            await asyncio.sleep(1)
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def _get_pool():
+        return _Pool()
+
+    monkeypatch.setattr(gmail_receipts_service_module, "get_pool", _get_pool)
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._read_status_snapshot(user_id="user_123")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "GMAIL_STATUS_READ_TIMEOUT"
 
 
 @pytest.mark.asyncio
@@ -1039,6 +2197,8 @@ async def test_reconcile_connection_renews_watch_without_listing_messages(monkey
 async def test_handle_push_notification_updates_snapshot_and_queues_incremental(monkeypatch):
     service = GmailReceiptsService()
     db_calls: list[tuple[str, dict | None]] = []
+    event_loop_thread = threading.get_ident()
+    lookup_thread_ids: list[int] = []
     monkeypatch.setenv("GMAIL_WEBHOOK_AUTH_ENABLED", "false")
     monkeypatch.setattr(service, "_watch_enabled", lambda: True)
 
@@ -1048,16 +2208,17 @@ async def test_handle_push_notification_updates_snapshot_and_queues_incremental(
             return SimpleNamespace(data=[])
 
     service._db = _CaptureDb()
-    monkeypatch.setattr(
-        service,
-        "_fetch_connection_row_by_email",
-        lambda google_email: {
+
+    def _fetch_connection_row_by_email(*, google_email: str):
+        lookup_thread_ids.append(threading.get_ident())
+        return {
             "user_id": "user_123",
             "status": "connected",
             "revoked": False,
             "history_id": "200",
-        },
-    )
+        }
+
+    monkeypatch.setattr(service, "_fetch_connection_row_by_email", _fetch_connection_row_by_email)
     queued: list[dict[str, object]] = []
 
     async def _queue_sync(**kwargs):
@@ -1078,6 +2239,8 @@ async def test_handle_push_notification_updates_snapshot_and_queues_incremental(
     assert queued[0]["end_history_id"] == "210"
     assert queued[0]["notification_history_id"] == "210"
     assert db_calls == []
+    assert len(lookup_thread_ids) == 1
+    assert lookup_thread_ids[0] != event_loop_thread
 
 
 @pytest.mark.asyncio
@@ -1183,6 +2346,8 @@ async def test_run_sync_worker_incremental_uses_history_list(monkeypatch):
 
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
+            if "RETURNING run_id" in sql:
+                return SimpleNamespace(data=[{"run_id": "gmail_sync_test"}])
             if "SELECT" in sql and "FROM kai_gmail_sync_runs" in sql and "sync_mode" in sql:
                 return SimpleNamespace(
                     data=[
@@ -1263,6 +2428,8 @@ async def test_run_sync_worker_history_gap_queues_recovery(monkeypatch):
 
     class _CaptureDb:
         def execute_raw(self, sql, params=None):
+            if "RETURNING run_id" in sql:
+                return SimpleNamespace(data=[{"run_id": "gmail_sync_test"}])
             if "SELECT" in sql and "FROM kai_gmail_sync_runs" in sql and "sync_mode" in sql:
                 return SimpleNamespace(
                     data=[
@@ -1306,39 +2473,82 @@ async def test_run_sync_worker_history_gap_queues_recovery(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ensure_access_token_marks_needs_reauth_on_refresh_failure(monkeypatch):
+async def test_meeting_invite_fetch_is_bounded_and_parallel(monkeypatch):
     service = GmailReceiptsService()
-    db_calls: list[tuple[str, dict | None]] = []
+    message_ids = [f"message-{index}" for index in range(8)]
 
-    class _CaptureDb:
-        def execute_raw(self, sql, params=None):
-            db_calls.append((sql, params))
-            return SimpleNamespace(data=[])
+    async def _list_messages(**kwargs):
+        return {"messages": [{"id": message_id} for message_id in message_ids]}
 
-    service._db = _CaptureDb()
+    active = 0
+    max_active = 0
+
+    async def _get_message_full(*, gmail_message_id, **kwargs):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.01)
+            return {"id": gmail_message_id, "threadId": f"thread-{gmail_message_id}"}
+        finally:
+            active -= 1
+
+    async def _extract_ics_text(**kwargs):
+        return "\r\n".join(
+            [
+                "BEGIN:VCALENDAR",
+                "BEGIN:VEVENT",
+                "SUMMARY:Planning",
+                "DTSTART:20270101T120000Z",
+                "END:VEVENT",
+                "END:VCALENDAR",
+            ]
+        )
+
+    monkeypatch.setattr(service, "_list_messages", _list_messages)
+    monkeypatch.setattr(service, "_get_message_full", _get_message_full)
+    monkeypatch.setattr(service, "_extract_ics_text", _extract_ics_text)
+
+    events = await service._fetch_meeting_events(
+        access_token="token",  # noqa: S106 - non-secret test fixture
+        limit=4,
+    )
+
+    assert len(events) == len(message_ids)
+    assert max_active == gmail_receipts_service_module._NUDGE_MEETING_FETCH_CONCURRENCY
+
+
+@pytest.mark.asyncio
+async def test_nudges_keep_reply_results_when_meeting_scan_times_out(monkeypatch):
+    service = GmailReceiptsService()
     monkeypatch.setattr(
         service,
-        "_fetch_connection_row",
-        lambda user_id: {
-            "status": "connected",
-            "refresh_token_ciphertext": "cipher",
-            "refresh_token_iv": "iv",
-            "refresh_token_tag": "tag",
-            "access_token_ciphertext": None,
-            "access_token_iv": None,
-            "access_token_tag": None,
-            "access_token_expires_at": None,
-        },
+        "_ensure_access_token",
+        lambda **kwargs: asyncio.sleep(0, result=("token", {})),
     )
-    monkeypatch.setattr(service, "_decrypt_token", lambda *args, **kwargs: "refresh-token")
 
-    async def _refresh_access_token(**kwargs):
-        raise GmailApiError("invalid_grant", status_code=401)
+    async def _http_get_json(url, **kwargs):
+        assert url.endswith("/profile")
+        return {"emailAddress": "person@example.com"}
 
-    monkeypatch.setattr(service, "_refresh_access_token", _refresh_access_token)
+    async def _list_messages(**kwargs):
+        return {"messages": []}
 
-    with pytest.raises(GmailApiError) as exc_info:
-        await service._ensure_access_token(user_id="user_123")
+    async def _slow_meeting_scan(**kwargs):
+        await asyncio.sleep(1)
+        return []
 
-    assert exc_info.value.status_code == 401
-    assert any("SET status = 'error'" in sql for sql, _ in db_calls)
+    monkeypatch.setattr(service, "_http_get_json", _http_get_json)
+    monkeypatch.setattr(service, "_list_messages", _list_messages)
+    monkeypatch.setattr(service, "_fetch_meeting_events", _slow_meeting_scan)
+    monkeypatch.setattr(service, "_fetch_body_meeting_events", _slow_meeting_scan)
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    result = await service.list_nudges(user_id="user-123", limit=10)
+
+    assert result["account_email"] == "person@example.com"
+    assert result["nudges"] == []

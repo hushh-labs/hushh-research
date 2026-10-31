@@ -6,7 +6,9 @@ import { Capacitor } from "@capacitor/core";
 /**
  * KeyboardInsetManager — native/mobile-only runtime bridge for keyboard avoidance.
  *
- * Publishes the on-screen keyboard height as `--kb-height` on <html> and toggles
+ * Publishes the part of the on-screen keyboard that still covers the page as
+ * `--kb-height` on <html> (the whole keyboard on iOS; on Android, whatever the
+ * WebView's own resize has not already taken) and toggles
  * `html.kb-open`, so fixed / bottom-anchored surfaces (drawers, sheets, dialogs,
  * the chat composer) can lift their content above the keyboard with pure CSS.
  * It also scrolls a focused field into view for normal-flow forms (OTP, etc.).
@@ -38,11 +40,37 @@ function isMobileWebEnv(): boolean {
   return coarsePointer && hasTouch && narrow;
 }
 
-function setKeyboardHeight(px: number): void {
+/**
+ * `px` is the inset (the part of the keyboard still covering the page);
+ * `open` is whether a keyboard is up at all. They differ on Android, where
+ * the viewport absorbs the keyboard: the inset is ~0 while the keyboard is
+ * very much open, and everything keyed on `kb-open` (the fixed launcher
+ * stepping aside, focused fields scrolling into view) still has to run.
+ * `resizes` marks that platform (`html.kb-resizes`) for rules that differ.
+ */
+function setKeyboardHeight(px: number, open: boolean = px > 0, resizes = false): void {
   const root = document.documentElement;
+  // Render-performance attribution only (the probe sets this for one launch
+  // of a lane run; never in a normal session): leave the inset alone so the
+  // keyboard's own presentation can be told apart from the page's response.
+  if (root.dataset.perfExperiment?.split(",").includes("kb-inset-off")) return;
   const clamped = px > 0 ? Math.round(px) : 0;
   root.style.setProperty("--kb-height", `${clamped}px`);
-  root.classList.toggle("kb-open", clamped > 0);
+  root.classList.toggle("kb-open", open);
+  root.classList.toggle("kb-resizes", open && resizes);
+}
+
+// A viewport that shrank by more than this for the keyboard absorbed it.
+const KB_ABSORBED_MIN_PX = 120;
+
+function isEditableElement(element: HTMLElement | null): element is HTMLElement {
+  if (!element) return false;
+
+  return (
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.isContentEditable
+  );
 }
 
 export function KeyboardInsetManager() {
@@ -62,40 +90,107 @@ export function KeyboardInsetManager() {
 
     let disposed = false;
     let rafId = 0;
+    let scrollGeneration = 0;
     const cleanups: Array<() => void> = [];
+
+    const cancelScroll = () => {
+      scrollGeneration++;
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    };
+    const scrollEditableIntoView = (element: HTMLElement | null) => {
+      cancelScroll();
+      if (!isEditableElement(element)) return;
+      // Fixed keyboard-anchored layers already track visualViewport through
+      // --kb-height. Scrolling their autofocus target feeds viewport movement
+      // back into that same measurement and makes the command palette jump.
+      if (element.closest('[data-keyboard-anchor="bottom"]')) return;
+
+      const generation = scrollGeneration;
+      // A native keyboard event lands after focus. Wait for the inset style and
+      // the form's keyboard-reduced scroll area to commit, then reveal only the
+      // focused control. `nearest` preserves the Figma composition instead of
+      // re-centering the whole screen while someone types a phone number.
+      rafId = requestAnimationFrame(() => {
+        if (disposed || generation !== scrollGeneration) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          if (disposed || generation !== scrollGeneration ||
+              !document.documentElement.classList.contains("kb-open") ||
+              document.activeElement !== element || !element.isConnected ||
+              element.closest('[inert], [aria-hidden="true"]')) return;
+          element.scrollIntoView({ block: "nearest" });
+        });
+      });
+    };
+
+    const scrollFocusedEditableIntoView = () => {
+      scrollEditableIntoView(document.activeElement as HTMLElement | null);
+    };
 
     // Focusin net — once the keyboard is up, center the focused field in its
     // nearest scroll container. Covers normal-flow forms (OTP, onboarding,
     // profile) with no per-screen code.
     const onFocusIn = (event: FocusEvent) => {
+      cancelScroll();
       if (!document.documentElement.classList.contains("kb-open")) return;
-      const el = event.target as HTMLElement | null;
-      if (!el) return;
-      const editable =
-        el.tagName === "INPUT" ||
-        el.tagName === "TEXTAREA" ||
-        el.isContentEditable;
-      if (!editable) return;
-      // Fixed keyboard-anchored layers already track visualViewport through
-      // --kb-height. Scrolling their autofocus target feeds viewport movement
-      // back into that same measurement and makes the command palette jump.
-      if (el.closest('[data-keyboard-anchor="bottom"]')) return;
-      cancelAnimationFrame(rafId);
-      // Defer past the layout that --kb-height triggers, then center.
-      rafId = requestAnimationFrame(() => {
-        rafId = requestAnimationFrame(() => {
-          el.scrollIntoView({ block: "center" });
-        });
-      });
+      scrollEditableIntoView(event.target as HTMLElement | null);
     };
     document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("focusout", cancelScroll, true);
     cleanups.push(() =>
       document.removeEventListener("focusin", onFocusIn, true),
     );
-    cleanups.push(() => cancelAnimationFrame(rafId));
+    cleanups.push(() => document.removeEventListener("focusout", cancelScroll, true));
+    cleanups.push(cancelScroll);
 
     if (isNative) {
-      // Native: authoritative keyboard height from @capacitor/keyboard.
+      // Native: authoritative keyboard height from @capacitor/keyboard, less
+      // whatever the web view has already given up for it. iOS keeps its
+      // frame (resize "none"), so nothing is absorbed and the full height is
+      // published. Android shrinks the WebView for the keyboard even with
+      // adjustNothing (measured on a Galaxy S24 Ultra: 3120 -> 1775 px with
+      // the keyboard up), so publishing the full height there subtracted the
+      // keyboard twice: the vault gate's box collapsed to 44 dp and clipped
+      // the field, the Unlock button and every link (mobile bug log B54).
+      // Only the part of the keyboard still covering the viewport is an inset.
+      const absorbsKeyboard = Capacitor.getPlatform() === "android";
+      let keyboardPx = 0;
+      let baselineInnerHeight = window.innerHeight;
+      const publishInset = () => {
+        if (keyboardPx <= 0) {
+          setKeyboardHeight(0);
+          return;
+        }
+        // iOS keeps the WKWebView frame for the keyboard (resize:"none").
+        // Rotation or scene resizing may shorten that frame independently;
+        // subtracting that change hides a real keyboard. The iPad plugin
+        // supplies a window-adjusted height; preserve its reported value.
+        const absorbed = absorbsKeyboard
+          ? Math.max(0, baselineInnerHeight - window.innerHeight)
+          : 0;
+        setKeyboardHeight(Math.max(0, keyboardPx - absorbed), true, absorbed >= KB_ABSORBED_MIN_PX);
+      };
+      const onWindowResize = () => {
+        // With no keyboard up, a taller viewport is the new baseline (an
+        // orientation change, the system bars settling). A shorter one is
+        // left alone: on Android the resize can land before the keyboard
+        // event, and adopting it would hide the shrink this corrects for.
+        if (keyboardPx <= 0) {
+          if (window.innerHeight > baselineInnerHeight) baselineInnerHeight = window.innerHeight;
+          return;
+        }
+        publishInset();
+      };
+      const onOrientationChange = () => {
+        if (keyboardPx <= 0) baselineInnerHeight = window.innerHeight;
+      };
+      window.addEventListener("resize", onWindowResize);
+      window.addEventListener("orientationchange", onOrientationChange);
+      cleanups.push(() => {
+        window.removeEventListener("resize", onWindowResize);
+        window.removeEventListener("orientationchange", onOrientationChange);
+      });
       // Dynamic import keeps SSR / static export safe.
       const listenerHandles: Array<{ remove: () => void }> = [];
       void import("@capacitor/keyboard")
@@ -110,24 +205,32 @@ export function KeyboardInsetManager() {
           // iOS normally emits `will*`, but an interrupted animation/reopened
           // command palette can arrive only as `did*`. Subscribe to both so the
           // CSS inset always converges on the keyboard's final geometry.
+          const handleKeyboardShow = (height: number) => {
+            keyboardPx = height > 0 ? height : 0;
+            publishInset();
+            // `focusin` fires before iOS publishes keyboard visibility, so it
+            // intentionally does nothing on a first focus. The native event is
+            // the authoritative second chance that keeps the active phone/OTP
+            // field above the keyboard without moving the whole viewport.
+            scrollFocusedEditableIntoView();
+          };
           register(
             Keyboard.addListener("keyboardWillShow", (info) =>
-              setKeyboardHeight(info.keyboardHeight ?? 0),
+              handleKeyboardShow(info.keyboardHeight ?? 0),
             ),
           );
           register(
             Keyboard.addListener("keyboardDidShow", (info) =>
-              setKeyboardHeight(info.keyboardHeight ?? 0),
+              handleKeyboardShow(info.keyboardHeight ?? 0),
             ),
           );
-          register(
-            Keyboard.addListener("keyboardWillHide", () =>
-              setKeyboardHeight(0),
-            ),
-          );
-          register(
-            Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0)),
-          );
+          const handleKeyboardHide = () => {
+            cancelScroll();
+            keyboardPx = 0;
+            setKeyboardHeight(0);
+          };
+          register(Keyboard.addListener("keyboardWillHide", handleKeyboardHide));
+          register(Keyboard.addListener("keyboardDidHide", handleKeyboardHide));
         })
         .catch(() => {
           /* plugin unavailable → stay inert */
@@ -139,7 +242,24 @@ export function KeyboardInsetManager() {
       if (vv) {
         const onViewport = () => {
           const overlap = window.innerHeight - vv.height - vv.offsetTop;
-          setKeyboardHeight(overlap > KB_MIN_SHRINK_PX ? overlap : 0);
+
+          const keyboardOpen = overlap > KB_MIN_SHRINK_PX;
+          if (!keyboardOpen) cancelScroll();
+          setKeyboardHeight(keyboardOpen ? overlap : 0);
+          // A fixed setup screen must fit the visual viewport on iPhone web.
+          // This measured height avoids subtracting the keyboard twice in
+          // browsers where CSS viewport units already shrink with it.
+          if (keyboardOpen) {
+            document.documentElement.style.setProperty(
+              "--kb-visible-height", `${Math.round(vv.height)}px`,
+            );
+            document.documentElement.style.setProperty(
+              "--kb-visible-top", `${Math.round(vv.offsetTop)}px`,
+            );
+          } else {
+            document.documentElement.style.removeProperty("--kb-visible-height");
+            document.documentElement.style.removeProperty("--kb-visible-top");
+          }
         };
         vv.addEventListener("resize", onViewport);
         vv.addEventListener("scroll", onViewport);
@@ -147,6 +267,8 @@ export function KeyboardInsetManager() {
         cleanups.push(() => {
           vv.removeEventListener("resize", onViewport);
           vv.removeEventListener("scroll", onViewport);
+          document.documentElement.style.removeProperty("--kb-visible-height");
+          document.documentElement.style.removeProperty("--kb-visible-top");
         });
       }
     }

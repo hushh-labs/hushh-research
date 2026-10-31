@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from tests.services.test_one_location_agent_service import (
     PUBLIC_LOCATION_SNAPSHOT,
     FourUserMemoryService,
@@ -35,10 +40,49 @@ class _MemoryNearbyPresenceService:
         return {"expired": 0, "deleted": 0}
 
 
+class _AsyncLocationOnboardingRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.calls = 0
+
+    async def purge_expired_drafts(self) -> int:
+        self.calls += 1
+        return self.count
+
+
+class _AsyncCapabilityRunRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.limits: list[int] = []
+
+    async def purge_expired(self, *, limit: int) -> int:
+        self.limits.append(limit)
+        return self.count
+
+
+def _stub_durable_runtime_retention(
+    monkeypatch,
+    *,
+    draft_count: int = 0,
+    run_count: int = 0,
+) -> tuple[_AsyncLocationOnboardingRetention, _AsyncCapabilityRunRetention]:
+    draft_retention = _AsyncLocationOnboardingRetention(draft_count)
+    run_retention = _AsyncCapabilityRunRetention(run_count)
+    monkeypatch.setattr(
+        one_location,
+        "get_location_onboarding_runtime_service",
+        lambda: draft_retention,
+    )
+    monkeypatch.setattr(one_location, "get_capability_run_store", lambda: run_retention)
+    return draft_retention, run_retention
+
+
 def _client(
     service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
 ) -> TestClient:
     app = FastAPI()
+    app.state.command_purge = AsyncMock()
+    monkeypatch.setattr(CommandCheckpointStore, "purge_expired", app.state.command_purge)
     app.include_router(one_location.router)
     app.dependency_overrides[one_location.require_vault_owner_token] = lambda: {
         "user_id": current_user["user_id"]
@@ -96,6 +140,156 @@ def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
     assert service.connections
 
 
+@pytest.mark.parametrize("legacy_reason", [False, True])
+def test_sms_phone_less_connected_member_receives_encrypted_alert_without_provider_lookup(
+    monkeypatch,
+    legacy_reason,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    service.identities["user_b"]["phone_number"] = None
+    current_user["user_id"] = "user_a"
+    repair = AsyncMock(side_effect=TimeoutError("provider unavailable"))
+    monkeypatch.setattr(ActorIdentityService, "sync_verified_phone_from_firebase", repair)
+    provider_refresh = AsyncMock(side_effect=TimeoutError("provider unavailable"))
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", provider_refresh)
+    added = client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"})
+    assert added.status_code == 200
+    roster = client.get("/api/one/location/sms-contacts")
+    assert roster.status_code == 200
+    assert roster.json()["smsContactUserIds"] == ["user_b"]
+    assert roster.json()["recipients"][0]["phoneVerified"] is False
+    payload = {
+        "recipientUserId": "user_b",
+        "recipientKeyId": "key-user_b",
+        "durationHours": 8,
+        "reason": "sos_panic",
+    }
+    if not legacy_reason:
+        payload["shareKind"] = "sos"
+    response = client.post("/api/one/location/grants", json=payload)
+    assert response.status_code == 200
+    grant_id = response.json()["grant"]["id"]
+    published = client.post(
+        f"/api/one/location/grants/{grant_id}/envelopes",
+        json={"envelope": encrypted_envelope("key-user_b")},
+    )
+    assert published.status_code == 200
+    assert published.json()["envelope"]["ciphertext"]
+    assert any(push["user_id"] == "user_b" for push in service.notifications)
+    repair.assert_not_awaited()
+    provider_refresh.assert_not_awaited()
+    assert service.identities["user_b"]["phone_verified"] is False
+    assert service.identities["user_b"]["phone_number"] is None
+
+
+@pytest.mark.parametrize("boundary", ["not_connected", "no_key", "not_selected", "removed"])
+def test_phone_less_sms_still_requires_active_relationship_key_and_selected_roster(
+    monkeypatch,
+    boundary,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    service.identities["user_b"]["phone_verified"] = False
+    if boundary != "no_key":
+        _register_key(client, current_user, "user_b")
+    if boundary != "not_connected":
+        service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+    if boundary in {"not_connected", "no_key"}:
+        response = client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"})
+        assert response.status_code in {403, 409}
+    else:
+        if boundary == "removed":
+            assert (
+                client.post(
+                    "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+                ).status_code
+                == 200
+            )
+            assert client.delete("/api/one/location/sms-contacts/user_b").status_code == 200
+        response = client.post(
+            "/api/one/location/grants",
+            json={
+                "recipientUserId": "user_b",
+                "recipientKeyId": "key-user_b",
+                "durationHours": 8,
+                "shareKind": "sos",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "LOCATION_SMS_CONTACT_REQUIRED"
+    assert not service.grants
+
+
+@pytest.mark.parametrize("profile_exists", [True, False])
+def test_sms_repairs_missing_identity_only_for_existing_actors_without_fabricating_phone(
+    monkeypatch,
+    profile_exists,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    current_user["user_id"] = "user_a"
+    assert (
+        client.post(
+            "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+        ).status_code
+        == 200
+    )
+    identity = service.identities.pop("user_b")
+    admission = AsyncMock(return_value={"user_b"} if profile_exists else set())
+    monkeypatch.setattr(ActorIdentityService, "_known_actor_ids", admission)
+
+    async def hydrate(uid, *, force, require_success):
+        assert force is True and require_success is True
+        service.identities[uid] = identity
+        return identity
+
+    hydration = AsyncMock(side_effect=hydrate)
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", hydration)
+    response = client.get("/api/one/location/sms-contacts")
+    assert response.status_code == 200
+    admission.assert_awaited_once_with(["user_b"])
+    if profile_exists:
+        hydration.assert_awaited_once_with("user_b", force=True, require_success=True)
+        assert response.json()["recipients"][0]["phoneVerified"] is False
+    else:
+        hydration.assert_not_awaited()
+        assert response.json()["recipients"] == []
+        assert "user_b" not in service.identities
+
+
+@pytest.mark.asyncio
+async def test_missing_sms_identity_repair_attempts_all_members_under_one_deadline(monkeypatch):
+    service = FourUserMemoryService()
+    ids = [f"sms-member-{index}" for index in range(8)]
+    monkeypatch.setattr(service, "list_sms_contact_ids", lambda **_: ids)
+    monkeypatch.setattr(service, "_identity_row", lambda _: None)
+    monkeypatch.setattr(ActorIdentityService, "_known_actor_ids", AsyncMock(return_value=set(ids)))
+    attempted = []
+    completed = []
+
+    async def hydrate(uid, **_):
+        attempted.append(uid)
+        if uid in ids[:4]:
+            await asyncio.Event().wait()
+        completed.append(uid)
+
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", AsyncMock(side_effect=hydrate))
+    await one_location.refresh_sms_recipient_identities(service, owner_user_id="user_a")
+    assert set(attempted) == set(ids)
+    assert set(completed) == set(ids[4:])
+
+
 def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     class AtomicRouteProbe:
         def __init__(self) -> None:
@@ -134,7 +328,552 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert response.json()["idempotentReplay"] is False
     assert service.calls[0]["owner_user_id"] == "owner-from-token"
     assert service.calls[0]["recipient_user_id"] == "recipient"
+    assert service.calls[0]["require_recipient_phone_verified"] is False
     assert service.calls[0]["enforce_connection"] is True
+
+
+def test_direct_access_request_route_enforces_current_peer_eligibility(
+    monkeypatch,
+) -> None:
+    class RequestRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def request_access(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "id": "request-1",
+                "ownerUserId": kwargs["owner_user_id"],
+                "requesterUserId": kwargs["requester_user_id"],
+                "status": "pending",
+            }
+
+    service = RequestRouteProbe()
+    current_user = {"user_id": "requester-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/requests",
+        json={"ownerUserId": "owner", "message": "Can you share?"},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "requester_user_id": "requester-from-token",
+            "owner_user_id": "owner",
+            "message": "Can you share?",
+            "enforce_peer_eligibility": True,
+            "requested_duration_hours": None,
+            "requested_duration_mode": None,
+            "extends_grant_id": None,
+            "client_operation_id": None,
+            "command_operation_id": None,
+            "command_directive_id": None,
+        }
+    ]
+
+
+def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) -> None:
+    class GrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "id": "grant-1",
+                "status": "active",
+                "durationMode": "until_stopped",
+                "durationHours": None,
+                "expiresAt": None,
+            }
+
+    service = GrantRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationMode": "until_stopped",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["grant"]["expiresAt"] is None
+    assert service.calls[0]["duration_mode"] == "until_stopped"
+    assert service.calls[0]["duration_hours"] is None
+    assert service.calls[0]["require_recipient_phone_verified"] is False
+    assert service.calls[0]["enforce_connection"] is True
+
+
+def test_private_share_route_accepts_connected_keyed_user_without_phone_claim(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 1,
+            "shareKind": "share",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["grant"]["recipientUserId"] == "user_b"
+
+
+def test_sos_route_uses_account_relationship_and_key_instead_of_phone(monkeypatch) -> None:
+    monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
+    class SosGrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"id": "grant-sos", "status": "active", "shareKind": "sos"}
+
+    service = SosGrantRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 8,
+            "reason": "sos_panic",
+            "shareKind": "sos",
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls[0]["require_recipient_phone_verified"] is False
+
+
+def test_legacy_sos_reason_uses_the_same_phone_independent_policy(monkeypatch) -> None:
+    monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
+    class LegacySosGrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"id": "grant-sos", "status": "active", "shareKind": "sos"}
+
+    service = LegacySosGrantRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 8,
+            "reason": "sos_panic",
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls[0]["require_recipient_phone_verified"] is False
+
+
+def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:
+    class DurationRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def set_grant_duration(self, **kwargs):
+            self.calls.append(kwargs)
+            return authoritative_grant
+
+    grant_id = str(uuid.uuid4())
+    authoritative_grant = {
+        "id": grant_id,
+        "status": "active",
+        "durationMode": "timed",
+        "durationHours": 3.5,
+        "expiresAt": "2026-09-04T15:30:00+00:00",
+    }
+    service = DurationRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.patch(
+        f"/api/one/location/grants/{grant_id}/duration",
+        json={
+            "durationMode": "timed",
+            "durationHours": 3.5,
+            "clientOperationId": "duration-operation-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"grant": authoritative_grant}
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "grant_id": grant_id,
+            "duration_hours": 3.5,
+            "duration_mode": "timed",
+            "client_operation_id": "duration-operation-1",
+        }
+    ]
+
+
+def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "automatic",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": 7,
+        }
+    ]
+
+
+def test_auto_approval_route_rejects_partial_or_unknown_context(monkeypatch) -> None:
+    class RejectProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            raise AssertionError("invalid approval payload reached the service")
+
+    service = RejectProbe()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    rejected_payloads = [
+        {},
+        {"durationHours": 1},
+        {"durationHours": 1, "durationMode": "timed"},
+        {"approvalMode": None},
+        {"approvalMode": "legacy"},
+        {"approvalMode": "manual", "autoApproveRuleVersion": 1},
+        {"approvalMode": "automatic"},
+        {"approvalMode": "automatic", "autoApproveRuleVersion": 0},
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationHours": 1,
+        },
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationMode": "timed",
+        },
+        {"approvalMode": "manual", "autoApproveScopeKind": "all_contacts"},
+        {
+            "approvalMode": "manual",
+            "autoApproveCircleId": "550e8400-e29b-41d4-a716-446655440000",
+        },
+        {"approvalMode": "manual", "autoApproveEnabledAt": "2026-08-24T09:00:00Z"},
+        {"approvalMode": "manual", "automatic": True},
+    ]
+
+    for payload in rejected_payloads:
+        response = client.post(
+            "/api/one/location/requests/request-1/approve",
+            json=payload,
+        )
+        assert response.status_code == 422, payload
+    assert service.calls == []
+
+
+def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    client = _client(service, {"user_id": "owner-from-token"}, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={"approvalMode": "manual", "durationHours": 1},
+    )
+    no_override_response = client.post(
+        "/api/one/location/requests/request-2/approve",
+        json={"approvalMode": "manual"},
+    )
+
+    assert response.status_code == 200
+    assert no_override_response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "manual",
+            "duration_hours": 1,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-2",
+            "approval_mode": "manual",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+    ]
+
+
+def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circle", "circleId": kwargs["circle_id"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circle", "circleId": circle_id},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circle",
+            "circle_id": circle_id,
+            "circle_ids": None,
+        }
+    ]
+
+
+def test_auto_approve_preference_route_binds_multiple_circles(monkeypatch) -> None:
+    """#6468: "circles" (plural) scope carries a list, not one circleId."""
+
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circles", "circleIds": kwargs["circle_ids"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circles", "circleIds": circle_ids},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circles",
+            "circle_id": None,
+            "circle_ids": circle_ids,
+        }
+    ]
+
+
+def test_nearby_check_in_preferences_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_nearby_check_in_defaults(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+
+        def update_nearby_check_in_defaults(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "visible": kwargs["visible"],
+                "allowConnectionRequests": kwargs["allow_connection_requests"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/nearby-check-in-preferences")
+    assert get_response.status_code == 200
+    assert get_response.json() == {
+        "preferences": {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+    }
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/nearby-check-in-preferences",
+        json={"visible": False, "allowConnectionRequests": True},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "visible": False,
+            "allow_connection_requests": True,
+        }
+    ]
+
+
+def test_sos_voice_preference_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_sos_voice_preference(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"defaultAction": "open", "updatedAt": None}
+
+        def update_sos_voice_preference(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "defaultAction": kwargs["default_action"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/sos-voice-preference")
+    assert get_response.status_code == 200
+    assert get_response.json() == {"preference": {"defaultAction": "open", "updatedAt": None}}
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "trigger"},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "default_action": "trigger",
+        }
+    ]
+
+    invalid_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "not-a-real-choice"},
+    )
+    assert invalid_response.status_code == 422
+
+
+def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
+    """The opt-in must reach the service, and must default to off.
+
+    Off by default is the whole point: native bundles already in the field
+    branch on the 404 LOCATION_ENVELOPE_MISSING contract, so a request that does
+    not ask for the relaxed shape must keep getting the old one.
+    """
+
+    class ViewRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def view_latest_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"grant": {"id": "grant-1"}, "envelope": None, "status": "awaiting"}
+
+    service = ViewRouteProbe()
+    current_user = {"user_id": "recipient-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    grant_id = "123e4567-e89b-12d3-a456-426614174000"
+
+    default_response = client.get(f"/api/one/location/grants/{grant_id}/envelope")
+    opted_in = client.get(f"/api/one/location/grants/{grant_id}/envelope?allow_empty=1")
+
+    assert default_response.status_code == 200
+    assert opted_in.status_code == 200
+    assert service.calls[0]["allow_empty"] is False
+    assert service.calls[1]["allow_empty"] is True
+    # The recipient is always bound from the token, never from the query string.
+    assert service.calls[1]["recipient_user_id"] == "recipient-from-token"
+    assert service.calls[1]["grant_id"] == grant_id
 
 
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
@@ -198,7 +937,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     current_user["user_id"] = user_a
     approve_d = client.post(
         f"/api/one/location/requests/{referral['request']['id']}/approve",
-        json={"durationHours": 1},
+        json={"approvalMode": "manual", "durationHours": 1},
     )
     assert approve_d.status_code == 200
     grant_d = approve_d.json()["grant"]
@@ -273,7 +1012,11 @@ def test_public_location_invite_route_creates_request_without_returning_location
     resolve_response = client.get(f"/api/one/location/public-invites/{token}")
     assert resolve_response.status_code == 200
     resolve_payload = resolve_response.json()
-    assert resolve_payload["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's display name, over the wire. It read "A trusted person" for
+    # every link ever minted because create_public_invite never wrote
+    # metadata.owner_safe_label -- the only field this payload consults.
+    assert resolve_payload["invite"]["ownerLabel"] == "User A"
+    # A name, and nothing else: no id, no phone, no email, no raw name field.
     assert "ownerUserId" not in json.dumps(resolve_payload)
     assert "ownerDisplayName" not in json.dumps(resolve_payload)
     assert "ownerMaskedPhone" not in json.dumps(resolve_payload)
@@ -449,11 +1192,14 @@ def test_one_location_retention_purge_rejects_missing_maintenance_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+    assert draft_retention.calls == 0
+    assert run_retention.limits == []
 
 
 def test_one_location_retention_purge_rejects_wrong_maintenance_token(
@@ -480,6 +1226,11 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(
+        monkeypatch,
+        draft_count=2,
+        run_count=3,
+    )
 
     response = client.post(
         "/api/one/location/retention/purge?older_than_hours=12",
@@ -487,7 +1238,13 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     )
 
     assert response.status_code == 200
-    assert response.json()["retention_hours"] == 12
+    client.app.state.command_purge.assert_awaited_once()
+    payload = response.json()
+    assert payload["retention_hours"] == 12
+    assert payload["location_onboarding_drafts"] == 2
+    assert payload["capability_runs"] == 3
+    assert draft_retention.calls == 1
+    assert run_retention.limits == [500]
 
 
 def test_one_location_retention_route_purges_terminal_state_and_preserves_active_envelope(
@@ -497,6 +1254,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
     now = datetime.now(timezone.utc)
     old_grant_id = str(uuid.uuid4())
     active_grant_id = str(uuid.uuid4())
@@ -629,6 +1387,8 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "nearby_presence": {"expired": 0, "deleted": 0},
+        "location_onboarding_drafts": 0,
+        "capability_runs": 0,
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -667,6 +1427,7 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
     monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 
@@ -819,3 +1580,80 @@ def test_create_grant_without_share_kind_preserves_existing_classification(monke
     )
     assert resp2.status_code == 200
     assert resp2.json()["grant"]["shareKind"] == "share"
+
+    # Both of those are in the NON-emergency lane -- `check_in` and `share`
+    # are not separate lanes -- so the second still replaces the first, and
+    # the pair is still left holding exactly one live ordinary grant. Two
+    # lanes, not one lane per kind: without this the fix could quietly become
+    # "never replace anything" and grants would pile up with no Stop for them.
+    assert service.grants[grant["id"]]["status"] == "revoked"
+    assert service.grants[resp2.json()["grant"]["id"]]["status"] == "active"
+
+
+def test_sos_grant_and_normal_share_coexist_over_the_api(monkeypatch) -> None:
+    """End to end over HTTP: the pair holds one live grant in each lane (#5506).
+
+    The service-level tests prove the revoke predicate; this proves the whole
+    route stack agrees, right through to what `getState` hands the client. It
+    is the client-visible half of the fix: `shareKind` comes back on every
+    grant, which is what lets the web app tell the two apart and stop treating
+    one grant as one person.
+    """
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    share = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 4,
+            "shareKind": "share",
+        },
+    )
+    assert share.status_code == 200
+    share_grant = share.json()["grant"]
+    assert share_grant["shareKind"] == "share"
+
+    # Save My Soul only accepts a recipient the owner has already chosen as an
+    # SMS contact, so this is a precondition of the alert, not part of it.
+    contact = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    assert contact.status_code == 200
+
+    sos = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 8,
+            "shareKind": "sos",
+        },
+    )
+    assert sos.status_code == 200
+    sos_grant = sos.json()["grant"]
+    assert sos_grant["shareKind"] == "sos"
+    assert sos_grant["id"] != share_grant["id"]
+
+    state = client.get("/api/one/location/state").json()
+    active = [
+        grant
+        for grant in state["ownerGrants"]
+        if grant["status"] == "active" and grant["recipientUserId"] == "user_b"
+    ]
+    # TWO active grants to one person, which used to be impossible: creating
+    # the SOS grant revoked the four-hour share as a matter of course.
+    assert len(active) == 2
+    assert {grant["id"] for grant in active} == {share_grant["id"], sos_grant["id"]}
+    assert sorted(grant["shareKind"] for grant in active) == ["share", "sos"]
+    # The four-hour share kept its own window; the alert did not shorten it or
+    # stretch it to the emergency lane's eight.
+    surviving = next(grant for grant in active if grant["id"] == share_grant["id"])
+    assert surviving["expiresAt"] == share_grant["expiresAt"]

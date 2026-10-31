@@ -1,9 +1,14 @@
+import { ONE_MEMORY_ACTIONS, ONE_WALLET_ACTIONS, ONE_CALENDAR_ACTIONS, ONE_KYC_ACTIONS, ONE_CRM_ACTIONS, GMAIL_CONNECT_STARTED_ACTIONS, GMAIL_CONNECT_RESULT_ACTIONS, GMAIL_SYNC_RESULT_ACTIONS, type OneLocationJourneyAction, type OneLocationJourneyEntrySurface, type OneLocationJourneyTarget } from "./actions";
+import type { LiveActivityConsolidationPayload } from "./live-activity-telemetry";
+export * from "./actions";
+
 import type { ObservabilityEnvironment } from "@/lib/observability/env";
 import type { RouteId } from "@/lib/observability/route-map";
+import type { LivingSourceInput } from "@/lib/pkm/living-source-records";
 
 export type ObservabilityPlatform = "web" | "ios" | "android";
 export type ObservabilityEventCategory = "funnel" | "feature" | "system";
-export type GrowthJourney = "investor" | "ria";
+export type GrowthJourney = "investor" | "ria" | "location";
 export type GrowthEntrySurface =
   | "login"
   | "kai_home"
@@ -12,6 +17,10 @@ export type GrowthEntrySurface =
   | "marketplace"
   | "ria_home"
   | "ria_onboarding"
+  | "one_location"
+  | "one_location_onboarding"
+  | "circle_join"
+  | "public_location_link"
   | "unknown";
 export type GrowthPortfolioSource = "statement" | "plaid";
 export type GrowthWorkspaceSource =
@@ -31,6 +40,33 @@ export type GrowthRiaStep =
   | "profile_submitted"
   | "request_created"
   | "workspace_ready";
+/**
+ * The One Location acquisition funnel, ordered. Each step is emitted at most
+ * once per user per journey so drop-off between adjacent steps is readable
+ * directly as a ratio. `phone_verified` and `vault_unlocked` are the two gates
+ * imposed by the One auth gate and are the funnel's known friction points.
+ */
+export type GrowthLocationStep =
+  | "entered"
+  | "auth_started"
+  | "auth_completed"
+  | "phone_verified"
+  | "vault_unlocked"
+  | "onboarding_started"
+  | "onboarding_completed"
+  | "circle_created"
+  | "invite_shared"
+  | "first_share_sent";
+/** Which side of a share activated the user. */
+export type GrowthLocationActivationPath = "share_sent" | "share_received";
+/** How the user arrived at the location surface, for viral-loop attribution. */
+export type GrowthLocationInviteSource =
+  | "circle_code"
+  | "circle_member_invite"
+  | "public_link"
+  | "invite_to_one"
+  | "contact_sync"
+  | "direct";
 
 export type ObservabilityEventName =
   | "page_view"
@@ -67,6 +103,7 @@ export type ObservabilityEventName =
   | "ria_workspace_opened"
   | "mcp_ria_read_tool_called"
   | "profile_method_switch_result"
+  | "vault_unlock_result"
   | "account_delete_requested"
   | "account_delete_completed"
   | "account_reset_requested"
@@ -89,6 +126,8 @@ export type ObservabilityEventName =
   | "agent_pkm_context_resolved"
   | "agent_pkm_context_unavailable"
   | "agent_pkm_save_confirmation_completed"
+  | "live_memory_source_verified"
+  | "live_activity_consolidation_completed"
   | "one_location_foreground_retry"
   | "one_location_share_confirmed"
   | "one_location_contact_signal_synced"
@@ -96,15 +135,24 @@ export type ObservabilityEventName =
   | "one_location_public_link_created"
   | "one_location_circle_invite_created"
   | "one_location_recommendation_selected"
-  | "one_location_share_review_opened";
+  | "one_location_share_review_opened"
+  | "one_location_onboarding_completed"
+  | "one_location_activation_completed"
+  | "one_location_setup_completed"
+  | "one_location_check_in_completed"
+  | "one_location_check_out_completed"
+  | "one_location_visit_rated"
+  | "one_location_review_handoff_opened"
+  | "one_location_circle_created"
+  | "one_location_sos_triggered"
+  | "one_location_journey_action"
+  | "one_memory_action"
+  | "one_wallet_action"
+  | "one_calendar_action"
+  | "one_kyc_action"
+  | "one_crm_action";
 
-export type StatusBucket =
-  | "2xx"
-  | "3xx"
-  | "4xx_expected"
-  | "4xx_unexpected"
-  | "5xx"
-  | "network_error";
+export type StatusBucket = "2xx" | "3xx" | "4xx_expected" | "4xx_unexpected" | "5xx" | "network_error";
 
 export type DurationBucket =
   | "lt_100ms"
@@ -113,6 +161,45 @@ export type DurationBucket =
   | "1s_3s"
   | "3s_10s"
   | "gte_10s";
+
+/**
+ * Minute-scale durations for background work that is measured in minutes,
+ * not milliseconds. `unknown` is a duration nobody could measure, which is
+ * not the same as a long one.
+ */
+export const MINUTE_DURATION_BUCKETS = [
+  "lt_1m",
+  "1m_5m",
+  "5m_15m",
+  "15m_1h",
+  "gte_1h",
+  "unknown",
+] as const;
+export type MinuteDurationBucket = (typeof MINUTE_DURATION_BUCKETS)[number];
+
+/** Non-overlapping bands, with no exact count above one. `unknown` is a count nobody could take. */
+export const COUNT_BUCKETS = ["0", "1", "2_5", "6_20", "gt_20", "unknown"] as const;
+export type CountBucket = (typeof COUNT_BUCKETS)[number];
+
+/** How a living source check ended: read in full, could not be read, or refused at a bound. */
+export const LIVE_MEMORY_SOURCE_OUTCOMES = ["verified", "unavailable", "capped"] as const;
+export type LiveMemorySourceOutcome = (typeof LIVE_MEMORY_SOURCE_OUTCOMES)[number];
+
+/**
+ * The admitted living source kinds. Never a record, a value or an owner.
+ * Listed here so the schema can refuse any other value at runtime; a kind
+ * admitted later fails to compile at the sync's emitter until it is added.
+ */
+export const LIVE_MEMORY_SOURCE_KINDS = [
+  "profile",
+  "consent",
+  "connection",
+  "curated_oauth_connector",
+  "document_earning",
+  "payout_activity",
+  "document_request_payment",
+] as const satisfies readonly LivingSourceInput["kind"][];
+export type LiveMemorySourceKind = (typeof LIVE_MEMORY_SOURCE_KINDS)[number];
 
 export type EventResult = "success" | "expected_error" | "error";
 export type CacheTier =
@@ -163,7 +250,23 @@ export type PkmFactCountBucket =
   | "50_249"
   | "250_plus";
 
-export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
+/** Non-overlapping, and no exact non-zero count. */
+export type ConsentPendingCountBucket =
+  | "0"
+  | "1_3"
+  | "4_10"
+  | "11_plus";
+/** Whether a pending-consent load was a real screen view or a background warm. */
+export type ConsentPendingLoadSurface = "screen" | "warm";
+export type AuthMethod =
+  | "google"
+  | "apple"
+  | "microsoft"
+  | "email"
+  | "enterprise_sso"
+  | "reviewer"
+  | "redirect"
+  | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
 export interface EventContext {
@@ -171,6 +274,7 @@ export interface EventContext {
   platform: ObservabilityPlatform;
   event_category: ObservabilityEventCategory;
   app_version: string;
+  app_build?: string;
   route_id?: RouteId;
 }
 
@@ -212,6 +316,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   ria_workspace_opened: "system",
   mcp_ria_read_tool_called: "system",
   profile_method_switch_result: "system",
+  vault_unlock_result: "system",
   account_delete_requested: "system",
   account_delete_completed: "system",
   account_reset_requested: "system",
@@ -234,14 +339,31 @@ const EVENT_CATEGORY_BY_NAME: Record<
   agent_pkm_context_resolved: "system",
   agent_pkm_context_unavailable: "system",
   agent_pkm_save_confirmation_completed: "system",
+  live_memory_source_verified: "system",
+  live_activity_consolidation_completed: "system",
   one_location_foreground_retry: "feature",
   one_location_share_confirmed: "feature",
   one_location_contact_signal_synced: "feature",
+  one_location_onboarding_completed: "feature",
   one_location_request_sent: "feature",
   one_location_public_link_created: "feature",
   one_location_circle_invite_created: "feature",
   one_location_recommendation_selected: "feature",
   one_location_share_review_opened: "feature",
+  one_location_activation_completed: "funnel",
+  one_location_setup_completed: "funnel",
+  one_location_check_in_completed: "feature",
+  one_location_check_out_completed: "feature",
+  one_location_visit_rated: "feature",
+  one_location_review_handoff_opened: "feature",
+  one_location_circle_created: "feature",
+  one_location_sos_triggered: "feature",
+  one_location_journey_action: "feature",
+  one_memory_action: "feature",
+  one_wallet_action: "feature",
+  one_calendar_action: "feature",
+  one_kyc_action: "feature",
+  one_crm_action: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -251,6 +373,33 @@ export function resolveObservabilityEventCategory(
 }
 
 export interface EventPayloadMap {
+  /** Deliberate feature actions only. Never include content, card data or workflow IDs. */
+  one_memory_action: {
+    route_id: RouteId;
+    action: (typeof ONE_MEMORY_ACTIONS)[number];
+    result: EventResult;
+  };
+  one_wallet_action: {
+    route_id: RouteId;
+    action: (typeof ONE_WALLET_ACTIONS)[number];
+    result: EventResult;
+  };
+  one_calendar_action: {
+    route_id: RouteId;
+    action: (typeof ONE_CALENDAR_ACTIONS)[number];
+    result: EventResult;
+  };
+  one_kyc_action: {
+    route_id: RouteId;
+    action: (typeof ONE_KYC_ACTIONS)[number];
+    result: EventResult;
+  };
+  /** Development-only CRM owner actions; never a public-production KPI. */
+  one_crm_action: {
+    route_id: RouteId;
+    action: (typeof ONE_CRM_ACTIONS)[number];
+    result: EventResult;
+  };
   page_view: {
     route_id: RouteId;
     nav_type?: "route_change" | "initial_load" | "redirect";
@@ -327,6 +476,23 @@ export interface EventPayloadMap {
   };
   consent_pending_loaded: {
     result: EventResult;
+    /**
+     * Screen view or background prefetch. The warm orchestrator calls this
+     * endpoint on every unlock, so without this the count is dominated by
+     * loads for a screen nobody opened.
+     */
+    load_surface: ConsentPendingLoadSurface;
+    /**
+     * How many requests were waiting, bucketed.
+     *
+     * Without this the Consent Center is unfalsifiable. It loads 2,574 times
+     * for 85 people a month and `consent_action_submitted` has never once
+     * fired, and there is currently no way to tell whether that means people
+     * are ignoring decisions put in front of them or opening a screen that had
+     * nothing on it. Those two readings call for opposite work, and for a
+     * consent-first product it is the wrong question to be unable to answer.
+     */
+    pending_count_bucket?: ConsentPendingCountBucket;
   };
   consent_action_submitted: {
     action: ConsentAction;
@@ -379,6 +545,11 @@ export interface EventPayloadMap {
   profile_method_switch_result: {
     result: EventResult;
   };
+  vault_unlock_result: {
+    method: "passphrase";
+    result: EventResult;
+    error_class?: string;
+  };
   account_delete_requested: {
     result: "success";
   };
@@ -394,11 +565,11 @@ export interface EventPayloadMap {
     status_bucket?: StatusBucket;
   };
   gmail_connect_started: {
-    action: "incremental" | "full";
+    action: (typeof GMAIL_CONNECT_STARTED_ACTIONS)[number];
     result: "success";
   };
   gmail_connect_result: {
-    action: "start" | "complete";
+    action: (typeof GMAIL_CONNECT_RESULT_ACTIONS)[number];
     result: EventResult;
   };
   gmail_disconnect_result: {
@@ -409,7 +580,7 @@ export interface EventPayloadMap {
     result: "success";
   };
   gmail_sync_result: {
-    action: "queue" | "already_running";
+    action: (typeof GMAIL_SYNC_RESULT_ACTIONS)[number];
     result: EventResult;
   };
   gmail_receipts_loaded: {
@@ -417,11 +588,12 @@ export interface EventPayloadMap {
   };
   growth_funnel_step_completed: {
     journey: GrowthJourney;
-    step: GrowthInvestorStep | GrowthRiaStep;
+    step: GrowthInvestorStep | GrowthRiaStep | GrowthLocationStep;
     entry_surface?: GrowthEntrySurface;
     auth_method?: AuthMethod;
     portfolio_source?: GrowthPortfolioSource;
     workspace_source?: GrowthWorkspaceSource;
+    invite_source?: GrowthLocationInviteSource;
     app_version: string;
   };
   investor_activation_completed: {
@@ -436,6 +608,25 @@ export interface EventPayloadMap {
     entry_surface?: GrowthEntrySurface;
     auth_method?: AuthMethod;
     workspace_source?: GrowthWorkspaceSource;
+    app_version: string;
+  };
+  /**
+   * The One Location north-star. A user is activated once location has actually
+   * moved between two people — sent or received. Onboarding completion alone
+   * does not count: a user who never shares has not used a sharing product.
+   * Emitted at most once per user; see LOCATION_ACTIVATION_DEDUPE_KEY.
+   */
+  one_location_activation_completed: {
+    journey: "location";
+    /** Which side of the exchange activated them. */
+    activation_path: GrowthLocationActivationPath;
+    entry_surface?: GrowthEntrySurface;
+    auth_method?: AuthMethod;
+    /** How they originally arrived, so viral joins are separable from cold ones. */
+    invite_source?: GrowthLocationInviteSource;
+    /** Bucketed, never a raw recipient list. */
+    recipient_count_bucket?: string;
+    share_duration_bucket?: string;
     app_version: string;
   };
   api_request_completed: {
@@ -500,7 +691,7 @@ export interface EventPayloadMap {
   agent_pkm_context_resolved: {
     route_id: "agent";
     result: "success";
-    context_mode: "relevant" | "broad";
+    context_mode: "full";
     total_fact_count_bucket: PkmFactCountBucket;
     selected_fact_count_bucket: PkmFactCountBucket;
     context_clipped: boolean;
@@ -520,6 +711,29 @@ export interface EventPayloadMap {
     failed_count_bucket: PkmFactCountBucket;
     has_active_recipients: boolean;
   };
+  /**
+   * One living source was checked by the Live Memory background sync and the
+   * encrypted store succeeded. At most one per kind per build. A source reused
+   * from its freshness window, or left waiting on its retry delay, emits nothing,
+   * and the always-read profile is reported only when the build wrote a change,
+   * so a quiet wake emits nothing at all.
+   *
+   * Buckets only, each a closed set the schema enforces. No owner, record id,
+   * value, timestamp or exact count may be added: the lag bucket already says
+   * how long a committed change waited for its encrypted write, and that is the
+   * whole measurement.
+   */
+  live_memory_source_verified: {
+    kind: LiveMemorySourceKind;
+    outcome: LiveMemorySourceOutcome;
+    /** Commit-to-encrypted-write lag of the oldest change this check cleared. */
+    lag_bucket: MinuteDurationBucket;
+    /** Committed changes waiting on this source when the build ran. */
+    pending_bucket: CountBucket;
+    /** Failed reads in a row before this one. */
+    retry_bucket: CountBucket;
+  };
+  live_activity_consolidation_completed: LiveActivityConsolidationPayload;
   one_location_foreground_retry: {
     route_id: RouteId;
     operation: string;
@@ -539,6 +753,137 @@ export interface EventPayloadMap {
     failure_count: number;
     duration_bucket: string;
     review_required: boolean;
+  };
+  /**
+   * Finished the full One Location setup, as distinct from finishing the
+   * onboarding cards. Setup is the one-time lock — once complete the setup
+   * screen becomes unreachable — so this is the honest "fully set up" signal.
+   */
+  one_location_setup_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    /**
+     * How many times settlement had to be retried before it stuck. Non-zero
+     * values mean people are pressing "finish" and being bounced back, which is
+     * invisible in a plain completion count.
+     */
+    settlement_retries: number;
+  };
+  /**
+   * A one-off "I'm here" reached at least one person. Separate from
+   * `one_location_share_confirmed` because Check-In currently also emits that
+   * event, which makes the two features indistinguishable in reporting — you
+   * cannot tell whether people share live location or just check in.
+   */
+  one_location_check_in_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    /** Whether a Circle was the target rather than hand-picked people. */
+    circle_targeted: boolean;
+  };
+  /** A confirmed end of an active Nearby presence, with no place or coordinates. */
+  one_location_check_out_completed: {
+    route_id: RouteId;
+    result: EventResult;
+  };
+  /**
+   * Somebody rated the place they just checked out of.
+   *
+   * `stars` and two booleans, and nothing else. A key named `note_text`,
+   * `place_name` or `review_message` would match `DENYLIST_KEY_REGEX` and be
+   * silently dropped by the sanitizer -- shipping an event that looks correct
+   * and carries nothing, which is worse than not sending it.
+   */
+  one_location_visit_rated: {
+    route_id: RouteId;
+    result: EventResult;
+    /** 1-5. The rating itself is not personal data; which place it was for is. */
+    stars: number;
+    /** Whether a note was written. Never the note. */
+    has_note: boolean;
+    /** Whether the Google hand-off could be offered at all. */
+    has_place_id: boolean;
+  };
+  /**
+   * The Google review composer was opened.
+   *
+   * Once they leave, nothing we can observe tells us whether they posted -- so
+   * the tap is the only signal this integration will ever produce.
+   */
+  one_location_review_handoff_opened: {
+    route_id: RouteId;
+    /** Constant "google_maps" today; a second destination would need its own. */
+    destination: string;
+  };
+  one_location_circle_created: {
+    route_id: RouteId;
+    result: EventResult;
+    /** family | friends | other — the Circle kind, never its name. */
+    circle_kind: string;
+  };
+  one_location_journey_action: {
+    route_id: RouteId;
+    action: OneLocationJourneyAction;
+    result: EventResult;
+    entry_surface: OneLocationJourneyEntrySurface;
+    target_type: OneLocationJourneyTarget;
+    /** family | friends | other | trusted | sms | unknown; never a Circle name. */
+    circle_kind?: string;
+    /** A low-cardinality volume band such as 1, 2_3, 4_10, 10_plus. */
+    count_bucket?: string;
+  };
+  /**
+   * An emergency alert was sent.
+   *
+   * Deliberately minimal. This records only that the safety feature fired and
+   * whether it actually reached anyone — never the message, never the
+   * coordinates, never who was contacted, not even a bucketed hint that could
+   * narrow a household down. We instrument it because an emergency feature that
+   * silently fails to alert anybody is the most important bug this product
+   * could have, and `reached_count` of zero is how we would find out.
+   */
+  one_location_sos_triggered: {
+    route_id: RouteId;
+    result: EventResult;
+    /** People selected to alert. */
+    selected_count: number;
+    /** People whose device was actually alerted. Zero means the alert failed. */
+    reached_count: number;
+    /** Selected but not alertable by push — notifications off, or no token. */
+    unreachable_count: number;
+    /**
+     * Reached by the email fallback. Push and email are separate channels, and
+     * an alert where every push failed but inboxes received it is not an alert
+     * that reached nobody — recording it as one would send an investigation
+     * after the wrong channel.
+     */
+    emailed_count: number;
+    /** Whether a message accompanied the alert. Never the message itself. */
+    has_note: boolean;
+  };
+  /**
+   * Location onboarding reached its end. Without this the redesign is
+   * unfalsifiable: there is no way to tell whether removing the contact picker
+   * moved drop-off, or where people leave now.
+   */
+  one_location_onboarding_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    /** How they left: finished the last screen, or skipped from any screen. */
+    exited_via: "complete" | "skip";
+    /** Whether the share sheet was opened for the circle code. */
+    code_shared: boolean;
+    /** Whether the code was copied to the clipboard. */
+    code_copied: boolean;
+    /** How many screens were seen before leaving. */
+    screens_seen: number;
+    /** Contacts found to already be on One, 0 when the step was declined. */
+    contacts_matched: number;
+    /** How many of those matches were actually added. */
+    contacts_added: number;
   };
   one_location_contact_signal_synced: {
     route_id: RouteId;

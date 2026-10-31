@@ -16,15 +16,87 @@ readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"
 readonly BACKEND_ARTIFACT_LOCATION="us"
 readonly ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
 readonly ATTRIBUTE_CONDITION="assertion.sub == 'repo:${GITHUB_REPOSITORY}:environment:${GITHUB_ENVIRONMENT}' && assertion.ref == 'refs/heads/main'"
+readonly PREREQUISITE_READ_ROLE_ID="productionDrivePrerequisiteReader"
+readonly PREREQUISITE_READ_ROLE="projects/${PROD_PROJECT_ID}/roles/${PREREQUISITE_READ_ROLE_ID}"
+readonly PREREQUISITE_READ_ROLE_STAGE="GA"
+readonly -a PREREQUISITE_READ_PERMISSIONS=(
+  "apikeys.keys.list"
+  "apikeys.keys.getKeyString"
+  "resourcemanager.projects.getIamPolicy"
+)
+readonly CLEANUP_SCHEDULER_ROLE_ID="accountDeletionSchedulerOperator"
+readonly CLEANUP_SCHEDULER_ROLE="projects/${PROD_PROJECT_ID}/roles/${CLEANUP_SCHEDULER_ROLE_ID}"
+readonly CLEANUP_SCHEDULER_ROLE_STAGE="GA"
+readonly -a CLEANUP_SCHEDULER_PERMISSIONS=(
+  "cloudscheduler.jobs.create"
+  "cloudscheduler.jobs.enable"
+  "cloudscheduler.jobs.get"
+  "cloudscheduler.jobs.list"
+  "cloudscheduler.jobs.pause"
+  "cloudscheduler.jobs.run"
+  "cloudscheduler.jobs.update"
+  "cloudscheduler.locations.list"
+)
 
 readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/cloudbuild.builds.editor"
+  "roles/cloudsql.client"
+  "roles/cloudsql.viewer"
+  "roles/logging.logWriter"
+  "roles/logging.viewer"
   "roles/run.admin"
   "roles/secretmanager.admin"
   "roles/secretmanager.secretAccessor"
   "roles/serviceusage.serviceUsageConsumer"
   "roles/storage.admin"
+  "${CLEANUP_SCHEDULER_ROLE}"
+  "projects/${PROD_PROJECT_ID}/roles/predeployBackupOperator"
+  "${PREREQUISITE_READ_ROLE}"
 )
+
+configure_custom_role() {
+  local role_id="$1" role="$2" stage="$3" permissions="$4" title="$5" description="$6" label="$7"
+  local existing_role
+  if ! existing_role="$(gcloud iam roles list --project="${PROD_PROJECT_ID}" \
+    --filter="name=${role}" --format='value(name)' 2>/dev/null)"; then
+    echo "Unable to inspect the ${label}." >&2
+    return 1
+  fi
+  local role_action
+  case "${existing_role}" in
+    '') role_action=create ;;
+    "${role}") role_action=update ;;
+    *) echo "Unexpected ${label} metadata." >&2; return 1 ;;
+  esac
+  if ! gcloud iam roles "${role_action}" "${role_id}" \
+    --project="${PROD_PROJECT_ID}" \
+    --title="${title}" \
+    --description="${description}" \
+    --permissions="${permissions}" \
+    --stage="${stage}" \
+    --quiet \
+    --format=none >/dev/null 2>&1; then
+    echo "Unable to configure the ${label}." >&2
+    return 1
+  fi
+}
+
+configure_prerequisite_read_role() {
+  # API-key reads remain separate from Scheduler control and grant authority.
+  configure_custom_role "$PREREQUISITE_READ_ROLE_ID" "$PREREQUISITE_READ_ROLE" \
+    "$PREREQUISITE_READ_ROLE_STAGE" "$(IFS=,; printf '%s' "${PREREQUISITE_READ_PERMISSIONS[*]}")" \
+    "Production Drive prerequisite reader" \
+    "Read API keys and project IAM policy for production deploy prerequisite checks." \
+    "production prerequisite read role"
+}
+
+configure_cleanup_scheduler_role() {
+  configure_custom_role "$CLEANUP_SCHEDULER_ROLE_ID" "$CLEANUP_SCHEDULER_ROLE" \
+    "$CLEANUP_SCHEDULER_ROLE_STAGE" "$(IFS=,; printf '%s' "${CLEANUP_SCHEDULER_PERMISSIONS[*]}")" \
+    "Production cleanup Scheduler operator" \
+    "Configure, invoke, pause and resume production cleanup and Drive Scheduler jobs." \
+    "production cleanup Scheduler role"
+}
 
 add_project_role_binding() {
   local deploy_role="$1"
@@ -130,6 +202,9 @@ gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SERVICE_ACCOUNT_EM
   --quiet \
   --format=none
 
+configure_prerequisite_read_role
+configure_cleanup_scheduler_role
+
 for deploy_role in "${DEPLOY_PROJECT_ROLES[@]}"; do
   add_project_role_binding "${deploy_role}"
 done
@@ -154,5 +229,14 @@ printf '%s' "${DEPLOY_SERVICE_ACCOUNT_EMAIL}" | gh variable set GCP_DEPLOY_SERVI
   --env="${GITHUB_ENVIRONMENT}"
 
 python3 scripts/ci/verify-deployment-environment-governance.py --surface production
+
+# Read back what GCP actually has and compare it to the literals above. This file is
+# the authoritative record of who may mint a production deploy token; until now
+# nothing compared that record to reality, so a console edit to the provider or an
+# out-of-band role binding on the deploy account was undetectable. The check runs
+# here because this is the one place the operator credential can read IAM -- the
+# deploy lane's federated identity is scoped to deploying and cannot.
+python3 scripts/ci/verify-deploy-identity-provenance.py \
+  --report-path /tmp/production-deploy-identity.json
 
 echo "Production GitHub WIF configuration is ready."

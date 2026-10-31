@@ -1,7 +1,7 @@
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 type GatewaySettlementOptions = {
   getCurrentRoute: () => AppRuntimeState["route"] | undefined;

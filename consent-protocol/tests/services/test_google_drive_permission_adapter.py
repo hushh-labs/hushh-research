@@ -1,0 +1,829 @@
+"""Synthetic HTTP only: no Google account, grant or credential is used."""
+
+# ruff: noqa: S106
+
+import asyncio
+import json
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+
+from hushh_mcp.services import google_drive_permission_adapter as acl
+from mcp_modules.log_redaction import redact_log_value
+
+
+def permission(**changes):
+    return {
+        "id": "synthetic-permission",
+        "type": "user",
+        "role": "reader",
+        "emailAddress": "recipient@example.invalid",
+        **changes,
+    }
+
+
+class Stream(httpx.AsyncByteStream):
+    def __init__(self, data):
+        self.data = data
+
+    async def __aiter__(self):
+        yield self.data
+
+
+def response(status=200, payload=None, *, content=None, headers=None):
+    return httpx.Response(
+        status,
+        stream=Stream(content if content is not None else json.dumps(payload).encode()),
+        headers=headers,
+    )
+
+
+def install(monkeypatch, handler):
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+
+
+def arguments():
+    return {
+        "file_id": "synthetic-file",
+        "access_token": "synthetic-token",
+        "require_current": AsyncMock(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_removing_permission_does_not_require_content_or_index_eligibility(monkeypatch):
+    install(
+        monkeypatch,
+        lambda request: response(
+            payload={
+                "id": "synthetic-file",
+                "isAppAuthorized": True,
+                "mimeType": "application/pdf",
+                "version": "999",
+                "capabilities": {
+                    "canShare": True,
+                    "canDownload": False,
+                    "canAccessViaGenAi": False,
+                },
+            }
+        ),
+    )
+    await acl.GoogleDrivePermissionAdapter().inspect_permission_management(**arguments())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mime", [None, "", "application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut"]
+)
+async def test_permission_management_rejects_unapproved_target_types(monkeypatch, mime):
+    install(
+        monkeypatch,
+        lambda request: response(
+            payload={
+                "id": "synthetic-file",
+                "isAppAuthorized": True,
+                "mimeType": mime,
+                "capabilities": {"canShare": True},
+            }
+        ),
+    )
+    with pytest.raises(acl.DrivePermissionError, match="permission_target_unavailable"):
+        await acl.GoogleDrivePermissionAdapter().inspect_permission_management(**arguments())
+
+
+@pytest.mark.asyncio
+async def test_fixed_individual_viewer_contract(monkeypatch):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(payload=permission())
+
+    install(monkeypatch, handle)
+    result = await acl.GoogleDrivePermissionAdapter().create_reader(
+        **arguments(), verified_email="recipient@example.invalid"
+    )
+    request = seen[0]
+    assert len(seen) == 1
+    assert request.method == "POST"
+    assert request.url.host == "www.googleapis.com"
+    assert request.url.path == "/drive/v3/files/synthetic-file/permissions"
+    assert json.loads(request.content) == {
+        "type": "user",
+        "role": "reader",
+        "emailAddress": "recipient@example.invalid",
+    }
+    assert dict(request.url.params) == {
+        "supportsAllDrives": "true",
+        "fields": acl.PERMISSION_FIELDS,
+        "sendNotificationEmail": "true",
+    }
+    assert result.permission_id == "synthetic-permission"
+    assert "X-Goog-Drive-Resource-Keys" not in request.headers
+    assert "recipient" not in repr(result)
+    assert "synthetic-permission" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_resource_key_is_bound_to_exact_file_in_all_grant_headers(monkeypatch, caplog):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        if request.method == "POST":
+            return response(payload=permission())
+        if request.url.path.endswith("/permissions"):
+            return response(
+                payload={
+                    "permissions": [],
+                    **({"nextPageToken": "next"} if "pageToken" not in request.url.params else {}),
+                }
+            )
+        return response(
+            payload={
+                "id": "synthetic-file",
+                "version": "7",
+                "mimeType": "text/plain",
+                "trashed": False,
+                "isAppAuthorized": True,
+                "capabilities": {"canShare": True, "canDownload": True, "canAccessViaGenAi": True},
+            }
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    args = {**arguments(), "resource_key": "0-synthetic_resource-key"}
+    await adapter.inspect_shareable(**args, expected_version="7")
+    await adapter.list_permissions(**args)
+    await adapter.create_reader(**args, verified_email="recipient@example.invalid")
+    assert len(seen) == 4
+    for request in seen:
+        assert request.headers["X-Goog-Drive-Resource-Keys"] == (
+            "synthetic-file/0-synthetic_resource-key"
+        )
+        assert "synthetic_resource-key" not in str(request.url) + request.content.decode()
+    assert "synthetic_resource-key" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resource_key", ["", "key/other", "key,other/key", "key\r\nX-Evil: value", "k" * 201, 1]
+)
+async def test_resource_key_format_cannot_add_another_target_or_header(monkeypatch, resource_key):
+    def unexpected(_request):
+        raise AssertionError("must not dispatch")
+
+    install(monkeypatch, unexpected)
+    args = arguments()
+    with pytest.raises(acl.DrivePermissionError, match="^operation_not_allowed$"):
+        await acl.GoogleDrivePermissionAdapter().list_permissions(**args, resource_key=resource_key)
+    args["require_current"].assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded"])
+@pytest.mark.parametrize("operation", ["inspect", "list"])
+async def test_documented_403_rate_limit_is_a_safe_read_retry(
+    monkeypatch, caplog, reason, operation
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(
+            403,
+            payload={
+                "error": {
+                    "code": 403,
+                    "errors": [{"reason": reason, "message": "PRIVATE PROVIDER DETAIL"}],
+                }
+            },
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(
+        acl.DrivePermissionError, match="^permission_provider_unavailable$"
+    ) as caught:
+        if operation == "inspect":
+            await adapter.inspect_permission_management(**arguments())
+        else:
+            await adapter.list_permissions(**arguments())
+    assert caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert len(seen) == 1
+    assert "PRIVATE" not in str(caught.value) + caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded"])
+@pytest.mark.parametrize("operation", ["create", "remove"])
+async def test_403_rate_limited_write_requires_reconciliation_without_replay(
+    monkeypatch, reason, operation
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(403, payload={"error": {"code": 403, "errors": [{"reason": reason}]}})
+
+    install(monkeypatch, handle)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        if operation == "create":
+            await adapter.create_reader(
+                **arguments(),
+                verified_email="recipient@example.invalid",
+                resource_key="synthetic-key",
+            )
+        else:
+            await adapter.remove_recorded_permission(
+                **arguments(), recorded_permission_id="synthetic-permission"
+            )
+    assert caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode", ["policy", "mixed", "message_only", "malformed", "oversized", "compressed"]
+)
+async def test_other_or_unverified_403_reasons_never_become_retryable(monkeypatch, mode):
+    payload = {"error": {"code": 403, "errors": [{"reason": "rateLimitExceeded"}]}}
+    headers, content = None, None
+    if mode == "policy":
+        payload["error"]["errors"] = [{"reason": "insufficientFilePermissions"}]
+    elif mode == "mixed":
+        payload["error"]["errors"].append({"reason": "domainPolicy"})
+    elif mode == "message_only":
+        payload["error"]["errors"] = [{"message": "PRIVATE rateLimitExceeded"}]
+    elif mode == "malformed":
+        content = b"PRIVATE INVALID JSON"
+    elif mode == "oversized":
+        content = json.dumps(payload).encode() + b" " * acl.ERROR_RESPONSE_LIMIT
+    else:
+        headers = {"Content-Encoding": "gzip"}
+    install(
+        monkeypatch,
+        lambda _request: response(403, payload=payload, content=content, headers=headers),
+    )
+    with pytest.raises(acl.DrivePermissionError, match="^permission_target_unavailable$") as caught:
+        await acl.GoogleDrivePermissionAdapter().list_permissions(**arguments())
+    assert not caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert "PRIVATE" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "timeout",
+        "503",
+        "redirect",
+        "malformed",
+        "wrong-role",
+        "wrong-email",
+        "oversized",
+        "compressed",
+        "expires",
+        "pending-owner",
+    ],
+)
+async def test_uncertain_mutation_never_retries(monkeypatch, mode):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        if mode == "timeout":
+            raise httpx.ReadTimeout("PRIVATE PROVIDER DETAIL", request=request)
+        if mode == "503":
+            return response(503, content=b"PRIVATE")
+        if mode == "redirect":
+            return response(302, headers={"Location": "https://attacker.invalid"})
+        if mode == "malformed":
+            return response(content=b"PRIVATE INVALID JSON")
+        if mode == "oversized":
+            return response(content=b" " * (acl.RESPONSE_LIMIT + 1))
+        if mode == "compressed":
+            return response(payload=permission(), headers={"Content-Encoding": "gzip"})
+        changes = {
+            "wrong-role": {"role": "writer"},
+            "wrong-email": {"emailAddress": "else@example.invalid"},
+            "expires": {"expirationTime": "2030-01-01T00:00:00Z"},
+            "pending-owner": {"pendingOwner": True},
+        }
+        return response(payload=permission(**changes[mode]))
+
+    install(monkeypatch, handle)
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid"
+        )
+    assert caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert len(seen) == 1
+    assert "PRIVATE" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,reason,code",
+    [
+        # Negative control for invalidSharingRequest: a plain bad request.
+        (400, "badRequest", "permission_rejected"),
+        # Workspace sharing policy on the owner's domain or shared drive.
+        (403, "shareOutNotPermitted", "drive_policy_blocked"),
+        (403, "teamDriveDomainUsersOnlyRestriction", "drive_policy_blocked"),
+        # A shared drive that refuses addresses without a Google account.
+        (403, "cannotShareTeamDriveWithNonGoogleAccounts", "recipient_needs_google_account"),
+        # Negative control: an unclassified 403 keeps its existing code.
+        (403, "insufficientFilePermissions", "permission_target_unavailable"),
+        # The file was deleted or trashed after the search confirmed it.
+        (404, "notFound", "permission_target_unavailable"),
+    ],
+)
+async def test_definitive_grant_refusals_are_one_per_file_outcome(
+    monkeypatch, caplog, status, reason, code
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(status, {"error": {"code": status, "errors": [{"reason": reason}]}})
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    with pytest.raises(acl.DrivePermissionError, match=f"^{code}$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # Google answered: the bulk worker records this file and moves on. It is
+    # neither an unknown outcome to reconcile nor a POST to repeat.
+    assert not caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert caught.value.share_hint is None
+    assert len(seen) == 1 and seen[0].url.params["sendNotificationEmail"] == "false"
+    # Provider reasons are counted by fixed class, never logged verbatim.
+    assert reason not in caplog.text
+    # The logged label survives the production redactor, which masks long
+    # `_`-joined tokens as possible identifiers.
+    label = code.replace("_", ".")
+    assert f"outcome={label} " in caplog.text
+    assert redact_log_value(label) == label
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,hint",
+    [
+        # Google's guide: this 400 follows a share that did happen.
+        (
+            'Bad Request. User message: "Sorry, the items were successfully shared but '
+            'emails could not be sent to recipient@example.invalid."',
+            "shared_without_email",
+        ),
+        # Notification email off for an address without a Google account.
+        (
+            'Bad Request. User message: "You are trying to invite recipient@example.invalid. '
+            "Since there is no Google account associated with this email address, you must "
+            'check the "Notify people" box to invite this recipient."',
+            "recipient_needs_google_account",
+        ),
+        ('Bad Request. User message: "ACL change not allowed."', "drive_policy_blocked"),
+        # Unrecognized wording: still reconciled, with no guessed reason.
+        ("PRIVATE new wording about recipient@outside.invalid", "invalid_sharing_request"),
+    ],
+)
+async def test_invalid_sharing_request_is_reconciled_never_settled_as_rejected(
+    monkeypatch, caplog, message, hint
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(
+            400,
+            {
+                "error": {
+                    "code": 400,
+                    "message": "Bad Request",
+                    "errors": [
+                        {"domain": "global", "reason": "invalidSharingRequest", "message": message}
+                    ],
+                }
+            },
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # A grant may exist: the caller reconciles with permissions.list.
+    assert caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert caught.value.share_hint == hint
+    assert len(seen) == 1
+    assert "reason=invalid_sharing" in caplog.text
+    for private in ("recipient@example.invalid", "PRIVATE", "outside.invalid", "Notify"):
+        assert private not in caplog.text + str(caught.value) + repr(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["malformed", "oversized", "compressed"])
+async def test_unreadable_400_on_create_cannot_rule_out_a_real_share(monkeypatch, mode):
+    payload = {"error": {"code": 400, "errors": [{"reason": "invalidSharingRequest"}]}}
+    headers, content = None, None
+    if mode == "malformed":
+        content = b"PRIVATE INVALID JSON"
+    elif mode == "oversized":
+        content = json.dumps(payload).encode() + b" " * acl.ERROR_RESPONSE_LIMIT
+    else:
+        headers = {"Content-Encoding": "gzip"}
+    install(
+        monkeypatch,
+        lambda _request: response(400, payload=payload, content=content, headers=headers),
+    )
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    assert caught.value.outcome_unknown
+    assert caught.value.share_hint is None
+
+
+@pytest.mark.asyncio
+async def test_sharing_rate_limit_is_a_create_refusal_retried_only_after_reconciling(
+    monkeypatch,
+):
+    reasons = [{"reason": "sharingRateLimitExceeded", "message": "PRIVATE recipient detail"}]
+    install(
+        monkeypatch,
+        lambda _request: response(403, {"error": {"code": 403, "errors": reasons}}),
+    )
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(acl.DrivePermissionError, match="^sharing_rate_limited$") as caught:
+        await adapter.create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # Google refused the share itself: retry later, through the absence check.
+    assert caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert "PRIVATE" not in str(caught.value)
+    # Negative controls: only a create gets this outcome, and a mixed quota
+    # answer is reconciled instead of being read as a refusal.
+    with pytest.raises(acl.DrivePermissionError, match="^permission_target_unavailable$"):
+        await adapter.list_permissions(**arguments())
+    reasons.append({"reason": "rateLimitExceeded"})
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as mixed:
+        await adapter.create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    assert mixed.value.outcome_unknown and not mixed.value.retryable
+
+
+@pytest.mark.asyncio
+async def test_cancellation_after_dispatch_is_not_a_safe_retry(monkeypatch):
+    dispatched = asyncio.Event()
+
+    async def handle(_request):
+        dispatched.set()
+        await asyncio.Event().wait()
+
+    install(monkeypatch, handle)
+    task = asyncio.create_task(
+        acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid"
+        )
+    )
+    await asyncio.wait_for(dispatched.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_delete_404_is_not_verified_revocation(monkeypatch):
+    install(monkeypatch, lambda _request: response(404, content=b"private"))
+    with pytest.raises(acl.DrivePermissionError, match="permission_target_unavailable"):
+        await acl.GoogleDrivePermissionAdapter().remove_recorded_permission(
+            **arguments(), recorded_permission_id="synthetic-permission"
+        )
+
+
+@pytest.mark.asyncio
+async def test_delete_has_no_arbitrary_mutation_parameters(monkeypatch):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(204, content=b"")
+
+    install(monkeypatch, handle)
+    await acl.GoogleDrivePermissionAdapter().remove_recorded_permission(
+        **arguments(), recorded_permission_id="synthetic-permission"
+    )
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path.endswith("/synthetic-file/permissions/synthetic-permission")
+    assert dict(seen[0].url.params) == {"supportsAllDrives": "true"}
+    assert seen[0].content == b""
+
+
+@pytest.mark.asyncio
+async def test_repeated_page_token_never_returns_partial_acl(monkeypatch):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(payload={"permissions": [], "nextPageToken": "same"})
+
+    install(monkeypatch, handle)
+    with pytest.raises(acl.DrivePermissionError, match="permission_catalog_incomplete"):
+        await acl.GoogleDrivePermissionAdapter().list_permissions(**arguments())
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_all_pages_required_and_existing_roles_preserved(monkeypatch):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        if len(seen) == 1:
+            return response(
+                payload={
+                    "permissions": [permission(role="writer")],
+                    "nextPageToken": "next",
+                }
+            )
+        return response(
+            payload={
+                "permissions": [
+                    permission(
+                        id="inherited",
+                        permissionDetails=[
+                            {
+                                "inherited": True,
+                                "inheritedFrom": "parent",
+                                "permissionType": "file",
+                                "role": "reader",
+                            }
+                        ],
+                    )
+                ]
+            }
+        )
+
+    install(monkeypatch, handle)
+    result = await acl.GoogleDrivePermissionAdapter().list_permissions(**arguments())
+    assert len(result.permissions) == 2
+    assert result.permissions[0]["role"] == "writer"
+    assert result.permissions[1]["permissionDetails"][0]["inherited"] is True
+    assert seen[1].url.params["pageToken"] == "next"
+    assert "synthetic-permission" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_local_revocation_prevents_dispatch(monkeypatch):
+    def unexpected(_request):
+        raise AssertionError("must not dispatch")
+
+    install(monkeypatch, unexpected)
+    args = arguments()
+    args["require_current"] = AsyncMock(side_effect=acl.DrivePermissionError("approval_superseded"))
+    with pytest.raises(acl.DrivePermissionError, match="approval_superseded"):
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **args, verified_email="recipient@example.invalid"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identifier", ["../file", "file/permissions/other", "file?alt=media"])
+async def test_path_injection_rejected_before_network(identifier):
+    args = arguments()
+    args["file_id"] = identifier
+    with pytest.raises(acl.DrivePermissionError, match="operation_not_allowed"):
+        await acl.GoogleDrivePermissionAdapter().remove_recorded_permission(
+            **args, recorded_permission_id="synthetic-permission"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"version": "8"}, "source_changed"),
+        ({"isAppAuthorized": False}, "source_not_shareable"),
+        ({"mimeType": "application/vnd.google-apps.shortcut"}, "source_not_shareable"),
+        ({"capabilities": {"canShare": False}}, "source_not_shareable"),
+        ({"clientEncryptionDetails": {"encryptionState": "encrypted"}}, "source_not_shareable"),
+    ],
+)
+async def test_shareable_requires_exact_approved_eligible_source(monkeypatch, change, code):
+    payload = {
+        "id": "synthetic-file",
+        "version": "7",
+        "mimeType": "text/plain",
+        "trashed": False,
+        "isAppAuthorized": True,
+        "capabilities": {"canShare": True, "canDownload": True, "canAccessViaGenAi": True},
+        **change,
+    }
+    install(monkeypatch, lambda _request: response(payload=payload))
+    with pytest.raises(acl.DrivePermissionError, match=code):
+        await acl.GoogleDrivePermissionAdapter().inspect_shareable(
+            **arguments(), expected_version="7"
+        )
+
+
+@pytest.mark.parametrize("as_url", [False, True])
+def test_permission_path_hides_both_provider_identifiers(as_url):
+    url = (
+        "https://www.googleapis.com/drive/v3/files/private-file/"
+        "permissions/private-grantee?supportsAllDrives=true"
+    )
+    rendered = repr(redact_log_value(httpx.URL(url) if as_url else url))
+    assert "private-file" not in rendered
+    assert "private-grantee" not in rendered
+
+
+async def test_live_sheet_is_shareable_without_selected_parser_support():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    adapter._exchange = AsyncMock(
+        return_value={
+            "id": "synthetic-file",
+            "version": "1",
+            "trashed": False,
+            "mimeType": "application/vnd.google-apps.spreadsheet",
+            "capabilities": {"canShare": True, "canDownload": True},
+        }
+    )
+    await adapter.inspect_shareable(
+        **arguments(),
+        expected_version="1",
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+    )
+
+
+async def test_metadata_only_video_share_binds_identity_not_version_and_rechecks_share():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    payload = {
+        "id": "synthetic-file",
+        "name": "Onboarding - Recording.mp4",
+        "version": "1",
+        "trashed": False,
+        "mimeType": "video/mp4",
+        "modifiedTime": "2026-09-23T12:00:00Z",
+        "capabilities": {"canShare": True, "canDownload": False},
+    }
+    adapter._exchange = AsyncMock(return_value=payload)
+    metadata_only = {
+        "expected_version": "1",
+        "expected_name": "Onboarding - Recording.mp4",
+        "require_app_authorized": False,
+        "require_genai_eligibility": False,
+        "metadata_only": True,
+        "time_field": "modifiedTime",
+        "start_time": "2026-09-22T00:00:00Z",
+        "end_time": "2026-09-24T00:00:00Z",
+    }
+    await adapter.inspect_shareable(**arguments(), **metadata_only)
+    # New query-match delivery rechecks the real filename-first date policy,
+    # rather than the worker's historical all-time metadata bounds.
+    selected = {
+        "start": "2026-09-22",
+        "end": "2026-09-24",
+        "timezone": "UTC",
+        "date_basis": "title_created_modified",
+    }
+    await adapter.inspect_shareable(**arguments(), **metadata_only, metadata_period=selected)
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(
+            **arguments(),
+            **metadata_only,
+            metadata_period={**selected, "start": "2024-01-01", "end": "2024-01-02"},
+        )
+    # Granting the same file to an earlier recipient bumps its version. It is
+    # still the file the owner picked, so the next recipient's grant proceeds.
+    adapter._exchange.return_value = {**payload, "version": "2"}
+    await adapter.inspect_shareable(**arguments(), **metadata_only)
+    # A rename after review is not the file the owner approved.
+    adapter._exchange.return_value = {**payload, "version": "2", "name": "Renamed.mp4"}
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(**arguments(), **metadata_only)
+    # A plan without a reviewed name fails closed.
+    adapter._exchange.return_value = payload
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(**arguments(), **{**metadata_only, "expected_name": None})
+    adapter._exchange.return_value = {**payload, "capabilities": {"canShare": False}}
+    with pytest.raises(acl.DrivePermissionError, match="source_not_shareable"):
+        await adapter.inspect_shareable(**arguments(), **metadata_only)
+    adapter._exchange.return_value = {**payload, "modifiedTime": "2026-09-21T00:00:00Z"}
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(**arguments(), **metadata_only)
+
+
+@pytest.mark.asyncio
+async def test_native_expiry_is_sent_and_exact_provider_expiry_is_required(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    expires = (datetime.now(UTC) + timedelta(days=7)).replace(microsecond=0)
+    expected = expires.isoformat()
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content))
+        return response(
+            payload=permission(expirationTime=expected.replace("+00:00", "Z"))
+            if len(calls) == 1
+            else permission()
+        )
+
+    install(monkeypatch, handler)
+    created = await acl.GoogleDrivePermissionAdapter().create_reader(
+        **arguments(),
+        verified_email="recipient@example.invalid",
+        expiration_time=expected,
+    )
+    assert acl.same_expiration(calls[0]["expirationTime"], expected)
+    assert acl.same_expiration(created.expiration_time, expected)
+    with pytest.raises(acl.DrivePermissionError, match="permission_outcome_unknown"):
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(),
+            verified_email="recipient@example.invalid",
+            expiration_time=expected,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expiry", ["garbage", "2000-01-01T00:00:00Z", "9999-01-01T00:00:00Z"])
+async def test_invalid_expiry_never_posts(monkeypatch, expiry):
+    def forbidden(request):
+        raise AssertionError("invalid expiry reached Google")
+
+    install(monkeypatch, forbidden)
+    with pytest.raises(acl.DrivePermissionError, match="operation_not_allowed"):
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(),
+            verified_email="recipient@example.invalid",
+            expiration_time=expiry,
+        )
+
+
+@pytest.mark.parametrize(
+    "changes,usable",
+    [
+        ({"permissions": []}, True),
+        ({"permissions": [permission(role="writer")]}, True),
+        ({}, False),
+        ({"permissions": [], "driveId": "shared-drive"}, False),
+        ({"permissions": [permission(), permission()]}, False),
+        ({"permissions": [{"id": "p", "type": "user", "role": "reader"}]}, False),
+        ({"permissions": [permission()] * 201}, False),
+    ],
+)
+def test_embedded_acl_requires_explicit_complete_validated_my_drive_snapshot(changes, usable):
+    value = acl._embedded_snapshot({"capabilities": {"canShare": True}, **changes})
+    assert isinstance(value, acl.PermissionSnapshot) is usable
+
+
+@pytest.mark.asyncio
+async def test_oversized_embedded_acl_retries_only_the_small_inspection():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    payload = {
+        "id": "synthetic-file",
+        "name": "record",
+        "mimeType": "video/mp4",
+        "version": "9",
+        "trashed": False,
+        "modifiedTime": "2026-09-23T12:00:00Z",
+        "capabilities": {"canShare": True},
+    }
+    adapter._exchange = AsyncMock(
+        side_effect=[acl.DrivePermissionError("permission_response_invalid"), payload]
+    )
+    result = await adapter.inspect_shareable(
+        **arguments(),
+        expected_version="9",
+        expected_name="record",
+        metadata_only=True,
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+        time_field="modifiedTime",
+        start_time="1970-01-01T00:00:00Z",
+        end_time="9999-12-31T23:59:59Z",
+        include_permissions=True,
+    )
+    assert result is None and adapter._exchange.await_count == 2
+    assert adapter._exchange.await_args_list[0].kwargs["include_permissions"] is True
+    assert "include_permissions" not in adapter._exchange.await_args_list[1].kwargs

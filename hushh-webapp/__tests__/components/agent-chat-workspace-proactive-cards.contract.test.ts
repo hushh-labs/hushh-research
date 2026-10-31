@@ -1,0 +1,264 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const source = readFileSync(
+  join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
+  "utf8",
+);
+
+/**
+ * agent-chat-workspace.tsx has no existing mount/render test coverage at all
+ * (auth/vault/persona/kai-session all need to be mocked from scratch to
+ * render it, a substantial undertaking of its own) -- so this guards a few
+ * load-bearing behaviors by asserting they're present in source, the same
+ * way this codebase already guards gmail-nudges-section.tsx's loading
+ * contract.
+ *
+ * The proactive Gmail connect/nudge cards this block used to also cover
+ * (#6779) were deleted, not hidden: they surfaced on every fresh chat
+ * regardless of relevance (an unsolicited "Connect Mail & continue" prompt,
+ * and a nudge digest that was flagging non-actionable mail -- an automated
+ * "Welcome back to One" send, a NoBroker listing -- as if it needed a
+ * reply). AgentConnectAccessCard and AgentGmailNudgeCard are gone from the
+ * codebase; useGmailNudges() is still used by gmail-nudges-section.tsx on
+ * the actual Gmail settings page, untouched.
+ *
+ * The welcome area admits one replacement, MailAttentionStack, only on the
+ * terms below: already-classified receipt attention and detected requests for
+ * the owner's details, no reply-needed guesses, no connect prompt, no mailbox
+ * scan, and nothing rendered when nothing qualifies (behavior is covered by
+ * mail-attention-stack.test.tsx).
+ */
+describe("Agent One chat workspace wiring contract", () => {
+  it("stages owner-confirmed KYC facts in Soul without a second identity writer", () => {
+    const capture = source.slice(source.indexOf("const captureEligiblePkmFactsInBackground ="), source.indexOf("const runAgentTurn = async ("));
+    expect(capture).toContain("prepareNaturalLanguagePkm({");
+    expect(capture).toContain("stageMarkdownMemoryFacts({");
+    expect(capture).not.toContain("ingestNaturalLanguagePkm(");
+    expect(capture).not.toContain("issuePkmReplyAuthorization(");
+    expect(capture).not.toContain('memoryProfile: "kyc_identity_v1"');
+    const afterCapture = source.slice(source.indexOf("if (options.kycInformationSaveConfirmed) {"), source.indexOf("if (!options.deferPkmContext) {"));
+    expect(afterCapture).toContain("loadAgentPkmContext({");
+    expect(afterCapture).not.toContain("forceRefresh: true");
+  });
+  it("keeps profile research out of chat while preserving explicit onboarding", () => {
+    expect(source).not.toContain("OneBackgroundCards");
+    expect(source).not.toContain("MagicIntelligenceOffer");
+    expect(source).not.toContain("ProfileResearchCard");
+    expect(source).not.toContain("backgroundCardsEnabled");
+    expect(source).not.toContain("backgroundCardTurnAnchor");
+    expect(source).toContain("startSignal: Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) || Boolean(postSetupWelcomeContext)");
+  });
+
+  it("refreshes recent Drive sharing during history or explicitly opened native activity", () => {
+    const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
+    expect(sidebar).toContain("driveActivity={!isPuppySurface && !customNativePresentationEnabled()");
+    expect(sidebar).toContain('active={isHistoryDrawerOpen && drawerMode === "chats"}');
+    const start = source.indexOf("{customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing");
+    expect(start).toBeGreaterThan(-1);
+    const nativeActivity = source.slice(start, start + 1000);
+    expect(nativeActivity).toContain("active={isHistoryDrawerOpen || driveActivityPageOpen}");
+    expect(nativeActivity).toContain("open: driveActivityPageOpen");
+    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === applicationOwnerId &&");
+    expect(source).toContain("driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface");
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
+  });
+
+  it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
+    // The starter grid renders through the shared suggestion list; the rail's
+    // accessibility and touch-target guarantees live there.
+    expect(source).toContain("<AgentPromptSuggestions");
+    expect(source).toContain("<AgentWelcomePanel");
+    const suggestions = readFileSync(join(process.cwd(), "components/agent/agent-welcome-panel.tsx"), "utf8");
+    expect(suggestions).toContain('label="Suggestions" testId="agent-chat-suggestions"');
+    expect(suggestions).toContain("disabled={disabled}");
+    const list = readFileSync(join(process.cwd(), "components/agent/agent-follow-up-suggestions.tsx"), "utf8");
+    expect(list).toContain("data-testid={testId}");
+    expect(list).toContain("aria-label={label}");
+    expect(list).toContain('type="button"');
+    expect(list).toContain("disabled={disabled}");
+    expect(list).toContain("!min-h-11");
+    expect(suggestions).toContain("onSelect={onPromptSelect}");
+    expect(list).toContain("onClick={() => onSelect(suggestion)}");
+    expect(source).toContain("setInput(prompt)");
+  });
+
+  it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {
+    // Founder decision (2026-09-27): the first message is fixed text typed out
+    // through the same AgentBubble path as a real reply, then three questions
+    // in chat. The old PostSetupWelcomeCard and its connector/agent tiles are
+    // gone; a regression back to a card would reintroduce either name.
+    expect(source).not.toContain("function PostSetupWelcomeCard(");
+    expect(source).not.toContain("AgentFirstRunActions");
+    expect(source).toMatch(
+      // A centered time separator may open the group; the turn itself is still
+      // the workspace's own AgentBubble.
+      /renderBubble=\{\(message: ChatOnboardingBubbleMessage\) => \((?:(?!renderBubble)[\s\S]){0,400}?<AgentBubble message=\{message\} \/>/,
+    );
+    // Only an explicitly armed name answer is kept from the model; everything
+    // else typed in the composer is an ordinary turn.
+    const submit = source.slice(
+      // Both the DOM form and native committed snapshot use this guarded
+      // entrypoint. Its optional input must not invalidate onboarding coverage.
+      source.indexOf("const submitComposerText = async ("),
+      source.indexOf("const handleSubmit = async"),
+    );
+    expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");
+    expect(submit.indexOf("chatOnboarding.captureComposerText")).toBeLessThan(
+      submit.indexOf("transcriptUserScrollRef.current = false;"),
+    );
+    // Returning people with an empty chat keep the welcome panel and starters.
+    expect(source).toContain("<AgentWelcomePanel");
+    expect(source).toContain("prompts={welcomePrompts}");
+  });
+
+  it("keeps the dedicated-route history sidebar honest while it loads", () => {
+    expect(source).toContain("setIsLoadingHistory(true);");
+    expect(source).toContain("setIsLoadingHistory(false);");
+    expect(source).toContain("warmAgentChatHistoryCache({");
+    expect(source).toContain(
+      'loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}',
+    );
+  });
+
+  it("keeps the One connector catalog reachable before any provider is connected", () => {
+    expect(source).toContain("onOpenConnectors={!isPuppySurface");
+    expect(source).toContain("? openHistoryConnectors : undefined");
+    expect(source).toContain("openConnectors: openHistoryConnectors");
+    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const [recoveryCheckedForUid,"));
+    expect(historyConnectors).toContain("openConnectorSurface(undefined,");
+    expect(historyConnectors).toContain("historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current");
+    expect(source).not.toContain("HistoryConnectorsPage");
+    expect(source).not.toContain("connectionsAvailable");
+    // History, native History and inline Chat cards share Profile's destination.
+    expect(source).toContain("profileConnectorsLocation(");
+  });
+
+  it("keeps slow history warming out of the canonical chat interaction path", () => {
+    const canSendBlock = source.slice(
+      source.indexOf("const canSend ="),
+      source.indexOf("const canToggleVoice ="),
+    );
+    expect(canSendBlock).not.toContain("isLoadingHistory");
+
+    const runTurnGuard = source.slice(
+      source.indexOf("if (!text.trim()"),
+      source.indexOf("// Last line before the model"),
+    );
+    expect(runTurnGuard).not.toContain("isLoadingHistory");
+
+    expect(source).not.toContain('if (isLoadingHistory) return "Loading";');
+  });
+
+  it("does not reintroduce the deleted proactive Gmail connect/nudge cards", () => {
+    expect(source).not.toContain("AgentConnectAccessCard");
+    expect(source).not.toContain("AgentGmailNudgeCard");
+    expect(source).not.toContain("gmailConnectCardDismissed");
+    expect(source).not.toContain("gmailNudgeCardDismissed");
+  });
+
+  it("admits the Mail attention stack only without guesses, connect prompts or mailbox scans", () => {
+    const stack = ["components/agent/mail-attention-stack.tsx", "lib/agent/use-mail-attention.ts"]
+      .map((file) => readFileSync(join(process.cwd(), file), "utf8"));
+    for (const text of stack) {
+      expect(text).not.toMatch(/useGmailNudges|needs_reply|needsReplyCount/);
+      expect(text).not.toMatch(/Connect (Gmail|Mail)|Reconnect|openConnectorSurface|connectGmailInPlace|GmailConnectorChatCard/);
+      expect(text).not.toMatch(/MailReceiptResourceService\.refresh|GmailInformationRequestsService\.scan/);
+    }
+    // Mounted once, in the empty-chat welcome only, never over a conversation.
+    const welcome = source.slice(source.indexOf("!hasStartedConversation && !voiceActive ? ("), source.indexOf("{visibleMessages.map("));
+    expect(welcome).toContain("<MailAttentionStack");
+    expect(source.match(/<MailAttentionStack/g)).toHaveLength(1);
+  });
+});
+
+describe("Agent One proactive Calendar cards wiring contract", () => {
+  it("never starts first-connect memory offers from the general chat workspace", () => {
+    // This global mount could read a newly connected Calendar and append Keep /
+    // Forget boxes during an unrelated conversation or an in-flight response.
+    expect(source).not.toContain("FirstConnectInsightsCard");
+    expect(source).not.toContain("fetchFirstConnectInsights");
+    expect(source).not.toContain("first-connect-insights");
+  });
+
+  // Calendar's separate proactive cards were intentionally removed when the
+  // shared chat shell was tightened to prevent setup noise and clipping. The
+  // connected Calendar capability remains available through explicit chat
+  // requests and the generic governed confirmation card below.
+  it("does not mount the retired proactive Calendar surface", () => {
+    expect(source).not.toContain(
+      'import { AgentCalendarEventCard } from "@/components/agent/agent-calendar-event-card"',
+    );
+    expect(source).not.toContain(
+      'import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status"',
+    );
+    expect(source).not.toContain(
+      'import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events"',
+    );
+    expect(source).not.toContain("<AgentCalendarEventCard");
+    expect(source).not.toContain('title="See what\'s coming up"');
+  });
+
+  it("keeps Calendar available through explicit governed directives", () => {
+    expect(source).toContain("getCalendarDirectiveFromToolEvent");
+    expect(source).toContain("runCalendarDirective");
+    // Connect goes through the shared in-place connector (no chat redirect).
+    expect(source).toContain("connectCalendarInPlace");
+    expect(source).toContain('delegateAgentId === "agent_calendar"');
+  });
+});
+
+// The in-chat, agent-initiated Calendar directive stays explicit and governed,
+// and mounts a calendar-specific confirmation card only for the persisted
+// proposal. Connection authorization remains on the shared surface.
+describe("Agent One in-chat Calendar directive cards wiring contract", () => {
+  it("keeps Calendar directive parsing bounded to explicit action payloads", () => {
+    const parserStart = source.indexOf(
+      "export function getCalendarDirectiveFromToolEvent",
+    );
+    const parserEnd = source.indexOf(
+      "function getConsentActionsPayload",
+      parserStart,
+    );
+    const parser = source.slice(parserStart, parserEnd);
+    expect(parser).toContain('type: "calendar.connect"');
+    expect(parser).toContain('type: "calendar.execute_proposal"');
+    expect(parser).toContain("proposalId");
+    expect(parser).toContain("confirmLabel");
+  });
+
+  const normalized = source.replace(/\s+/g, " ");
+
+  it("renders the structured card only for an explicit Calendar proposal", () => {
+    expect(normalized).toContain('type === "calendar.execute_proposal"');
+    expect(normalized).toContain("<AgentCalendarProposalCard");
+    expect(normalized).toContain("googleMeet={payload.googleMeet === true}");
+    expect(normalized).toContain("<SpecialistDirectiveCard");
+  });
+
+  it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
+    const connectIndex = normalized.indexOf('type === "calendar.connect"');
+    const block = normalized.slice(connectIndex, connectIndex + 1200);
+    expect(block).toContain('runDirectiveConnect("calendar");');
+    expect(block).not.toContain("location.assign");
+    // The shared connector still owns the existing Calendar start + journey reset.
+    const shared = readFileSync(
+      join(process.cwd(), "lib/connections/google-connect-in-place.ts"),
+      "utf8",
+    );
+    expect(shared).toContain("GoogleCalendarService.startConnect(");
+    expect(shared).toContain("clearCalendarSetupOAuthReturn();");
+  });
+
+  it("routes explicit proposal confirmation through the existing action queue", () => {
+    const proposalIndex = normalized.indexOf(
+      'type !== "calendar.execute_proposal"',
+    );
+    const block = normalized.slice(proposalIndex, proposalIndex + 900);
+    expect(block).toContain(
+      "enqueueCalendarDirective(directive, token, applicationOwnerId);",
+    );
+  });
+});

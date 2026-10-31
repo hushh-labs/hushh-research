@@ -1,4 +1,4 @@
-name: Provision Wallet Pass Certificate
+name: "Provision Wallet Signing Certificate"
 
 # One-click provisioning of the Apple Pass Type ID (`pass.com.hushh.app.one`) and
 # its PASS_TYPE_ID signing certificate for the Hushh One Wallet Profile pass.
@@ -160,7 +160,7 @@ jobs:
           echo "joined=$(printf '%s' "$PROJECTS" | paste -sd ',' -)" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to Google Cloud (UAT)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           # UAT-scoped SA key (repo-level secret, inherited by the production
           # environment). The App Store Connect key this job needs lives in
@@ -168,7 +168,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Assert GCP project scope
         shell: bash
@@ -273,7 +273,7 @@ jobs:
 
       - name: Upload provisioning metadata
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           # Strict allowlist: ONLY the non-sensitive metadata JSON. The private
           # key, the certificate body and the WWDR body are never written to a

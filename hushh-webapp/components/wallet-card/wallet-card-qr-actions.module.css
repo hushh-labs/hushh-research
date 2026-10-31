@@ -1,0 +1,27 @@
+.layout {
+  display: grid;
+  grid-template-columns: clamp(48px, 18%, 80px) minmax(0, 1fr);
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(12px, 3vw, 24px);
+  padding: var(--settings-row-py) clamp(12px, 3%, 24px);
+}
+.qr { min-width: 0; width: 100%; max-width: 96px; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; width: 100%; max-width: 440px; justify-self: end; }
+.actions > a { grid-column: 1 / -1; justify-content: center; }
+.actions > button {
+  width: 100%;
+  min-height: 44px;
+  height: auto;
+  padding: 8px;
+  white-space: normal;
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+}
+@media (max-width: 480px) {
+  .layout { gap: 8px; padding-inline: 4px; }
+  .actions > button { flex-direction: column; gap: 4px; padding: 8px 4px; }
+  .actions > button > svg { margin: 0; }
+}

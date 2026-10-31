@@ -14,7 +14,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -140,7 +140,7 @@ export function AnalysisView({
         </div>
       </div>
 
-      <div className="mx-auto w-full space-y-6 pb-36" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-6 pb-8" style={APP_MEASURE_STYLES.reading}>
 
       {/* Decision Card */}
       <SurfaceCard>

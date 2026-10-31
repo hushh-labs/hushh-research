@@ -1,0 +1,5 @@
+{
+  "name": "obs_azure_model_error_count",
+  "description": "Typed Azure model transport failures; fixed categories only, no owner/request labels",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"azure_model_call_complete provider=azure_openai .* outcome=failed error_kind=(auth|timeout|connection|quota|server|protocol|other)( |$)\""
+}

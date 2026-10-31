@@ -1,0 +1,169 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import {
+  agentPkmCaptureJobKey,
+  aggregateAgentPkmCaptures,
+  createAgentPkmCaptureGuard,
+  describeAgentPkmCapture,
+  resumedAgentPkmCaptureMessageId,
+  shouldPresentAgentPkmCapture,
+  shouldPublishAgentPkmCapture,
+} from "../agent-pkm-capture-runtime";
+import { deferAgentPkmCapture, takeDeferredAgentPkmCaptures } from "../agent-pkm-deferred-capture";
+
+describe("Memory capture session boundary", () => {
+  it("keeps a resumed receipt bound to its actual bubble in the displayed conversation", () => {
+    const displayed = new Set(["current-answer"]);
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, displayed)).toBe("current-answer");
+    expect(resumedAgentPkmCaptureMessageId("old-answer", "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", "other-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId(undefined, "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, new Set())).toBeNull();
+  });
+  it("does not fulfill an explicit or restricted save with an ambient capture promise", () => {
+    const turn = { assistantMessageId: "turn", sourceMessage: "Synthetic note" };
+    const ambient = agentPkmCaptureJobKey(turn);
+    expect(agentPkmCaptureJobKey({ ...turn, explicitRequest: true })).not.toBe(ambient);
+    const kyc = { ...turn, kycInformationSaveConfirmed: true, kycInformationRequestWorkflowId: "request-a" };
+    expect(agentPkmCaptureJobKey(kyc)).not.toBe(ambient);
+    expect(agentPkmCaptureJobKey({ ...kyc, kycInformationRequestWorkflowId: "request-b" })).not.toBe(agentPkmCaptureJobKey(kyc));
+    expect(agentPkmCaptureJobKey(turn)).toBe(ambient);
+  });
+  it("retains expired same-workspace receipts but refuses publication after owner/conversation retirement", () => {
+    const terminal = { phase: "saved" as const, saved: 1 };
+    expect(shouldPublishAgentPkmCapture(terminal, false, true)).toBe(true);
+    expect(shouldPublishAgentPkmCapture(terminal, true, false)).toBe(false);
+    expect(shouldPublishAgentPkmCapture(terminal, false, false)).toBe(false);
+  });
+  it("retains every invocation receipt regardless of completion order", () => {
+    const receipts = [
+      { phase: "saved" as const, saved: 2 },
+      { phase: "failed" as const, saved: 0 },
+    ];
+    expect(aggregateAgentPkmCaptures(receipts)).toEqual({
+      phase: "partial",
+      saved: 2,
+    });
+    expect(aggregateAgentPkmCaptures([...receipts].reverse())).toEqual({
+      phase: "partial",
+      saved: 2,
+    });
+    expect(
+      aggregateAgentPkmCaptures([...receipts, { phase: "saving", saved: 0 }]),
+    ).toEqual({ phase: "saving", saved: 2 });
+    expect(
+      aggregateAgentPkmCaptures([
+        { phase: "saved", saved: 2 },
+        { phase: "saved", saved: 3 },
+      ]),
+    ).toEqual({ phase: "saved", saved: 5 });
+  });
+  beforeEach(() => publishValidatedAuthSessionOwner("owner-a"));
+  const create = (isEnabled = () => true) => {
+    const controller = new AbortController();
+    return {
+      controller,
+      ...createAgentPkmCaptureGuard({
+        userId: "owner-a",
+        signal: controller.signal,
+        isEnabled,
+      }),
+    };
+  };
+  it("rejects lock or token replacement before a later effect", async () => {
+    const guard = create();
+    await guard.assertCurrent();
+    advanceVaultSessionEpoch();
+    await expect(guard.assertCurrent()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+  it("rejects owner switch and switch back", async () => {
+    const guard = create();
+    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionOwner("owner-a");
+    await expect(guard.assertCurrent()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+  it("rejects conversation cancellation but not a later turn in the same session", async () => {
+    const earlierTurn = create();
+    const laterTurn = create();
+    await earlierTurn.assertCurrent();
+    await laterTurn.assertCurrent();
+    earlierTurn.controller.abort();
+    expect(earlierTurn.isCurrent()).toBe(false);
+    expect(laterTurn.isCurrent()).toBe(true);
+  });
+  it("fails closed for disabled policy or mismatched caller", async () => {
+    let enabled = true;
+    const guard = create(() => enabled);
+    enabled = false;
+    expect(guard.isCurrent()).toBe(false);
+    const wrong = createAgentPkmCaptureGuard({
+      userId: "other",
+      signal: new AbortController().signal,
+      isEnabled: () => true,
+    });
+    expect(wrong.isCurrent()).toBe(false);
+  });
+  it("distinguishes preparation, saved receipts, and partial results without personal details", () => {
+    expect(
+      describeAgentPkmCapture({ phase: "preparing", saved: 0 }),
+    ).not.toContain("saved");
+    expect(describeAgentPkmCapture({ phase: "saved", saved: 2 })).toBe(
+      "2 details saved privately",
+    );
+    expect(describeAgentPkmCapture({ phase: "partial", saved: 1 })).toContain(
+      "some details still need attention",
+    );
+  });
+  it("always settles an explicit save status even after the session lapsed", () => {
+    // 2026-09-29: the vault token expired by the clock mid-capture, the guard
+    // turned false, the final status was dropped, and "Checking for details
+    // worth remembering…" stayed on screen for good.
+    expect(shouldPublishAgentPkmCapture({ phase: "failed", saved: 0 }, false)).toBe(true);
+    expect(shouldPublishAgentPkmCapture({ phase: "canceled", saved: 0 }, false)).toBe(true);
+    expect(shouldPublishAgentPkmCapture({ phase: "saved", saved: 3 }, false)).toBe(true);
+    expect(shouldPublishAgentPkmCapture({ phase: "preparing", saved: 0 }, false)).toBe(false);
+    expect(shouldPublishAgentPkmCapture({ phase: "preparing", saved: 0 }, true)).toBe(true);
+    expect(describeAgentPkmCapture({ phase: "failed", saved: 0, reason: "timeout" }))
+      .toBe("Memory capture timed out. Nothing was saved.");
+    expect(describeAgentPkmCapture({ phase: "needs_unlock", saved: 0 }))
+      .toBe("Unlock your vault to save this. Nothing was saved.");
+    expect(describeAgentPkmCapture({ phase: "preparing", saved: 0, progress: { stage: "reading", done: 3, total: 12 } }))
+      .toBe("Reading section 3 of 12…");
+  });
+  it("keeps ordinary questions free of automatic Memory progress or failure", () => {
+    expect(shouldPresentAgentPkmCapture({ phase: "preparing", saved: 0 }, false)).toBe(false);
+    expect(shouldPresentAgentPkmCapture({ phase: "failed", saved: 0 }, false)).toBe(false);
+    expect(shouldPresentAgentPkmCapture({ phase: "saved", saved: 1 }, false)).toBe(true);
+    expect(shouldPresentAgentPkmCapture({ phase: "failed", saved: 0 }, true)).toBe(true);
+  });
+});
+
+describe("Deferred ambient capture after an unreadable memory.md", () => {
+  const turn = (id: string) => ({ turnId: id, assistantMessageId: `answer-${id}`, sourceMessage: `Synthetic correction ${id}` });
+  beforeEach(() => {
+    publishValidatedAuthSessionOwner("owner-a");
+    takeDeferredAgentPkmCaptures("owner-a");
+  });
+
+  it("captures a deferred correction on the next read, at most five and only once", () => {
+    for (const id of ["1", "2", "3", "4", "5", "6"]) deferAgentPkmCapture(turn(id));
+    expect(takeDeferredAgentPkmCaptures("owner-a").map(capture => capture.turnId)).toEqual(["2", "3", "4", "5", "6"]);
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
+  });
+
+  it("never hands one owner's text to another owner or a new vault session", () => {
+    deferAgentPkmCapture(turn("1"));
+    publishValidatedAuthSessionOwner("owner-b");
+    expect(takeDeferredAgentPkmCaptures("owner-b")).toEqual([]);
+    publishValidatedAuthSessionOwner("owner-a");
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
+    deferAgentPkmCapture(turn("2"));
+    advanceVaultSessionEpoch();
+    expect(takeDeferredAgentPkmCaptures("owner-a")).toEqual([]);
+  });
+});

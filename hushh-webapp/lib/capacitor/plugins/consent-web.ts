@@ -116,6 +116,7 @@ export class HushhConsentWeb extends WebPlugin {
   async revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -129,6 +130,7 @@ export class HushhConsentWeb extends WebPlugin {
       body: JSON.stringify({
         userId: options.userId,
         scope: options.scope,
+        ...(options.requestId ? { requestId: options.requestId } : {}),
       }),
     });
 
@@ -161,6 +163,7 @@ export class HushhConsentWeb extends WebPlugin {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }> {
@@ -187,6 +190,7 @@ export class HushhConsentWeb extends WebPlugin {
         sourceContentRevision: options.sourceContentRevision,
         sourceManifestRevision: options.sourceManifestRevision,
         durationHours: options.durationHours,
+        modelProcessingAllowed: options.modelProcessingAllowed === true,
         exportEnvelope: options.exportEnvelope,
       }),
     });
@@ -361,6 +365,7 @@ export class HushhConsentWeb extends WebPlugin {
       fromAgent: data.from_agent,
       toAgent: data.to_agent,
       scope: data.scope,
+      scopeStr: data.scope_str ?? "",
       createdAt: data.created_at,
       expiresAt: data.expires_at,
       signedByUser: data.signed_by_user,
@@ -380,6 +385,8 @@ export class HushhConsentWeb extends WebPlugin {
           from_agent: options.link.fromAgent,
           to_agent: options.link.toAgent,
           scope: options.link.scope,
+          // Signed, so dropping it here would make a valid link fail to verify.
+          scope_str: options.link.scopeStr ?? "",
           created_at: options.link.createdAt,
           expires_at: options.link.expiresAt,
           signed_by_user: options.link.signedByUser,

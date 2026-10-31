@@ -9,13 +9,16 @@
 import {
   absoluteUrl,
   PUBLIC_ROUTES,
+  PUBLIC_CANONICAL_PATHS,
   PUBLIC_ROUTE_SEMANTICS,
   SITE_URL,
 } from "@/lib/seo/site";
+import { HUSHH_MARK_PATH } from "@/lib/brand/hushh-mark";
 
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
 const APP_ID = `${SITE_URL}/#software`;
+const FOUNDER_ID = `${SITE_URL}/#founder`;
 
 export function buildOrganizationGraph(): Record<string, unknown> {
   return {
@@ -26,10 +29,11 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         "@id": ORG_ID,
         name: "Hussh",
         url: SITE_URL,
-        logo: absoluteUrl("/quiet-emoji-icon.png"),
+        logo: absoluteUrl(HUSHH_MARK_PATH),
         description:
           "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
-        sameAs: ["https://hushh.ai"],
+        founder: { "@id": FOUNDER_ID },
+        sameAs: ["https://www.hussh.si"],
       },
       {
         "@type": "WebSite",
@@ -37,17 +41,40 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         name: "Hussh",
         publisher: { "@id": ORG_ID },
-        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(route)}#page` })),
+        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route)}#page` })),
       },
       ...PUBLIC_ROUTES.map((route) => ({
         "@type": PUBLIC_ROUTE_SEMANTICS[route].schemaType,
-        "@id": `${absoluteUrl(route)}#page`,
-        url: absoluteUrl(route),
+        "@id": `${absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route)}#page`,
+        url: absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route),
         name: PUBLIC_ROUTE_SEMANTICS[route].title,
         description: PUBLIC_ROUTE_SEMANTICS[route].description,
         isPartOf: { "@id": SITE_ID },
         publisher: { "@id": ORG_ID },
+        ...(PUBLIC_ROUTE_SEMANTICS[route].schemaType === "ProfilePage"
+          ? { mainEntity: { "@id": FOUNDER_ID } }
+          : {}),
       })),
+      {
+        "@type": "Person",
+        "@id": FOUNDER_ID,
+        name: "Manish Sainani",
+        url: absoluteUrl("/manishhussh"),
+        image: absoluteUrl("/manish-sainani.png"),
+        jobTitle: "Founder & CEO",
+        worksFor: { "@id": ORG_ID },
+        alumniOf: {
+          "@type": "CollegeOrUniversity",
+          name: "Purdue University",
+        },
+        description:
+          "Founder & CEO of Hussh, building personal agent infrastructure people own: Hussh One and the open consent protocol PCHP.",
+        sameAs: [
+          "https://www.linkedin.com/in/manishsainani",
+          "https://x.com/manish_sainani",
+          "https://www.wikidata.org/wiki/Q141478333",
+        ],
+      },
       {
         "@type": "SoftwareApplication",
         "@id": APP_ID,

@@ -240,7 +240,9 @@ fi
 
 if [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
   CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
-  MAIN_SYNC_MODE="warn"
+  # Keep contributor pushes advisory by default, but do not discard a
+  # maintainer's explicit tested-base gate while main remains active.
+  MAIN_SYNC_MODE="${MAIN_SYNC_MODE:-warn}"
   case "$CURRENT_BRANCH_NAME" in
     "$MAIN_SYNC_BRANCH")
       MAIN_SYNC_MODE="block"

@@ -1,0 +1,424 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
+import { PeopleOrbit } from "@/components/connect/people-orbit";
+import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
+
+const people = Array.from({ length: 12 }, (_, index) => ({
+  id: `person-${index}`,
+  name: `Person ${index}`,
+  photoUrl: `https://example.com/${index}.png`,
+}));
+
+describe("responsive people orbit", () => {
+  it("replaces decorative open spots with real people without changing the true count", () => {
+    const view = render(
+      <PeopleOrbit
+        people={people.slice(0, 1)}
+        totalCount={1}
+        emptySlots={3}
+        center={<span>Circle</span>}
+      />,
+    );
+    const orbit = screen.getByTestId("people-orbit");
+    const mobile = orbit.children[0] as HTMLElement;
+    expect(mobile.querySelectorAll("[data-circle-empty-spot]")).toHaveLength(3);
+    expect(within(mobile).getAllByTitle(/^Person /)).toHaveLength(1);
+    expect(screen.queryByTestId("people-orbit-overflow")).toBeNull();
+    for (const spot of orbit.querySelectorAll("[data-circle-empty-spot]")) {
+      expect(spot).toHaveAttribute("aria-hidden", "true");
+      expect(spot.tagName).toBe("SPAN");
+    }
+    view.rerender(
+      <PeopleOrbit
+        people={people.slice(0, 2)}
+        totalCount={2}
+        emptySlots={2}
+        center={<span>Circle</span>}
+      />,
+    );
+    expect(mobile.querySelectorAll("[data-circle-empty-spot]")).toHaveLength(2);
+    expect(within(mobile).getAllByTitle(/^Person /)).toHaveLength(2);
+    view.rerender(
+      <PeopleOrbit
+        people={people}
+        totalCount={12}
+        emptySlots={3}
+        center={<span>Circle</span>}
+      />,
+    );
+    expect(orbit.querySelectorAll("[data-circle-empty-spot]")).toHaveLength(0);
+    expect(within(mobile).getByLabelText("9 more people")).toBeTruthy();
+  });
+
+  it("never uses open spots for real members whose previews have not loaded", () => {
+    render(
+      <PeopleOrbit
+        people={[]}
+        totalCount={1}
+        emptySlots={3}
+        center={<span>Circle</span>}
+      />,
+    );
+    expect(
+      screen
+        .getByTestId("people-orbit")
+        .querySelectorAll("[data-circle-empty-spot]"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps the circle uncrowded and represents every remaining member", () => {
+    render(
+      <PeopleOrbit
+        people={people}
+        totalCount={12}
+        center={<span>Circle</span>}
+      />,
+    );
+    const orbit = screen.getByTestId("people-orbit");
+    const mobile = orbit.children[0] as HTMLElement;
+    const desktop = orbit.children[1] as HTMLElement;
+    expect(mobile.className).toContain("sm:hidden");
+    expect(desktop.className).toContain("sm:block");
+    expect(within(mobile).getByLabelText("9 more people").textContent).toBe(
+      "+9",
+    );
+    expect(within(desktop).getByLabelText("7 more people").textContent).toBe(
+      "+7",
+    );
+    expect(within(mobile).getAllByTitle(/^Person /)).toHaveLength(3);
+    expect(within(desktop).getAllByTitle(/^Person /)).toHaveLength(5);
+  });
+});
+
+describe("Connect circle growth", () => {
+  const candidate = {
+    connectionId: "connection-1",
+    userId: "person-1",
+    displayName: "Asha Rao",
+    photoUrl: "https://example.com/asha.png",
+    isRia: false,
+  };
+
+  it("keeps the owner in the center and makes every profile-backed avatar a link", () => {
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[
+          {
+            userId: "owner",
+            displayName: "Taylor Kim",
+            publicPersonRef: "taylor-profile",
+            role: "owner",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+          {
+            userId: "member",
+            displayName: "Jordan Lee",
+            publicPersonRef: "jordan-profile",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+        ]}
+        memberCount={2}
+        canInvite
+        candidates={[]}
+        availableCount={0}
+        remainingCapacity={4}
+        loading={false}
+        error={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
+        onAdd={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const ownerLinks = screen.getAllByTestId("circle-owner-profile");
+    expect(ownerLinks).toHaveLength(2);
+    expect(ownerLinks[0]).toHaveAttribute(
+      "href",
+      "/people/taylor-profile?from=%2Fone%2Fconnect",
+    );
+    expect(
+      screen.getAllByRole("link", { name: "Open Jordan Lee's profile" })[0],
+    ).toHaveAttribute("href", "/people/jordan-profile?from=%2Fone%2Fconnect");
+    expect(screen.getByTestId("people-orbit").querySelector("[data-orbit-center]"))
+      .toContainElement(ownerLinks[0]);
+  });
+
+  it.each([
+    ["new circle", {}, 3],
+    ["connections still loading", { loading: true, remainingCapacity: 0 }, 3],
+    ["only one place left", { remainingCapacity: 1 }, 1],
+    ["full circle", { remainingCapacity: 0 }, 0],
+    ["read-only circle", { canInvite: false }, 0],
+    ["unavailable connections", { error: "Please retry" }, 0],
+  ] as const)(
+    "shows honest placeholders for %s",
+    (_name, overrides, expected) => {
+      const props: ComponentProps<typeof LivingCirclePanel> = {
+        circleName: "Family",
+        members: [
+          {
+            userId: "owner",
+            displayName: "You",
+            role: "owner",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+        ],
+        memberCount: 1,
+        canInvite: true,
+        candidates: [],
+        availableCount: 0,
+        remainingCapacity: 20,
+        loading: false,
+        error: null,
+        selectedUserIds: new Set(), submitting: false, onSubmit: vi.fn(),
+        onAdd: vi.fn(),
+        searchQuery: "",
+        onSearchChange: vi.fn(),
+        hasMore: false,
+        loadingMore: false,
+        onLoadMore: vi.fn(),
+        onRetry: vi.fn(),
+        ...overrides,
+      };
+      render(<LivingCirclePanel {...props} />);
+      const mobile = screen.getByTestId("people-orbit").children[0];
+      expect(mobile.querySelectorAll("[data-circle-empty-spot]")).toHaveLength(
+        expected,
+      );
+      expect(screen.getByText("Your circle starts with you")).toBeTruthy();
+      if (expected)
+        expect(
+          screen.getByText("Room for the people you choose."),
+        ).toBeTruthy();
+      if (_name === "new circle")
+        expect(
+          screen.getByRole("link", { name: "Find people" }),
+        ).toHaveAttribute("href", "/one/connect?tab=all");
+    },
+  );
+
+  it("offers tap-to-add and the same eligible person as a desktop drag target", () => {
+    const onAdd = vi.fn();
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[]}
+        memberCount={1}
+        canInvite
+        candidates={[candidate]}
+        availableCount={1}
+        remainingCapacity={5}
+        loading={false}
+        error={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
+        onAdd={onAdd}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Asha Rao to Family" }),
+    );
+    expect(onAdd).toHaveBeenCalledWith("person-1");
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      types: ["application/x-hushh-circle-person"],
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? "",
+    };
+    fireEvent.dragStart(screen.getByText("Asha Rao").closest("[draggable]")!, {
+      dataTransfer,
+    });
+    fireEvent.dragOver(screen.getByTestId("connect-circle-drop-zone"), {
+      dataTransfer,
+    });
+    fireEvent.drop(screen.getByTestId("connect-circle-drop-zone"), {
+      dataTransfer,
+    });
+    expect(onAdd).toHaveBeenCalledTimes(2);
+    expect(onAdd).toHaveBeenLastCalledWith("person-1");
+  });
+
+  it("retains warm candidates through refresh and enforces the batch ceiling on buttons and drops", () => {
+    const onAdd = vi.fn();
+    const props: ComponentProps<typeof LivingCirclePanel> = {
+      circleName: "Family", members: [], memberCount: 1, canInvite: true,
+      candidates: [candidate], availableCount: 21, remainingCapacity: 99,
+      loading: true, error: null,
+      selectedUserIds: new Set(Array.from({ length: 20 }, (_, index) => `selected-${index}`)),
+      submitting: false, onSubmit: vi.fn(), onAdd,
+      searchQuery: "", onSearchChange: vi.fn(), hasMore: false, loadingMore: false,
+      onLoadMore: vi.fn(), onRetry: vi.fn(),
+    };
+    const view = render(<LivingCirclePanel {...props} />);
+    const button = screen.getByRole("button", { name: "Add Asha Rao to Family" });
+    expect(button).toBeDisabled();
+    expect(button.closest("[draggable]")).toHaveAttribute("draggable", "false");
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    expect(screen.getByText("You can add up to 20 people at a time.")).toBeVisible();
+    fireEvent.drop(screen.getByTestId("connect-circle-drop-zone"), {
+      dataTransfer: { getData: () => candidate.userId },
+    });
+    expect(onAdd).not.toHaveBeenCalled();
+    view.rerender(<LivingCirclePanel {...props} loading={false} error="Could not refresh connections." />);
+    expect(screen.getByText("Asha Rao")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add 20 people", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
+  it("never offers an add action to a viewer without invite permission", () => {
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[]}
+        memberCount={1}
+        canInvite={false}
+        candidates={[candidate]}
+        availableCount={1}
+        remainingCapacity={5}
+        loading={false}
+        error={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
+        onAdd={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Bring in your connections")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Asha Rao/ })).toBeNull();
+  });
+
+  it("expands the candidate list inline with search and pagination, never a modal", () => {
+    const onSearchChange = vi.fn();
+    const onLoadMore = vi.fn();
+    const candidates = Array.from({ length: 7 }, (_, index) => ({
+      ...candidate,
+      userId: `person-${index + 1}`,
+      displayName: `Person ${index + 1}`,
+    }));
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[]}
+        memberCount={1}
+        canInvite
+        candidates={candidates}
+        availableCount={60}
+        remainingCapacity={10}
+        loading={false}
+        error={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
+        onAdd={vi.fn()}
+        searchQuery=""
+        onSearchChange={onSearchChange}
+        hasMore
+        loadingMore={false}
+        onLoadMore={onLoadMore}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Person 7")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "See all (60)" }));
+    expect(screen.getByText("Person 7")).toBeTruthy();
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search connections to add" }),
+      {
+        target: { value: "Person 55" },
+      },
+    );
+    expect(onSearchChange).toHaveBeenCalledWith("Person 55");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
+  });
+
+  it("allows dragging a circle member down to remove them from the circle", () => {
+    const onRemove = vi.fn();
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[
+          {
+            userId: "owner",
+            displayName: "Taylor Kim",
+            role: "owner",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+          {
+            userId: "member-1",
+            displayName: "Jordan Lee",
+            publicPersonRef: "jordan-profile",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+        ]}
+        memberCount={2}
+        canInvite
+        candidates={[]}
+        availableCount={0}
+        remainingCapacity={4}
+        loading={false}
+        error={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
+        onAdd={vi.fn()}
+        onRemove={onRemove}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      types: ["application/x-hushh-circle-remove-member"],
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? "",
+    };
+
+    const memberLink = screen.getAllByRole("link", {
+      name: "Open Jordan Lee's profile",
+    })[0];
+    expect(memberLink).toHaveAttribute("draggable", "true");
+
+    fireEvent.dragStart(memberLink, { dataTransfer });
+    expect(screen.getByText("Drag down to remove from circle")).toBeTruthy();
+
+    const removeZone = screen.getByTestId("connect-circle-remove-drop-zone");
+    fireEvent.dragOver(removeZone, { dataTransfer });
+    expect(screen.getAllByText("Release to remove from circle").length).toBeGreaterThan(0);
+
+    fireEvent.drop(removeZone, { dataTransfer });
+    expect(onRemove).toHaveBeenCalledWith("member-1");
+  });
+});

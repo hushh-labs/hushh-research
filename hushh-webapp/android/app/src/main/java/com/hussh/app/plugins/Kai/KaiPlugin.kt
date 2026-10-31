@@ -6,8 +6,10 @@ import com.hussh.app.plugins.shared.BackendUrl
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -32,6 +34,17 @@ class KaiPlugin : Plugin() {
     private val TAG = "KaiPlugin"
     private val kaiStreamLock = Any()
     @Volatile private var activeKaiStreamCall: Call? = null
+
+    companion object {
+        private const val MAX_STREAM_ERROR_BODY_BYTES = 16 * 1024
+        private const val PORTFOLIO_STREAM_EVENT = "portfolioStreamEvent"
+        private const val KAI_STREAM_EVENT = "kaiStreamEvent"
+        private val STREAM_LIFECYCLE_STATUSES = mapOf(
+            "AUTH_ACCOUNT_NOT_FOUND" to 401,
+            "AUTH_ACCOUNT_DELETION_IN_PROGRESS" to 423,
+            "AUTH_ACCOUNT_STATUS_UNAVAILABLE" to 503,
+        )
+    }
 
     // OkHttp client with explicit timeouts (Kai analysis can take longer than typical API calls)
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -62,6 +75,130 @@ class KaiPlugin : Plugin() {
                 activeKaiStreamCall = null
             }
         }
+    }
+
+    private fun streamLifecycleCode(value: Any?, depth: Int, remainingNodes: IntArray): String? {
+        if (depth > 6 || remainingNodes[0] <= 0) return null
+        remainingNodes[0] -= 1
+
+        if (value is String && STREAM_LIFECYCLE_STATUSES.containsKey(value)) return value
+        when (value) {
+            is JSONObject -> {
+                val keys = value.keys()
+                var entries = 0
+                while (keys.hasNext() && entries < 32) {
+                    val key = keys.next()
+                    streamLifecycleCode(value.opt(key), depth + 1, remainingNodes)?.let {
+                        return it
+                    }
+                    entries += 1
+                }
+            }
+            is JSONArray -> {
+                val limit = minOf(value.length(), 32)
+                for (index in 0 until limit) {
+                    streamLifecycleCode(value.opt(index), depth + 1, remainingNodes)?.let {
+                        return it
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun readBoundedStreamErrorBody(response: Response): String {
+        val body = response.body ?: return ""
+        val contentLength = body.contentLength()
+        if (contentLength > MAX_STREAM_ERROR_BODY_BYTES) return ""
+
+        return try {
+            body.byteStream().use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (output.size() + count > MAX_STREAM_ERROR_BODY_BYTES) return ""
+                    output.write(buffer, 0, count)
+                }
+                output.toString(Charsets.UTF_8.name())
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun containsExactString(target: String, value: Any?, depth: Int, remainingNodes: IntArray): Boolean {
+        if (depth > 6 || remainingNodes[0] <= 0) return false
+        remainingNodes[0] -= 1
+
+        if (value is String) return value == target
+        when (value) {
+            is JSONObject -> {
+                val keys = value.keys()
+                var entries = 0
+                while (keys.hasNext() && entries < 32) {
+                    val key = keys.next()
+                    if (containsExactString(target, value.opt(key), depth + 1, remainingNodes)) return true
+                    entries += 1
+                }
+            }
+            is JSONArray -> {
+                val limit = minOf(value.length(), 32)
+                for (index in 0 until limit) {
+                    if (containsExactString(target, value.opt(index), depth + 1, remainingNodes)) return true
+                }
+            }
+        }
+        return false
+    }
+
+    // Response text fragments that mean the vault-owner token itself is invalid,
+    // mirroring the web classifier (`classifyVaultOwnerAuthFailure`).
+    private val vaultOwnerInvalidTextMarkers = listOf(
+        "token has been revoked",
+        "invalid token",
+        "token validation failed",
+    )
+
+    private fun carriesVaultOwnerInvalidTextMarker(payload: Any?, rawBody: String): Boolean {
+        val reason = (payload as? JSONObject)?.let { obj ->
+            obj.optString("error").takeIf { it.isNotEmpty() && obj.opt("error") is String }
+                ?: obj.optString("detail").takeIf { it.isNotEmpty() && obj.opt("detail") is String }
+                ?: obj.optString("details").takeIf { it.isNotEmpty() && obj.opt("details") is String }
+        }
+        val text = (reason ?: rawBody).lowercase()
+        return vaultOwnerInvalidTextMarkers.any { text.contains(it) }
+    }
+
+    private fun streamBridgeErrorCode(statusCode: Int, body: String): String {
+        var payload: Any? = null
+        if (body.isNotBlank() && body.toByteArray(Charsets.UTF_8).size <= MAX_STREAM_ERROR_BODY_BYTES) {
+            try {
+                payload = JSONTokener(body).nextValue()
+                val code = streamLifecycleCode(payload, 0, intArrayOf(64))
+                if (code != null && STREAM_LIFECYCLE_STATUSES[code] == statusCode) return code
+            } catch (_: Exception) {
+                // Malformed or non-JSON error bodies never become machine codes.
+            }
+        }
+        if (statusCode == 401 || statusCode == 403) {
+            // A bare 401/403 can also be an ordinary feature/permission refusal
+            // after a valid owner check (e.g. a disabled connector). Only an
+            // explicit invalid-owner code or message should clear Vault custody.
+            if (payload != null && containsExactString("AUTH_VAULT_OWNER_INVALID", payload, 0, intArrayOf(64))) {
+                return "AUTH_VAULT_OWNER_INVALID"
+            }
+            if (carriesVaultOwnerInvalidTextMarker(payload, body)) return "AUTH_VAULT_OWNER_INVALID"
+            return "HUSHH_HTTP_$statusCode"
+        }
+        return "HUSHH_HTTP_$statusCode"
+    }
+
+    private fun rejectStreamHttpError(pluginCall: PluginCall, response: Response) {
+        val statusCode = response.code
+        val code = streamBridgeErrorCode(statusCode, readBoundedStreamErrorBody(response))
+        activity.runOnUiThread { pluginCall.reject("Stream request was rejected.", code) }
     }
     
     @PluginMethod
@@ -396,11 +533,6 @@ class KaiPlugin : Plugin() {
         })
     }
 
-    companion object {
-        private const val PORTFOLIO_STREAM_EVENT = "portfolioStreamEvent"
-        private const val KAI_STREAM_EVENT = "kaiStreamEvent"
-    }
-
     /** Emit one canonical SSE envelope to JS. */
     private fun emitPortfolioStreamEvent(envelope: JSObject) {
         notifyListeners(PORTFOLIO_STREAM_EVENT, envelope)
@@ -537,7 +669,7 @@ class KaiPlugin : Plugin() {
             try {
                 nativeStreamCall.execute().use { response ->
                     if (!response.isSuccessful) {
-                        activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
+                        rejectStreamHttpError(pluginCall, response)
                         return@Thread
                     }
                     val body = response.body ?: run {
@@ -619,19 +751,20 @@ class KaiPlugin : Plugin() {
         val pluginCall = call
         Thread {
             try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
-                    return@Thread
-                }
-                val body = response.body ?: run {
-                    activity.runOnUiThread { pluginCall.reject("No response body") }
-                    return@Thread
-                }
-                body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
-                        processSseStream(reader) { eventName, eventId, dataText ->
-                            emitPortfolioSseBlock(eventName, eventId, dataText)
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        rejectStreamHttpError(pluginCall, response)
+                        return@Thread
+                    }
+                    val body = response.body ?: run {
+                        activity.runOnUiThread { pluginCall.reject("No response body") }
+                        return@Thread
+                    }
+                    body.byteStream().use { stream ->
+                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                            processSseStream(reader) { eventName, eventId, dataText ->
+                                emitPortfolioSseBlock(eventName, eventId, dataText)
+                            }
                         }
                     }
                 }
@@ -675,25 +808,28 @@ class KaiPlugin : Plugin() {
         val pluginCall = call
         Thread {
             try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
-                    return@Thread
-                }
-                val body = response.body ?: run {
-                    activity.runOnUiThread { pluginCall.reject("No response body") }
-                    return@Thread
-                }
-                body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
-                        processSseStream(reader) { eventName, eventId, dataText ->
-                            emitPortfolioSseBlock(eventName, eventId, dataText)
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        rejectStreamHttpError(pluginCall, response)
+                        return@Thread
+                    }
+                    val body = response.body ?: run {
+                        activity.runOnUiThread { pluginCall.reject("No response body") }
+                        return@Thread
+                    }
+                    body.byteStream().use { stream ->
+                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                            processSseStream(reader) { eventName, eventId, dataText ->
+                                emitPortfolioSseBlock(eventName, eventId, dataText)
+                            }
                         }
                     }
                 }
                 activity.runOnUiThread { pluginCall.resolve(JSObject().put("success", true)) }
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "streamPortfolioImportRun error", e)
+                // The request URL carries user_id in its query, and Log.e is not
+                // silenced by Capacitor's loggingBehavior; log the type only.
+                android.util.Log.e(TAG, "streamPortfolioImportRun error: ${e.javaClass.simpleName}")
                 activity.runOnUiThread { pluginCall.reject("Stream error: ${e.message}") }
             }
         }.start()
@@ -721,19 +857,20 @@ class KaiPlugin : Plugin() {
         val pluginCall = call
         Thread {
             try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
-                    return@Thread
-                }
-                val body = response.body ?: run {
-                    activity.runOnUiThread { pluginCall.reject("No response body") }
-                    return@Thread
-                }
-                body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
-                        processSseStream(reader) { eventName, eventId, dataText ->
-                            emitPortfolioSseBlock(eventName, eventId, dataText)
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        rejectStreamHttpError(pluginCall, response)
+                        return@Thread
+                    }
+                    val body = response.body ?: run {
+                        activity.runOnUiThread { pluginCall.reject("No response body") }
+                        return@Thread
+                    }
+                    body.byteStream().use { stream ->
+                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                            processSseStream(reader) { eventName, eventId, dataText ->
+                                emitPortfolioSseBlock(eventName, eventId, dataText)
+                            }
                         }
                     }
                 }

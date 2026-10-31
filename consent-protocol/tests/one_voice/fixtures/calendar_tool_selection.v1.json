@@ -1,0 +1,101 @@
+{
+  "schema_version": "one.voice.calendar_tool_selection.v1",
+  "cases": [
+    {
+      "id": "events-tomorrow",
+      "family": "events",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "What's on my calendar tomorrow?",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "events"}},
+      "note": "A natural day phrase should select Calendar events."
+    },
+    {
+      "id": "events-appointment",
+      "family": "events",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Show me my appointments for Friday morning.",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "events"}},
+      "note": "Appointment is an event paraphrase."
+    },
+    {
+      "id": "freebusy-check",
+      "family": "freebusy",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Am I already busy between three and four tomorrow?",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "freebusy"}},
+      "note": "Busy check should not invent an event."
+    },
+    {
+      "id": "openings-half-hour",
+      "family": "openings",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Find a free half hour on my calendar tomorrow afternoon.",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "openings"}},
+      "note": "Availability search is a read."
+    },
+    {
+      "id": "calendar-list",
+      "family": "calendars",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Which calendars do I have connected?",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "calendars"}},
+      "note": "Calendar list uses the optional scope."
+    },
+    {
+      "id": "event-detail-follow-up",
+      "family": "event",
+      "screen": "one_home",
+      "history": ["What's on my calendar tomorrow?"],
+      "utterance": "What is the second event about?",
+      "expected_tools": ["read_calendar"],
+      "forbidden_tools": ["compose_mail", "send_mail", "read_mail"],
+      "expected_args": {"read_calendar": {"operation": "event"}},
+      "note": "Detail should resolve a shown ordinal, not guess an event ID."
+    },
+    {
+      "id": "no-create",
+      "family": "no_write",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Book a meeting for me next Tuesday.",
+      "expected_tools": [],
+      "forbidden_tools": ["read_calendar", "compose_mail", "send_mail"],
+      "note": "A write request cannot be satisfied by the read-only Calendar tool."
+    },
+    {
+      "id": "no-delete",
+      "family": "no_write",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Cancel my next calendar event.",
+      "expected_tools": [],
+      "forbidden_tools": ["read_calendar", "compose_mail", "send_mail"],
+      "note": "No Calendar mutation is available."
+    },
+    {
+      "id": "email-negative",
+      "family": "other",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Read my most recent email.",
+      "expected_tools": ["read_mail"],
+      "forbidden_tools": ["read_calendar", "compose_mail", "send_mail"],
+      "note": "Email read must not route to Calendar."
+    }
+  ]
+}

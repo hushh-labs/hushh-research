@@ -1,4 +1,5 @@
-// hushh-webapp/lib/services/personal-knowledge-model-service.ts
+import { canonicalPkmSegmentId, pkmStorageSegmentId } from "@/lib/personal-knowledge-model/segmentation";
+import { assertWalletSecurityCodeWrite, type WalletSecurityCodeChange } from "@/lib/wallet/card-security-code";
 /**
  * Personal Knowledge Model service for PKM operations.
  *
@@ -15,16 +16,32 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import { parsePkmSharingImpact } from "@/lib/personal-knowledge-model/sharing-impact";
+import { mergeWithSupersedeHistory } from "@/lib/pkm/pkm-supersede-merge";
+import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
+import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
+import { pkmClientVersionHeaders } from "@/lib/vault/write-protocol-version";
+import {
+  RESERVED_ENFORCEMENT_MODE,
+  ReservedBranchWriteBlocked,
+  evaluateReservedWrite,
+  assertReservedBranchesUntouched,
+} from "@/lib/pkm/reserved-branches";
 import { Capacitor } from "@capacitor/core";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { AuthService } from "./auth-service";
 import { ApiService } from "./api-service";
+import { PkmStoreDomainError } from "./pkm-store-domain-error";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
+  bindPkmManifestStorageRouting,
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
   type PathDescriptor,
@@ -40,6 +57,8 @@ import {
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import {
   buildConfirmedPkmMutationPlanV2,
+  sha256Hex,
+  type KycReplyAuthorizationV1,
   type PkmMutationPlanV2,
   type PkmUserConfirmation,
 } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -142,6 +161,7 @@ export interface DomainSnapshotV1 {
 }
 
 export interface StoreDomainDataResult {
+  idempotentReplay?: boolean;
   success: boolean;
   conflict?: boolean;
   message?: string;
@@ -149,6 +169,8 @@ export interface StoreDomainDataResult {
   updatedAt?: string;
   manifestRevision?: number;
   commitId?: string;
+  locationRunRevision?: number;
+  locationPlaceReceiptId?: string;
   archivedRevisionId?: string;
   preservationReceipt?: PreservationReceiptV1;
 }
@@ -369,6 +391,8 @@ export class PersonalKnowledgeModelService {
   private static metadataInflight = new Map<string, Promise<PersonalKnowledgeModelMetadata>>();
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
+  // Publication tickets, not payloads: older reads cannot replace a fresh read.
+  private static domainReadTickets = new Map<string, object>();
   private static domainManifestInflight = new Map<string, Promise<DomainManifest | null>>();
   private static domainSnapshotInflight = new Map<string, Promise<DomainSnapshotV1 | null>>();
   private static tickerSyncInflight = new Map<string, Promise<void>>();
@@ -383,6 +407,7 @@ export class PersonalKnowledgeModelService {
       this.metadataInflight,
       this.encryptedDataInflight,
       this.domainDataInflight,
+      this.domainReadTickets,
       this.domainManifestInflight,
       this.domainSnapshotInflight,
       this.tickerSyncInflight,
@@ -736,7 +761,24 @@ export class PersonalKnowledgeModelService {
       return existing;
     }
 
+    // A memory-pipeline decision (the merge agent chose create, extend or
+    // correct) evolves stored information: a changed value stays current and
+    // the earlier one is kept under `superseded`. Structured writers pass no
+    // memory decision and keep their plain merge, so no connector or runtime
+    // secret ever accumulates history.
+    const evolvesMemory = Boolean(params.mergeDecision) &&
+      (mergeMode === "create_entity" || mergeMode === "extend_entity" || mergeMode === "correct_entity");
+    const nowIso = new Date().toISOString();
+
     if (!incoming) {
+      if (evolvesMemory) {
+        // A correction that is not entity-shaped used to be dropped here while
+        // the save still reported success.
+        return mergeWithSupersedeHistory(existing, candidate, {
+          nowIso,
+          mode: mergeMode === "correct_entity" ? "correct" : "extend",
+        }).merged;
+      }
       if (mergeMode === "correct_entity") {
         return existing;
       }
@@ -750,7 +792,6 @@ export class PersonalKnowledgeModelService {
       scopeObject.entities = {};
     }
     const entities = scopeObject.entities as Record<string, unknown>;
-    const nowIso = new Date().toISOString();
     const incomingEntity = this.cloneRecord(incoming.entity);
     if (!incomingEntity.entity_id) {
       incomingEntity.entity_id = targetEntityId;
@@ -784,9 +825,9 @@ export class PersonalKnowledgeModelService {
           observations.push(observation);
         }
       }
+      const { observations: _incomingObservations, ...incomingFields } = incomingEntity;
       entities[targetEntityId] = {
-        ...existingEntity,
-        ...incomingEntity,
+        ...mergeWithSupersedeHistory(existingEntity, incomingFields, { nowIso, mode: "extend" }).merged,
         entity_id: targetEntityId,
         observations,
         status: "active",
@@ -797,8 +838,7 @@ export class PersonalKnowledgeModelService {
 
     if (mergeMode === "correct_entity") {
       entities[targetEntityId] = {
-        ...existingEntity,
-        ...incomingEntity,
+        ...mergeWithSupersedeHistory(existingEntity, incomingEntity, { nowIso, mode: "correct" }).merged,
         entity_id: targetEntityId,
         created_at: existingEntity.created_at || incomingEntity.created_at || nowIso,
         status: "active",
@@ -849,12 +889,7 @@ export class PersonalKnowledgeModelService {
   }
 
   private static canonicalSegmentId(segmentId: string): string {
-    const normalized = String(segmentId || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_")
-      .replace(/^_+|_+$/g, "");
-    return normalized || "root";
+    return canonicalPkmSegmentId(segmentId);
   }
 
   private static normalizeSegmentIds(segmentIds?: string[] | null): string[] {
@@ -900,15 +935,11 @@ export class PersonalKnowledgeModelService {
 
   private static partitionDomainDataIntoSegments(domainData: Record<string, unknown>): Record<string, unknown> {
     const segmented: Record<string, unknown> = {};
-    const rootPayload: Record<string, unknown> = {};
+    const rootPayload: Record<string, unknown> = Object.create(null);
 
     for (const [key, value] of Object.entries(domainData || {})) {
-      const segmentId = this.canonicalSegmentId(key);
-      const isSegmentCandidate =
-        value !== null &&
-        value !== undefined &&
-        (Array.isArray(value) || typeof value === "object");
-      if (!isSegmentCandidate || segmentId === "root") {
+      const segmentId = pkmStorageSegmentId(key, value);
+      if (segmentId === "root") {
         rootPayload[key] = value;
         continue;
       }
@@ -982,7 +1013,9 @@ export class PersonalKnowledgeModelService {
 
     const domainData: Record<string, unknown> = {};
     const requestedSegmentIds = this.normalizeSegmentIds(params.segmentIds);
-    const segmentEntries = Object.entries(segments).filter(([segmentId]) =>
+    const segmentEntries = Object.entries(segments).sort(([a], [b]) =>
+      a === "root" ? -1 : b === "root" ? 1 : a.localeCompare(b)
+    ).filter(([segmentId]) =>
       requestedSegmentIds.length === 0
         ? true
         : requestedSegmentIds.includes(this.canonicalSegmentId(segmentId))
@@ -1000,10 +1033,21 @@ export class PersonalKnowledgeModelService {
       );
       const parsed = JSON.parse(decrypted);
       if (segmentId === "root" && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        Object.assign(domainData, parsed as Record<string, unknown>);
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          Object.defineProperty(domainData, key, { value, enumerable: true, writable: true, configurable: true });
+        }
         continue;
       }
-      domainData[segmentId] = parsed;
+      // Compatibility for private feature records written before exact-key
+      // preservation. These domains have one authored `_private` authority;
+      // never infer or rename user-authored keys in other domains.
+      const recordKey = requestedSegmentIds.length === 0 && segmentId === "private" &&
+        ["one_todos", "one_living_sources"].includes(params.domain) &&
+        !Object.hasOwn(domainData, "_private") ? "_private" : segmentId;
+      if (Object.hasOwn(domainData, recordKey)) {
+        throw new Error("Encrypted memory has overlapping record segments. Review before saving.");
+      }
+      Object.defineProperty(domainData, recordKey, { value: parsed, enumerable: true, writable: true, configurable: true });
     }
     return domainData;
   }
@@ -1151,8 +1195,9 @@ export class PersonalKnowledgeModelService {
     userId: string;
     fullBlob: Record<string, unknown>;
     vaultOwnerToken?: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<void> {
-    if (Capacitor.isNativePlatform()) {
+    if (Capacitor.isNativePlatform() || shouldSkipReviewerBackgroundWritesForAutomation()) {
       return;
     }
     if (!params.vaultOwnerToken) {
@@ -1194,6 +1239,7 @@ export class PersonalKnowledgeModelService {
           `/api/tickers/sync-holdings/${encodeURIComponent(params.userId)}`,
           {
             method: "POST",
+            isEffectCurrent: () => !shouldSkipReviewerBackgroundWritesForAutomation() && (params.isEffectCurrent?.() ?? true),
             headers: {
               "Content-Type": "application/json",
               ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -1207,27 +1253,29 @@ export class PersonalKnowledgeModelService {
           }
         );
         if (!response.ok) {
-          const errorText = await response.text().catch(() => "");
           console.warn(
-            `[PersonalKnowledgeModelService] ticker sync failed (${response.status}) for ${params.userId}: ${errorText}`
+            `[PersonalKnowledgeModelService] ticker sync failed (HTTP ${response.status}).`
           );
           return;
         }
 
         const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (params.isEffectCurrent && !params.isEffectCurrent()) return;
         const changeCount =
           Number(payload.seeded_rows || 0) +
           Number(payload.seed_updates || 0) +
           Number(payload.enrichment_updated || 0);
         if (changeCount > 0) {
           const { preloadTickerUniverse } = await import("@/lib/kai/ticker-universe-cache");
+          if (params.isEffectCurrent && !params.isEffectCurrent()) return;
           await preloadTickerUniverse({ forceRefresh: true }).catch(() => undefined);
         }
 
+        if (params.isEffectCurrent && !params.isEffectCurrent()) return;
         this.tickerSyncSignatureByUser.set(params.userId, signature);
         this.tickerSyncLastAt.set(params.userId, Date.now());
-      } catch (error) {
-        console.warn("[PersonalKnowledgeModelService] ticker sync request failed:", error);
+      } catch {
+        console.warn("[PersonalKnowledgeModelService] ticker sync request did not complete.");
       }
     })();
 
@@ -1326,6 +1374,8 @@ export class PersonalKnowledgeModelService {
     domain: string;
     domainData: Record<string, unknown>;
     previousManifest?: DomainManifest | null;
+    /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
+    scopeHandles: Record<"llm" | "agent_memory" | "connectors", string>;
   }): {
     summary: Record<string, unknown>;
     structureDecision: StructureDecision;
@@ -1333,6 +1383,12 @@ export class PersonalKnowledgeModelService {
   } {
     const nowIso = new Date().toISOString();
     const domainContractVersion = currentDomainContractVersion(params.domain);
+    const reusableHandle = (branch: string): string | undefined => {
+      const handle = params.previousManifest?.scope_registry?.find(
+        (entry) => String(entry.summary_projection?.top_level_scope_path || "") === branch,
+      )?.scope_handle;
+      return handle && /^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$/.test(handle) ? handle : undefined;
+    };
     const providerDescriptors = [
       {
         provider: "gemini",
@@ -1429,6 +1485,19 @@ export class PersonalKnowledgeModelService {
         scope_handle: "runtime_secrets.agent_memory",
         source_agent: "runtime_secret_settings",
       },
+      {
+        // Only the fixed branch is metadata. Never enumerate connector IDs,
+        // endpoints, names or credentials into the manifest.
+        json_path: "connectors",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Private connector settings",
+        sensitivity_label: "restricted",
+        segment_id: "connectors",
+        scope_handle: "runtime_secrets.connectors",
+        source_agent: "runtime_secret_settings",
+      },
     ];
     const summary = {
       domain_intent: params.domain,
@@ -1454,7 +1523,7 @@ export class PersonalKnowledgeModelService {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
       json_paths: paths.map((path) => path.json_path),
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
       summary_projection: summary,
       sensitivity_labels: {
@@ -1465,6 +1534,7 @@ export class PersonalKnowledgeModelService {
         "llm.credential_mode": "restricted",
         agent_memory: "restricted",
         "agent_memory.auto_save_policy": "restricted",
+        connectors: "restricted",
       },
       confidence: 1,
       source_agent: "runtime_secret_settings",
@@ -1480,9 +1550,9 @@ export class PersonalKnowledgeModelService {
       upgraded_at: nowIso,
       structure_decision: structureDecision,
       summary_projection: summary,
-      top_level_scope_paths: ["llm", "agent_memory"],
+      top_level_scope_paths: ["llm", "agent_memory", "connectors"],
       externalizable_paths: [],
-      segment_ids: ["llm", "agent_memory"],
+      segment_ids: ["llm", "agent_memory", "connectors"],
       path_count: paths.length,
       externalizable_path_count: 0,
       last_structured_at: nowIso,
@@ -1490,7 +1560,27 @@ export class PersonalKnowledgeModelService {
       paths,
       scope_registry: [
         {
-          scope_handle: "runtime_secrets.llm",
+          scope_handle: reusableHandle("connectors") || params.scopeHandles.connectors,
+          scope_label: "Private connector settings",
+          segment_ids: ["connectors"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "connectors",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "Private connector settings are not shareable information.",
+            storage_mode: "encrypted_domain",
+          },
+        },
+        {
+          // The plan builder copies this into target_scope_handle; the server
+          // only accepts opaque handles, so a dotted label 422s the first write.
+          scope_handle: reusableHandle("llm") || params.scopeHandles.llm,
           scope_label: "Runtime model credentials",
           segment_ids: ["llm"],
           sensitivity_tier: "restricted",
@@ -1508,7 +1598,7 @@ export class PersonalKnowledgeModelService {
           },
         },
         {
-          scope_handle: "runtime_secrets.agent_memory",
+          scope_handle: reusableHandle("agent_memory") || params.scopeHandles.agent_memory,
           scope_label: "Private agent memory preferences",
           segment_ids: ["agent_memory"],
           sensitivity_tier: "restricted",
@@ -1551,16 +1641,22 @@ export class PersonalKnowledgeModelService {
   static async getMetadata(
     userId: string,
     forceRefresh = false,
-    vaultOwnerToken?: string
+    vaultOwnerToken?: string,
+    options: { allowStaleFallback?: boolean } = {},
   ): Promise<PersonalKnowledgeModelMetadata> {
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
     const deviceResourceKey = this.metadataDeviceResourceKey(userId);
     const canUseDeviceCache = !Capacitor.isNativePlatform() && Boolean(vaultOwnerToken);
     const staleMemorySnapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
+    const shouldBypassProxyCache =
+      forceRefresh ||
+      !staleMemorySnapshot ||
+      !this.isAuthoritativeMetadataSnapshot(staleMemorySnapshot.data);
     let deviceFallback: PersonalKnowledgeModelMetadata | null = null;
 
-    if (!forceRefresh) {
+    if (!forceRefresh && options.allowStaleFallback !== false) {
       if (staleMemorySnapshot?.isFresh && this.isAuthoritativeMetadataSnapshot(staleMemorySnapshot.data)) {
         this.logMetadataRequest("cache_hit", {
           tier: "memory",
@@ -1602,7 +1698,9 @@ export class PersonalKnowledgeModelService {
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-      forceRefresh ? "refresh" : "cached",
+      shouldBypassProxyCache ? "refresh" : "cached",
+      options.allowStaleFallback === false ? "authoritative" : "fallback_allowed",
+      String(vaultEpoch),
     ]);
     const existingRequest = this.metadataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -1772,7 +1870,11 @@ export class PersonalKnowledgeModelService {
         });
         const fetchMetadataResponse = async (token?: string) =>
           ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
-            headers: this.getAuthHeaders(token),
+            headers: {
+              ...pkmClientVersionHeaders(),
+              ...this.getAuthHeaders(token),
+              ...(shouldBypassProxyCache ? { "Cache-Control": "no-cache" } : {}),
+            },
           });
 
         let response = await fetchMetadataResponse(metadataToken);
@@ -1784,6 +1886,11 @@ export class PersonalKnowledgeModelService {
           }
         }
 
+        // Background writes need current version authority, not a stale
+        // display fallback. An authoritative 404 still means a new owner.
+        if (options.allowStaleFallback === false && !response.ok && response.status !== 404) {
+          throw new Error(`PKM metadata unavailable (HTTP ${response.status}).`);
+        }
         // Handle 404 as valid "no data" response for new users
         if (response.status === 404) {
           result = this.emptyMetadata(userId);
@@ -1796,7 +1903,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
           // Upstream timeout / temporary backend issue.
           // Fall back to the last known good metadata and avoid caching a false empty state.
@@ -1806,7 +1916,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else if (!response.ok) {
           // Any remaining non-OK status should fail open for dashboard bootstrap.
           // Preserve the last known good metadata instead of caching a false empty state.
@@ -1816,7 +1929,10 @@ export class PersonalKnowledgeModelService {
           cacheTtlMs = CACHE_TTL.SHORT;
           persistToDeviceCache = false;
           shouldCacheResult = false;
-          result = fallbackMetadata ?? this.emptyMetadata(userId);
+          if (!fallbackMetadata) {
+            throw new Error("Your saved details are temporarily unavailable. Please try again.");
+          }
+          result = fallbackMetadata;
         } else {
           const data = await response.json();
 
@@ -1903,10 +2019,10 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (shouldCacheResult) {
+      if (shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         cache.set(cacheKey, result, cacheTtlMs);
       }
-      if (persistToDeviceCache && shouldCacheResult) {
+      if (persistToDeviceCache && shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         await DeviceResourceCacheService.write({
           userId,
           resourceKey: deviceResourceKey,
@@ -1940,6 +2056,37 @@ export class PersonalKnowledgeModelService {
    * @param params.encryptedBlob - Pre-encrypted data from client
    * @param params.summary - Non-sensitive metadata for pkm_index
    */
+  /**
+   * The light writer-versus-scope check at the last client step before the
+   * network, for the paths that do not go through PkmWriteCoordinator's value
+   * diff: the Wallet service and the runtime-secret commits. Judges the plan's
+   * declared scope against contracts/pkm/reserved-branches.v1.json; throws
+   * ReservedBranchWriteBlocked in enforce mode, counts nothing otherwise.
+   */
+  private static assertReservedWriterMayWrite(params: {
+    domain: string;
+    mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
+  }): void {
+    if (RESERVED_ENFORCEMENT_MODE !== "enforce" || !params.mutationPlan) return;
+    // The declared scope only. A merged save's structure decision lists every
+    // branch of the whole domain, changed or not, so judging it refused chat
+    // saves into an agent_memory sibling. Coordinator writes also get the
+    // value diff; the server judges structure paths against the stored manifest.
+    const refusals = evaluateReservedWrite({
+      domain: params.domain,
+      paths: [params.mutationPlan.proposed_scope],
+      writerId: params.mutationPlan.writer_id,
+      authorizationMode: params.mutationPlan.confirmation_receipt.authorization_mode,
+      capabilities: [
+        ...(params.locationFinalizeAuthorization ? ["location_finalize_authorization"] : []),
+        ...(params.kycReplyAuthorization ? ["information_request_id"] : []),
+      ],
+    });
+    if (refusals.length) throw new ReservedBranchWriteBlocked(refusals);
+  }
+
   static async storeDomainData(params: {
     userId: string;
     domain: string;
@@ -1954,9 +2101,17 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
+    this.assertReservedWriterMayWrite(params);
+    const storageManifest = params.domainData && params.manifest
+      ? bindPkmManifestStorageRouting(params.domainData, params.manifest)
+      : params.manifest;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary: Record<string, unknown> = {
       ...params.summary,
@@ -1976,43 +2131,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -2024,6 +2179,8 @@ export class PersonalKnowledgeModelService {
       : undefined;
 
     if (Capacitor.isNativePlatform()) {
+      await params.beforeEffect?.();
+      if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
       const result = await HushhPersonalKnowledgeModel.storeDomainData({
         userId: params.userId,
         domain: params.domain,
@@ -2042,6 +2199,8 @@ export class PersonalKnowledgeModelService {
         upgradeContext: params.upgradeContext,
         preservationReceipt: params.preservationReceipt,
         mutationPlan: params.mutationPlan,
+        locationFinalizeAuthorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
+        kycReplyAuthorization: params.kycReplyAuthorization,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
@@ -2054,7 +2213,7 @@ export class PersonalKnowledgeModelService {
         typeof result.message === "string" ? result.message : undefined;
 
       // Invalidate caches after successful native store
-      if (result.success) {
+      if (result.success && !result.idempotentReplay && (params.mayPublish?.() ?? true)) {
         const enrichedEncryptedBlob: EncryptedUserBlob = {
           ...params.encryptedBlob,
           dataVersion: resolvedDataVersion,
@@ -2071,12 +2230,15 @@ export class PersonalKnowledgeModelService {
 
       return {
         success: result.success,
+        idempotentReplay: result.idempotentReplay,
         conflict: result.conflict === true,
         message: resolvedMessage,
         dataVersion: resolvedDataVersion,
         updatedAt: resolvedUpdatedAt,
         manifestRevision: result.manifestRevision,
         commitId: result.commitId,
+        locationRunRevision: result.locationRunRevision,
+        locationPlaceReceiptId: result.locationPlaceReceiptId,
         archivedRevisionId: result.archivedRevisionId,
         preservationReceipt: result.preservationReceipt,
       };
@@ -2101,6 +2263,8 @@ export class PersonalKnowledgeModelService {
         payload: projection.payload,
       })),
       mutation_plan: params.mutationPlan,
+      location_finalize_authorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
+      kyc_reply_authorization: params.kycReplyAuthorization,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
@@ -2155,6 +2319,7 @@ export class PersonalKnowledgeModelService {
     }
 
     // Web: Use ApiService.apiFetch() for tri-flow compliance
+    await params.beforeEffect?.();
     const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/store-domain`, {
       method: "POST",
       headers: {
@@ -2162,6 +2327,8 @@ export class PersonalKnowledgeModelService {
         ...this.getAuthHeaders(params.vaultOwnerToken),
       },
       body: JSON.stringify(payload),
+      beforeDispatch: params.beforeEffect,
+      isEffectCurrent: params.mayPublish,
     });
 
     if (!response.ok) {
@@ -2197,8 +2364,64 @@ export class PersonalKnowledgeModelService {
               : undefined,
         };
       }
-      const errorText = await response.text();
-      throw new Error(`Failed to store domain data: ${response.status} - ${errorText}`);
+      // The REQUEST payload contains encrypted material plus sensitive
+      // manifest and summary metadata -- never copy that (or anything that
+      // might echo it) into browser logs, error overlays, Feed, or
+      // telemetry. The RESPONSE body on a non-409 failure is our own route's
+      // structured error (a fixed code + message, e.g. PKM_STORE_DOMAIN_FAILED
+      // / PKM_MUTATION_PLAN_INVALID / PKM_CONFIRMATION_REQUIRED), not an echo
+      // of the request, so it's safe to read and surface -- and the only way
+      // a bare "500"/"422" reaching the console (as it did before this) is
+      // ever diagnosable without pulling server logs.
+      let errorDetailPayload: unknown = null;
+      try {
+        errorDetailPayload = await response.json();
+      } catch {
+        // Ignore JSON parse errors and fall back to the bare status below.
+      }
+      const errorDetail =
+        errorDetailPayload &&
+        typeof errorDetailPayload === "object" &&
+        "detail" in errorDetailPayload
+          ? (errorDetailPayload as { detail?: unknown }).detail
+          : errorDetailPayload;
+      const errorDetailRecord =
+        errorDetail && typeof errorDetail === "object" && !Array.isArray(errorDetail)
+          ? (errorDetail as Record<string, unknown>)
+          : null;
+      let errorCode =
+        errorDetailRecord && typeof errorDetailRecord.code === "string"
+          ? errorDetailRecord.code
+          : undefined;
+      let errorMessage =
+        errorDetailRecord && typeof errorDetailRecord.message === "string"
+          ? errorDetailRecord.message
+          : undefined;
+      // FastAPI's OWN request-validation failures (a pydantic model on
+      // StoreDomainRequest rejecting the body, e.g. structure_decision's
+      // json_paths max_length cap) never reach our route code, so they carry
+      // none of the {code, message} shape above -- `detail` is instead a
+      // list of {loc, msg, type}. Read the first entry rather than falling
+      // back to a bare status: this is exactly the shape a manifest that's
+      // grown past the path cap fails with.
+      if (!errorCode && !errorMessage && Array.isArray(errorDetail) && errorDetail.length > 0) {
+        const firstError = errorDetail[0];
+        if (firstError && typeof firstError === "object") {
+          const record = firstError as Record<string, unknown>;
+          errorCode = typeof record.type === "string" ? record.type : undefined;
+          const loc = Array.isArray(record.loc)
+            ? record.loc.filter((part) => typeof part === "string" || typeof part === "number").join(".")
+            : undefined;
+          const msg = typeof record.msg === "string" ? record.msg : undefined;
+          errorMessage = [loc, msg].filter(Boolean).join(": ") || undefined;
+        }
+      }
+      throw new PkmStoreDomainError(response.status,
+        `Failed to store domain data: ${response.status}` +
+          (errorCode || errorMessage
+            ? ` - ${[errorCode, errorMessage].filter(Boolean).join(": ")}`
+            : ""),
+      );
     }
 
     const data = (await response.json()) as Record<string, unknown>;
@@ -2213,7 +2436,7 @@ export class PersonalKnowledgeModelService {
     };
 
     // Invalidate caches after successful store
-    CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
+    if (data.success !== false && data.idempotent_replay !== true && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       domainData: params.domainData,
       encryptedBlob: enrichedEncryptedBlob,
@@ -2223,6 +2446,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: data.success !== false,
+      idempotentReplay: data.idempotent_replay === true,
       conflict: data.conflict === true,
       message: resolvedMessage,
       dataVersion: resolvedDataVersion,
@@ -2230,6 +2454,8 @@ export class PersonalKnowledgeModelService {
       manifestRevision:
         typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
       commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      locationRunRevision: typeof data.location_run_revision === "number" ? data.location_run_revision : undefined,
+      locationPlaceReceiptId: typeof data.location_place_receipt_id === "string" ? data.location_place_receipt_id : undefined,
       archivedRevisionId:
         typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
       preservationReceipt:
@@ -2335,6 +2561,43 @@ export class PersonalKnowledgeModelService {
     };
   }
 
+  /**
+   * Whether each of the owner's own writes already committed, in order.
+   * Owner-scoped on the server; the answer is existence and the committed
+   * revision only. Used when a write's response never arrived.
+   */
+  static async lookupMutationCommits(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    commits: ReadonlyArray<{ domain: string; planId: string }>;
+  }): Promise<Array<{ exists: boolean; dataVersion: number | null }>> {
+    if (!params.commits.length) return [];
+    const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/commits/lookup`, {
+      method: "POST",
+      headers: { ...this.getAuthHeaders(params.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: params.userId,
+        commits: params.commits.map((commit) => ({ domain: commit.domain, plan_id: commit.planId })),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error("Saved details could not be confirmed. Try again.");
+    }
+    const payload = (await response.json()) as { commits?: Array<{ exists?: unknown; data_version?: unknown }> };
+    const rows = Array.isArray(payload.commits) ? payload.commits : [];
+    if (rows.length !== params.commits.length || rows.some(row => typeof row?.exists !== "boolean")) {
+      throw new Error("Saved details could not be confirmed. Try again.");
+    }
+    return params.commits.map((_, index) => {
+      const row = rows[index];
+      const version = row?.data_version;
+      return {
+        exists: row?.exists === true,
+        dataVersion: typeof version === "number" && Number.isInteger(version) && version >= 0 ? version : null,
+      };
+    });
+  }
+
   static async getMutationSharingImpact(params: {
     userId: string;
     domain: string;
@@ -2349,24 +2612,7 @@ export class PersonalKnowledgeModelService {
     if (!response.ok) {
       throw new Error("Current sharing could not be verified. Refresh and try again.");
     }
-    const payload = (await response.json()) as Record<string, unknown>;
-    return {
-      activeRecipientCount: Math.max(0, Number(payload.active_recipient_count) || 0),
-      recipientLabels: Array.isArray(payload.recipient_labels)
-        ? payload.recipient_labels.map(String).filter(Boolean)
-        : [],
-      entersNextExportRevision: payload.enters_next_export_revision === true,
-      summary:
-        typeof payload.summary === "string" && payload.summary.trim()
-          ? payload.summary.trim()
-          : "No active recipients are affected.",
-      affectedGrantIds: Array.isArray(payload.affected_grant_ids)
-        ? payload.affected_grant_ids.map(String).filter(Boolean)
-        : [],
-      affectedExportIds: Array.isArray(payload.affected_export_ids)
-        ? payload.affected_export_ids.map(String).filter(Boolean)
-        : [],
-    };
+    return parsePkmSharingImpact(await response.json());
   }
 
   static async getDomainManifest(
@@ -2566,11 +2812,16 @@ export class PersonalKnowledgeModelService {
     expectedManifestVersion?: number;
     revokeMatchingActiveGrants?: boolean;
     vaultOwnerToken?: string;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
   }): Promise<PkmScopeExposureResult> {
+    if (params.beforeEffect) await params.beforeEffect();
     const response = await ApiService.apiFetch(
       `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/scope-exposure`,
       {
         method: "POST",
+        beforeDispatch: params.beforeEffect,
+        isEffectCurrent: params.mayPublish,
         headers: {
           "Content-Type": "application/json",
           ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -2631,10 +2882,12 @@ export class PersonalKnowledgeModelService {
       payload.manifest && typeof payload.manifest === "object"
         ? (payload.manifest as DomainManifest)
         : null;
-    const cache = CacheService.getInstance();
-    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
-    cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
-    CacheSyncService.onConsentMutated(params.userId);
+    if (params.mayPublish?.() !== false) {
+      const cache = CacheService.getInstance();
+      cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
+      cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
+      CacheSyncService.onConsentMutated(params.userId);
+    }
     return {
       success: payload.success === true,
       message: typeof payload.message === "string" ? payload.message : undefined,
@@ -3128,6 +3381,10 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3137,6 +3394,9 @@ export class PersonalKnowledgeModelService {
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
+    commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     fullBlob: Record<string, unknown>;
   }> {
     const previousManifest = await this.getDomainManifest(
@@ -3151,10 +3411,15 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       mergeDecision: params.mergeDecision,
     });
-    const structureArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
+    const structureArtifacts = params.manifest?.structure_decision
+      ? { manifest: params.manifest, structureDecision: params.manifest.structure_decision }
+      : buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: merged.domainData,
       previousManifest,
+      semanticManifests: previousManifest
+        && (!previousManifest.user_id || previousManifest.user_id === params.userId)
+        ? [previousManifest] : [],
     });
     const nextManifest = params.manifest || structureArtifacts.manifest;
     const nextStructureDecision =
@@ -3185,18 +3450,24 @@ export class PersonalKnowledgeModelService {
       upgradeContext: params.upgradeContext,
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
+      locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+      kycReplyAuthorization: params.kycReplyAuthorization,
+      beforeEffect: params.beforeEffect,
+      mayPublish: params.mayPublish,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
-    if (result.success && params.domain === "financial") {
+    const mayPublish = params.mayPublish?.() ?? true;
+    if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
         userId: params.userId,
         fullBlob: merged.fullBlob,
         vaultOwnerToken: params.vaultOwnerToken,
+        isEffectCurrent: params.mayPublish,
       });
     }
-    if (result.success && params.cacheFullBlob !== false) {
+    if (result.success && mayPublish && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,
@@ -3215,6 +3486,9 @@ export class PersonalKnowledgeModelService {
       message: result.message,
       dataVersion: result.dataVersion,
       updatedAt: result.updatedAt,
+      commitId: result.commitId,
+      locationRunRevision: result.locationRunRevision,
+      locationPlaceReceiptId: result.locationPlaceReceiptId,
       fullBlob: merged.fullBlob,
     };
   }
@@ -3277,22 +3551,28 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
     fullBlob: Record<string, unknown>;
   }> {
+    await params.beforeEffect?.();
     const previousManifest = await this.getDomainManifest(
       params.userId,
       params.domain,
       params.vaultOwnerToken
     ).catch(() => null);
+    await params.beforeEffect?.();
     const merged = await this.mergeAndEncryptPreparedBlob({
       baseFullBlob: params.baseFullBlob,
       vaultKey: params.vaultKey,
@@ -3300,12 +3580,19 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       mergeDecision: params.mergeDecision,
     });
-    const fallbackArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
+    const useCallerArtifacts = !params.mergeDecision;
+    const fallbackArtifacts = useCallerArtifacts && params.manifest && params.structureDecision
+      ? { manifest: params.manifest, structureDecision: params.structureDecision }
+      : buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: merged.domainData,
       previousManifest,
+      semanticManifests: [previousManifest, params.manifest].filter(
+        (manifest): manifest is DomainManifest => manifest != null
+          && (!manifest.user_id || manifest.user_id === params.userId)
+      ),
+      semanticDecision: params.structureDecision,
     });
-    const useCallerArtifacts = !params.mergeDecision;
     const manifest =
       useCallerArtifacts && params.manifest ? params.manifest : fallbackArtifacts.manifest;
     const structureDecision =
@@ -3337,19 +3624,27 @@ export class PersonalKnowledgeModelService {
       upgradeContext: params.upgradeContext,
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
+      kycReplyAuthorization: params.kycReplyAuthorization,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
+      mayPublish: params.mayPublish,
     });
 
-    if (result.success && params.domain === "financial") {
+    // A confirmed write remains successful after a lock/account change.
+    // Do not republish decrypted state into the replacement session.
+    const mayPublish = !result.idempotentReplay && (params.mayPublish?.() ?? true);
+
+    if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
         userId: params.userId,
         fullBlob: merged.fullBlob,
         vaultOwnerToken: params.vaultOwnerToken,
+        isEffectCurrent: params.mayPublish,
       });
     }
 
-    if (result.success && params.cacheFullBlob !== false) {
+    if (result.success && mayPublish && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,
@@ -3364,6 +3659,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: result.success,
+      idempotentReplay: result.idempotentReplay,
       conflict: result.conflict,
       message: result.message,
       dataVersion: result.dataVersion,
@@ -3401,6 +3697,9 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       domainData: params.domainData,
     });
+    const storageManifest = params.manifest
+      ? bindPkmManifestStorageRouting(merged.domainData, params.manifest)
+      : undefined;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary = {
       domain_intent: params.domain,
@@ -3426,43 +3725,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -3578,13 +3877,15 @@ export class PersonalKnowledgeModelService {
     userId: string,
     domain: string,
     vaultOwnerToken?: string,
-    segmentIds?: string[]
+    segmentIds?: string[],
+    forceRefresh = false,
   ): Promise<EncryptedDomainBlob | null> {
     const cache = CacheService.getInstance();
     const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
-    if (canUseCache) {
+    if (canUseCache && !forceRefresh) {
       const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
       if (cached?.isFresh) {
         return cached.data;
@@ -3594,19 +3895,26 @@ export class PersonalKnowledgeModelService {
       }
     }
 
-    const dedupeKey = this.inflightKey([
+    const readKeyParts = [
       "domain_blob",
       userId,
       domain,
       normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-    ]);
+      String(vaultEpoch),
+    ];
+    const authoritativeRequest = this.domainDataInflight.get(this.inflightKey([...readKeyParts, "authoritative"]));
+    if (!forceRefresh && authoritativeRequest) return authoritativeRequest;
+    const dedupeKey = this.inflightKey([...readKeyParts, forceRefresh ? "authoritative" : "normal"]);
     const existingRequest = this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {
       return existingRequest;
     }
 
+    const readTicket = {};
+    const invalidationEpoch = currentPkmInvalidationEpoch(userId);
+    if (canUseCache) this.domainReadTickets.set(cacheKey, readTicket);
     const request = (async (): Promise<EncryptedDomainBlob | null> => {
       let encryptedBlob: EncryptedDomainBlob | null = null;
 
@@ -3680,7 +3988,10 @@ export class PersonalKnowledgeModelService {
               : ""
           }`,
           {
-            headers: this.getAuthHeaders(vaultOwnerToken),
+            headers: {
+              ...this.getAuthHeaders(vaultOwnerToken),
+              ...(forceRefresh ? { "Cache-Control": "no-cache" } : {}),
+            },
           }
         );
 
@@ -3730,9 +4041,11 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (encryptedBlob && canUseCache) {
+      const canPublish = canUseCache && this.domainReadTickets.get(cacheKey) === readTicket &&
+        currentPkmInvalidationEpoch(userId) === invalidationEpoch && isVaultSessionEpochCurrent(vaultEpoch);
+      if (encryptedBlob && canPublish) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
-      } else if (!encryptedBlob && canUseCache) {
+      } else if (!encryptedBlob && canPublish) {
         cache.set(cacheKey, null, CACHE_TTL.SHORT);
       }
 
@@ -3796,6 +4109,9 @@ export class PersonalKnowledgeModelService {
     credentialRef: string;
     secret: string;
     confirmation: PkmUserConfirmation;
+    expectedValue?: string | null;
+    mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -3807,17 +4123,26 @@ export class PersonalKnowledgeModelService {
     }
 
     const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      if (params.expectedValue !== undefined &&
+          (this.getValueAtPath(base, parsed.keys.join(".")) ?? null) !== params.expectedValue) {
+        throw new Error("These settings changed. Reload before saving again.");
+      }
       const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
       this.setValueAtNestedPath(next, parsed.keys, secret);
+      if (parsed.domain === "runtime_secrets" && parsed.keys[0] === "connectors" &&
+          this.isPlainObject(next.connectors) && Object.keys(next.connectors).length > 32) {
+        throw new Error("Remove a connector before adding another.");
+      }
       return next;
     };
 
-    const existingData = await this.loadDomainData({
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3826,8 +4151,11 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
-      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
+      initialSnapshot: existing.snapshot,
       applyMutation,
+      mayPublish: params.mayPublish,
+      beforeEffect: params.beforeEffect,
     });
   }
 
@@ -3837,6 +4165,8 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken: string;
     credentialRef: string;
     confirmation: PkmUserConfirmation;
+    expectedValue?: string | null;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     if (!parsed) {
@@ -3844,17 +4174,22 @@ export class PersonalKnowledgeModelService {
     }
 
     const applyMutation = (base: Record<string, unknown>): Record<string, unknown> => {
+      if (params.expectedValue !== undefined &&
+          (this.getValueAtPath(base, parsed.keys.join(".")) ?? null) !== params.expectedValue) {
+        throw new Error("These settings changed. Reload before saving again.");
+      }
       const next = this.isPlainObject(base) ? this.cloneRecord(base) : {};
       this.deleteValueAtNestedPath(next, parsed.keys);
       return next;
     };
 
-    const existingData = await this.loadDomainData({
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3863,14 +4198,22 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       scopePath: parsed.keys[0] || "llm",
       confirmation: params.confirmation,
-      initialDomainData: applyMutation(this.isPlainObject(existingData) ? existingData : {}),
+      initialDomainData: applyMutation(this.runtimeSettingsBase(existing.data)),
+      initialSnapshot: existing.snapshot,
       applyMutation,
+      mayPublish: params.mayPublish,
     });
+  }
+
+  private static runtimeSettingsBase(value: Record<string, unknown> | null): Record<string, unknown> {
+    if (value === null) return {};
+    if (!this.isPlainObject(value)) throw new Error("Saved settings could not be read. Try again.");
+    return value;
   }
 
   /**
    * Build the exact `storeDomainData` payload for a runtime-secret commit:
-   * read the manifest (force a fresh read after a conflict), encrypt the domain,
+   * use the manifest and content revision from the decrypted snapshot, encrypt the domain,
    * derive the summary/structure/manifest artifacts, and mint the mutation plan.
    *
    * Because the mutation plan id is random per build, each call yields a fresh
@@ -3886,14 +4229,10 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     scopePath: string;
     confirmation: PkmUserConfirmation;
-    forceManifestReload?: boolean;
+    snapshot: DomainSnapshotV1 | null;
   }): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> {
-    const previousManifest = await this.getDomainManifest(
-      params.userId,
-      params.domain,
-      params.vaultOwnerToken,
-      params.forceManifestReload === true
-    ).catch(() => null);
+    const previousManifest = params.snapshot?.manifest ?? null;
+    const sourceRevision = params.snapshot?.contentRevision ?? 0;
     const encryptedBlob = await this.encryptDomainForStorage({
       vaultKey: params.vaultKey,
       domainData: params.domainData,
@@ -3902,6 +4241,11 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       domainData: params.domainData,
       previousManifest,
+      scopeHandles: {
+        llm: `s_${(await sha256Hex(`${params.userId}:${params.domain}:llm`)).slice(0, 12)}`,
+        agent_memory: `s_${(await sha256Hex(`${params.userId}:${params.domain}:agent_memory`)).slice(0, 12)}`,
+        connectors: `s_${(await sha256Hex(`${params.userId}:${params.domain}:connectors`)).slice(0, 12)}`,
+      },
     });
     const mutationPlan = await buildConfirmedPkmMutationPlanV2({
       userId: params.userId,
@@ -3912,6 +4256,7 @@ export class PersonalKnowledgeModelService {
       operation: previousManifest ? "update" : "create",
       explanation: "The owner confirmed this encrypted runtime credential change.",
       confirmation: params.confirmation,
+      sourceRevision,
     });
 
     return {
@@ -3924,6 +4269,7 @@ export class PersonalKnowledgeModelService {
       mutationPlan,
       domainData: params.domainData,
       vaultOwnerToken: params.vaultOwnerToken,
+      expectedDataVersion: sourceRevision,
     };
   }
 
@@ -3944,7 +4290,10 @@ export class PersonalKnowledgeModelService {
     scopePath: string;
     confirmation: PkmUserConfirmation;
     initialDomainData: Record<string, unknown>;
+    initialSnapshot: DomainSnapshotV1 | null;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     let built = await this.buildRuntimeSecretsCommit({
       userId: params.userId,
@@ -3954,10 +4303,15 @@ export class PersonalKnowledgeModelService {
       domainData: params.initialDomainData,
       scopePath: params.scopePath,
       confirmation: params.confirmation,
+      snapshot: params.initialSnapshot,
     });
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => this.storeDomainData(built),
+      send: async () => {
+        await params.beforeEffect?.();
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish, beforeEffect: params.beforeEffect });
+      },
       rebuildAfterConflict: async () => {
         // A genuine version conflict: another writer advanced this domain. Drop
         // the cached copies, re-read the domain fresh, re-apply the leaf, and
@@ -3965,14 +4319,15 @@ export class PersonalKnowledgeModelService {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, params.domain));
         cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, params.domain));
-        const freshData = await this.loadDomainData({
+        const fresh = await this.loadDomainSnapshot({
           userId: params.userId,
           domain: params.domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null);
+          force: true,
+        });
         const domainData = params.applyMutation(
-          this.isPlainObject(freshData) ? freshData : {}
+          this.runtimeSettingsBase(fresh.data)
         );
         built = await this.buildRuntimeSecretsCommit({
           userId: params.userId,
@@ -3982,8 +4337,277 @@ export class PersonalKnowledgeModelService {
           domainData,
           scopePath: params.scopePath,
           confirmation: params.confirmation,
-          forceManifestReload: true,
+          snapshot: fresh.snapshot,
         });
+      },
+      pause: (ms) => this.pause(ms),
+      now: () => Date.now(),
+    });
+  }
+
+  /**
+   * Artifacts for the reserved `wallet` domain. The domain data has
+   * owner branches: `summary` (masked metadata), `secrets` (PAN/name),
+   * and optional private `artwork`, each keyed by card id. The
+   * manifest paths line up with the two consent-requestable branch scopes and
+   * the `secrets` key matches the memory-context prune pattern. The plaintext
+   * index summary carries only the non-secret envelope the server validates.
+   */
+  private static buildWalletArtifacts(params: {
+    domain: string;
+    domainData: Record<string, unknown>;
+    previousManifest?: DomainManifest | null;
+    /** Opaque `s_…` handles per branch, matching the mutation-plan builder. */
+    scopeHandles: Record<"summary" | "secrets", string>;
+  }): {
+    summary: Record<string, unknown>;
+    structureDecision: StructureDecision;
+    manifest: DomainManifest;
+  } {
+    const nowIso = new Date().toISOString();
+    const domainContractVersion = currentDomainContractVersion(params.domain);
+    const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
+    const scopeHandleFor = (
+      manifest: DomainManifest | null | undefined,
+      branch: string,
+    ): string | undefined => {
+      const handle = manifest?.scope_registry?.find(
+        (entry) => String(entry.summary_projection?.top_level_scope_path || "") === branch,
+      )?.scope_handle;
+      return handle && /^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$/.test(handle) ? handle : undefined;
+    };
+    const summaryBranch = this.isPlainObject(params.domainData.summary)
+      ? (params.domainData.summary as Record<string, unknown>)
+      : {};
+    const cardSummaries = Object.entries(summaryBranch)
+      .filter(([, value]) => this.isPlainObject(value))
+      .map(([cardId, value]) => {
+        const entry = value as Record<string, unknown>;
+        return {
+          card_id: cardId,
+          brand: String(entry.brand ?? "other"),
+          last4: String(entry.last4 ?? ""),
+          expiry_month: Number(entry.expiry_month ?? 0),
+          expiry_year: Number(entry.expiry_year ?? 0),
+          issuing_region: String(entry.issuing_region ?? ""),
+        };
+      })
+      .sort((a, b) => a.card_id.localeCompare(b.card_id));
+    const summary = {
+      domain_intent: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      consumer_visible: false,
+      internal_only: false,
+      storage_mode: "encrypted_domain",
+      card_count: cardSummaries.length,
+      cards: cardSummaries,
+    };
+    const paths: PathDescriptor[] = [
+      {
+        json_path: "summary",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Card summaries",
+        sensitivity_label: "confidential",
+        segment_id: "summary",
+        scope_handle: "wallet.summary",
+        source_agent: "wallet_settings",
+      },
+      {
+        json_path: "secrets",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Card secrets",
+        sensitivity_label: "restricted",
+        segment_id: "secrets",
+        scope_handle: "wallet.secrets",
+        source_agent: "wallet_settings",
+      },
+    ];
+    if (this.isPlainObject(params.domainData.artwork)) paths.push({ json_path: "artwork", parent_path: null, path_type: "object", exposure_eligibility: false, consent_label: "Private card design", sensitivity_label: "restricted", segment_id: "artwork", source_agent: "wallet_settings" });
+    const structureDecision: StructureDecision = {
+      action: params.previousManifest ? "extend_domain" : "create_domain",
+      target_domain: params.domain,
+      json_paths: paths.map((path) => path.json_path),
+      top_level_scope_paths: ["summary", "secrets"],
+      externalizable_paths: ["summary", "secrets"],
+      summary_projection: summary,
+      sensitivity_labels: {
+        summary: "confidential",
+        secrets: "restricted",
+      },
+      confidence: 1,
+      source_agent: "wallet_settings",
+      contract_version: 1,
+    };
+    // The plan builder copies this handle into target_scope_handle, and the
+    // server only accepts opaque `s_`/`scope_`/`pending_` handles - a dotted
+    // label here produced a 422 on every first write (reviewer rehearsal,
+    // 2026-09-02). Reuse the previous manifest's handle when it exists.
+    const scopeRegistryEntry = (branch: "summary" | "secrets") => ({
+      scope_handle: scopeHandleFor(params.previousManifest, branch) || params.scopeHandles[branch],
+      scope_label: branch === "summary" ? "Card summaries" : "Card secrets",
+      segment_ids: [branch],
+      sensitivity_tier: branch === "summary" ? "confidential" : "restricted",
+      scope_kind: "reserved_domain_branch",
+      exposure_enabled: false,
+      visibility_posture: "consent_required" as const,
+      default_projection_ready: false,
+      default_projection_updated_at: null,
+      summary_projection: {
+        top_level_scope_path: branch,
+        consumer_visible: false,
+        internal_only: false,
+        visibility_reason:
+          "Payment cards leave the vault only through an explicit owner-approved consent grant.",
+        storage_mode: "encrypted_domain",
+      },
+    });
+    const manifest: DomainManifest = {
+      domain: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      upgraded_at: nowIso,
+      structure_decision: structureDecision,
+      summary_projection: summary,
+      top_level_scope_paths: ["summary", "secrets"],
+      externalizable_paths: ["summary", "secrets"],
+      segment_ids: this.isPlainObject(params.domainData.artwork) ? ["summary", "secrets", "artwork"] : ["summary", "secrets"],
+      path_count: paths.length,
+      externalizable_path_count: 2,
+      last_structured_at: nowIso,
+      last_content_at: nowIso,
+      paths,
+      scope_registry: [scopeRegistryEntry("summary"), scopeRegistryEntry("secrets")],
+    };
+    return { summary, structureDecision, manifest };
+  }
+
+  /**
+   * Commit a wallet domain mutation with the same bounded, idempotent
+   * retry contract as runtime secrets: transient throws replay the identical
+   * built artifacts; a genuine version conflict re-reads fresh, re-applies the
+   * mutation, and rebuilds with a new plan id.
+   */
+  static async storeWalletDomain(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    scopePath: "summary" | "secrets";
+    explanation: string;
+    confirmation: PkmUserConfirmation;
+    securityCodeChange?: WalletSecurityCodeChange;
+    applyMutation: (base: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    mayPublish?: () => boolean;
+  }): Promise<StoreDomainDataResult> {
+    const domain = "wallet";
+    const build = async (
+      domainData: Record<string, unknown>,
+      snapshot: DomainSnapshotV1 | null,
+      before: Record<string, unknown>,
+    ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
+      assertWalletSecurityCodeWrite(before, domainData, params.securityCodeChange,
+        params.confirmation.confirmedByUser === true && params.confirmation.surface === "web" && params.confirmation.source === "one_wallet_add");
+      // Retain only new, explicitly authorized manual codes; legacy CVV/PIN are
+      // still scrubbed. Rebuilds pass the same comparison against fresh content.
+      if (this.isPlainObject(domainData.secrets)) domainData = { ...domainData, secrets: Object.fromEntries(Object.entries(domainData.secrets).map(([id, value]) => {
+        if (!this.isPlainObject(value)) throw new Error("Your saved cards could not be read. Please try again.");
+        const allowed = ["pan", "cardholder_name", "share_receipts", "manual_cvv"];
+        const projected = Object.fromEntries(allowed.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+        if (Array.isArray(projected.share_receipts)) projected.share_receipts = projected.share_receipts.filter(row => this.isPlainObject(row)).map(row => Object.fromEntries(["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].filter(key => typeof row[key] === "string").map(key => [key, row[key]])));
+        else delete projected.share_receipts;
+        return [id, projected];
+      })) };
+      // Bind the write to the revision that was actually decrypted. Loading a
+      // newer manifest separately can otherwise bless a stale card collection.
+      const previousManifest = snapshot?.manifest ?? null;
+      const sourceRevision = snapshot?.contentRevision ?? 0;
+      const scopeHandles = {
+        summary: `s_${(await sha256Hex(`${params.userId}:${domain}:summary`)).slice(0, 12)}`,
+        secrets: `s_${(await sha256Hex(`${params.userId}:${domain}:secrets`)).slice(0, 12)}`,
+      };
+      const artifacts = this.buildWalletArtifacts({
+        domain,
+        domainData,
+        previousManifest,
+        scopeHandles,
+      });
+      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+        userId: params.userId,
+        domain,
+        currentManifest: previousManifest,
+        targetManifest: artifacts.manifest,
+        scopePath: params.scopePath,
+        operation: previousManifest ? "update" : "create",
+        explanation: params.explanation,
+        confirmation: params.confirmation,
+        sourceRevision,
+      });
+      assertReservedBranchesUntouched({ domain, before, after: domainData,
+        writerId: mutationPlan.writer_id, mergeMode: "replace_domain",
+        authorizationMode: mutationPlan.confirmation_receipt.authorization_mode });
+      const encryptedBlob = await this.encryptDomainForStorage({ vaultKey: params.vaultKey, domainData });
+      return {
+        userId: params.userId,
+        domain,
+        encryptedBlob,
+        summary: artifacts.summary,
+        structureDecision: artifacts.structureDecision,
+        manifest: artifacts.manifest,
+        mutationPlan,
+        domainData,
+        vaultOwnerToken: params.vaultOwnerToken,
+        expectedDataVersion: sourceRevision,
+      };
+    };
+
+    const walletBase = (data: Record<string, unknown> | null, snapshot: DomainSnapshotV1 | null): Record<string, unknown> => {
+      if (data === null && snapshot === null) return {};
+      if (!this.isPlainObject(data)) throw new Error("Your saved cards could not be read. Please try again.");
+      for (const branch of ["summary", "secrets", "artwork"] as const) {
+        if (Object.prototype.hasOwnProperty.call(data, branch) && !this.isPlainObject(data[branch])) {
+          throw new Error("Your saved cards could not be read. Please try again.");
+        }
+      }
+      return data;
+    };
+    const existing = await this.loadDomainSnapshot({
+      userId: params.userId,
+      domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      force: true,
+    });
+    const initialBase = walletBase(existing.data, existing.snapshot);
+    let built = await build(await params.applyMutation(structuredClone(initialBase)), existing.snapshot, initialBase);
+
+    return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
+      send: () => {
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+      },
+      rebuildAfterConflict: async () => {
+        const cache = CacheService.getInstance();
+        cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));
+        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, domain));
+        const fresh = await this.loadDomainSnapshot({
+          userId: params.userId,
+          domain,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          force: true,
+        });
+        const freshBase = walletBase(fresh.data, fresh.snapshot);
+        built = await build(await params.applyMutation(structuredClone(freshBase)), fresh.snapshot, freshBase);
       },
       pause: (ms) => this.pause(ms),
       now: () => Date.now(),
@@ -4060,7 +4684,12 @@ export class PersonalKnowledgeModelService {
         payload = (await response.json()) as Record<string, unknown>;
       }
       const encryptedPayload = payload.encrypted_blob as Record<string, unknown> | undefined;
-      if (!encryptedPayload) return null;
+      if (!encryptedPayload || typeof encryptedPayload !== "object" || Array.isArray(encryptedPayload)) {
+        throw new Error("Coherent PKM domain snapshot is missing its encrypted information.");
+      }
+      if (!Number.isSafeInteger(payload.content_revision) || Number(payload.content_revision) < 0) {
+        throw new Error("Coherent PKM domain snapshot is missing its content revision.");
+      }
       const rawSegments =
         encryptedPayload.segments && typeof encryptedPayload.segments === "object"
           ? (encryptedPayload.segments as Record<string, Record<string, unknown>>)
@@ -4141,23 +4770,28 @@ export class PersonalKnowledgeModelService {
   }): Promise<{ snapshot: DomainSnapshotV1 | null; data: Record<string, unknown> | null }> {
     const snapshot = await this.getDomainSnapshot(params);
     if (!snapshot) return { snapshot: null, data: null };
+    return { snapshot, data: await this.decryptDomainSnapshot({ snapshot, vaultKey: params.vaultKey, segmentIds: params.segmentIds }) };
+  }
+
+  /** Decrypt the already revision-coherent read, without a second domain fetch. */
+  static async decryptDomainSnapshot(params: {
+    snapshot: DomainSnapshotV1;
+    vaultKey: string;
+    segmentIds?: string[];
+  }): Promise<Record<string, unknown>> {
+    const { snapshot } = params;
     const decrypted = await this.decryptDomainBlob({
       vaultKey: params.vaultKey,
-      domain: params.domain,
+      domain: snapshot.domain,
       blob: snapshot.encryptedBlob,
       segmentIds: params.segmentIds,
     });
     if (snapshot.encryptedBlob.storageMode === "legacy_full_blob") {
-      const domainData = decrypted[params.domain];
-      return {
-        snapshot,
-        data:
-          domainData && typeof domainData === "object" && !Array.isArray(domainData)
-            ? (domainData as Record<string, unknown>)
-            : {},
-      };
+      const domainData = decrypted[snapshot.domain];
+      return domainData && typeof domainData === "object" && !Array.isArray(domainData)
+        ? domainData as Record<string, unknown> : {};
     }
-    return { snapshot, data: decrypted };
+    return decrypted;
   }
 
   static async loadDomainDataWithBlob(params: {
@@ -4166,6 +4800,7 @@ export class PersonalKnowledgeModelService {
     vaultKey: string;
     vaultOwnerToken?: string;
     segmentIds?: string[];
+    forceRefresh?: boolean;
   }): Promise<{
     data: Record<string, unknown> | null;
     blob: EncryptedDomainBlob | null;
@@ -4174,7 +4809,8 @@ export class PersonalKnowledgeModelService {
       params.userId,
       params.domain,
       params.vaultOwnerToken,
-      params.segmentIds
+      params.segmentIds,
+      params.forceRefresh === true,
     );
     if (!blob) {
       return {

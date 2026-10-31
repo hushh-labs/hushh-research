@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   buildOneSetupCapabilityRoute,
+  buildOneSetupFinanceImportRoute,
+  resolveOneSetupReturnTo,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
   ROUTES,
@@ -22,8 +24,8 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type Settlement = {
   status: "started" | "succeeded" | "blocked" | "failed";
@@ -43,6 +45,8 @@ type SetupSettlementOptions = {
 
 export type SetupCapabilityCoordinator = {
   isReady: boolean;
+  /** Presentation eligibility from the existing owner-scoped setup record. */
+  isInitialSetup: boolean;
   /** Durable completion detected before the feature-owned setup body mounts. */
   isAlreadyComplete: boolean;
   /** A verified feature result, optionally recovered from a typed callback. */
@@ -87,17 +91,41 @@ export function resolveSetupCapabilityReturnTarget({
 const LAND_ON_WORKSPACE_AFTER_FINISH: ReadonlySet<OneSetupCapabilityId> =
   new Set<OneSetupCapabilityId>(["location"]);
 
+/**
+ * Capabilities whose individual (post-root-setup) re-entry returns to the
+ * capability's own workspace rather than One. Finance setup is entered from
+ * the Finance workspace once root setup is resolved; its terminal (a verified
+ * source, or "I'll link this later") must land back on Finance, not `/one`.
+ * The durable completion is recorded by the coordinator before navigating, so
+ * the Finance workspace never bounces the person back into setup.
+ */
+const LAND_ON_WORKSPACE_AFTER_INDIVIDUAL_SETUP: ReadonlySet<OneSetupCapabilityId> =
+  new Set<OneSetupCapabilityId>(["finance"]);
+
 export function resolveSetupCapabilityTerminalTarget({
   capabilityId,
   journeyMode,
   hasExplicitIncompleteSetup,
   kind,
+  returnTo,
 }: {
   capabilityId: OneSetupCapabilityId;
   journeyMode: Exclude<SetupCapabilityJourneyMode, "auto">;
   hasExplicitIncompleteSetup: boolean;
   kind: "finish" | "skip";
+  returnTo?: string | null;
 }): string {
+  // The continuation is only navigation intent. It cannot bypass unresolved
+  // root setup or the durable capability settlement performed by the caller.
+  const continuation = resolveOneSetupReturnTo(returnTo);
+  if (
+    capabilityId === "finance" &&
+    journeyMode === "individual" &&
+    !hasExplicitIncompleteSetup &&
+    continuation
+  ) {
+    return continuation;
+  }
   // A capability may prefer to hand off straight to its own workspace after a
   // Finish (e.g. Location). That shortcut is only safe once the overall
   // first-run setup is actually resolved. If setup is still explicitly
@@ -109,6 +137,13 @@ export function resolveSetupCapabilityTerminalTarget({
     journeyMode !== "individual" &&
     !hasExplicitIncompleteSetup &&
     LAND_ON_WORKSPACE_AFTER_FINISH.has(capabilityId)
+  ) {
+    return resolveCapabilityHandoffTarget(capabilityId);
+  }
+
+  if (
+    journeyMode === "individual" &&
+    LAND_ON_WORKSPACE_AFTER_INDIVIDUAL_SETUP.has(capabilityId)
   ) {
     return resolveCapabilityHandoffTarget(capabilityId);
   }
@@ -156,6 +191,8 @@ type UseSetupCapabilityCoordinatorParams = {
    * the freshly revalidated account setup state.
    */
   journeyMode?: SetupCapabilityJourneyMode;
+  /** Finance import continuation after settlement; never marks setup complete. */
+  returnTo?: string | null;
   /** Feature-owned terminals may use a stable authored control id. */
   terminalControlId?: (ready: boolean) => string;
   /** Auto-settling experiences publish the action without inventing a button. */
@@ -204,14 +241,15 @@ export function useSetupCapabilityCoordinator({
   settlementBlocked = false,
   screenId,
   journeyMode = "auto",
+  returnTo,
   terminalControlId,
   terminalPresentation = "explicit",
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const userId = user?.uid;
+  const { userId, loading: authLoading } = useAuth();
   const [isReady, setIsReady] = useState(false);
   const [isSettling, setIsSettling] = useState(false);
+  const [initialSetupKey, setInitialSetupKey] = useState<string | null>(null);
   const [callbackReadiness, setCallbackReadiness] = useState(false);
   const [confirmedCompletionKey, setConfirmedCompletionKey] = useState<
     string | null
@@ -235,6 +273,15 @@ export function useSetupCapabilityCoordinator({
       ? cachedCompletedEntry.target
       : null;
   const completionKey = userId ? `${userId}:${capabilityId}` : null;
+  const isInitialSetup = Boolean(
+    enabled &&
+      !authLoading &&
+      completionKey &&
+      (cachedJourney
+        ? !PreVaultUserStateService.isSetupResolved(cachedJourney) &&
+          !cachedJourney.setupCapabilityIds.includes(capabilityId)
+        : initialSetupKey === completionKey),
+  );
   const isAlreadyComplete =
     cachedCompletedEntry.kind === "acknowledge" ||
     (cachedCompletedEntry.kind === "continue" &&
@@ -249,8 +296,11 @@ export function useSetupCapabilityCoordinator({
   const routeReady = isReady || hasUsableCachedJourney || isAlreadyComplete;
 
   const canonicalRoute = useMemo(
-    () => buildOneSetupCapabilityRoute(capabilityId),
-    [capabilityId],
+    () =>
+      capabilityId === "finance" && resolveOneSetupReturnTo(returnTo)
+        ? buildOneSetupFinanceImportRoute(returnTo)
+        : buildOneSetupCapabilityRoute(capabilityId),
+    [capabilityId, returnTo],
   );
 
   const replaceRoute = useCallback(
@@ -307,6 +357,12 @@ export function useSetupCapabilityCoordinator({
           retryConflict: boolean,
         ): Promise<void> => {
           if (cancelled) return;
+          setInitialSetupKey(
+            !PreVaultUserStateService.isSetupResolved(journey) &&
+              !journey.setupCapabilityIds.includes(capabilityId)
+              ? `${userId}:${capabilityId}`
+              : null,
+          );
           const canResumeCallbackReadiness =
             resumeReadinessFromCallback &&
             journey.onboardingActiveCapability === capabilityId &&
@@ -433,6 +489,18 @@ export function useSetupCapabilityCoordinator({
               completed,
             );
             await CapabilityTourService.markExplored(userId, capabilityId);
+          } else {
+            // Reopening this capability's setup post-root-setup (e.g. from
+            // Profile) and explicitly skipping it is a real decision, not a
+            // no-op -- record it durably so a future JIT connect prompt
+            // knows not to re-ask.
+            const declined = Array.from(
+              new Set([...journey.setupCapabilityDeclinedIds, capabilityId]),
+            ).sort();
+            await PreVaultUserStateService.syncDeclinedCapabilities(
+              userId,
+              declined,
+            );
           }
         } else if (kind === "finish") {
           const completed = Array.from(
@@ -463,14 +531,23 @@ export function useSetupCapabilityCoordinator({
           journeyMode: resolvedJourneyMode,
           hasExplicitIncompleteSetup,
           kind,
+          returnTo,
         });
 
         replaceRoute(targetRoute);
         return {
           status: "succeeded",
           summary:
-            kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
+            targetRoute === resolveOneSetupReturnTo(returnTo)
+              ? kind === "finish"
+                ? "Setup is complete. Continuing."
+                : "Skipped for now. Continuing."
+              : kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
               ? "Setup is complete. Opening Location."
+              : targetRoute === ROUTES.KAI_HOME
+              ? kind === "finish"
+                ? "Setup is complete. Opening Finance."
+                : "Skipped for now. Opening Finance."
               : kind === "finish"
               ? resolvedJourneyMode === "individual"
                 ? "Setup is complete. Returning to One."
@@ -509,6 +586,7 @@ export function useSetupCapabilityCoordinator({
       replaceRoute,
       settlementBlocked,
       journeyMode,
+      returnTo,
       userId,
     ],
   );
@@ -522,10 +600,12 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
+    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "navigation", summary: "Open the Location introduction to finish setup." } : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
   useLocalOnboardingActionHandler(skipActionId, skip, {
+    prepare: capabilityId === "location" ? () => ({ status: "ready", binding: { userId, capabilityId }, summary: "Skip Location setup." }) : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
@@ -587,6 +667,7 @@ export function useSetupCapabilityCoordinator({
 
   return {
     isReady: routeReady,
+    isInitialSetup,
     isAlreadyComplete,
     operationallyReady,
     isSettling,
@@ -603,6 +684,10 @@ type SetupCapabilityTerminalFooterProps = {
   pending?: boolean;
   skipLabel?: string;
   finishLabel?: string;
+  /** Override the default supporting text. Pass `null` to suppress it entirely. */
+  supportingText?: string | null;
+  /** Whether this footer reserves space for the bottom app chrome / Agent Bar. */
+  insetBottom?: boolean;
 };
 
 /** Shared explicit Finish/Skip boundary, not a route query or header back button. */
@@ -613,6 +698,8 @@ export function SetupCapabilityTerminalFooter({
   pending = false,
   skipLabel,
   finishLabel,
+  supportingText: supportingTextOverride,
+  insetBottom = true,
 }: SetupCapabilityTerminalFooterProps) {
   const operationallyReady =
     isOperationallyReady || coordinator.operationallyReady;
@@ -626,6 +713,7 @@ export function SetupCapabilityTerminalFooter({
 
   return (
     <SetupCompletionFooter
+      insetBottom={insetBottom}
       label={label}
       onComplete={() => {
         if (pending) return;
@@ -641,7 +729,9 @@ export function SetupCapabilityTerminalFooter({
           : `Skip ${capabilityId} setup for now and return to setup.`
       }
       supportingText={
-        operationallyReady
+        supportingTextOverride !== undefined
+          ? (supportingTextOverride ?? undefined)
+          : operationallyReady
           ? "This capability is ready. You can return to setup."
           : "You can return to this setup any time."
       }

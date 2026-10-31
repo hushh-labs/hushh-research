@@ -1,4 +1,4 @@
-import { type IconWeight } from "@phosphor-icons/react";
+import { type IconWeight } from "@/components/icons";
 
 // ============================================================================
 // CORE DESIGN SYSTEM TYPES

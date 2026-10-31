@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "managed_provider_selection": {
+    "uat": "azure_openai"
+  },
+  "managed_azure_accounts": {
+    "selection": {
+      "uat": "azure-trial"
+    },
+    "accounts": {
+      "azure-trial": {
+        "tenant_id": "21cfeec0-6294-4c61-9ed4-f895165053f7",
+        "client_id": "3290830b-a60a-4230-91af-2f15336ccdf0",
+        "primary_endpoint": "https://oai-hussh-eee5f876655f1602.openai.azure.com/openai/v1/",
+        "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
+        "readiness_exam_client_id": "73234515-c512-45b9-bd7a-616db21e16c0"
+      }
+    }
+  },
+  "private_drive_text_uat": {
+    "enabled": true,
+    "policy_id": "6f3464f2-5df4-4d23-864d-11f7b164c051",
+    "version": "uat-managed-text-azure-primary-v2",
+    "provider": "azure_openai",
+    "authority_basis": "administrator_rollout",
+    "scope": "one_text_chat_and_drive_requests",
+    "alternate_provider": "vertex",
+    "readiness": "any_usable_text"
+  },
+  "environments": {
+    "local": {
+      "project": "hushh-pda-uat",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.8-flash",
+      "text_locations": [
+        "global"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "dev": {
+      "project": "hushh-gemini-bridge",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.7-flash",
+      "text_locations": [
+        "global"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "uat": {
+      "project": "hushh-gemini-bridge",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.8-flash",
+      "text_locations": [
+        "global"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "production": {
+      "project": "hushh-gemini-bridge",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.8-flash",
+      "text_locations": [
+        "global"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  "pwm_research": {
+    "provider": "vertex_google_search",
+    "owner_source_provider": "vertex_url_context",
+    "search_invocations": 32,
+    "model_calls": 128,
+    "slice_seconds": 240,
+    "job_seconds": 270,
+    "lease_seconds": 300,
+    "preview_source_limit": 3,
+    "preview_fact_limit": 8,
+    "notification_scheduler": {
+      "project": "hushh-pda-uat",
+      "audience": "https://api.uat.hushh.ai",
+      "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
+      "job": "pwm-notifications-uat",
+      "location": "us-central1"
+    }
+  },
+  "pwm_research_uat": {
+    "provider": "azure_openai_tavily",
+    "owner_source_provider": "public_https",
+    "search_invocations": 8,
+    "model_calls": 16,
+    "slice_seconds": 240,
+    "job_seconds": 270,
+    "lease_seconds": 300,
+    "preview_source_limit": 3,
+    "preview_fact_limit": 8,
+    "notification_scheduler": {
+      "project": "hushh-pda-uat",
+      "audience": "https://api.uat.hushh.ai",
+      "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
+      "job": "pwm-notifications-uat",
+      "location": "us-central1"
+    },
+    "azure": {
+      "primary_deployment": "pwm-gpt-5-mini-eval",
+      "phi_deployment": "pwm-phi-4-mini-eval"
+    }
+  },
+  "managed_runtime_uat": {
+    "policy_id": "0185d31a-f655-4ac3-bbed-d243b2d82d86",
+    "version": "uat-managed-azure-capabilities-v1",
+    "authority_basis": "administrator_rollout",
+    "scope": "managed_runtime_capabilities",
+    "azure": {
+      "realtime": {
+        "deployment": "uat-realtime-mini",
+        "model": "gpt-realtime-2.1-mini",
+        "version": "2026-07-07"
+      },
+      "transcription": {
+        "deployment": "uat-transcribe-mini",
+        "model": "gpt-4o-mini-transcribe",
+        "version": "2025-12-15"
+      },
+      "speech": {
+        "deployment": "uat-speech-mini",
+        "model": "gpt-4o-mini-tts",
+        "version": "2025-12-15"
+      },
+      "embedding": {
+        "deployment": "uat-embedding-small",
+        "model": "text-embedding-3-small",
+        "version": "1"
+      },
+      "embedding_dimensions": 768,
+      "voice": "coral",
+      "compact_public_search": {
+        "deployment": "one-search-gpt-54-mini-eval",
+        "model": "gpt-5.4-mini",
+        "version": "2026-03-17",
+        "reasoning_effort": "none",
+        "text_verbosity": "low"
+      },
+      "one_text_root": {
+        "deployment": "one-search-gpt-54-mini-eval",
+        "model": "gpt-5.4-mini",
+        "version": "2026-03-17",
+        "reasoning_effort": "none",
+        "text_verbosity": "low"
+      }
+    },
+    "required_capabilities": [
+      "structured_text",
+      "image_input",
+      "pdf_input",
+      "public_search",
+      "public_source",
+      "location_transcription",
+      "location_semantics",
+      "narration",
+      "live_audio",
+      "embeddings",
+      "compact_public_search",
+      "one_text_root"
+    ]
+  }
+}

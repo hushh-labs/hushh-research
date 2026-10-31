@@ -303,7 +303,7 @@ export function StreamingTextDisplay({
             "sticky bottom-2 left-1/2 -translate-x-1/2 z-10",
             "px-4 py-2 rounded-full",
             "bg-primary text-primary-foreground text-xs font-semibold",
-            "shadow-lg hover:shadow-xl transition-all",
+            "shadow-lg transition-[opacity,box-shadow,transform] duration-150 hover:shadow-xl",
             "animate-in fade-in slide-in-from-bottom-2",
             "flex items-center gap-1.5"
           )}

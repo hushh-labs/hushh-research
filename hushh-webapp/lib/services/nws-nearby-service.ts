@@ -1,0 +1,498 @@
+/**
+ * NWS Nearby client — public-association records near a place an advisor chose.
+ *
+ * The upstream API key is server-side only, so every call goes to our own
+ * `/api/ria/nearby/*`. The backend also caches responses, because the upstream
+ * rate-limits on {key, egress IP} and all Hushh traffic shares both.
+ *
+ * Two product facts this module exists to keep straight:
+ *
+ * NWS is public *professional network strength*, not financial net worth. And
+ * "nearby" means a public professional, institutional, civic or opt-in
+ * association — never physical presence, never a residence. Nothing here should
+ * be renamed or reshaped in a way that lets a screen imply either.
+ */
+
+import { ApiService } from "@/lib/services/api-service";
+
+/** The upstream's own lane vocabulary. Its docs call this facet "Focus". */
+export type NearbyLane =
+  | "BUILDER"
+  | "CAPITAL"
+  | "KNOWLEDGE"
+  | "CIVIC"
+  | "CONNECTOR"
+  | "GENERAL";
+
+export const NEARBY_LANES: { value: NearbyLane; label: string }[] = [
+  { value: "BUILDER", label: "Builders" },
+  { value: "CAPITAL", label: "Capital" },
+  { value: "KNOWLEDGE", label: "Knowledge" },
+  { value: "CIVIC", label: "Civic" },
+  { value: "CONNECTOR", label: "Connectors" },
+  { value: "GENERAL", label: "General" },
+];
+
+export type ConfidenceGrade = "A" | "B" | "C" | "D";
+
+/**
+ * Coverage is the whole contract of this surface.
+ *
+ * A location outside an approved market is a normal success with an empty list,
+ * not an error. The reason code is what lets the screen say something true and
+ * specific instead of "no results", which would read as failure.
+ */
+export type NearbyCoverageStatus =
+  | "COVERED"
+  | "NOT_COVERED"
+  | "LOCATION_UNRESOLVED";
+
+export type NearbyCoverage = {
+  status: NearbyCoverageStatus;
+  reasonCode: string | null;
+  marketId: string | null;
+  marketLabel: string | null;
+  countryCode: string | null;
+  message: string | null;
+  complete: boolean;
+};
+
+/**
+ * How the score was reached, published by the scoring service itself.
+ *
+ * Weights come from upstream rather than being restated here. An explanation
+ * that carries its own copy of the weighting goes stale the first time the
+ * model is re-weighted, and nothing fails to say so.
+ */
+export type ScoreComponent = {
+  key: string;
+  label: string | null;
+  /** 0–1. */
+  value: number | null;
+  /** Share of the score this component can contribute. */
+  weight: number | null;
+  /** weight × value. */
+  contribution: number | null;
+};
+
+/**
+ * The four components that need a real relationship graph behind them. Together
+ * they carry 67% of the score's weight.
+ *
+ * A record discovered from a public registry has no graph to read, so all four
+ * come back at zero and the score is carried entirely by institutional role,
+ * evidence quality and recency. A reviewed record populates all of them.
+ */
+const GRAPH_BACKED_COMPONENTS = [
+  "graph_authority",
+  "verified_track_record",
+  "capital_access",
+  "trusted_reach",
+] as const;
+
+/**
+ * Whether this score was produced without any relationship evidence.
+ *
+ * Deliberately derived from the record's own components rather than from
+ * `scoreKind`: the service reports `PROFESSIONAL_NETWORK_PROVISIONAL` for
+ * reviewed and registry-discovered records alike, so that field does not
+ * discriminate. Reading the components keeps the claim true if a future
+ * registry record does arrive with a graph behind it.
+ */
+export function isRegistryOnlyScore(record: NearbyRecord): boolean {
+  const components = record.scoreBreakdown?.components;
+  if (!components?.length) return false;
+  const graphBacked = components.filter((component) =>
+    (GRAPH_BACKED_COMPONENTS as readonly string[]).includes(component.key),
+  );
+  if (graphBacked.length !== GRAPH_BACKED_COMPONENTS.length) return false;
+  return graphBacked.every((component) => !component.value);
+}
+
+export type ScoreBreakdown = {
+  components: ScoreComponent[];
+  /** How many pieces of evidence back the profile. Thin evidence is held back. */
+  evidenceCount: number | null;
+  /** Scales the weighted sum up toward 1.0 as evidence accumulates. */
+  coverageMultiplier: number | null;
+  /** Discount for promotional, self-published, or single-source evidence. */
+  integrityPenalty: number | null;
+  /** Association strength to the queried place; the 10% term in the nearby rank. */
+  localRelevance: number | null;
+  method: string | null;
+};
+
+/**
+ * How well-sourced a record is, from the reviewed release.
+ *
+ * Two links from the same organisation are not two independent confirmations.
+ * The release reports that per record, which is the difference between a claim
+ * an advisor can act on and one they should check first.
+ */
+export type NearbyEvidence = {
+  citationCount: number | null;
+  /** Distinct publishing organisations behind those citations. */
+  sourceFamilyCount: number | null;
+  factCount: number | null;
+  independentSourceFamilies: boolean;
+  reviewFlags: string[];
+};
+
+export type NearbySource = {
+  publisher: string | null;
+  title: string | null;
+  url: string | null;
+  /** What this citation establishes: identity, current role, association. */
+  factTypes: string[];
+  retrievedAt: string | null;
+};
+
+export type NearbyRecord = {
+  rank: number | null;
+  personId: string;
+  displayName: string | null;
+  headline: string | null;
+  organization: string | null;
+  lane: NearbyLane | null;
+  /** The person's standing score. Not what the list is ordered by. */
+  globalNws: number | null;
+  /** What the upstream ranks by, and therefore what the list shows. */
+  nearbyRankScore: number | null;
+  scoreStatus: string | null;
+  /**
+   * The service's own label for the scoring regime.
+   *
+   * Informational only. It reads `PROFESSIONAL_NETWORK_PROVISIONAL` for
+   * registry-discovered and reviewed records alike, so it cannot be used to
+   * tell a thin score from a full one — use {@link isRegistryOnlyScore}, which
+   * reads the components instead.
+   */
+  scoreKind: string | null;
+  rankingBasis: string | null;
+  confidence: { score: number | null; grade: ConfidenceGrade | null };
+  publicLocation: {
+    label: string | null;
+    associationKind: string | null;
+    granularity: string | null;
+    /** A band, never an exact distance — the association is not a residence. */
+    distanceBand: string | null;
+    note: string | null;
+  };
+  /** Null when the scoring service did not publish its working for this record. */
+  scoreBreakdown: ScoreBreakdown | null;
+  reasons: string[];
+  warnings: string[];
+  tags: string[];
+  revalidationRequired: boolean;
+  /** Null on a service revision that predates the reviewed release. */
+  evidence: NearbyEvidence | null;
+  associationContext: NearbyAssociationContext | null;
+  sources: NearbySource[];
+  modelVersion: string | null;
+};
+
+/** Which reviewed release answered, so an advisor can cite what they saw. */
+export type NearbyRelease = {
+  releaseId: string;
+  sourceRetrievedAt: string | null;
+  sourcePolicyVersion: string | null;
+};
+
+/** How much of the market has been reviewed. 60 records is not a census. */
+export type NearbyReviewScope = {
+  organizationAnchorCount: number | null;
+  marketCensusComplete: boolean;
+};
+
+/**
+ * The service's own statement that none of this is about money.
+ *
+ * This surface renders a component literally named "capital access" to
+ * advisers whose job is judging whether someone can invest. That is the one
+ * reading the product must not invite, so the sentence that prevents it is
+ * carried and shown next to the number.
+ */
+export type NearbyFinancialContext = {
+  status: string;
+  capitalAccessNote: string | null;
+  notUsedForRanking: string[];
+};
+
+/** What "in this market" means for one person — never where they live. */
+export type NearbyAssociationContext = {
+  category: string;
+  definition: string | null;
+};
+
+/**
+ * Whether the list on screen is the whole list.
+ *
+ * The national index fans out across two independent public registries. When
+ * one is stale or unreachable the search still succeeds, returning whatever the
+ * other held — a shorter list that is indistinguishable from a complete one.
+ * Null means the service said nothing, which is unknown health, not good health.
+ */
+export type NearbySourceHealth = {
+  status: string;
+  queriedSourceCount: number;
+  successfulSources: string[];
+  degradedSources: string[];
+};
+
+export type NearbyDiscoverResult = {
+  coverage: NearbyCoverage;
+  sourceHealth: NearbySourceHealth | null;
+  snapshot: {
+    scoreStatus: string | null;
+    complete: boolean;
+    modelVersion: string | null;
+    dataMode: string | null;
+    verifiedAt: string | null;
+  };
+  summary: {
+    returnedCount: number;
+    candidateCount: number;
+    searchPerformed: boolean;
+    effectiveRadiusKm: number | null;
+  };
+  release: NearbyRelease | null;
+  reviewScope: NearbyReviewScope | null;
+  financialContext: NearbyFinancialContext | null;
+  scoreDefinition: string | null;
+  results: NearbyRecord[];
+};
+
+export type NearbyShortlistEntry = {
+  id: string;
+  target_key: string;
+  status: string;
+  profile: Record<string, unknown>;
+  updated_at: string | null;
+};
+
+/**
+ * Where the advisor is looking. Postal is the only form that carries a country,
+ * because it is the only one where the advisor stated it.
+ */
+export type NearbyAnchor =
+  | { kind: "coords"; latitude: number; longitude: number }
+  | { kind: "postal"; postalCode: string; countryCode: string };
+
+export type NearbyFilters = {
+  lanes: NearbyLane[];
+  /** Single-valued by design — see SECTOR_FILTER_IS_SINGLE_SELECT below. */
+  tag: string | null;
+  minimumConfidenceGrade: ConfidenceGrade;
+  radiusKm: number;
+};
+
+export const NEARBY_RADIUS_OPTIONS_KM = [10, 20, 50, 100];
+
+export const DEFAULT_NEARBY_FILTERS: NearbyFilters = {
+  lanes: [],
+  tag: null,
+  minimumConfidenceGrade: "B",
+  radiusKm: 20,
+};
+
+/**
+ * The upstream matches `tags` as a *subset* of a candidate's own tags, so two
+ * selected tags require a record carrying both. Against the current approved
+ * dataset almost every pair returns nothing, which reads as a broken filter.
+ *
+ * Selecting one at a time is therefore the honest control. Re-implementing OR
+ * on the client was considered and rejected: it would quietly disagree with the
+ * server's own filter semantics, so the same query would mean two things.
+ */
+export const SECTOR_FILTER_IS_SINGLE_SELECT = true;
+
+function authHeaders(idToken: string): Record<string, string> {
+  return idToken ? { Authorization: `Bearer ${idToken}` } : {};
+}
+
+async function jsonOrThrow<T>(response: Response): Promise<T> {
+  const payload = (await response.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+
+  if (!response.ok) {
+    // 503 means this deployment has no NWS wiring. That is our plumbing, and
+    // retrying will not fix it, so it is worded as a setup state rather than a
+    // transient failure.
+    if (response.status === 503) throw new Error("This isn't set up yet.");
+    if (response.status === 429)
+      throw new Error("Busy right now. Try again in a moment.");
+    if (response.status === 504) throw new Error("That took too long. Try again.");
+
+    const detail = payload?.detail as { message?: string } | string | undefined;
+    const message =
+      (typeof detail === "object" ? detail?.message : detail) ||
+      (payload?.error as string | undefined);
+    throw new Error(message || "Nearby is unavailable right now.");
+  }
+  return payload as T;
+}
+
+export class NwsNearbyService {
+  static async discover(opts: {
+    idToken: string;
+    anchor: NearbyAnchor;
+    filters?: NearbyFilters;
+    signal?: AbortSignal;
+  }): Promise<NearbyDiscoverResult> {
+    const filters = opts.filters ?? DEFAULT_NEARBY_FILTERS;
+
+    // POST, not GET: a query string puts the advisor's position in the request
+    // line, which the access log records verbatim and which also lands in
+    // browser history and any Referer header.
+    const body: Record<string, unknown> = {
+      lanes: filters.lanes,
+      tags: filters.tag ? [filters.tag] : [],
+      minimum_confidence_grade: filters.minimumConfidenceGrade,
+      initial_radius_km: filters.radiusKm,
+      max_radius_km: Math.max(filters.radiusKm, 100),
+    };
+
+    if (opts.anchor.kind === "coords") {
+      // Coarsened here as well as on the backend. We hold no reverse geocode,
+      // so a coordinate deliberately carries no country: a wrong guess returns
+      // COUNTRY_CONTEXT_DOES_NOT_MATCH and hides real results.
+      body.latitude = Number(opts.anchor.latitude.toFixed(2));
+      body.longitude = Number(opts.anchor.longitude.toFixed(2));
+    } else {
+      body.postal_code = opts.anchor.postalCode.trim().toUpperCase();
+      body.country_code = opts.anchor.countryCode.trim().toUpperCase();
+    }
+
+    const response = await ApiService.apiFetch("/api/ria/nearby/discover", {
+      method: "POST",
+      headers: {
+        ...authHeaders(opts.idToken),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+    return jsonOrThrow<NearbyDiscoverResult>(response);
+  }
+
+  static async shortlist(opts: {
+    idToken: string;
+    record: NearbyRecord;
+    action?: "shortlist" | "pass";
+    signal?: AbortSignal;
+  }): Promise<NearbyShortlistEntry> {
+    // Only the public fields the shortlist itself renders. Sending the whole
+    // record would put reasons, sources and warnings into a JSONB column that
+    // nothing reads, and they go stale the moment the upstream re-scores.
+    const snapshot = {
+      displayName: opts.record.displayName,
+      headline: opts.record.headline,
+      organization: opts.record.organization,
+      lane: opts.record.lane,
+      globalNws: opts.record.globalNws,
+      nearbyRankScore: opts.record.nearbyRankScore,
+      confidenceGrade: opts.record.confidence.grade,
+      locationLabel: opts.record.publicLocation.label,
+      modelVersion: opts.record.modelVersion,
+    };
+
+    const response = await ApiService.apiFetch("/api/ria/nearby/shortlist", {
+      method: "POST",
+      headers: {
+        ...authHeaders(opts.idToken),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        person_id: opts.record.personId,
+        action: opts.action ?? "shortlist",
+        snapshot,
+      }),
+      signal: opts.signal,
+    });
+    return jsonOrThrow<NearbyShortlistEntry>(response);
+  }
+
+  static async listShortlist(opts: {
+    idToken: string;
+    signal?: AbortSignal;
+  }): Promise<NearbyShortlistEntry[]> {
+    const response = await ApiService.apiFetch("/api/ria/nearby/shortlist", {
+      method: "GET",
+      headers: authHeaders(opts.idToken),
+      signal: opts.signal,
+    });
+    const payload = await jsonOrThrow<{ items: NearbyShortlistEntry[] }>(response);
+    return payload.items ?? [];
+  }
+}
+
+/**
+ * Live counts per lane, taken from the records actually returned.
+ *
+ * Two of the six lanes are empty in the approved dataset. Offering all six as
+ * equal choices means an advisor taps one and gets a blank screen that reads as
+ * a bug, so the control shows what each lane would actually yield.
+ */
+export function laneCounts(records: NearbyRecord[]): Record<NearbyLane, number> {
+  const counts = Object.fromEntries(
+    NEARBY_LANES.map((lane) => [lane.value, 0]),
+  ) as Record<NearbyLane, number>;
+  for (const record of records) {
+    if (record.lane && record.lane in counts) counts[record.lane] += 1;
+  }
+  return counts;
+}
+
+/** Sectors present in the current results, so the control never offers a dead option. */
+export function availableTags(records: NearbyRecord[]): string[] {
+  const seen = new Set<string>();
+  for (const record of records) {
+    for (const tag of record.tags) seen.add(tag);
+  }
+  return [...seen].sort();
+}
+
+/** Plain wording for how a person is associated with the queried market. */
+export const ASSOCIATION_CATEGORY_LABELS: Record<string, string> = {
+  BASED_HERE: "Based here",
+  WORKS_HERE: "Works here",
+  SERVES_HERE: "Serves here",
+};
+
+export function associationCategoryLabel(key: string): string {
+  return (
+    ASSOCIATION_CATEGORY_LABELS[key] ??
+    key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, " ")
+  );
+}
+
+/** Plain names for what a citation proves. */
+export const FACT_TYPE_LABELS: Record<string, string> = {
+  identity: "Identity",
+  current_role: "Current role",
+  organization_identity: "Organisation",
+  public_association: "Association",
+};
+
+export function factTypeLabel(key: string): string {
+  return FACT_TYPE_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+/** Confidence grades that actually have records behind them.
+ *
+ * The reviewed release grades every record B, so offering A returns an empty
+ * screen — the same dead-option trap the empty lane chips had. */
+export function availableGrades(records: NearbyRecord[]): Set<ConfidenceGrade> {
+  const grades = new Set<ConfidenceGrade>();
+  for (const record of records) {
+    if (record.confidence.grade) grades.add(record.confidence.grade);
+  }
+  return grades;
+}
+
+/** Score to one decimal. The approved range spans ~16 points, so a bar would be noise. */
+export function formatScore(value: number | null): string {
+  return typeof value === "number" ? value.toFixed(1) : "—";
+}

@@ -2,6 +2,11 @@
 set -euo pipefail
 
 MANIFEST_PATH="${1:-scripts/test-ci.manifest.txt}"
+PROTOCOL_TEST_PARTITION="${PROTOCOL_TEST_PARTITION:-all}"
+case "$PROTOCOL_TEST_PARTITION" in
+  all|parallel|database) ;;
+  *) echo "Unknown backend test partition: $PROTOCOL_TEST_PARTITION" >&2; exit 2 ;;
+esac
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [ -z "$PYTHON_BIN" ]; then
@@ -12,6 +17,12 @@ if [ -z "$PYTHON_BIN" ]; then
   else
     PYTHON_BIN="python"
   fi
+fi
+
+if [ -n "${ONE_COMMAND_TEST_DATABASE_URL:-}" ]; then
+  # All database fixture families must see the same disposable service before
+  # any test can create schemas, databases or migration objects.
+  PYTHONPATH=. "$PYTHON_BIN" -m tests.helpers.isolated_postgres
 fi
 
 if [ ! -f "$MANIFEST_PATH" ]; then
@@ -43,24 +54,119 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+# The manifest runs in parallel, one pytest-xdist worker per CPU. This script is
+# the switch: CI (protocol-check) and the local `orchestrate.sh core` stage both
+# reach it through backend-check.sh, so there is no flag to forget or to turn
+# off. `--dist loadfile` keeps every test of a file on one worker, in file
+# order, so module-scoped fixtures and in-file ordering behave exactly as they
+# do serially; isolation ACROSS files is what parallelism tests, and
+# tests/conftest.py gives each worker its own offline database for that.
+#
+# Measured 2026-09-26 on the full manifest (see docs/reference/operations/ci.md):
+# serial vs parallel, same pass count, three clean parallel runs.
+#
+# The *_postgres.py files and the legacy-named Drive sharing, trusted-auto, owner
+# scenario and Feed suites are the exception and run serially afterwards. They
+# share ONE real database (ONE_COMMAND_TEST_DATABASE_URL), and although each
+# test gets its own schema, Postgres catalog work is database-wide: two workers
+# raced on `CREATE EXTENSION pgcrypto` (UniqueViolation on
+# pg_extension_name_index, first parallel CI run), and a migration reading
+# pg_constraint hit "could not open relation" while another worker dropped its
+# test schema. Neither is a product defect; both are shared-database artefacts,
+# so those files keep the serial run they had before.
+PYTEST_PARALLEL_ARGS=(-n auto --dist loadfile)
+
+PARALLEL_TESTS=()
+POSTGRES_TESTS=()
+for test_file in "${TESTS[@]}"; do
+  case "$test_file" in
+    *_postgres.py|tests/services/test_document_delivery*.py|tests/test_hashcoin_wallet.py|tests/services/test_drive_sharing_store.py|tests/services/test_drive_trusted_auto.py|tests/services/test_drive_owner_meeting_notes_scenario.py|tests/services/test_drive_feed_projection.py|tests/services/test_drive_request_payment_v1_lane.py) POSTGRES_TESTS+=("$test_file") ;;
+    *) PARALLEL_TESTS+=("$test_file") ;;
+  esac
+done
+
+# GitHub may split the shared-database files across two independent runners,
+# each with its own PostgreSQL service. Files remain serial within each runner.
+# Validate the complete manifest before filtering so a missing file cannot be
+# hidden by assigning it to the other shard. Local runs remain unsharded.
+if [ -n "${PROTOCOL_DATABASE_SHARD_COUNT:-}" ] || [ -n "${PROTOCOL_DATABASE_SHARD_INDEX:-}" ]; then
+  if [ "$PROTOCOL_TEST_PARTITION" != "database" ] || [ "${PROTOCOL_DATABASE_SHARD_COUNT:-}" != "2" ]; then
+    echo "Database sharding requires the database partition and exactly two shards" >&2
+    exit 2
+  fi
+  case "${PROTOCOL_DATABASE_SHARD_INDEX:-}" in
+    1|2) ;;
+    *) echo "Database shard index must be 1 or 2" >&2; exit 2 ;;
+  esac
+  SHARDED_POSTGRES_TESTS=()
+  position=0
+  for test_file in "${POSTGRES_TESTS[@]}"; do
+    if [ "$((position % 2 + 1))" -eq "$PROTOCOL_DATABASE_SHARD_INDEX" ]; then
+      SHARDED_POSTGRES_TESTS+=("$test_file")
+    fi
+    position=$((position + 1))
+  done
+  if [ "${#SHARDED_POSTGRES_TESTS[@]}" -eq 0 ]; then
+    echo "Database shard contains no tests" >&2
+    exit 2
+  fi
+  POSTGRES_TESTS=("${SHARDED_POSTGRES_TESTS[@]}")
+fi
+
 CI_OFFLINE_DB_DIR=""
+CI_PYTEST_ARGS_FILE="$(mktemp "${TMPDIR:-/tmp}/hushh-pytest-args.XXXXXX")"
 if [ -z "${OFFLINE_DB_PATH:-}" ]; then
   CI_OFFLINE_DB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hushh-protocol-ci.XXXXXX")"
   OFFLINE_DB_PATH="$CI_OFFLINE_DB_DIR/protocol.db"
 fi
 
 cleanup_offline_db() {
+  rm -f "$CI_PYTEST_ARGS_FILE"
   if [ -n "$CI_OFFLINE_DB_DIR" ] && [ -d "$CI_OFFLINE_DB_DIR" ]; then
     rm -rf "$CI_OFFLINE_DB_DIR"
   fi
 }
 trap cleanup_offline_db EXIT
 
-TESTING="${TESTING:-true}" \
-DB_OFFLINE="${DB_OFFLINE:-1}" \
-OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
-APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
-VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
-HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
-PYTHONPATH=. \
-"$PYTHON_BIN" -m pytest -q "${TESTS[@]}"
+run_pytest() {
+  # One argument per line preserves the complete manifest without exceeding
+  # Windows' native command-line limit. pytest supports @files since 8.2.
+  printf '%s\n' "$@" > "$CI_PYTEST_ARGS_FILE"
+  local args_file="$CI_PYTEST_ARGS_FILE"
+  if command -v cygpath >/dev/null 2>&1; then
+    args_file="$(cygpath -m "$args_file")"
+  fi
+  TESTING="${TESTING:-true}" \
+  GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
+  DB_OFFLINE="${DB_OFFLINE:-1}" \
+  OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
+  APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
+  VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
+  HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
+  PYTHONPATH=. \
+  "$PYTHON_BIN" -m pytest -q "@$args_file"
+}
+
+if [ "$PROTOCOL_TEST_PARTITION" != "database" ] && [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then
+  run_pytest "${PYTEST_PARALLEL_ARGS[@]}" "${PARALLEL_TESTS[@]}"
+fi
+if [ "$PROTOCOL_TEST_PARTITION" != "parallel" ] && [ "${#POSTGRES_TESTS[@]}" -gt 0 ]; then
+  echo "== Shared-database tests (serial) =="
+  run_pytest "${POSTGRES_TESTS[@]}"
+fi
+
+# Every test file must at least IMPORT, listed in the manifest or not.
+#
+# The manifest above names the files CI runs. A file outside it can rot to the
+# point of not importing and nothing notices: tests/test_consent_lifecycle_chat.py
+# collected ZERO tests for days after `_BackendDirectConfirmationNeeded` was
+# removed by an unrelated change, silently dropping twenty functions covering the
+# spoken-yes gate on every consent mutation and the fail-closed VAULT_OWNER check.
+#
+# Collection is cheap -- no test bodies run -- and it is the one check that cannot
+# be passed by a file nobody remembered to list. Same defect class as the DCO hook
+# that was correct, tracked, and had never run.
+if [ "$PROTOCOL_TEST_PARTITION" != "database" ]; then
+  echo "== Verifying every test file still imports =="
+  PYTHONPATH=. "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null
+fi

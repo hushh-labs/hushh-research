@@ -1,21 +1,68 @@
 "use client";
 
+import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Search as SearchIcon, UserRound, Users } from "lucide-react";
+import {
+  ContactsBookIcon,
+  Check,
+  ChevronDown,
+  Loader2,
+  RefreshCw,
+  MoreHorizontal,
+  Search as SearchIcon,
+  X,
+} from "@/components/icons";
+import {
+  InviteFriendsProfileIcon,
+  LockedRowIcon,
+  QualifiedRowIcon,
+} from "@/components/icons/agents";
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { MutualConnectionsList } from "@/components/connect/mutual-connections-list";
+import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
+import { SectionLabel } from "@/components/app-ui/typography";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/app-ui/settings-ui";
+import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
+import {
+  ConnectDirectoryPersonRow,
+  ConnectPersonRow,
+  DirectoryMutualLine,
+} from "@/components/connect/connect-person-row";
+import { ProfilePaneMessageIcon } from "@/components/profile/profile-pane-icons";
+import { LivingConnections } from "@/components/connect/living-connections";
+import {
+  EMPTY_CIRCLES_SNAPSHOT,
+  type ConnectCirclesSnapshot,
+} from "@/components/connect/circle-discovery";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
-import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
+import {
+  isShareCancellationError,
+  ShareUnavailableError,
+  shareLink,
+} from "@/lib/share/share-link";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalActionPreparer,
+} from "@/lib/agent/local-onboarding-actions";
+import {
+  getAppScrollRoot,
+  useScrollReset,
+} from "@/lib/navigation/use-scroll-reset";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -25,65 +72,314 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
+import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
+import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import {
+  buildPersonProfileRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import {
+  CONNECT_CONNECTION_VIEW_PARAM,
+  CONNECT_MUTUALS_PARAM,
+  connectDirectoryReturnHref,
+  connectMutualsHref,
+  CONNECT_CIRCLE_ACTION_PARAM,
+  CONNECT_CIRCLE_ID_PARAM,
+  CONNECT_SEARCH_QUERY_PARAM,
+  CONNECT_REVIEW_PERSON_PARAM,
+  CONNECT_SURFACE_PARAM,
+  connectCircleTaskTitle,
+  isFocusedConnectCircleTask,
+  readConnectCircleAction,
+  readConnectSurface,
+  type ConnectSurface,
+} from "@/lib/navigation/connect-routes";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  DIRECTORY_PASSIVE_REFRESH_AFTER_MS,
+  directoryRetryDelayMs,
+  isDirectoryRateLimited,
+  readSavedDirectoryFirstPage,
+  saveDirectoryFirstPage,
+} from "@/lib/connect/directory-first-page-cache";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import {
+  CACHE_KEYS,
+  CACHE_TTL,
+  CacheService,
+} from "@/lib/services/cache-service";
+import { Skeleton } from "@/components/ui/skeleton";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { useOutgoingRequestResolutionWatch } from "@/lib/connections/use-outgoing-request-resolution-watch";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
   ConnectionsService,
-  type ConnectionInformationScopeCatalog,
+  type ConnectionAudience,
+  type ConnectionPage,
   type ConnectionRelationship,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
+  type DirectoryAudience,
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { connectPersonName } from "@/lib/connections/person-label";
+import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
-} from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { getDirectoryPersonDescription } from "./directory-person-label";
+} from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import {
+  CONNECT_DIRECTORY_CONTENT_CLASSNAME,
+  CONNECT_PAGER_BUTTON_CLASSNAME,
+  CONNECT_SEARCH_INPUT_CLASSNAME,
+  CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
+  CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+  CONNECT_SEARCH_PLACEHOLDER,
+} from "./connect-search-layout";
+import {
+  CONNECT_DIRECTORY_MENU_CLASSNAME,
+  CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME,
+} from "./connect-surface-layout";
+import { cn } from "@/lib/utils";
+import styles from "@/components/connect/connect-workspace.module.css";
+import { useConnectionSearch } from "@/components/connect/use-connection-search";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_SECTION_HEADING_CLASSNAME,
+  CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
+  CONNECT_SWIPE_PANE_INSET_CLASSNAME,
+  CONNECT_WRAPPING_TEXT_CLASSNAME,
+} from "./connect-surface-layout";
 
-type ConnectTab = "people" | "nearby";
-
-const CONNECT_TABS = [
-  { value: "people", label: "People" },
-  { value: "nearby", label: "Around you" },
-];
+type ConnectTab = "people" | "advisors" | "nearby";
+type DirectoryNavigationSnapshot = {
+  query: string; tab: ConnectTab; people: DirectoryPerson[];
+  page: number; hasMore: boolean; scrollTop: number;
+};
 
 /**
- * How many people the unsearched People tab offers.
+ * "RIAs" rather than "Advisors", which is the plainer word.
  *
- * Deliberately about a screen's worth. It exists so someone who has just joined
- * and knows nobody's exact name is not staring at an empty surface — not so
- * they can browse the register, which is the thing that stops scaling.
+ * Around you already owns a sub-tab called Advisors, and both strips are on
+ * screen together whenever that tab is open -- two controls with one name, a
+ * few pixels apart, meaning different things: every registered adviser on
+ * Hussh, and the advisers near this phone right now. The regulatory term is the
+ * one thing that cannot be confused with "advisers nearby", and it is the word
+ * the people who hold these profiles use for themselves.
  */
-const SUGGESTED_PEOPLE_LIMIT = 8;
+/**
+ * The route-level axis: the directory hub, or the groups people belong to.
+ *
+ * Carried in `?tab=` because a circle detail is a place you can be sent, and a
+ * hub tab that only exists in `useState` cannot be linked to or returned to.
+ */
+const CONNECT_SEARCH_QUERY_STORAGE_KEY = "hushh:connect:people-search-query";
+
+// The People search box is local state, not URL state (unlike surface/
+// circle flow, which live in the query string) -- typing never adds browser
+// history entries. A profile/list return link captures the current query.
+// Leaving to a person's detail
+// screen and using the shared back control, which remounts this page, used
+// to drop it: the box came back empty even though the person had just been
+// searching. sessionStorage survives the remount without turning a keystroke
+// into a navigable state. Split out as named functions (rather than inline
+// in the component) so the storage contract is unit-testable without
+// rendering the full page.
+export function readStoredConnectSearchQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (
+      window.sessionStorage.getItem(CONNECT_SEARCH_QUERY_STORAGE_KEY) ?? ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredConnectSearchQuery(query: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (query) {
+      window.sessionStorage.setItem(CONNECT_SEARCH_QUERY_STORAGE_KEY, query);
+    } else {
+      window.sessionStorage.removeItem(CONNECT_SEARCH_QUERY_STORAGE_KEY);
+    }
+  } catch {
+    // Best-effort: a blocked sessionStorage (private mode) just means the
+    // query is not restored later, not a broken search.
+  }
+}
 
 /**
- * How many people a page shows, and the sizes the reader can pick.
+ * The pinned header: the Connect hub strip, and nothing else.
  *
- * #5020 answered "the directory is unusably long" with a fixed sample that
- * deliberately refused to page. That solved the first screenful and left no way
- * through the rest, so this replaces it with real paging: the default is still
- * a screenful, and someone who wants to scan more can say so.
+ * The strip pins to the SOLID edge of the top chrome, not the end of its fade.
+ * Pinning to `--top-shell-live-height` left the whole fade tail as dead space
+ * above the tabs. On a moving list that space also exposed whichever row was
+ * passing underneath, making the navigation look detached from the app bar.
+ * `--top-shell-mask-solid-height` follows the same collapse value as the bar,
+ * but lets the tab surface itself sit behind the fade so the two read as one
+ * continuous piece of chrome.
+ *
+ * The negative inline margin is what makes the background reach the page
+ * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
+ * header that is supposed to be covering them.
+ *
+ * `bg-background`, at full opacity, NOT `bg-background/85`. Fifteen percent of a
+ * roster row is still a roster row: names and avatars read straight through the
+ * strips at phone width, which is the "list scrolls behind the header" this
+ * fixes. The blur went with it -- it has nothing left to blur, and it cost a
+ * compositing layer on every scroll frame.
+ *
+ * Held by e2e/connect-sticky-header.layout.spec.ts.
  */
-const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
-const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
+const CONNECT_STICKY_HEADER_CLASSNAME =
+  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
+
+/**
+ * The search row pins UNDER the header, not with it.
+ *
+ * This field searches the directory, and the directory is what sits below it --
+ * `My connections` is above. Lifting it into the header would fix a control to
+ * the top of a screen where the first thing under it is a list the field does
+ * not filter. Pinned in place instead, it arrives exactly when its own results
+ * do and stays for as long as they are on screen.
+ *
+ * The offset is the solid chrome edge plus whatever the header above measured.
+ *
+ * Opaque for the same reason the header above it is: at 85% the directory rows
+ * this field filters read straight through it as they scroll past.
+ */
+const CONNECT_STICKY_SEARCH_CLASSNAME =
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
+
+/** Short, unambiguous date in the viewer's local calendar. */
+function formatConnectedDate(date: Date): string {
+  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getMonth()];
+  return `${date.getDate()} ${month}`;
+}
+
+const CONNECTION_AVATAR_TONES = [
+  "bg-[color:var(--app-accent)]",
+  "bg-[color:var(--app-purple)]",
+  "bg-[color:var(--app-destructive)]",
+] as const;
+
+function connectionAvatarTone(userId: string): string {
+  const hash = [...userId].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0);
+  return CONNECTION_AVATAR_TONES[hash % CONNECTION_AVATAR_TONES.length] ?? CONNECTION_AVATAR_TONES[0];
+}
+
+const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
+  people: "People",
+  advisors: "RIAs",
+  nearby: "Around you",
+};
+
+const CONNECT_SURFACE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.connect;
+
+const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(
+  (value) => ({ value, label: CONNECT_TAB_LABEL[value] }),
+);
+
+/**
+ * Which directory audience each tab pages through.
+ *
+ * People searches the full directory, including verified RIAs. RIAs narrows
+ * that directory on the server before pagination; filtering a rendered page
+ * could leave later advisers unreachable.
+ */
+const CONNECT_TAB_AUDIENCE: Record<ConnectTab, DirectoryAudience> = {
+  people: "all",
+  advisors: "ria",
+  // Around you runs its own directories; the value is never used for it.
+  nearby: "all",
+};
+
+/**
+ * How many directory reads or connection writes may be in flight at once.
+ *
+ * A bulk action of 10 people is 10 catalog reads and then up to 10 writes, and
+ * each write holds a database connection for its whole transaction. The pool is
+ * 5 connections with 10 overflow, and production runs a smaller instance than
+ * UAT does, so an unbounded Promise.all is the shape that exhausts it. Three at
+ * a time keeps the action quick without ever being the reason a request fails.
+ */
+const CONNECT_REQUEST_CONCURRENCY = 3;
+
+/** Run `task` over `items`, at most `limit` at a time, preserving order. */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    async () => {
+      for (;;) {
+        const index = cursor++;
+        const item = items[index];
+        if (index >= items.length || item === undefined) return;
+        results[index] = await task(item, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/** Fetch one small batch at a time as browsing or search reaches the list end. */
+const DEFAULT_PAGE_SIZE = 20;
+/**
+ * A directory row's call to action. Both the button target and its visible pill
+ * are 44px high. The pill slot keeps local styling independent of Button wrappers.
+ * The label takes Profile's action typography through `data-profile-role="action"`
+ * on the button, which the pill inherits.
+ */
+const CONNECT_ROW_ACTION_CLASSNAME =
+  "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
+const CONNECT_ROW_ACTION_PILL_CLASSNAME =
+  "inline-flex h-11 min-w-[88px] items-center justify-center rounded-full border px-[15px]";
+/** An icon-only action: a 44px target around a 22px glyph. */
+const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
+const CONNECT_INLINE_BUTTON_CLASSNAME =
+  "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
+const CONNECT_REMOVE_BUTTON_CLASSNAME =
+  "text-destructive hover:bg-destructive/10 hover:text-destructive";
+const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME = styles.utilityLabel;
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 20;
+const MAX_BULK_CONNECTION_REQUESTS = 10;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -96,6 +392,8 @@ const MAX_BULK_CONNECTION_REQUESTS = 20;
  */
 const DIRECTORY_RESOLVE_PAGE_SIZE = 50;
 const DIRECTORY_RESOLVE_MAX_PAGES = 5;
+const CONNECTION_PAGE_SIZE = 50;
+const CONNECTION_RESOLVE_MAX_PAGES = 5;
 
 /**
  * Match a spoken name against a list the server just returned.
@@ -171,9 +469,13 @@ function matchByName<T>(
       .trim();
   const target = normalize(spoken);
   if (!target) return [];
-  const named = rows.filter((row) => normalize(String(nameOf(row) ?? "")).length > 0);
+  const named = rows.filter(
+    (row) => normalize(String(nameOf(row) ?? "")).length > 0,
+  );
 
-  const exact = named.filter((row) => normalize(String(nameOf(row))) === target);
+  const exact = named.filter(
+    (row) => normalize(String(nameOf(row))) === target,
+  );
   if (exact.length > 0) return exact;
 
   const contains = named.filter((row) => {
@@ -195,7 +497,9 @@ function matchByName<T>(
   // because the tiers above would have claimed a better candidate first.
   const targetWords = target.split(" ").filter(Boolean);
   return named.filter((row) => {
-    const nameWords = normalize(String(nameOf(row))).split(" ").filter(Boolean);
+    const nameWords = normalize(String(nameOf(row)))
+      .split(" ")
+      .filter(Boolean);
     const [shorter, longer] =
       targetWords.length <= nameWords.length
         ? [targetWords, nameWords]
@@ -214,57 +518,397 @@ function matchByName<T>(
   });
 }
 
+async function resolveConnectionForVoice({
+  idToken,
+  spokenName,
+  connectionId,
+}: {
+  idToken: string;
+  spokenName: string;
+  connectionId: string;
+}): Promise<{ matches: ConnectionSummaryEntry[]; complete: boolean }> {
+  const rows: ConnectionSummaryEntry[] = [];
+  for (let page = 1; page <= CONNECTION_RESOLVE_MAX_PAGES; page += 1) {
+    const result = await ConnectionsService.listConnectionsPage({
+      idToken,
+      page,
+      limit: CONNECTION_PAGE_SIZE,
+      query: spokenName,
+      audience: "all",
+    });
+    rows.push(...result.items);
+    if (connectionId) {
+      const exact = rows.find((row) => row.connectionId === connectionId);
+      if (exact)
+        return {
+          matches:
+            !spokenName ||
+            matchByName([exact], spokenName, (entry) => entry.displayName)
+              .length === 1
+              ? [exact]
+              : [],
+          complete: true,
+        };
+    }
+    if (!result.hasMore) {
+      return {
+        matches: connectionId
+          ? []
+          : matchByName(rows, spokenName, (entry) => entry.displayName),
+        complete: true,
+      };
+    }
+  }
+  // A name may have another duplicate beyond the bounded window. Choosing one
+  // would make pagination an authority decision, so voice refuses safely.
+  return { matches: [], complete: false };
+}
+
 export default function ConnectPageClient() {
-  const { user } = useRequireAuth();
+  const { user, userId, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 
-  const [tab, setTab] = useState<ConnectTab>("people");
+  const searchParams = useSearchParams();
+  const [directoryMemory] = useState(() => readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory"));
+  const restoreDirectoryReadRef = useRef(Boolean(directoryMemory));
+  const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
+  const openedCommandReview = useRef<string | null>(null);
+  const connectOwnerRef = useRef(userId);
+  connectOwnerRef.current = userId;
+  /**
+   * The route-backed Connect surface, from `?tab=`.
+   *
+   * Anything unrecognised reads as "all" rather than throwing a 404 at
+   * somebody who mistyped a link, and the default is not written to the URL on
+   * mount -- that would eat one `router.back()` step for every arrival.
+   */
+  const surface: ConnectSurface = readConnectSurface(
+    searchParams.get(CONNECT_SURFACE_PARAM),
+  );
+  const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
+  // A settled swipe between Connections and Circles commits the same route
+  // the tab pill pushes, so swiping and tapping stay one navigation.
+  const commitSurface = useCallback(
+    (value: string) => {
+      if (value === surface) return;
+      const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find(
+        (tab) => tab.value === value,
+      );
+      if (target) router.push(target.href, { scroll: false });
+    },
+    [router, surface],
+  );
+  /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
+   *  below, because opening one is a new screen even though the path is not. */
+  const circleFlowAction = readConnectCircleAction(
+    searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
+  );
+  const [createCircleDialogOpen, setCreateCircleDialogOpen] = useState(false);
+  const connectionEntryView = searchParams.get(CONNECT_CONNECTION_VIEW_PARAM) === "connections" ? "connections" : "discover";
+  const [connectionView, setConnectionView] = useState(connectionEntryView);
+  const [circleSearchActive, setCircleSearchActive] = useState(false);
+  const circleFlowId = searchParams.get(CONNECT_CIRCLE_ID_PARAM) ?? "";
+  const isFocusedCircleTask = isFocusedConnectCircleTask(
+    surface,
+    circleFlowAction,
+    circleFlowId,
+  );
+
+  // Every navigation on this page passes `scroll: false`, because the surface
+  // strip and the Circle flows are query-only states that must not jump the
+  // page. The cost is that nothing resets scroll either: the shell keys its
+  // own reset on the pathname, which never changes here, so a long people list
+  // scrolled halfway down handed that offset to the circles list, and to every
+  // Circle flow opened after it. The Location hub hit this and fixed it the
+  // same way.
+  useScrollReset(`${surface}:${connectionView}:${circleFlowAction ?? ""}:${circleFlowId}:${mutualPersonRef ?? ""}`, {
+    behavior: "auto",
+  });
+
+  const [tab, setTab] = useState<ConnectTab>(directoryMemory?.tab ?? "people");
+  const [connectionsSearchDraft, setConnectionsSearchDraft] = useState({ ownerId: userId, query: "" });
+  const connectionsQuery = connectionsSearchDraft.ownerId === userId ? connectionsSearchDraft.query : "";
+  const setConnectionsQuery = useCallback((value: string) => setConnectionsSearchDraft({ ownerId: userId, query: value }), [userId]);
+  const debouncedConnectionsDraft = useDebouncedValue(connectionsSearchDraft, 300);
+  const debouncedConnectionsQuery = debouncedConnectionsDraft.ownerId === userId ? debouncedConnectionsDraft.query : "";
+  useEffect(() => {
+    setConnectionView(connectionEntryView);
+    setConnectionsQuery("");
+  }, [connectionEntryView, setConnectionsQuery, userId]);
+  /**
+   * What the Circles tab is doing, reported up.
+   *
+   * The native audit and the voice layer both describe "the screen", and the
+   * screen is whichever surface is showing. Deriving either from the directory
+   * while Circles is open would report an empty directory as the state of a
+   * tab that is not rendering one.
+   */
+  // Bumped whenever something outside the Circles tab changes a Circle or a
+  // relationship, so an open roster re-reads instead of waiting for a manual
+  // refresh -- the request sent from a member row is the case that showed.
+  const [circleRefreshToken, setCircleRefreshToken] = useState(0);
+  const [circlesState, setCirclesState] = useState<ConnectCirclesSnapshot>(
+    EMPTY_CIRCLES_SNAPSHOT,
+  );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
+  const connectStackRef = useRef<HTMLDivElement | null>(null);
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
+  const directoryMenuRef = useRef<HTMLDivElement | null>(null);
+  const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
+  const useWebDirectoryPopover = !isNative();
+  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
+    .trim()
+    .slice(0, 160);
+  const [query, setQuery] = useState<string>(
+    () => directoryMemory && directoryMemory.query.trim().slice(0, 160) === searchQueryParam
+      ? directoryMemory.query : searchQueryParam || directoryMemory?.query || readStoredConnectSearchQuery(),
+  );
+  const appliedSearchQueryParamRef = useRef(searchQueryParam || null);
+  useEffect(() => {
+    if (
+      searchQueryParam &&
+      !mutualPersonRef &&
+      appliedSearchQueryParamRef.current !== searchQueryParam
+    ) {
+      appliedSearchQueryParamRef.current = searchQueryParam;
+      setConnectionView("discover");
+      setQuery((current) => current.trim().slice(0, 160) === searchQueryParam ? current : searchQueryParam);
+    }
+  }, [searchQueryParam, mutualPersonRef]);
+  useEffect(() => {
+    writeStoredConnectSearchQuery(query);
+  }, [query]);
   const debouncedQuery = useDebouncedValue(query, 300);
 
-  const [people, setPeople] = useState<DirectoryPerson[]>([]);
-  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
-  const [outgoingRequestIds, setOutgoingRequestIds] = useState<Record<string, string>>({});
+  // The last People list this session showed, painted at once and replaced by
+  // the refresh below. It also stays on screen when that refresh is refused, so
+  // people already known are never swapped for an error. Browse only: a typed
+  // search is a different result set.
+  const [people, setPeople] = useState<DirectoryPerson[]>(() =>
+    directoryMemory?.query === query ? directoryMemory.people : query.trim()
+      ? []
+      : (readSavedDirectoryFirstPage(userId, "all")?.items ?? []),
+  );
+  const peopleCountRef = useRef(people.length);
+  peopleCountRef.current = people.length;
+  // When the directory was last read, for any reason. Passive triggers (focus,
+  // reconnect) reread only once this is old enough; see
+  // `DIRECTORY_PASSIVE_REFRESH_AFTER_MS`.
+  const lastDirectoryReadAtRef = useRef(0);
+  // The last first page this session saw, painted on the first render and
+  // replaced by the refresh below. Until either exists the list is unknown,
+  // not empty: it opened on "My connections (0) · No connections yet" and
+  // then jumped when nine connections landed (Galaxy S24 Ultra, 2026-09-22).
+  const [initialFirstPage] = useState<ConnectionPage | null>(() =>
+    userId
+      ? CacheService.getInstance().get<ConnectionPage>(
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, "all"),
+        )
+      : null,
+  );
+  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
+    () => initialFirstPage?.items ?? [],
+  );
+  const [connectionsPage, setConnectionsPage] = useState(
+    () => initialFirstPage?.page ?? 1,
+  );
+  const [connectionsHasMore, setConnectionsHasMore] = useState(
+    () => initialFirstPage?.hasMore ?? false,
+  );
+  const [connectionsTotalCount, setConnectionsTotalCount] = useState(
+    () => initialFirstPage?.totalCount ?? 0,
+  );
+  const [connectionsLoaded, setConnectionsLoaded] = useState(
+    () => initialFirstPage !== null,
+  );
+  // Whose rows are on screen, as "uid:audience"; null when there are none.
+  const connectionsListOwnerRef = useRef<string | null>(
+    initialFirstPage && userId ? `${userId}:all` : null,
+  );
+  // Open by default: My connections is the first thing a person opens
+  // Connect to see, and a collapsed panel hid the list (and its only retry
+  // affordance on refresh failure) behind one more tap.
+  const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
+  const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
+    useState(false);
+  const connectionsRequestRef = useRef(0);
+  const connectionsFirstPageRequestRef = useRef<number | null>(null);
+  const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const connectionReconcileQueuedRef = useRef(false);
+  const directoryReconcileQueuedRef = useRef(false);
+  const lastForegroundReconcileAtRef = useRef(0);
+  const suppressNextLocalGraphEventRef = useRef(false);
+  const [outgoingRequestIds, setOutgoingRequestIds] = useState<
+    Record<string, string>
+  >({});
   const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [hasMore, setHasMore] = useState(directoryMemory?.hasMore ?? false);
+  const [currentPage, setCurrentPage] = useState(directoryMemory?.page ?? 1);
+  useEffect(() => {
+    if (mutualPersonRef) return;
+    const saved = readConnectListMemory<DirectoryNavigationSnapshot>(userId, "directory");
+    if (saved && saved.query === query && saved.tab === tab) return restoreConnectListScroll(saved.scrollTop);
+    return undefined;
+    // Restore only on entry/return, never on a keystroke or a filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mutualPersonRef, userId]);
+  const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const directoryRequestPendingRef = useRef(false);
+  const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
+  const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
+  const [errorRateLimited, setErrorRateLimited] = useState(false);
+  // The last browse read of the first page was refused, so a quiet retry is
+  // owed (see the effect below).
+  const [directoryRefused, setDirectoryRefused] = useState(false);
+  const directoryRetryAttemptRef = useRef(0);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [informationScopeDraft, setInformationScopeDraft] = useState<{
-    connection: ConnectionSummaryEntry;
-    catalog: ConnectionInformationScopeCatalog;
-  } | null>(null);
-  const [informationScopeQuery, setInformationScopeQuery] = useState("");
-  const [scopeDraft, setScopeDraft] = useState<{
-    person: DirectoryPerson;
-    catalog: ConnectionScopeCatalog;
-    requestedHandles: string[];
-    offeredHandles: string[];
-  } | null>(null);
+  const [pendingRemoveTarget, setPendingRemoveTarget] = useState<{ ownerId: string; generation: number; connection: ConnectionSummaryEntry } | null>(null);
+  const pendingRemoveId = pendingRemoveTarget?.connection.connectionId ?? null;
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  /**
+   * Publish the pinned header's height so the search row can sit under it.
+   *
+   * Measured rather than assumed: the strip's own height moves with the type
+   * scale and the breakpoint. A hard-coded offset is right at exactly one
+   * width.
+   *
+   * Written to the page's own stack, not `documentElement`, so it inherits down
+   * to the search row and to nothing else, and leaves with the page.
+   */
+  useEffect(() => {
+    const header = stickyHeaderRef.current;
+    const stack = connectStackRef.current;
+    if (!header || !stack) return;
+    const publish = () => {
+      stack.style.setProperty(
+        "--connect-sticky-header-height",
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [surface]);
+  useEffect(() => {
+    if (useWebDirectoryPopover) return;
+    if (!directoryMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const menu = directoryMenuRef.current;
+      if (!menu || !(event.target instanceof Node)) return;
+      if (!menu.contains(event.target)) setDirectoryMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setDirectoryMenuOpen(false);
+      directoryMenuButtonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [directoryMenuOpen, useWebDirectoryPopover]);
+  /**
+   * The people picked for a bulk request, held whole rather than by id.
+   *
+   * This was a Set of ids read back against the rendered page, which meant a
+   * selection only existed while its own page was on screen: picking four on
+   * page one and two on page two sent two requests, and the counter said 2/8.
+   * Paging is not deselecting, so the row is kept, not just its id.
+   */
+  const [selectedPeople, setSelectedPeople] = useState<
+    Map<string, DirectoryPerson>
+  >(new Map());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
+  /** Which open of the review sheet is allowed to write its catalogs back. */
+  const batchDraftGenerationRef = useRef(0);
+  const batchSendingRef = useRef(false);
+  const [batchConnectDraft, setBatchConnectDraft] = useState<{
+    ownerId: string;
+    people: DirectoryPerson[];
+    /** Per person: what THEY can be asked for. Absent until loaded. */
+    catalogs: Record<string, ConnectionScopeCatalog>;
+    /** Per person, because a handle is only valid for its own owner. */
+    requestedHandles: Record<string, string[]>;
+    /** Not per person: these are the caller's own, identical to everyone. */
+    offeredHandles: string[];
+    loadingCatalogs: boolean;
+  } | null>(null);
+  const [showLimitBanner, setShowLimitBanner] = useState(false);
+
+  useEffect(() => {
+    setBatchConnectDraft(null);
+    setBusyId(null);
+    setPendingRemoveTarget(null);
+    setSelectedPeople(new Map());
+    setIsConnectingMultiple(false);
+    batchSendingRef.current = false;
+    openedCommandReview.current = null;
+    return () => {
+      batchDraftGenerationRef.current += 1;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    // A new requested person invalidates the previous review even when the
+    // new relationship is already connected/pending and opens no new draft.
+    batchDraftGenerationRef.current += 1;
+    setBatchConnectDraft(null);
+    setIsConnectingMultiple(false);
+    batchSendingRef.current = false;
+    openedCommandReview.current = null;
+  }, [commandReviewPerson]);
+
+  const closeBatchConnectDraft = useCallback(() => {
+    if (batchSendingRef.current) return;
+    batchDraftGenerationRef.current += 1;
+    setBatchConnectDraft(null);
+    openedCommandReview.current = null;
+    if (commandReviewPerson) {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete(CONNECT_REVIEW_PERSON_PARAM);
+      router.replace(`${ROUTES.CONNECT}${next.size ? `?${next}` : ""}`);
+    }
+  }, [commandReviewPerson, router, searchParams]);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
     [user],
   );
 
-  const loadConnections = useCallback(async (): Promise<
-    ConnectionSummaryEntry[]
-  > => {
-    if (!user) return [];
-    try {
-      const idToken = await user.getIdToken();
-      return await ConnectionsService.listConnections({ idToken });
-    } catch {
-      /* non-fatal: connections section stays empty */
-      return [];
-    }
-  }, [user]);
+  const connectionAudience: ConnectionAudience = tab === "advisors" ? "ria" : "all";
+  const connectionAudienceRef = useRef(connectionAudience);
+  connectionAudienceRef.current = connectionAudience;
+
+  const loadConnectionsPage = useCallback(
+    async (
+      page: number,
+      audience: ConnectionAudience,
+      query = "",
+    ): Promise<ConnectionPage | null> => {
+      if (!user) return null;
+      try {
+        const idToken = await user.getIdToken();
+        return await ConnectionsService.listConnectionsPage({
+          idToken,
+          page,
+          limit: CONNECTION_PAGE_SIZE,
+          query,
+          audience,
+        });
+      } catch {
+        // Non-fatal: the directory below remains available.
+        return null;
+      }
+    },
+    [user],
+  );
+
+  const [connectionsRefreshError, setConnectionsRefreshError] = useState(false);
 
   const loadOutgoingRequestIds = useCallback(async () => {
     if (!user) return;
@@ -284,95 +928,621 @@ export default function ConnectPageClient() {
     }
   }, [user]);
 
+  const refreshConnectionsFirstPage = useCallback(
+    async ({
+      audience,
+      clearBeforeLoad = false,
+      removedConnection = false,
+    }: {
+      audience: ConnectionAudience;
+      clearBeforeLoad?: boolean;
+      removedConnection?: boolean;
+    }) => {
+      const requestId = ++connectionsRequestRef.current;
+      connectionsFirstPageRequestRef.current = requestId;
+      // A first-page refresh supersedes every append in flight. Clear its
+      // affordance synchronously so a page-2 response cannot leave the screen
+      // saying "Loading…" while this new generation owns the list.
+      setConnectionsLoadingMore(false);
+      setConnectionsRefreshingFirstPage(true);
+      if (clearBeforeLoad) {
+        setConnections([]);
+        setConnectionsTotalCount(0);
+        setConnectionsPage(1);
+        setConnectionsHasMore(false);
+        setConnectionsLoaded(false);
+      }
+      const cacheKey = userId
+        ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(userId, audience)
+        : null;
+
+      try {
+        const result = await loadConnectionsPage(1, audience);
+        if (requestId !== connectionsRequestRef.current) return false;
+
+        if (result) {
+          setConnectionsRefreshError(false);
+          setConnections(result.items);
+          setConnectionsPage(result.page);
+          setConnectionsHasMore(result.hasMore);
+          setConnectionsTotalCount(result.totalCount);
+          if (cacheKey) {
+            CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
+          }
+        } else if (removedConnection) {
+          // The cached page still holds the removed row.
+          if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
+          // Do not keep a page-2 cursor over a shifted server list: the next
+          // offset would skip the row that moved across the boundary. This
+          // fallback is generation-guarded above, so a superseded removal read
+          // cannot erase a newer audience or mutation refresh.
+          setConnections([]);
+          setConnectionsPage(0);
+          setConnectionsHasMore(true);
+          setConnectionsTotalCount((current) => Math.max(0, current - 1));
+        }
+        if (!result) {
+          setConnectionsRefreshError(true);
+          // A collapsed panel must not conceal its only retry affordance.
+        }
+        return true;
+      } finally {
+        if (connectionsFirstPageRequestRef.current === requestId) {
+          connectionsFirstPageRequestRef.current = null;
+          setConnectionsRefreshingFirstPage(false);
+          // Answered, even if the answer was an error: the retry row shows.
+          setConnectionsLoaded(true);
+        }
+      }
+    },
+    [loadConnectionsPage, userId],
+  );
+
+  const reconcileConnectionSurfaces = useCallback(
+    ({
+      ensureAfterCurrent = false,
+      refreshDirectory = true,
+    }: {
+      ensureAfterCurrent?: boolean;
+      refreshDirectory?: boolean;
+    } = {}) => {
+      if (!user) return Promise.resolve();
+      if (refreshDirectory) directoryReconcileQueuedRef.current = true;
+      const active = connectionReconcileInFlightRef.current;
+      if (active) {
+        if (ensureAfterCurrent) connectionReconcileQueuedRef.current = true;
+        return active;
+      }
+
+      const run = async () => {
+        do {
+          connectionReconcileQueuedRef.current = false;
+          await Promise.allSettled([
+            refreshConnectionsFirstPage({
+              audience: connectionAudienceRef.current,
+            }),
+            loadOutgoingRequestIds(),
+          ]);
+          if (directoryReconcileQueuedRef.current) {
+            directoryReconcileQueuedRef.current = false;
+            setDirectoryRefreshNonce((nonce) => nonce + 1);
+          }
+          setCircleRefreshToken((token) => token + 1);
+        } while (connectionReconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (connectionReconcileInFlightRef.current === task) {
+          connectionReconcileInFlightRef.current = null;
+        }
+      });
+      connectionReconcileInFlightRef.current = task;
+      return task;
+    },
+    [loadOutgoingRequestIds, refreshConnectionsFirstPage, user],
+  );
+
+  // The same contact sync the One Location agent offers, on the screen whose
+  // whole job is finding people. It is one implementation, not a second one:
+  // everything about reading an address book, hashing numbers and matching
+  // them lives in the hook, and this surface supplies only what is its own --
+  // which list to refresh afterwards, and which route the analytics belong to.
+  //
+  // `onInviteShareStarted` is deliberately not passed. On Location it records
+  // the acquisition source for that journey, and first touch wins inside it,
+  // so calling it from here would not merely file a wrong row -- it would
+  // consume the slot and leave a later, genuine Location touch unrecorded.
+  const contactSync = useContactSync({
+    routeId: "connect",
+    // `user ? getIdToken : null`, not `getIdToken`. The option is nullable so
+    // the hook can check sign-in SYNCHRONOUSLY, before it asks GIS for a token
+    // -- a token fetch in front of that call spends the tap's transient
+    // activation and Safari blocks the popup. `getIdToken` here is a
+    // useCallback, so it is always truthy and resolves to null when signed
+    // out; passing it raw made the guard dead code and let the Google consent
+    // popup open for a signed-out visitor. This restores the predicate the
+    // Location page used.
+    getIdToken: user ? getIdToken : null,
+    // AuthContext hydrates the verified backend phone independently for
+    // native/UAT verification paths where Firebase User.phoneNumber is empty.
+    accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    accountEmail: user?.email,
+    resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
+    userId,
+    // Await the display refresh. A failed read preserves the successful sync
+    // and exposes a retry beside the list rather than repeating the import.
+    //
+    // The audience is read from a ref rather than captured. A sync is long
+    // enough to switch tabs under, and the hook snapshots its options once at
+    // the start; a captured value would refresh the People audience into the
+    // RIAs group and repaint it with the wrong people.
+    onConnectionGraphChanged: async () => {
+      // The contact-sync hook publishes the graph event before invoking this
+      // callback. Join the subscriber's in-flight reconciliation instead of
+      // starting a second identical read.
+      await reconcileConnectionSurfaces();
+    },
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    void loadConnections().then((rows) => {
-      if (!cancelled) setConnections(rows);
+    // Audience is part of the server-side truth for this list. Clear the
+    // previous audience before loading so a failed RIAs request cannot leave
+    // ordinary People rows displayed under the RIAs heading (or vice versa).
+    // Only when the rows on screen belong to someone or something else: the
+    // first run would otherwise wipe this person's cached page for the same
+    // audience, which is exactly what the seed is for.
+    const listOwner = `${userId ?? ""}:${connectionAudience}`;
+    const clearBeforeLoad = connectionsListOwnerRef.current !== listOwner;
+    connectionsListOwnerRef.current = listOwner;
+    void refreshConnectionsFirstPage({
+      audience: connectionAudience,
+      clearBeforeLoad,
     });
     return () => {
-      cancelled = true;
+      connectionsRequestRef.current += 1;
     };
-  }, [loadConnections]);
+  }, [connectionAudience, refreshConnectionsFirstPage, userId]);
 
   useEffect(() => {
     void loadOutgoingRequestIds();
   }, [loadOutgoingRequestIds]);
 
-  // The directory is every account on Hussh, so listing all of it unprompted
-  // stops being useful as soon as sign-ups outgrow a screen or two: the person
-  // you came to connect with is buried among strangers, and paging through them
-  // is the tedious part. Unsearched, this surface therefore shows a short
-  // suggested sample and nothing more — enough that someone who does not yet
-  // know a name has somewhere to start, small enough that it is never the thing
-  // you have to scroll past. Naming a name is what opens the full directory.
+  useEffect(() => {
+    const handleStateChanged = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{ action?: unknown; reconcile?: unknown }>)
+          .detail || {};
+      // Only re-fetch for real mutations (`action`) or explicit reconcile
+      // requests, not bookkeeping echoes like "fcm_opened" that would
+      // otherwise flash the list on every notification read.
+      if (!detail.action && !detail.reconcile) return;
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
+    return () => {
+      window.removeEventListener(
+        CONSENT_STATE_CHANGED_EVENT,
+        handleStateChanged,
+      );
+    };
+  }, [reconcileConnectionSurfaces]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubscribeGraph = subscribeToConnectionGraphChanges((detail) => {
+      if (detail.userId !== userId) return;
+      if (suppressNextLocalGraphEventRef.current) {
+        suppressNextLocalGraphEventRef.current = false;
+        return;
+      }
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    });
+    const directoryIsDueForPassiveRefresh = () =>
+      Date.now() - lastDirectoryReadAtRef.current >=
+      DIRECTORY_PASSIVE_REFRESH_AFTER_MS;
+    const refreshWhenActive = (ensureAfterCurrent = false) => {
+      if (document.visibilityState === "hidden") return;
+      if (connectionReconcileInFlightRef.current) {
+        if (ensureAfterCurrent) {
+          void reconcileConnectionSurfaces({
+            ensureAfterCurrent: true,
+            refreshDirectory: directoryIsDueForPassiveRefresh(),
+          });
+        }
+        return;
+      }
+      const now = Date.now();
+      if (
+        !ensureAfterCurrent &&
+        now - lastForegroundReconcileAtRef.current < 750
+      ) {
+        return;
+      }
+      lastForegroundReconcileAtRef.current = now;
+      void reconcileConnectionSurfaces({
+        ensureAfterCurrent,
+        // Coming back to the screen repairs the connections list, which is
+        // cheap. The directory is reread only if it has gone stale, so a
+        // person switching windows does not spend the directory's request
+        // budget on every return.
+        refreshDirectory: directoryIsDueForPassiveRefresh(),
+      });
+    };
+    const refreshOnFocus = () => refreshWhenActive();
+    const refreshOnOnline = () => refreshWhenActive(true);
+
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnOnline);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    const removeLifecycleListener =
+      appInteractionCoordinator.subscribeLifecycle(() => {
+        if (
+          appInteractionCoordinator.getLifecycleSnapshot().state === "active"
+        ) {
+          refreshWhenActive(true);
+        }
+      });
+
+    return () => {
+      unsubscribeGraph();
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnOnline);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      removeLifecycleListener();
+    };
+  }, [reconcileConnectionSurfaces, userId]);
+
+  useEffect(() => {
+    if (!userId || surface === "circles") return;
+    // A remote graph push is the immediate path. Keep a bounded repair read
+    // while Connect remains visible, since FCM and SSE are best-effort.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        // Idle repair reads must not spend the person's directory search
+        // allowance. Mutations, push, focus and outgoing-resolution events
+        // still refresh the directory through the normal reconciliation path.
+        void reconcileConnectionSurfaces({
+          ensureAfterCurrent: true,
+          refreshDirectory: false,
+        });
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [reconcileConnectionSurfaces, surface, userId]);
+
+  // Push is the primary "your request was accepted" signal, but native has no
+  // SSE fallback. While a sent request is pending and this screen is visible,
+  // confirm it every few seconds so an acceptance lands without a refresh.
+  const pendingOutgoingRequestIds = useMemo(
+    () => Object.values(outgoingRequestIds),
+    [outgoingRequestIds],
+  );
+  const readPendingOutgoingRequestIds = useMemo(
+    () =>
+      user
+        ? async () => {
+            const idToken = await user.getIdToken();
+            const requests = await ConnectionsService.listRequests({
+              idToken,
+              direction: "outgoing",
+            });
+            return requests.map((request) => request.id);
+          }
+        : null,
+    [user],
+  );
+  useOutgoingRequestResolutionWatch({
+    pendingRequestIds: pendingOutgoingRequestIds,
+    readPendingRequestIds: readPendingOutgoingRequestIds,
+    onChanged: () => {
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    },
+  });
+
+  // Both browsing and search load the directory in bounded server batches.
+  // Scrolling appends the next batch without replacing people already visible.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
 
   // A new query, or a new page size, is a new result set: go back to page one
   // rather than asking for page 4 of something the reader has just redefined.
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [trimmedQuery, pageSize]);
+  //
+  // Adjusted during render rather than in an effect. As an effect this reset
+  // landed one render too late: the fetch below runs in the same commit and
+  // would already have requested page 3 of the new query, then re-run and
+  // request page 1 of it -- two round trips per keystroke for anyone who had
+  // paged, with the discarded one free to resolve last and paint a page the
+  // reader never asked for. React re-renders on a state change made during
+  // render before running effects, so the stale page is never requested.
+  //
+  // The audience is part of the key: switching People <-> Advisors is a new
+  // result set, and asking for page 3 of a list the reader has just swapped is
+  // the same mistake as asking for page 3 of a query they just retyped.
+  const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
+  const isAdvisorTab = tab === "advisors";
+  // No count until the list has answered: "(0)" is a claim, not a placeholder.
+  const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
+  const handleRefreshConnections = useCallback(() => {
+    if (connectionsRefreshingFirstPage) return;
+    void refreshConnectionsFirstPage({ audience: connectionAudience });
+  }, [
+    connectionAudience,
+    connectionsRefreshingFirstPage,
+    refreshConnectionsFirstPage,
+  ]);
+  // An unmatched name can be a typo or someone who has not joined. Offer a
+  // shareable invite on People, without claiming the person lacks an account.
+  // An unmatched RIA or nearby search says nothing about membership, so an
+  // invite would be especially misleading there.
+  //
+  // Resolved once, not inside the handler: an invite the build cannot produce
+  // a working link for is not offered at all, rather than rendered as a button
+  // that fails when tapped.
+  const inviteToOneShare = useMemo(() => buildInviteToOneShare(), []);
+  const canInviteToOne = tab === "people" && inviteToOneShare !== null;
+
+  // A share sheet is modal but not instant: on iOS it animates in, and the
+  // promise does not settle until it is dismissed. Two taps in that window
+  // asked the platform to present a second sheet over the first, which iOS
+  // rejects outright -- the person got an error toast for tapping twice. The
+  // guard is a ref rather than state because the sheet is its own feedback;
+  // re-rendering a row to disable it would only make the list flicker under
+  // the sheet that just covered it.
+  const invitingRef = useRef(false);
+
+  const handleInviteToOne = useCallback(async () => {
+    if (!inviteToOneShare || invitingRef.current) return;
+    invitingRef.current = true;
+    try {
+      const delivery = await shareLink(inviteToOneShare);
+      // Only the clipboard fallback needs saying out loud. The native sheet and
+      // Web Share both show the person their own send, so a toast on top of
+      // that reports something they just watched happen.
+      if (delivery === "copied") toast.success("Invite link copied.");
+    } catch (error) {
+      // Dismissing the sheet is a decision, not a failure.
+      if (isShareCancellationError(error)) return;
+      toast.error(
+        error instanceof ShareUnavailableError
+          ? // Nothing to retry: no sheet, no Web Share, and the clipboard was
+            // refused. Saying "could not share" would invite a second tap that
+            // cannot go anywhere either.
+            "This browser cannot share links."
+          : // The channel exists and something went wrong inside it, so the
+            // copy stays neutral about which rung failed.
+            "Could not share the invite.",
+      );
+    } finally {
+      invitingRef.current = false;
+    }
+  }, [inviteToOneShare]);
+
+  const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
+  const directoryScopeKey = `${userId ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}`;
+  const resultSetKey = `${directoryScopeKey}:${directoryRefreshNonce}`;
+  const [renderedDirectoryScopeKey, setRenderedDirectoryScopeKey] =
+    useState(directoryScopeKey);
+  const [renderedResultSetKey, setRenderedResultSetKey] =
+    useState(resultSetKey);
+  if (renderedResultSetKey !== resultSetKey) {
+    setRenderedResultSetKey(resultSetKey);
+    if (mutualPersonRef && renderedDirectoryScopeKey === directoryScopeKey) {
+      restoreDirectoryReadRef.current = true;
+    } else setCurrentPage(1);
+    // Background graph refresh keeps useful cards visible until replacements
+    // arrive. A different owner, audience, or search must clear stale results.
+    if (renderedDirectoryScopeKey !== directoryScopeKey) {
+      setRenderedDirectoryScopeKey(directoryScopeKey);
+      // The saved list for the new audience, when there is one; otherwise
+      // empty, so rows from the old audience never sit under the new heading.
+      setPeople(
+        trimmedQuery
+          ? []
+          : (readSavedDirectoryFirstPage(userId, directoryAudience)?.items ??
+              []),
+      );
+    }
+    setHasMore(false);
+    setError(null);
+    setErrorRateLimited(false);
+    setLoading(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!user) return;
+      if (!user || !userId || surface === "circles" || tab === "nearby" || mutualPersonRef) return;
       try {
-        setHasMore(false);
+        directoryRequestPendingRef.current = true;
+        if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
+        setErrorRateLimited(false);
+        setDirectoryRefused(false);
+        lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
-        const page = await ConnectionsService.searchDirectory({
-          idToken,
-          query: trimmedQuery,
-          page: currentPage,
-          limit: pageSize,
-        });
+        const firstPage = restoreDirectoryReadRef.current ? 1 : currentPage;
+        const restoredPeople: DirectoryPerson[] = [];
+        let page;
+        for (let index = firstPage; index <= currentPage; index++) {
+          page = await ConnectionsService.searchDirectory({ idToken, query: trimmedQuery,
+            page: index, limit: pageSize, audience: directoryAudience });
+          restoredPeople.push(...page.items);
+          if (!page.hasMore || cancelled) break;
+        }
+        if (!page) return;
         if (!cancelled) {
-          // One page replaces the last. Appending was what made the directory
-          // an endless scroll with no sense of position in it.
-          setPeople(page.items);
-          setHasMore(page.hasMore);
-          // Selections are counted on the "Connect to Selected (N)" button, so
-          // drop any that this result set no longer shows — an N the reader
-          // cannot see is a promise the surface can't account for.
-          setSelectedUserIds((current) => {
-            if (current.size === 0) return current;
-            const visible = new Set(page.items.map((person) => person.userId));
-            const next = new Set(
-              [...current].filter((userId) => visible.has(userId)),
-            );
-            return next.size === current.size ? current : next;
-          });
+          restoreDirectoryReadRef.current = false;
+          // Keep server order and a single row per user when an offset page
+          // overlaps after a directory update. Page one replaces the generation.
+          setPeople((previous) =>
+            firstPage === 1
+              ? [...new Map(restoredPeople.map((person) => [person.userId, person])).values()]
+              : [
+                  ...new Map(
+                    [...previous, ...page.items].map((person) => [
+                      person.userId,
+                      person,
+                    ]),
+                  ).values(),
+                ],
+          );
+          setHasMore(page.hasMore && page.items.length > 0);
+          if (currentPage === 1) {
+            directoryRetryAttemptRef.current = 0;
+            if (!trimmedQuery) {
+              saveDirectoryFirstPage(userId, directoryAudience, page);
+            }
+          }
+          // Selections deliberately survive this. They used to be pruned to
+          // whoever the new page happened to show, on the reasoning that a
+          // count the reader cannot see is a promise the surface can't account
+          // for -- but the promise was real and the pruning silently broke it:
+          // four picked on page one became zero on arriving at page two, and
+          // two more picked there read as "2 selected". The count is now backed by
+          // the rows themselves, and the sheet lists every one of them by name
+          // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
-        if (!cancelled)
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Failed to load people",
-          );
+        if (!cancelled) {
+          // A refused or failed refresh of a list that is already on screen
+          // changes nothing the person can see: the people they were shown are
+          // still the best answer, and an error row (or a retry button to
+          // press again and again) would only take them away. Only a list with
+          // nothing to show, or a later page that did not arrive, reports it.
+          const keepsKnownPeople =
+            currentPage === 1 && peopleCountRef.current > 0;
+          const rateLimited = isDirectoryRateLimited(loadError);
+          // A refused browse read is retried quietly, whatever is on screen.
+          if (currentPage === 1 && !trimmedQuery && rateLimited) {
+            setDirectoryRefused(true);
+          }
+          if (!keepsKnownPeople) {
+            setErrorRateLimited(rateLimited);
+            setError(
+              rateLimited
+                ? "We'll keep trying and show everyone here as soon as they're ready."
+                : loadError instanceof Error
+                  ? loadError.message
+                  : "Failed to load people",
+            );
+          }
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          directoryRequestPendingRef.current = false;
+          setLoading(false);
+        }
       }
     }
     void run();
     return () => {
       cancelled = true;
     };
-  }, [user, trimmedQuery, currentPage, pageSize]);
+  }, [
+    user,
+    userId,
+    trimmedQuery,
+    currentPage,
+    pageSize,
+    directoryAudience,
+    // A contact sync can connect people who are sitting in this list right
+    // now. Their rows carry a `relationship` the server decided before the
+    // sync ran, so without this the directory keeps offering "Connect" to
+    // somebody it just connected you to, and the request that follows is
+    // refused. Bumping the nonce starts a fresh first-page generation.
+    directoryRefreshNonce,
+    directoryRetryNonce,
+    surface,
+    tab,
+    mutualPersonRef,
+  ]);
 
-  const goToPage = useCallback(
-    (next: number) => {
-      if (loading || next < 1) return;
-      // `hasMore` is the only forward signal the directory gives, so a next
-      // page is offered exactly when the server says one exists.
-      if (next > currentPage && !hasMore) return;
-      setCurrentPage(next);
+  // A rate limit is not something the person can fix by pressing a button, so
+  // there is no button: the read is retried on its own, with growing pauses,
+  // until it succeeds.
+  useEffect(() => {
+    if (!directoryRefused) return;
+    const timer = window.setTimeout(
+      () => {
+        directoryRetryAttemptRef.current += 1;
+        setDirectoryRetryNonce((nonce) => nonce + 1);
+      },
+      directoryRetryDelayMs(directoryRetryAttemptRef.current),
+    );
+    return () => window.clearTimeout(timer);
+  }, [directoryRefused]);
+
+  const selectSurface = useCallback(
+    (next: ConnectSurface) => {
+      if (next === surface) return;
+      const params = new URLSearchParams(searchParams.toString());
+      // The default is written out explicitly. The App Router refuses a
+      // navigation whose only change is that the whole query string
+      // disappears -- measured on UAT and recorded in
+      // `lib/navigation/top-shell-breadcrumbs.ts` -- so `?tab=all` is what
+      // makes "back to People" a control that actually moves.
+      params.set(CONNECT_SURFACE_PARAM, next);
+      // A Circle you had open is not where "Circles" should take you next.
+      // These params outlived the surface switch, so leaving for People
+      // and tapping Circles again dropped you back inside the same roster
+      // rather than at the list with New circle and Join with code on it.
+      params.delete("action");
+      params.delete("circleId");
+      params.delete("code");
+      // Leaving the people list discards a selection armed against it. A
+      // six-person batch still primed under a list nobody can see is worse
+      // than losing the picks: the button that sends it is on the other tab.
+      if (next !== "all") {
+        setIsSelectionMode(false);
+        setSelectedPeople(new Map());
+        setShowLimitBanner(false);
+        setPendingRemoveTarget(null);
+      }
+      router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
     },
-    [currentPage, hasMore, loading],
+    [router, searchParams, surface],
   );
+
+  const loadNextDirectoryBatch = useCallback(() => {
+    if (
+      surface === "circles" ||
+      tab === "nearby" ||
+      loading ||
+      directoryRequestPendingRef.current ||
+      (!hasMore && !error)
+    )
+      return;
+    // Lock synchronously: multiple observer notifications may arrive before
+    // React commits loading state. A failed batch retries its own page.
+    directoryRequestPendingRef.current = true;
+    if (error) setDirectoryRetryNonce((nonce) => nonce + 1);
+    else setCurrentPage((page) => page + 1);
+  }, [error, hasMore, loading, surface, tab]);
+
+  useEffect(() => {
+    const sentinel = directoryLoadMoreRef.current;
+    if (
+      !sentinel ||
+      !hasMore ||
+      loading ||
+      error ||
+      surface === "circles" ||
+      tab === "nearby" ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextDirectoryBatch();
+        }
+      },
+      { root: getAppScrollRoot(), rootMargin: "240px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [error, hasMore, loading, loadNextDirectoryBatch, surface, tab]);
 
   const sendConnectionRequest = useCallback(
     async (
@@ -380,32 +1550,60 @@ export default function ConnectPageClient() {
       requestedScopeHandles: string[] = [],
       offeredScopeHandles: string[] = [],
     ): Promise<boolean> => {
-      if (!user) return false;
+      if (!user || !userId) return false;
+      const ownerId = userId;
+      const generation = batchDraftGenerationRef.current;
+      const isCurrent = () =>
+        connectOwnerRef.current === ownerId &&
+        batchDraftGenerationRef.current === generation;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return false;
         const request = await ConnectionsService.sendRequest({
           idToken,
           addresseeUserId: person.userId,
           requestedScopeHandles,
           offeredScopeHandles,
         });
+        if (!isCurrent()) return false;
+        if (request.status !== "pending")
+          throw new Error(
+            "The request state changed. Refresh Connect before trying again.",
+          );
+        const outgoing = request.requesterUserId === ownerId;
         setPeople((prev) =>
           prev.map((p) =>
             p.userId === person.userId
-              ? { ...p, relationship: "pending_outgoing" }
+              ? {
+                  ...p,
+                  relationship: outgoing
+                    ? "pending_outgoing"
+                    : "pending_incoming",
+                }
               : p,
           ),
         );
-        setOutgoingRequestIds((current) => ({
-          ...current,
-          [person.userId]: request.id,
-        }));
-        setScopeDraft(null);
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
-        toast.success("Connection request sent");
+        if (outgoing)
+          setOutgoingRequestIds((current) => ({
+            ...current,
+            [person.userId]: request.id,
+          }));
+        CacheSyncService.onConnectionCapabilityMutated(userId);
+        // A Circle roster open behind this sheet is now stale: the row that
+        // said "Connect" should say "Requested". Re-read rather than patch.
+        toast.success(
+          outgoing
+            ? "Connection request sent"
+            : "This person already asked to connect. Review their request.",
+        );
+        if (!outgoing)
+          router.push(
+            buildConsentCenterHref("pending", { requestId: request.id }),
+          );
         return true;
       } catch (sendError) {
+        if (!isCurrent()) return false;
         toast.error(
           sendError instanceof Error
             ? sendError.message
@@ -413,47 +1611,43 @@ export default function ConnectPageClient() {
         );
         return false;
       } finally {
-        setBusyId(null);
+        if (isCurrent()) setBusyId(null);
       }
     },
-    [user],
+    [user, userId, router],
   );
 
   const sendConnectRequest = useCallback(
     async (person: DirectoryPerson) => {
-      if (!user) return;
-      try {
-        setBusyId(person.userId);
-        const idToken = await user.getIdToken();
-        const catalog = await ConnectionsService.getScopeCatalog({
-          idToken,
-          counterpartUserId: person.userId,
-        });
-        setScopeDraft({
-          person,
-          catalog,
-          // A requested capability belongs to the counterpart, so it must be
-          // an intentional sender choice and still needs recipient approval.
-          // Never imply a request merely because a capability is eligible.
-          requestedHandles: [],
-          offeredHandles: [],
-        });
-      } catch (catalogError) {
-        toast.error(
-          catalogError instanceof Error
-            ? catalogError.message
-            : "Could not prepare this connection request",
-        );
-      } finally {
-        setBusyId((current) => (current === person.userId ? null : current));
-      }
+      await sendConnectionRequest(person);
     },
-    [user],
+    [sendConnectionRequest],
+  );
+
+  /**
+   * A match from the results sheet follows the same one-tap request path as a
+   * directory row. Connect no longer opens an extra capability dialog here.
+   */
+  const requestConnectionFromContactMatch = useCallback(
+    async (matchUserId: string) => {
+      const match = contactSync.result?.matches.find(
+        (candidate) => candidate.userId === matchUserId,
+      );
+      contactSync.setResultsOpen(false);
+      await sendConnectRequest({
+        userId: matchUserId,
+        displayName: match?.displayName ?? null,
+        photoUrl: null,
+        email: null,
+        relationship: "none",
+      });
+    },
+    [contactSync, sendConnectRequest],
   );
 
   const handleConnect = useCallback(
     (person: DirectoryPerson) => {
-      if (!user) return;
+      if (!user || isSelectionMode) return;
       const cta = relationshipCta(person.relationship);
       if (cta.action === "respond") {
         router.push(buildConsentCenterHref("pending"));
@@ -461,40 +1655,31 @@ export default function ConnectPageClient() {
       }
       if (cta.action === "connect") void sendConnectRequest(person);
     },
-    [router, sendConnectRequest, user],
-  );
-
-  const toggleDraftHandle = useCallback(
-    (
-      direction: "requestedHandles" | "offeredHandles",
-      handle: string,
-      checked: boolean,
-    ) => {
-      setScopeDraft((current) => {
-        if (!current) return current;
-        const nextHandles = checked
-          ? [...new Set([...current[direction], handle])]
-          : current[direction].filter((candidate) => candidate !== handle);
-        return { ...current, [direction]: nextHandles };
-      });
-    },
-    [],
+    [isSelectionMode, router, sendConnectRequest, user],
   );
 
   const handleRemove = useCallback(
     async (connection: ConnectionSummaryEntry) => {
-      if (!user) return;
+      if (!user || !userId) return;
+      const generation = batchDraftGenerationRef.current;
+      const isCurrent = () => connectOwnerRef.current === userId && batchDraftGenerationRef.current === generation;
       try {
         setBusyId(connection.connectionId);
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         await ConnectionsService.removeConnection({
           idToken,
           connectionId: connection.connectionId,
         });
-        setConnections((prev) =>
-          prev.filter((c) => c.connectionId !== connection.connectionId),
-        );
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        if (!isCurrent()) return;
+        await refreshConnectionsFirstPage({
+          audience: connectionAudienceRef.current,
+          removedConnection: true,
+        });
+        if (!isCurrent()) return;
+        setCircleRefreshToken((token) => token + 1);
+        suppressNextLocalGraphEventRef.current = true;
+        CacheSyncService.onConnectionGraphMutated(userId);
         // Let the directory offer "Connect" again for this person.
         setPeople((prev) =>
           prev.map((p) =>
@@ -503,116 +1688,427 @@ export default function ConnectPageClient() {
         );
         toast.success("Connection removed");
       } catch (removeError) {
+        if (!isCurrent()) return;
         toast.error(
           removeError instanceof Error
             ? removeError.message
             : "Failed to remove connection",
         );
       } finally {
-        setBusyId(null);
-        setPendingRemoveId(null);
+        if (isCurrent()) { setBusyId(null); setPendingRemoveTarget(null); }
       }
     },
-    [user],
+    [refreshConnectionsFirstPage, user, userId],
   );
 
-  const viewInformationScopes = useCallback(
-    async (connection: ConnectionSummaryEntry) => {
-      if (!user) return;
-      try {
-        setBusyId(connection.connectionId);
-        const idToken = await user.getIdToken();
-        const catalog = await ConnectionsService.searchInformationScopes({
-          idToken,
-          counterpartUserId: connection.userId,
-          limit: 50,
-        });
-        setInformationScopeQuery("");
-        setInformationScopeDraft({ connection, catalog });
-      } catch (scopeError) {
-        toast.error(
-          scopeError instanceof Error
-            ? scopeError.message
-            : "Could not load available scopes",
+  const handleLoadMoreConnections = useCallback(async () => {
+    if (
+      connectionsFirstPageRequestRef.current !== null ||
+      connectionsLoadingMore ||
+      !connectionsHasMore
+    ) {
+      return;
+    }
+    const requestId = ++connectionsRequestRef.current;
+    setConnectionsLoadingMore(true);
+    try {
+      const result = await loadConnectionsPage(
+        connectionsPage + 1,
+        connectionAudience,
+      );
+      if (requestId !== connectionsRequestRef.current || !result) return;
+      setConnections((current) => {
+        const merged = new Map(
+          current.map((connection) => [connection.connectionId, connection]),
         );
-      } finally {
-        setBusyId(null);
+        for (const connection of result.items) {
+          merged.set(connection.connectionId, connection);
+        }
+        return Array.from(merged.values());
+      });
+      setConnectionsPage(result.page);
+      setConnectionsHasMore(result.hasMore);
+      setConnectionsTotalCount(result.totalCount);
+    } finally {
+      if (requestId === connectionsRequestRef.current) {
+        setConnectionsLoadingMore(false);
+      }
+    }
+  }, [
+    connectionAudience,
+    connectionsHasMore,
+    connectionsLoadingMore,
+    connectionsPage,
+    loadConnectionsPage,
+  ]);
+
+  // The per-connection "Scopes" viewer is deliberately absent. It opened a
+  // read-only dialog of raw scope handles with every row disabled — no action,
+  // no explanation, and mostly the internal handle string itself. Connect
+  // currently carries a single real capability, so the list told people
+  // nothing they could act on. Bring it back with the surface it describes.
+
+  /**
+   * The (person, capability) pairs a bulk request can ask for.
+   *
+   * Flattened here rather than in the sheet so the empty case is one check
+   * instead of a nested search through every person's catalog.
+   */
+  const batchRequestableRows = useMemo(() => {
+    if (!batchConnectDraft) return [];
+    return batchConnectDraft.people.flatMap((person) => {
+      const catalog = batchConnectDraft.catalogs[person.userId];
+      if (!catalog) return [];
+      return catalog.items.map((item) => ({
+        userId: person.userId,
+        title: connectPersonName(person),
+        item,
+      }));
+    });
+  }, [batchConnectDraft]);
+
+  /**
+   * What the caller can offer. Identical for every counterpart, because these
+   * handles belong to the caller, so the sheet asks once rather than per person.
+   */
+  const batchOfferableItems = useMemo(() => {
+    if (!batchConnectDraft) return [];
+    const byHandle = new Map<string, ConnectionScopeCatalog["items"][number]>();
+    for (const catalog of Object.values(batchConnectDraft.catalogs)) {
+      for (const item of catalog.offerableItems) {
+        if (!byHandle.has(item.handle)) byHandle.set(item.handle, item);
+      }
+    }
+    return [...byHandle.values()];
+  }, [batchConnectDraft]);
+
+  /**
+   * Open the review sheet for a bulk request, and load what each person can be
+   * asked for.
+   *
+   * The catalog is per counterpart, and its handles are per owner: the same
+   * capability has a different handle for every person. A bulk send that reused
+   * one person's handle for another would not fail -- the server drops an
+   * unrecognised handle and returns success -- so the reader would be told
+   * eight advisors had been asked for Picks when only one had been.
+   */
+  const openBatchConnectDraft = useCallback(
+    async (people: DirectoryPerson[]) => {
+      if (!user || !userId || people.length === 0) return;
+      // Close the sheet, change the selection, reopen: the first load is still
+      // in flight and would land on the second draft, clearing its loading flag
+      // before its own catalogs arrive. That un-holds Send with no handles
+      // collected -- a send reported as a success that asked for nothing, which
+      // is the failure this whole sheet exists to end. Only the newest open
+      // gets to write.
+      const generation = batchDraftGenerationRef.current + 1;
+      batchDraftGenerationRef.current = generation;
+      const ownerId = userId;
+      const isCurrent = () =>
+        batchDraftGenerationRef.current === generation &&
+        connectOwnerRef.current === ownerId;
+      setBatchConnectDraft({
+        ownerId,
+        people,
+        catalogs: {},
+        requestedHandles: {},
+        offeredHandles: [],
+        loadingCatalogs: true,
+      });
+      try {
+        const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
+        const loaded = await mapWithConcurrency(
+          people,
+          CONNECT_REQUEST_CONCURRENCY,
+          async (person) => {
+            try {
+              if (!isCurrent()) return null;
+              return await ConnectionsService.getScopeCatalog({
+                idToken,
+                counterpartUserId: person.userId,
+              });
+            } catch {
+              // One person's catalog being unavailable is not a reason to
+              // refuse the other seven. They are shown with nothing to ask
+              // for, which is what a scopeless request already means.
+              return null;
+            }
+          },
+        );
+        const catalogs: Record<string, ConnectionScopeCatalog> = {};
+        loaded.forEach((catalog, index) => {
+          const person = people[index];
+          if (catalog && person) catalogs[person.userId] = catalog;
+        });
+        if (!isCurrent()) return;
+        setBatchConnectDraft((current) =>
+          current === null
+            ? current
+            : { ...current, catalogs, loadingCatalogs: false },
+        );
+      } catch {
+        if (!isCurrent()) return;
+        setBatchConnectDraft((current) =>
+          current === null ? current : { ...current, loadingCatalogs: false },
+        );
       }
     },
-    [user],
+    [user, userId],
   );
 
-  const visibleInformationScopes = informationScopeDraft?.catalog.items.filter(
-    (item) => {
-      const query = informationScopeQuery.trim().toLowerCase();
-      return !query || `${item.label ?? ""} ${item.scope}`.toLowerCase().includes(query);
+  useEffect(() => {
+    if (!user || !userId || !commandReviewPerson || commandReviewPerson.length > 128)
+      return;
+    const key = `${userId}:${commandReviewPerson}`;
+    if (openedCommandReview.current === key) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (cancelled) return;
+        const result = await ConnectionsService.getPersonContext({
+          idToken,
+          counterpartUserId: commandReviewPerson,
+        });
+        if (cancelled) return;
+        openedCommandReview.current = key;
+        if (
+          result.person.relationship === "pending_incoming" &&
+          result.request?.direction === "incoming"
+        ) {
+          router.push(
+            buildConsentCenterHref("pending", {
+              requestId: result.request.id,
+              from: `${ROUTES.CONNECT}?${new URLSearchParams({ [CONNECT_REVIEW_PERSON_PARAM]: commandReviewPerson })}`,
+            }),
+          );
+        } else if (result.person.relationship === "none") {
+          await openBatchConnectDraft([result.person]);
+        } else {
+          toast.info(
+            result.person.relationship === "connected"
+              ? "This connection is active. Continue your Location task to check its requirements."
+              : "Your connection request is still pending. Nothing has been sent again.",
+          );
+        }
+      } catch {
+        if (!cancelled)
+          toast.error(
+            "This connection could not be checked. Refresh Connect or cancel the task.",
+          );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userId, commandReviewPerson, openBatchConnectDraft, router]);
+
+  const toggleBatchRequestedHandle = useCallback(
+    (userId: string, handle: string, checked: boolean) => {
+      setBatchConnectDraft((current) => {
+        if (!current) return current;
+        const existing = current.requestedHandles[userId] ?? [];
+        const next = checked
+          ? [...new Set([...existing, handle])]
+          : existing.filter((candidate) => candidate !== handle);
+        return {
+          ...current,
+          requestedHandles: { ...current.requestedHandles, [userId]: next },
+        };
+      });
     },
+    [],
+  );
+
+  const toggleBatchOfferedHandle = useCallback(
+    (handle: string, checked: boolean) => {
+      setBatchConnectDraft((current) => {
+        if (!current) return current;
+        const next = checked
+          ? [...new Set([...current.offeredHandles, handle])]
+          : current.offeredHandles.filter((candidate) => candidate !== handle);
+        return { ...current, offeredHandles: next };
+      });
+    },
+    [],
   );
 
   const handleConnectMultiple = useCallback(async () => {
-    if (!user || selectedUserIds.size === 0) return;
-    const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+    if (
+      !user ||
+      !userId ||
+      !batchConnectDraft ||
+      batchConnectDraft.ownerId !== userId ||
+      batchConnectDraft.loadingCatalogs ||
+      batchSendingRef.current ||
+      batchConnectDraft.people.length === 0
+    )
+      return;
+    const draft = batchConnectDraft;
+    const draftPeople = draft.people;
+    const ownerId = userId;
+    const generation = batchDraftGenerationRef.current;
+    const isCurrent = () =>
+      connectOwnerRef.current === ownerId &&
+      batchDraftGenerationRef.current === generation;
 
     // Keep the dispatch boundary bounded even if selection state is restored or
     // changed outside the row controls.
-    if (selectedPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
-      toast.error(`Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`);
+    if (draftPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
+      toast.error(
+        `Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+      );
       return;
     }
 
+    batchSendingRef.current = true;
     setIsConnectingMultiple(true);
-    let successCount = 0;
     const successfulUserIds = new Set<string>();
-    
+
     try {
       const idToken = await user.getIdToken();
-      for (const person of selectedPeople) {
-        if (person.relationship === "none") {
+      if (!isCurrent()) return;
+
+      // Anyone already asked is skipped: a pending request in either direction
+      // makes the server return the existing one and discard the scopes, so
+      // including them would report a send that attached nothing.
+      const sendable = draftPeople.filter(
+        (person) => person.relationship === "none",
+      );
+
+      const results = await mapWithConcurrency(
+        sendable,
+        CONNECT_REQUEST_CONCURRENCY,
+        async (person) => {
           try {
+            if (!isCurrent()) return { success: false, person } as const;
             const request = await ConnectionsService.sendRequest({
               idToken,
               addresseeUserId: person.userId,
-              requestedScopeHandles: [],
-              offeredScopeHandles: [],
+              // This person's own handles, never another's.
+              requestedScopeHandles:
+                draft.requestedHandles[person.userId] ?? [],
+              offeredScopeHandles: draft.offeredHandles,
             });
-            setOutgoingRequestIds((current) => ({
-              ...current,
-              [person.userId]: request.id,
-            }));
-            successfulUserIds.add(person.userId);
-            successCount++;
-          } catch (_err) {
-            console.error(`Failed to send request to ${person.userId}`, _err);
+            if (request.status !== "pending")
+              return { success: false, person } as const;
+            return { success: true, person, request } as const;
+          } catch (sendError) {
+            console.error(
+              `Failed to send request to ${person.userId}`,
+              sendError,
+            );
+            return { success: false, person } as const;
           }
+        },
+      );
+      if (!isCurrent()) return;
+
+      const outgoing: Record<string, string> = {};
+      const incoming = new Set<string>();
+      for (const result of results) {
+        if (result.success) {
+          if (result.request.requesterUserId === ownerId)
+            outgoing[result.person.userId] = result.request.id;
+          else incoming.add(result.person.userId);
+          successfulUserIds.add(result.person.userId);
         }
       }
-      
+      if (successfulUserIds.size > 0) {
+        setOutgoingRequestIds((current) => ({ ...current, ...outgoing }));
+      }
+
       setPeople((prev) =>
         prev.map((p) =>
           successfulUserIds.has(p.userId) && p.relationship === "none"
-            ? { ...p, relationship: "pending_outgoing" }
+            ? {
+                ...p,
+                relationship: incoming.has(p.userId)
+                  ? "pending_incoming"
+                  : "pending_outgoing",
+              }
             : p,
         ),
       );
-      
-      if (successCount > 0) {
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
-        toast.success(`Sent ${successCount} connection request${successCount !== 1 ? 's' : ''}`);
+
+      const failedCount = sendable.length - successfulUserIds.size;
+      if (successfulUserIds.size > 0) {
+        CacheSyncService.onConnectionCapabilityMutated(userId);
+        // Report what happened rather than only what worked. A partial send
+        // that says "Sent 6 requests" leaves two people quietly unasked.
+        const sentCount = Object.keys(outgoing).length;
+        toast.success(
+          [
+            sentCount
+              ? `Sent ${sentCount} connection request${sentCount === 1 ? "" : "s"}.`
+              : "",
+            incoming.size
+              ? `${incoming.size} incoming request${incoming.size === 1 ? " needs" : "s need"} your review.`
+              : "",
+            failedCount ? `${failedCount} couldn't be sent.` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        if (incoming.size === 1 && sendable.length === 1) {
+          const response = results.find(
+            (result) => result.success && incoming.has(result.person.userId),
+          );
+          if (response?.success)
+            router.push(
+              buildConsentCenterHref("pending", {
+                requestId: response.request.id,
+              }),
+            );
+        }
+      } else if (sendable.length === 0) {
+        toast.error("Already asked.");
       } else {
-        toast.error("Failed to send requests or they were already sent.");
+        toast.error("Couldn't send. Try again.");
       }
-    } catch (_err) {
-      toast.error("An error occurred while sending requests.");
+
+      // Only the people who were actually sent leave the selection. Anyone who
+      // failed stays picked, so retrying does not mean finding them again --
+      // which, now that picks survive paging, could otherwise mean paging back
+      // through the directory to rebuild a selection that already existed.
+      setSelectedPeople((current) => {
+        if (successfulUserIds.size === 0 && sendable.length > 0) return current;
+        const next = new Map(current);
+        // Nobody sendable means nothing here is still actionable, so the whole
+        // selection goes rather than leaving rows checked that cannot be sent.
+        if (sendable.length === 0) return new Map();
+        successfulUserIds.forEach((userId) => next.delete(userId));
+        return next;
+      });
+      if (successfulUserIds.size === sendable.length) {
+        setIsSelectionMode(false);
+        setBatchConnectDraft(null);
+      } else {
+        setBatchConnectDraft((current) =>
+          current === null
+            ? current
+            : {
+                ...current,
+                people: current.people.filter(
+                  (person) => !successfulUserIds.has(person.userId),
+                ),
+              },
+        );
+      }
+    } catch {
+      if (isCurrent()) toast.error("Couldn't send. Try again.");
     } finally {
-      setIsConnectingMultiple(false);
-      setIsSelectionMode(false);
-      setSelectedUserIds(new Set());
+      if (isCurrent()) {
+        batchSendingRef.current = false;
+        setIsConnectingMultiple(false);
+      }
     }
-  }, [user, selectedUserIds, people]);
+  }, [user, userId, batchConnectDraft, router]);
 
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
-      if (!user) return;
+      if (!user || !userId) return;
       const requestId = outgoingRequestIds[person.userId] || person.userId;
       try {
         setBusyId(person.userId);
@@ -629,7 +2125,8 @@ export default function ConnectPageClient() {
           const { [person.userId]: _cancelled, ...remaining } = current;
           return remaining;
         });
-        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        CacheSyncService.onConnectionCapabilityMutated(userId);
+        setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request cancelled");
       } catch (cancelError) {
         toast.error(
@@ -641,93 +2138,217 @@ export default function ConnectPageClient() {
         setBusyId(null);
       }
     },
-    [outgoingRequestIds, user],
+    [outgoingRequestIds, user, userId],
   );
 
   // Present connections in a stable, predictable order: alphabetical by the
   // name the user sees (case-insensitive), falling back to the userId when a
   // display name is absent. Locale compare keeps accented names sensibly placed.
-  // Present the People directory in the same predictable order as connections:
-  // alphabetical (A-Z) by the visible name, case/accent-insensitive. When a
-  // search query is active, names that START with the query rank above inner
-  // matches (so "Ab" surfaces "Abdul" before "Zab…"), then A-Z within each
-  // group. The server can return directory rows in relevance/insertion order,
-  // which read as unsorted in the list; this makes the rendered order stable.
-  const sortedPeople = useMemo(() => {
-    const q = trimmedQuery.toLowerCase();
-    const nameOf = (person: DirectoryPerson) =>
-      (person.displayName || person.email || person.userId)
-        .trim()
-        .toLowerCase();
-    // Strict prefix filter. The directory API matches a substring anywhere
-    // (`LIKE '%q%'`), so typing "z" returned "Abdul Zalil" and "shankz".
-    // Constrain the rendered list to entries whose NAME (full or any word) or
-    // EMAIL local-part starts with the query, which is what the user expects
-    // from a name search. Applied on top of the server result, so it never
-    // fetches more; it only hides the substring-only matches.
-    const prefixMatches = (person: DirectoryPerson): boolean => {
-      if (!q) return true;
-      const name = nameOf(person);
-      if (name.startsWith(q)) return true;
-      if (name.split(/\s+/).some((word) => word.startsWith(q))) return true;
-      const email = (person.email || "").trim().toLowerCase();
-      return email.startsWith(q) || email.split("@")[0]?.startsWith(q) === true;
-    };
-    return [...people].filter(prefixMatches).sort((a, b) => {
-      const nameA = nameOf(a);
-      const nameB = nameOf(b);
-      if (q) {
-        const startsA = nameA.startsWith(q);
-        const startsB = nameB.startsWith(q);
-        if (startsA !== startsB) return startsA ? -1 : 1;
-      }
-      return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
-    });
-  }, [people, trimmedQuery]);
+  // The server owns matching, ranking and order; this renders the page it
+  // returned, unchanged.
+  //
+  // It used to re-filter here -- keep only rows whose name starts with the
+  // query -- on top of a server that matched any substring. Filtering AFTER
+  // the server has already applied LIMIT/OFFSET can only subtract from a page
+  // that was chosen by the wrong rule, and it did: typing "n" asked for 8
+  // rows, got the 8 alphabetically-first names merely CONTAINING an n (Anand,
+  // Ankit, Arun...), and hid every one of them. The list rendered empty while
+  // Nilesh and Nirmal sat pages deeper in a result set the reader could not
+  // walk to, and "Next" stayed lit because `hasMore` described the rows the
+  // server sent rather than the rows that survived. No amount of client
+  // cleverness fixes that; the query itself had to select the right page.
+  //
+  // Both tiers the filter used to approximate now live in the SQL, so "n"
+  // returns every N person A-Z and "rashid" still finds "Abdul Rashid",
+  // ranked below the first-name matches rather than mixed in with them.
+  //
+  // Re-sorting here would reintroduce the same class of bug in a quieter
+  // form: a client sort can only order the current page, so a name on page 2
+  // could sort ahead of one on page 1 and the A-Z index would be a lie at
+  // every boundary. One ordering, applied where the paging happens.
+  //
+  // `people` is therefore rendered directly, and there is deliberately no
+  // second derived list. The original bug needed two: the empty state counted
+  // one and the rows came from the other, so "8 rows, all hidden" was
+  // indistinguishable from "8 rows" to every guard on the screen. With one
+  // list there is nothing left to disagree.
 
-  const sortedConnections = useMemo(
-    () =>
-      [...connections].sort((a, b) =>
-        (a.displayName || a.userId).localeCompare(
-          b.displayName || b.userId,
-          undefined,
-          { sensitivity: "base" },
-        ),
-      ),
-    [connections],
-  );
+  // ONE list, for the same reason the search results above are one list: the
+  // heading's count, the empty state, and the rows must all be counting the
+  // same thing. The RIAs tab used to render this list unfiltered, so it
+  // repeated the People tab exactly -- someone who had not finished RIA
+  // onboarding was listed under "RIAs", which is the one claim this tab makes.
+  //
+  // Filter before sort, and read `isRia` rather than the tab: a row says what
+  // it is, so a connection the server has not annotated is simply not an
+  // advisor, instead of becoming one by sitting under the advisor tab.
+  const connectionSearch = useConnectionSearch({ ownerId: userId, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
+  const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
+  const connectionGroups = useMemo(() => {
+    if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
+    return [
+      { key: "contacts", label: "From contacts", items: sortedConnections.filter(connection => connection.connectedFromContacts === true) },
+      { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
+    ].filter(group => group.items.length > 0);
+  }, [isAdvisorTab, sortedConnections]);
+  const pendingRemoveConnection = pendingRemoveTarget?.ownerId === userId && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
 
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
   // nothing more -- and Connect could not be named as a destination, which is
   // why an empty people list elsewhere had nowhere to send anyone.
-  const connectVoiceSurfaceMetadata = useMemo(
-    () => ({
+  const connectVoiceSurfaceMetadata = useMemo(() => {
+    if (mutualPersonRef) return {
+      screenId: "connect", title: "Mutual connections",
+      purpose: "View the people you and another person are both connected to. Open a person's profile, then return to this list. Back returns to Find people.",
+      primaryEntity: null, selectedEntity: null, spokenSubject: "Mutual connections",
+      sections: [], actions: [], controls: [], availableActions: [],
+      activeSection: "Mutual connections", visibleModules: ["Mutual connections"],
+      screenMetadata: { connect_surface: "all", mutual_connections_open: true },
+    };
+    const circleTaskTitle = connectCircleTaskTitle(circleFlowAction);
+    if (isFocusedCircleTask && circleTaskTitle) {
+      return {
+        screenId: "connect.circle_task",
+        title: circleTaskTitle,
+        purpose:
+          circleFlowAction === "create-circle"
+            ? "This screen names a Circle and chooses its type."
+            : "This screen reviews a Circle invite code before joining.",
+        primaryEntity: null,
+        selectedEntity: null,
+        spokenSubject: circleTaskTitle,
+        sections: [
+          {
+            id: "circle_task",
+            title: circleTaskTitle,
+            purpose:
+              circleFlowAction === "create-circle"
+                ? "Create one Circle, then add people after it exists."
+                : "Enter a 12-character invite code and review the Circle before joining.",
+          },
+        ],
+        actions: [
+          {
+            id:
+              circleFlowAction === "create-circle"
+                ? "connect.circle_create"
+                : "connect.circle_review",
+            actionId:
+              circleFlowAction === "create-circle"
+                ? "connect.circle_create"
+                : "connect.circle_review",
+            label:
+              circleFlowAction === "create-circle"
+                ? "Create Circle"
+                : "Review Circle",
+            purpose:
+              circleFlowAction === "create-circle"
+                ? "Create the named Circle."
+                : "Review the invite code.",
+          },
+        ],
+        controls: [],
+        concepts: [],
+        activeSection: circleTaskTitle,
+        activeTab: "circles",
+        visibleModules: [circleTaskTitle],
+        focusedWidget: circleTaskTitle,
+        availableActions: [
+          circleFlowAction === "create-circle"
+            ? "Create Circle"
+            : "Review Circle",
+        ],
+        activeControlId: null,
+        lastInteractedControlId: null,
+        busyOperations: loading ? ["connect_circle_task_load"] : [],
+        screenMetadata: {
+          connect_surface: surface,
+          circle_action: circleFlowAction,
+          searching: false,
+        },
+      };
+    }
+
+    return {
       screenId: "connect",
       title: "Connect",
       purpose:
         "This screen finds people, sends connection requests, and manages who you are connected to.",
-      // The subjects here are people, by name and email. None of that is safe
+      // The subjects here are people, by name. None of that is safe
       // to say aloud, so this screen names only itself.
       primaryEntity: null,
       selectedEntity: null,
-      spokenSubject: tab === "nearby" ? "Connect, Around you tab" : "Connect, People tab",
+      spokenSubject:
+        surface === "circles"
+          ? "Connect, Circles tab"
+          : `Connect, ${CONNECT_TAB_LABEL[tab]} tab`,
       sections: [
-        { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
-        { id: "nearby", title: "Around you", purpose: "Find verified advisors and insurance agents, and businesses, near your current location." },
+        {
+          id: "circles",
+          title: "Circles",
+          purpose:
+            "See the groups you are in -- Trusted is manually managed, the SMS Circle gets your SMS -- and open one to manage who is in it.",
+        },
+        {
+          id: "people",
+          title: "People",
+          purpose:
+            "Search One profiles by name, and manage existing connections.",
+        },
+        {
+          id: "advisors",
+          title: "Advisors",
+          purpose:
+            "Search only people whose registered investment adviser profile is verified.",
+        },
+        {
+          id: "nearby",
+          title: "Around you",
+          purpose:
+            "Find verified advisors and insurance agents, and businesses, near your current location.",
+        },
       ],
       actions: [
-        { id: "connect.open_people", actionId: "connect.open_people", label: "Open Connect people", purpose: "Show connections and the people directory." },
-        { id: "connect.open_nearby", actionId: "connect.open_nearby", label: "Open advisors around you", purpose: "Show advisors near you." },
-        { id: "connect.search_people", actionId: "connect.search_people", label: "Search for someone to connect with", purpose: "Search the directory for the spoken name." },
-        { id: "connect.send_request", actionId: "connect.send_request", label: "Send a connection request", purpose: "Send a request to one exact name after the person confirms by voice." },
+        { id: "connect.open_connections", actionId: "connect.open_connections", label: "Open My connections", purpose: "Show accepted connections and their separate search." },
+        {
+          id: "connect.open_people",
+          actionId: "connect.open_people",
+          label: "Open Connect people",
+          purpose: "Show Find people and the people directory.",
+        },
+        {
+          id: "connect.open_nearby",
+          actionId: "connect.open_nearby",
+          label: "Open advisors around you",
+          purpose: "Show advisors near you.",
+        },
+        {
+          id: "connect.search_people",
+          actionId: "connect.search_people",
+          label: "Search for someone to connect with",
+          purpose: "Search the directory by name, email, or phone.",
+        },
+        {
+          id: "connect.send_request",
+          actionId: "connect.send_request",
+          label: "Send a connection request",
+          purpose:
+            "Send a request to one exact name after the person confirms by voice.",
+        },
       ],
       // Only the search box carries a `data-voice-control-id` anchor. The tab
-      // strip is the shared SegmentedTabs, which has no per-option control id,
+      // strip is the shared TopShellTabs, which has no per-option control id,
       // so claiming one here would describe a hook that does not exist.
-      controls: [
-        { id: "one-connect-search", label: "Search people", purpose: "Search the directory by name.", actionId: "connect.search_people", role: "textbox" },
-      ],
+      controls: surface === "all" && connectionView === "discover" && tab !== "nearby" ? [
+        {
+          id: "one-connect-search",
+          label: "Search people",
+          purpose: "Search the directory by name, email, or phone.",
+          actionId: "connect.search_people",
+          role: "textbox",
+        },
+      ] : [],
       concepts: [
         {
           id: "connection",
@@ -737,34 +2358,84 @@ export default function ConnectPageClient() {
           aliases: ["connection", "connections", "connected people"],
         },
       ],
-      activeSection: tab === "nearby" ? "Around you" : "People",
-      activeTab: tab,
+      activeSection: surface === "circles" ? "Circles" : connectionView === "connections" ? "My connections" : CONNECT_TAB_LABEL[tab],
+      activeTab: surface === "circles" ? "circles" : connectionView === "connections" ? "connections" : tab,
       visibleModules:
-        tab === "nearby"
-          ? ["Advisors near you", "Insurance agents near you", "Places near you"]
-          : ["Your connections", "People directory"],
-      focusedWidget: tab === "nearby" ? "Around you tab" : "People tab",
-      availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
+        surface === "circles" ? ["Your circles", "Joined circles", "Circle ideas"] : connectionView === "connections" ? ["My connections"] : tab === "nearby"
+          ? [
+              "Advisors near you",
+              "Insurance agents near you",
+              "Places near you",
+            ]
+          : tab === "advisors"
+            ? ["Your connections", "Verified advisers directory"]
+            : ["Your connections", "People directory"],
+      focusedWidget:
+        surface === "circles" ? "Circles tab" : `${CONNECT_TAB_LABEL[tab]} tab`,
+      availableActions: [
+        "Open Connect people",
+        "Open advisors around you",
+        "Search for someone to connect with",
+        "Open your circles",
+      ],
       activeControlId: null,
       lastInteractedControlId: null,
-      busyOperations: loading ? ["connect_directory_load"] : [],
+      busyOperations: connectionView === "connections" ? (connectionSearch.active ? connectionSearch.loading : connectionsRefreshingFirstPage) ? ["connect_connections_load"] : [] : loading ? ["connect_directory_load"] : [],
       // Counts only -- never who.
       screenMetadata: {
         connect_tab: tab,
-        connection_count: connections.length,
-        has_load_error: Boolean(error),
-        searching: query.trim().length > 0,
+        // The outer axis, reported separately: `connect_tab` has always
+        // meant which directory, and reusing it for a different question
+        // would silently change what every existing reading of it meant.
+        connect_surface: surface,
+        connection_view: connectionView,
+        circle_count: circlesState.count,
+        connection_count: connectionsTotalCount,
+        has_load_error: connectionView === "connections" ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) : Boolean(error),
+        searching: connectionView === "connections" ? connectionsQuery.trim().length > 0 : query.trim().length > 0,
       },
-    }),
-    [connections.length, error, loading, query, tab],
-  );
+    };
+  }, [
+    mutualPersonRef,
+    circleFlowAction,
+    circlesState.count,
+    connectionsTotalCount,
+    connectionSearch.active,
+    connectionSearch.loading,
+    connectionSearch.error,
+    connectionsRefreshingFirstPage,
+    connectionsRefreshError,
+    connectionView,
+    connectionsQuery,
+    error,
+    isFocusedCircleTask,
+    loading,
+    query,
+    surface,
+    tab,
+  ]);
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
+  // Each of these brings the directory surface forward before touching the hub
+  // tab. `setTab` alone moves a control that is not active while Circles is
+  // showing, so "open people" reported success and did nothing --
+  // and a voice action that lies about what happened is worse than one that
+  // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
+    selectSurface("all");
+    setConnectionView("discover");
     setTab("people");
     return { status: "succeeded", summary: "Connect people opened." };
   });
+  useLocalOnboardingActionHandler("connect.open_connections", () => {
+    selectSurface("all");
+    setTab("people");
+    setConnectionView("connections");
+    return { status: "succeeded", summary: "My connections opened." };
+  });
   useLocalOnboardingActionHandler("connect.open_nearby", () => {
+    selectSurface("all");
+    setConnectionView("discover");
     setTab("nearby");
     return { status: "succeeded", summary: "Advisors around you opened." };
   });
@@ -774,193 +2445,366 @@ export default function ConnectPageClient() {
     // contact information crosses the voice boundary.
     const person = typeof slots.person === "string" ? slots.person.trim() : "";
     if (!person) {
-      return { status: "blocked", summary: "Say the name to search for in Connect." };
+      return {
+        status: "blocked",
+        summary: "Say the name to search for in Connect.",
+      };
     }
+    selectSurface("all");
+    setConnectionView("discover");
     setTab("people");
     setQuery(person);
     searchInputRef.current?.focus();
-    return { status: "succeeded", summary: "Searching Connect for the name you gave." };
+    return {
+      status: "succeeded",
+      summary: "Searching Connect for the name you gave.",
+    };
   });
-  useLocalOnboardingActionHandler("connect.send_request", async (slots) => {
-    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
-    // Set only by the disambiguation card, which resolves a name the person
-    // already saw into the one account they pointed at. It skips the matcher
-    // entirely rather than re-running it: the ambiguity has been settled by a
-    // human, and re-deriving it from the same words would just fail the same
-    // way and bounce the card straight back.
-    const chosenUserId = typeof slots.userId === "string" ? slots.userId.trim() : "";
-    if (!user) {
-      return { status: "blocked", summary: "Sign in before sending a connection request." };
-    }
-    if (!spokenName && !chosenUserId) {
-      return { status: "blocked", summary: "Say the person's full name before sending a request." };
-    }
-
-    try {
-      const idToken = await user.getIdToken();
-      // Read the whole result set for this name, not its first three rows.
-      //
-      // This searched page 1 at limit 3 and refused outright whenever
-      // `hasMore` was true, so it could never tell "no such person" from "not
-      // on the first page" -- and it answered both with "I could not identify
-      // one exact person by that name", about people who were plainly there.
-      // Bounded, because a directory is unbounded and a runaway loop here
-      // would be worse than a refusal.
-      // Search on ONE word, then match the full name here.
-      //
-      // The server predicate is a single substring test --
-      // `LOWER(display_name) LIKE '%' || query || '%'` -- so passing the whole
-      // spoken name makes the whole name have to appear, contiguously, exactly
-      // as stored. "Abdul Rashid" then finds nobody when the directory holds
-      // "Abdul R.", and "Abdul" finds nobody when it holds "Abdul Kumar
-      // Rashid". Reported as voice being unable to find people plainly visible
-      // in the list, which is exactly what it was: the query could not reach
-      // them, so there was never a candidate for the matcher to consider.
-      //
-      // One token maximises what comes back; deciding WHICH person stays here,
-      // where the whole name is available. Longest word rather than first,
-      // because it is the most selective and least likely to be a title or
-      // initial.
-      const searchTerm =
-        spokenName
-          .split(/\s+/)
-          .filter(Boolean)
-          .sort((left, right) => right.length - left.length)[0] ?? spokenName;
-      const candidates: DirectoryPerson[] = [];
-      for (let pageNumber = 1; pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES; pageNumber += 1) {
-        const page = await ConnectionsService.searchDirectory({
-          idToken,
-          query: searchTerm,
-          page: pageNumber,
-          limit: DIRECTORY_RESOLVE_PAGE_SIZE,
-        });
-        candidates.push(...page.items);
-        if (!page.hasMore) break;
-      }
-      // Same matcher the cancel and remove actions use: exact wins outright,
-      // and only when nothing is exact does a prefix or whole-word match
-      // count, so "Sarah" finds "Sarah Chen" without "Chen" matching every
-      // Chen. Requiring full-name equality made the person say a name the way
-      // the directory happens to store it, which is not something they can
-      // know.
-      // A resolved id wins outright: the person has already pointed at a row.
-      const exactMatches = chosenUserId
-        ? candidates.filter((c) => c.userId === chosenUserId)
-        : matchByName(candidates, spokenName, (c) => c.displayName);
-      if (exactMatches.length === 0) {
+  const prepareConnection =
+    (remove: boolean): LocalActionPreparer =>
+    async (slots, chosenResourceId) => {
+      if (!user || !userId)
         return {
           status: "blocked",
-          summary: chosenUserId
-            ? "That person is no longer in the directory."
-            : `I could not find anyone called ${spokenName} in Connect.`,
+          gate: "permission",
+          summary: "Sign in to manage connections.",
+        };
+      const person =
+        typeof slots.person === "string" ? slots.person.trim() : "";
+      const key = remove ? "connectionId" : "userId";
+      const selected = Object.prototype.hasOwnProperty.call(slots, key)
+        ? slots[key]
+        : chosenResourceId;
+      if (
+        selected !== undefined &&
+        (typeof selected !== "string" ||
+          !selected.trim() ||
+          selected.length > 256)
+      ) {
+        return {
+          status: "blocked",
+          gate: "input",
+          summary: "Choose one person again.",
         };
       }
-      if (exactMatches.length > 1) {
-        // Show them instead of asking. Naming the candidates aloud was already
-        // better than "be more specific", but it cannot resolve the ordinary
-        // case where two accounts share a display name -- there is no utterance
-        // that separates them, so the person is asked for something they cannot
-        // give. What tells them apart is the handle under the name, so it has
-        // to be seen.
+      if (!person)
         return {
           status: "blocked",
-          summary: `${exactMatches.length} people are called ${spokenName}. Pick the right one.`,
+          gate: "input",
+          summary: "Who is this for?",
+        };
+      try {
+        const idToken = await user.getIdToken();
+        if (remove) {
+          const result = await resolveConnectionForVoice({
+            idToken,
+            spokenName: person,
+            connectionId: String(selected ?? ""),
+          });
+          if (!result.complete || result.matches.length !== 1)
+            return {
+              status: "blocked",
+              gate: "input",
+              summary: "Choose one current connection.",
+            };
+          const row = result.matches[0]!;
+          return {
+            status: "ready",
+            binding: {
+              owner: userId,
+              connectionId: row.connectionId,
+              person: row.displayName,
+            },
+            summary: `Remove your connection with ${connectPersonName(row)}?`,
+          };
+        }
+        const candidates: DirectoryPerson[] = [];
+        const query =
+          person.split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? person;
+        let complete = false;
+        for (let page = 1; page <= DIRECTORY_RESOLVE_MAX_PAGES; page += 1) {
+          const result = await ConnectionsService.searchDirectory({
+            idToken,
+            query,
+            page,
+            limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
+          });
+          candidates.push(...result.items);
+          if (!result.hasMore) {
+            complete = true;
+            break;
+          }
+        }
+        const matches = matchByName(
+          candidates,
+          person,
+          (row) => row.displayName,
+        ).filter((row) => selected === undefined || row.userId === selected);
+        if (
+          (!complete && selected === undefined) ||
+          matches.length !== 1 ||
+          matches[0]!.relationship !== "none"
+        ) {
+          return {
+            status: "blocked",
+            gate: "input",
+            summary: "Choose one person who can receive a new request.",
+          };
+        }
+        const row = matches[0]!;
+        return {
+          status: "ready",
+          binding: {
+            owner: userId,
+            userId: row.userId,
+            person: row.displayName,
+          },
+          summary: `Send a connection request to ${connectPersonName(row)}?`,
+        };
+      } catch {
+        return {
+          status: "blocked",
+          gate: "permission",
+          summary: "Connections could not be checked. Try again.",
+        };
+      }
+    };
+
+  useLocalOnboardingActionHandler(
+    "connect.send_request",
+    async (slots, context) => {
+      if (
+        context?.preparedBinding &&
+        !context.directiveId &&
+        !context.humanConfirmationToken
+      ) {
+        return {
+          status: "blocked",
+          summary: "Confirm the connection request in the app first.",
+        };
+      }
+      if (context?.preparedBinding)
+        slots = { ...slots, ...context.preparedBinding };
+      const spokenName =
+        typeof slots.person === "string" ? slots.person.trim() : "";
+      // Set only by the disambiguation card, which resolves a name the person
+      // already saw into the one account they pointed at. It skips the matcher
+      // entirely rather than re-running it: the ambiguity has been settled by a
+      // human, and re-deriving it from the same words would just fail the same
+      // way and bounce the card straight back.
+      const chosenUserId =
+        typeof slots.userId === "string" ? slots.userId.trim() : "";
+      if (
+        Object.prototype.hasOwnProperty.call(slots, "userId") &&
+        (!chosenUserId || chosenUserId.length > 256)
+      ) {
+        return { status: "blocked", summary: "Choose the person again." };
+      }
+      if (!user) {
+        return {
+          status: "blocked",
+          summary: "Sign in before sending a connection request.",
+        };
+      }
+      if (!spokenName && !chosenUserId) {
+        return {
+          status: "blocked",
+          summary: "Say the person's full name before sending a request.",
+        };
+      }
+
+      try {
+        const idToken = await user.getIdToken();
+        // Read the whole result set for this name, not its first three rows.
+        //
+        // This searched page 1 at limit 3 and refused outright whenever
+        // `hasMore` was true, so it could never tell "no such person" from "not
+        // on the first page" -- and it answered both with "I could not identify
+        // one exact person by that name", about people who were plainly there.
+        // Bounded, because a directory is unbounded and a runaway loop here
+        // would be worse than a refusal.
+        // Search on ONE word, then match the full name here.
+        //
+        // The server predicate is a single substring test --
+        // `LOWER(display_name) LIKE '%' || query || '%'` -- so passing the whole
+        // spoken name makes the whole name have to appear, contiguously, exactly
+        // as stored. "Abdul Rashid" then finds nobody when the directory holds
+        // "Abdul R.", and "Abdul" finds nobody when it holds "Abdul Kumar
+        // Rashid". Reported as voice being unable to find people plainly visible
+        // in the list, which is exactly what it was: the query could not reach
+        // them, so there was never a candidate for the matcher to consider.
+        //
+        // One token maximises what comes back; deciding WHICH person stays here,
+        // where the whole name is available. Longest word rather than first,
+        // because it is the most selective and least likely to be a title or
+        // initial.
+        const searchTerm =
+          spokenName
+            .split(/\s+/)
+            .filter(Boolean)
+            .sort((left, right) => right.length - left.length)[0] ?? spokenName;
+        const candidates: DirectoryPerson[] = [];
+        for (
+          let pageNumber = 1;
+          pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES;
+          pageNumber += 1
+        ) {
+          const page = await ConnectionsService.searchDirectory({
+            idToken,
+            query: searchTerm,
+            page: pageNumber,
+            limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
+          });
+          candidates.push(...page.items);
+          if (!page.hasMore) break;
+        }
+        // Same matcher the cancel and remove actions use: exact wins outright,
+        // and only when nothing is exact does a prefix or whole-word match
+        // count, so "Sarah" finds "Sarah Chen" without "Chen" matching every
+        // Chen. Requiring full-name equality made the person say a name the way
+        // the directory happens to store it, which is not something they can
+        // know.
+        // A resolved id wins outright: the person has already pointed at a row.
+        const exactMatches = chosenUserId
+          ? candidates.filter(
+              (c) =>
+                c.userId === chosenUserId &&
+                (!spokenName ||
+                  matchByName([c], spokenName, (entry) => entry.displayName)
+                    .length === 1),
+            )
+          : matchByName(candidates, spokenName, (c) => c.displayName);
+        if (exactMatches.length === 0) {
+          return {
+            status: "blocked",
+            summary: chosenUserId
+              ? "That person is no longer in the directory."
+              : `I could not find anyone called ${spokenName} in Connect.`,
+          };
+        }
+        if (exactMatches.length > 1) {
+          // Show them instead of asking. Naming the candidates aloud was already
+          // better than "be more specific", but it cannot resolve the ordinary
+          // case where two accounts share a display name -- there is no utterance
+          // that separates them, so the person is asked for something they cannot
+          // give. What tells them apart is the handle under the name, so it has
+          // to be seen.
+          return {
+            status: "blocked",
+            summary: `${exactMatches.length} people are called ${spokenName}. Pick the right one.`,
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "connect.send_request",
+                resolveSlot: "userId",
+                slots: { person: spokenName },
+                prompt: `${exactMatches.length} people are called ${spokenName}.`,
+                candidates: exactMatches.map((c) => ({
+                  id: c.userId,
+                  name: connectPersonName(c, "Someone"),
+                  // Match the name-only directory; contact identifiers stay out
+                  // of visible result cards as well as the list.
+                  detail: null,
+                  ...connectCandidateAffordance(c.relationship),
+                })),
+              },
+            },
+          };
+        }
+        const person = exactMatches[0];
+        if (!person) {
+          return {
+            status: "blocked",
+            summary: "I could not identify one exact person by that name.",
+          };
+        }
+        const personName = connectPersonName(person);
+        // The backend already distinguishes these four, and collapsing them lost
+        // the only part the person needed. "A new connection request is not
+        // available" was returned when they were ALREADY connected -- which is
+        // success -- and equally when the other party had yet to accept, when
+        // the person had an invitation of their own sitting unread, and when
+        // something had genuinely gone wrong. Reported as One saying it needed
+        // approval for something already done.
+        //
+        // Only `none` sends. The rest each mean something specific and are said
+        // plainly, because two of them are not problems at all.
+        if (person.relationship === "connected") {
+          return {
+            // `succeeded`, not `blocked`. The person asked to be connected to
+            // someone they are already connected to: the thing they wanted is
+            // true, so anything that sounds like a refusal is a lie about their
+            // own account. (A local handler has no `noop`; the settlement enum
+            // does, but this layer only speaks started/succeeded/blocked/failed.)
+            status: "succeeded",
+            summary: `You are already connected to ${personName}, so there was nothing to send.`,
+          };
+        }
+        if (person.relationship === "pending_outgoing") {
+          return {
+            status: "blocked",
+            // The honest boundary: nothing the app or One can do advances this.
+            summary: `You already asked ${personName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
+          };
+        }
+        if (person.relationship === "pending_incoming") {
+          return {
+            status: "blocked",
+            summary: `${personName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
+          };
+        }
+        if (person.relationship !== "none") {
+          return {
+            status: "blocked",
+            summary:
+              "A new connection request is not available for that person.",
+          };
+        }
+        const sent = await sendConnectionRequest(person);
+        if (!sent) {
+          return {
+            status: "failed",
+            summary: "Could not send the connection request.",
+          };
+        }
+        return {
+          status: "succeeded",
+          summary: `Connection request sent to ${personName}.`,
           data: {
-            [VOICE_DISAMBIGUATION_DATA_KEY]: {
-              actionId: "connect.send_request",
-              resolveSlot: "userId",
-              slots: { person: spokenName },
-              prompt: `${exactMatches.length} people are called ${spokenName}.`,
-              candidates: exactMatches.map((c) => ({
-                id: c.userId,
-                name: c.displayName || "Someone",
-                // The same description the Connect list renders under each
-                // name. Reading `email` alone showed "No other details" on
-                // rows the list behind the card was captioning correctly:
-                // the directory usually returns the masked variants, not the
-                // raw address. This helper already falls through
-                // email -> maskedEmail -> maskedPhone, so contact sync's phone
-                // numbers land here without another change.
-                detail: getDirectoryPersonDescription(c) ?? null,
-                ...connectCandidateAffordance(c.relationship),
-              })),
+            subject: {
+              name: connectPersonName(person, "Someone"),
+              detail: null,
             },
           },
         };
-      }
-      const person = exactMatches[0];
-      if (!person) {
+      } catch (error) {
         return {
-          status: "blocked",
-          summary: "I could not identify one exact person by that name.",
+          status: "failed",
+          summary:
+            error instanceof Error
+              ? error.message
+              : "Could not send the connection request.",
         };
       }
-      // The backend already distinguishes these four, and collapsing them lost
-      // the only part the person needed. "A new connection request is not
-      // available" was returned when they were ALREADY connected -- which is
-      // success -- and equally when the other party had yet to accept, when
-      // the person had an invitation of their own sitting unread, and when
-      // something had genuinely gone wrong. Reported as One saying it needed
-      // approval for something already done.
-      //
-      // Only `none` sends. The rest each mean something specific and are said
-      // plainly, because two of them are not problems at all.
-      if (person.relationship === "connected") {
-        return {
-          // `succeeded`, not `blocked`. The person asked to be connected to
-          // someone they are already connected to: the thing they wanted is
-          // true, so anything that sounds like a refusal is a lie about their
-          // own account. (A local handler has no `noop`; the settlement enum
-          // does, but this layer only speaks started/succeeded/blocked/failed.)
-          status: "succeeded",
-          summary: `You are already connected to ${person.displayName}, so there was nothing to send.`,
-        };
-      }
-      if (person.relationship === "pending_outgoing") {
-        return {
-          status: "blocked",
-          // The honest boundary: nothing the app or One can do advances this.
-          summary: `You already asked ${person.displayName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
-        };
-      }
-      if (person.relationship === "pending_incoming") {
-        return {
-          status: "blocked",
-          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept their request instead of sending one back.`,
-        };
-      }
-      if (person.relationship !== "none") {
-        return {
-          status: "blocked",
-          summary: "A new connection request is not available for that person.",
-        };
-      }
-      const sent = await sendConnectionRequest(person);
-      if (!sent) {
-        return { status: "failed", summary: "Could not send the connection request." };
-      }
-      return {
-        status: "succeeded",
-        summary: `Connection request sent to ${person.displayName}.`,
-      };
-    } catch (error) {
-      return {
-        status: "failed",
-        summary:
-          error instanceof Error
-            ? error.message
-            : "Could not send the connection request.",
-      };
-    }
-  });
+    },
+    { prepare: prepareConnection(false) },
+  );
 
   useLocalOnboardingActionHandler("connect.cancel_request", async (slots) => {
-    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
-    if (!user) {
-      return { status: "blocked", summary: "Sign in before cancelling a request." };
+    const spokenName =
+      typeof slots.person === "string" ? slots.person.trim() : "";
+    if (!user || !userId) {
+      return {
+        status: "blocked",
+        summary: "Sign in before cancelling a request.",
+      };
     }
     if (!spokenName) {
-      return { status: "blocked", summary: "Say whose request you want to cancel." };
+      return {
+        status: "blocked",
+        summary: "Say whose request you want to cancel.",
+      };
     }
     try {
       const idToken = await user.getIdToken();
@@ -973,8 +2817,10 @@ export default function ConnectPageClient() {
         idToken,
         direction: "outgoing",
       });
-      const matches = matchByName(outgoing, spokenName, (request) =>
-        request.counterpartDisplayName,
+      const matches = matchByName(
+        outgoing,
+        spokenName,
+        (request) => request.counterpartDisplayName,
       );
       if (matches.length === 0) {
         return {
@@ -986,706 +2832,1465 @@ export default function ConnectPageClient() {
         return {
           status: "blocked",
           summary: `More than one pending request matches that name: ${matches
-            .map((request) => request.counterpartDisplayName ?? "someone")
+            .map((request) => connectPersonName({ displayName: request.counterpartDisplayName }, "someone"))
             .join(", ")}. Say which one.`,
         };
       }
       const request = matches[0]!;
       await ConnectionsService.cancel({ idToken, requestId: request.id });
-      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      CacheSyncService.onConnectionCapabilityMutated(userId);
       await loadOutgoingRequestIds();
       return {
         status: "succeeded",
-        summary: `Cancelled your connection request to ${request.counterpartDisplayName ?? spokenName}.`,
+        summary: `Cancelled your connection request to ${connectPersonName({ displayName: request.counterpartDisplayName }, "someone")}.`,
       };
     } catch (error) {
       return {
         status: "failed",
         summary:
-          error instanceof Error ? error.message : "Could not cancel that request.",
+          error instanceof Error
+            ? error.message
+            : "Could not cancel that request.",
       };
     }
   });
 
-  useLocalOnboardingActionHandler("connect.remove_connection", async (slots) => {
-    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
-    // Set by the card's destructive button and by nothing else. Voice never
-    // carries it, so a spoken sentence can raise this question but can never
-    // answer its own question.
-    const confirmed = slots.confirmed === true;
-    const chosenConnectionId =
-      typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
-    if (!user) {
-      return { status: "blocked", summary: "Sign in before removing a connection." };
-    }
-    if (!spokenName && !chosenConnectionId) {
-      return { status: "blocked", summary: "Say who you want to remove." };
-    }
-    try {
-      const idToken = await user.getIdToken();
-      const existing = await ConnectionsService.listConnections({ idToken });
-      const matches = chosenConnectionId
-        ? existing.filter((entry) => entry.connectionId === chosenConnectionId)
-        : matchByName(existing, spokenName, (entry) => entry.displayName);
-      if (matches.length === 0) {
+  useLocalOnboardingActionHandler(
+    "connect.remove_connection",
+    async (slots, context) => {
+      if (context?.preparedBinding)
+        slots = { ...slots, ...context.preparedBinding };
+      const spokenName =
+        typeof slots.person === "string" ? slots.person.trim() : "";
+      const chosenConnectionId =
+        typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
+      if (
+        Object.prototype.hasOwnProperty.call(slots, "connectionId") &&
+        (!chosenConnectionId || chosenConnectionId.length > 256)
+      ) {
+        return { status: "blocked", summary: "Choose the connection again." };
+      }
+      if (!user || !userId) {
         return {
           status: "blocked",
-          summary: chosenConnectionId
-            ? "That connection is no longer there."
-            : `${spokenName} is not one of your connections.`,
+          summary: "Sign in before removing a connection.",
         };
       }
-      if (matches.length > 1) {
-        // Same picker as sending a request. Removing the wrong person because
-        // two share a name is the worst version of this bug, not a milder one.
-        return {
-          status: "blocked",
-          summary: `${matches.length} connections are called ${spokenName}. Pick the right one.`,
-          data: {
-            [VOICE_DISAMBIGUATION_DATA_KEY]: {
-              actionId: "connect.remove_connection",
-              resolveSlot: "connectionId",
-              slots: { person: spokenName },
-              prompt: `${matches.length} connections are called ${spokenName}.`,
-              candidates: matches.map((entry) => ({
-                id: entry.connectionId,
-                name: entry.displayName || "Someone",
-                detail: getDirectoryPersonDescription(entry) ?? null,
-                actionLabel: "Remove",
-              })),
-            },
-          },
-        };
+      if (!spokenName && !chosenConnectionId) {
+        return { status: "blocked", summary: "Say who you want to remove." };
       }
-      const connection = matches[0]!;
-      if (!confirmed) {
-        // Ask before, not after. A name misheard once is a connection gone
-        // with no undo, and this is the one action here where being wrong
-        // cannot be walked back.
-        const displayName = connection.displayName || "this person";
-        return {
-          status: "blocked",
-          summary: `Removing ${displayName} needs a confirmation.`,
-          data: {
-            [VOICE_CONFIRM_DATA_KEY]: {
-              actionId: "connect.remove_connection",
-              slots: { person: spokenName, connectionId: connection.connectionId },
-              prompt: `Remove your connection with ${displayName}?`,
-              subject: {
-                name: displayName,
-                detail: getDirectoryPersonDescription(connection) ?? null,
+      try {
+        const idToken = await user.getIdToken();
+        const resolved = await resolveConnectionForVoice({
+          idToken,
+          spokenName,
+          connectionId: chosenConnectionId,
+        });
+        if (!resolved.complete) {
+          return {
+            status: "blocked",
+            summary:
+              "Too many connections match that name to remove one safely. Open Connect and choose the person.",
+          };
+        }
+        const matches = resolved.matches;
+        if (matches.length === 0) {
+          return {
+            status: "blocked",
+            summary: chosenConnectionId
+              ? "That connection is no longer there."
+              : `${spokenName} is not one of your connections.`,
+          };
+        }
+        if (matches.length > 1) {
+          // Same picker as sending a request. Removing the wrong person because
+          // two share a name is the worst version of this bug, not a milder one.
+          return {
+            status: "blocked",
+            summary: `${matches.length} connections are called ${spokenName}. Pick the right one.`,
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "connect.remove_connection",
+                resolveSlot: "connectionId",
+                slots: { person: spokenName },
+                prompt: `${matches.length} connections are called ${spokenName}.`,
+                candidates: matches.map((entry) => ({
+                  id: entry.connectionId,
+                  name: connectPersonName(entry, "Someone"),
+                  detail: null,
+                  actionLabel: "Remove",
+                })),
               },
-              // The action's own words from the generated contract, so what
-              // the person is warned about cannot drift from what happens.
-              consequence:
-                getKaiActionById("connect.remove_connection")?.meaning ?? null,
-              confirmLabel: "Remove",
             },
-          },
+          };
+        }
+        const connection = matches[0]!;
+        if (!context?.directiveId && !context?.humanConfirmationToken) {
+          // Ask before, not after. A name misheard once is a connection gone
+          // with no undo, and this is the one action here where being wrong
+          // cannot be walked back.
+          const displayName = connectPersonName(connection, "this person");
+          return {
+            status: "blocked",
+            summary: `Removing ${displayName} needs a confirmation.`,
+            data: {
+              [VOICE_CONFIRM_DATA_KEY]: {
+                actionId: "connect.remove_connection",
+                slots: {
+                  person: spokenName,
+                  connectionId: connection.connectionId,
+                },
+                prompt: `Remove your connection with ${displayName}?`,
+                subject: {
+                  name: displayName,
+                  detail: null,
+                },
+                // The action's own words from the generated contract, so what
+                // the person is warned about cannot drift from what happens.
+                consequence:
+                  getKaiActionById("connect.remove_connection")?.meaning ??
+                  null,
+                confirmLabel: "Remove",
+              },
+            },
+          };
+        }
+        await ConnectionsService.removeConnection({
+          idToken,
+          connectionId: connection.connectionId,
+        });
+        await refreshConnectionsFirstPage({
+          audience: connectionAudience,
+          removedConnection: true,
+        });
+        suppressNextLocalGraphEventRef.current = true;
+        CacheSyncService.onConnectionGraphMutated(userId);
+        return {
+          status: "succeeded",
+          // Say the consequence, not just the fact. Removing a connection also
+          // removes them from everywhere that connection was the prerequisite --
+          // Location sharing above all -- and someone who only meant to tidy a
+          // list should hear that before they discover it.
+          summary: `Removed ${connectPersonName(connection, "this person")}. They can no longer be picked for location sharing.`,
+        };
+      } catch (error) {
+        return {
+          status: "failed",
+          summary:
+            error instanceof Error
+              ? error.message
+              : "Could not remove that connection.",
         };
       }
-      await ConnectionsService.removeConnection({
-        idToken,
-        connectionId: connection.connectionId,
-      });
-      setConnections((prev) =>
-        prev.filter((c) => c.connectionId !== connection.connectionId),
-      );
-      CacheSyncService.onConnectionCapabilityMutated(user.uid);
-      return {
-        status: "succeeded",
-        // Say the consequence, not just the fact. Removing a connection also
-        // removes them from everywhere that connection was the prerequisite --
-        // Location sharing above all -- and someone who only meant to tidy a
-        // list should hear that before they discover it.
-        summary: `Removed ${connection.displayName ?? spokenName}. They can no longer be picked for location sharing.`,
-      };
-    } catch (error) {
-      return {
-        status: "failed",
-        summary:
-          error instanceof Error ? error.message : "Could not remove that connection.",
-      };
-    }
+    },
+    { prepare: prepareConnection(true) },
+  );
+
+  const directoryMenuItems = CONNECT_DIRECTORY_TABS.map((option) => {
+    const active = tab === option.value;
+    return (
+      <button
+        key={option.value}
+        type="button"
+        role="menuitemradio"
+        aria-checked={active}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between px-3 text-left font-sans text-[length:var(--type-section-label-size)] leading-[var(--type-section-label-line)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+          useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
+          active
+            ? "font-semibold text-[color:var(--app-accent)]"
+            : "font-normal text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+        )}
+        onClick={() => {
+          setTab(option.value);
+          setDirectoryMenuOpen(false);
+          window.requestAnimationFrame(() =>
+            directoryMenuButtonRef.current?.focus(),
+          );
+        }}
+      >
+        <span>{option.label}</span>
+        {active ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
+      </button>
+    );
   });
+
+  const directorySelector = (
+    <div
+      ref={directoryMenuRef}
+      data-testid="connect-directory-menu-anchor"
+      // The 44px tap target centres a ~20px label, so 12px of it is blank
+      // below "People". Pull the description up by 8px, leaving a 4px breath;
+      // the hit area is unchanged.
+      className="relative -mb-2"
+    >
+      {useWebDirectoryPopover ? (
+        <Popover open={directoryMenuOpen} onOpenChange={setDirectoryMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              ref={directoryMenuButtonRef}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={directoryMenuOpen}
+              aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+              className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            >
+              <SectionLabel
+                as="span"
+                className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+              >
+                {CONNECT_TAB_LABEL[tab]}
+              </SectionLabel>
+              <ChevronDown
+                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                aria-hidden
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            role="menu"
+            data-testid="connect-directory-menu"
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            collisionPadding={16}
+            className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+          >
+            {directoryMenuItems}
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <>
+          <button
+            ref={directoryMenuButtonRef}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={directoryMenuOpen}
+            aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+            className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            onClick={() => setDirectoryMenuOpen((current) => !current)}
+          >
+            <SectionLabel
+              as="span"
+              className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+            >
+              {CONNECT_TAB_LABEL[tab]}
+            </SectionLabel>
+            <ChevronDown
+              className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+              aria-hidden
+            />
+          </button>
+          {directoryMenuOpen ? (
+            <div
+              role="menu"
+              data-testid="connect-directory-menu"
+              className={CONNECT_DIRECTORY_MENU_CLASSNAME}
+            >
+              {directoryMenuItems}
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+
+  if (mutualPersonRef) return <MutualConnectionsList key={`${userId}:${mutualPersonRef}`} personRef={mutualPersonRef} href={`${ROUTES.CONNECT}?${searchParams.toString()}`} />;
+
+  const rememberDirectory = () => saveConnectListMemory(userId, "directory", {
+    query, tab, people, page: currentPage, hasMore, scrollTop: connectListScrollTop(),
+  } satisfies DirectoryNavigationSnapshot);
 
   return (
     <AppPageShell
       as="main"
+      data-connect-page=""
+      // Connect owns its role scale; Profile typography stays scoped to Profile.
+      data-connect-type-scale="page"
       fitContent
       width="reading"
-      className="relative isolate"
+      className={cn("relative isolate", styles.workspace)}
       nativeTest={{
         routeId: "/one/connect",
         marker: "native-route-connect",
         authState: user ? "authenticated" : "pending",
-        dataState: error
-          ? "unavailable-valid"
-          : loading
-            ? "loading"
-            : people.length === 0
-              ? "empty-valid"
-              : "loaded",
-        errorCode: error ? "connect_directory_unavailable" : null,
-        errorMessage: error,
+        dataState:
+          surface === "circles"
+            ? circlesState.error
+              ? "unavailable-valid"
+              : circlesState.loading
+                ? "loading"
+                : circlesState.count === 0
+                  ? "empty-valid"
+                  : "loaded"
+            : connectionView === "connections"
+              ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError)
+                ? "unavailable-valid"
+                : (connectionSearch.active ? connectionSearch.loading && !sortedConnections.length : !connectionsLoaded)
+                  ? "loading"
+                  : sortedConnections.length ? "loaded" : "empty-valid"
+              : error
+              ? "unavailable-valid"
+              : loading
+                ? "loading"
+                : people.length === 0
+                  ? "empty-valid"
+                  : "loaded",
+        errorCode:
+          surface === "circles"
+            ? circlesState.error
+              ? "connect_circles_unavailable"
+              : null
+            : connectionView === "connections"
+              ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) ? "connect_connections_unavailable" : null
+              : error
+              ? "connect_directory_unavailable"
+              : null,
+        errorMessage: surface === "circles" ? circlesState.error : connectionView === "connections" ? (connectionSearch.active ? connectionSearch.error : connectionsRefreshError) ? "Connections are unavailable right now." : null : error,
       }}
     >
-      <AppPageHeaderRegion>
-        <PageHeader title="Connect" accent="neutral" />
-      </AppPageHeaderRegion>
+      <SettingsPresentationProvider density="compact">
+        {isFocusedCircleTask ? (
+          <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+            <div className={cn("mx-auto w-full", circleFlowAction !== "circle-detail" && "max-w-[560px]")}>
+              <ConnectCirclesTab
+                onStateChange={setCirclesState}
+                currentUserId={userId}
+                isActive={surface === "circles"}
+                onRequestConnection={sendConnectRequest}
+                onCancelConnectionRequest={cancelConnectionRequest}
+                refreshToken={circleRefreshToken}
+              />
+            </div>
+          </AppPageContentRegion>
+        ) : (
+          <>
+            {/* No in-body header: the shared top bar owns the single Connect
+                title, the same way Feed does (top-shell-breadcrumbs.ts). */}
+            <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+              <SurfaceStack compact>
+                <div
+                  ref={connectStackRef}
+                  className="relative space-y-3 sm:space-y-4"
+                >
+                  <div
+                    ref={stickyHeaderRef}
+                    data-testid="connect-sticky-header"
+                    data-top-chrome-collapse-consumer=""
+                    className={CONNECT_STICKY_HEADER_CLASSNAME}
+                  >
+                    <TopShellTabs
+                      tabSet={{
+                        ...CONNECT_SURFACE_TAB_DEFINITION,
+                        activeValue: surface,
+                      }}
+                      navigationMode="push"
+                    />
+                  </div>
 
-      <AppPageContentRegion>
-        <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
-            <SegmentedTabs
-              value={tab}
-              onValueChange={(value) => setTab(value as ConnectTab)}
-              options={CONNECT_TABS}
-            />
+                  {/* Both surfaces live in one pager so the tab strip above is
+                      swipeable, the way Finance and Consent are; a swipe commits the
+                      same route the tab pill pushes. */}
+                  <SwipeViews
+                    className={CONNECT_SWIPE_CLIP_GUARD_CLASSNAME}
+                    tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
+                    activeValue={surface}
+                    options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
+                    onSelectionCommit={commitSurface}
+                    panelInset="none"
+                    viewportMinHeight="fill"
+                    heightMode="active"
+                  >
+                    <div
+                      data-connect-surface="all"
+                      className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
+                    >
+                      <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
+                        <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
+                          <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
+                            <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
+                          </TabsTrigger>
+                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
+                        </TabsList>
+                        <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
+                          {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
+                            <SettingsGroup
+                              testId="connect-directory-group"
+                              headingClassName={cn(
+                                CONNECT_SECTION_HEADING_CLASSNAME,
+                                "mb-1 mt-1",
+                              )}
+                              titleControl={directorySelector}
+                              // People only. This one JSX node also renders the RIAs
+                              // tab, where an address book has nothing to offer --
+                              // an advisor is found by their verified profile, not
+                              // by being in your phone. "Around you" never reaches
+                              // here at all; that tab short-circuits to its own
+                              // directories component.
+                              //
+                              // `available` is false on a desktop browser with no
+                              // Google client configured, which is the one case
+                              // where there is genuinely nothing to read. Hiding it
+                              // there is kinder than a button that exists only to
+                              // explain that it cannot work.
+                              titleAction={
+                                !isAdvisorTab && contactSync.available ? (
+                                  <Button
+                                    type="button"
+                                    variant="none"
+                                    effect="fade"
+                                    size="compact"
+                                    aria-label="Sync contacts"
+                                    aria-busy={contactSync.syncing}
+                                    title="Sync contacts"
+                                    disabled={contactSync.syncing}
+                                    onClick={() => void contactSync.sync()}
+                                    className={cn(
+                                      CONNECT_INLINE_BUTTON_CLASSNAME,
+                                      CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                      "!text-[color:var(--app-accent)]",
+                                    )}
+                                  >
+                                    <ContactsBookIcon
+                                      aria-hidden="true"
+                                      className="mr-1.5 h-3.5 w-3.5"
+                                    />
+                                    {contactSync.syncing
+                                      ? "Syncing\u2026"
+                                      : "Sync contacts"}
+                                  </Button>
+                                ) : null
+                              }
+                              description={isSelectionMode ? <span id="connect-selection-limit">Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across pages.</span> : undefined}
+                              shellClassName="!overflow-visible !rounded-none !border-0 !bg-transparent !shadow-none"
+                              contentClassName={CONNECT_DIRECTORY_CONTENT_CLASSNAME}
+                              separatorInset
+                              // The search row belongs to THIS list, so it is read after
+                              // the heading that names the list -- not before it. It used
+                              // to sit above "People", which put the sentence that
+                              // instructs it underneath the box it
+                              // instructs, and gave the reader a field before anything on
+                              // screen had said what it searched. It still pins under the
+                              // tab strips on scroll; it just no longer arrives first.
+                              toolbar={
+                                /* No `w-full` here any more, and it is load-bearing: this row
+                    bleeds to the page gutters with a negative inline margin, and
+                    `width: 100%` resolves against the text column, so the margin
+                    only slid the row 16px left instead of widening it. A block
+                    flex container fills its containing block on its own, and with
+                    `auto` the margins can do their job. `cn` is tailwind-merge, so
+                    a later `w-full` would have beaten anything the constant said.
+                    Held by e2e/connect-sticky-header.layout.spec.ts. */
+                                <div
+                                  data-testid="connect-search-row"
+                                  data-top-chrome-collapse-consumer=""
+                                  className={cn(
+                                    CONNECT_STICKY_SEARCH_CLASSNAME,
+                                    "block",
+                                  )}
+                                >
+                                  <div className="relative">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                      <SearchIcon className="h-4.5 w-4.5" />
+                                    </span>
+                                    <Input
+                                      ref={searchInputRef}
+                                      type="text"
+                                      value={query}
+                                      onChange={(event) =>
+                                        setQuery(event.target.value)
+                                      }
+                                      placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                                      aria-label="Search people"
+                                      data-voice-control-id="one-connect-search"
+                                      className={cn(
+                                        CONNECT_SEARCH_INPUT_CLASSNAME,
+                                        query
+                                          ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                          : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                                      )}
+                                      enterKeyHint="search"
+                                      onKeyDown={(event) => {
+                                        // iOS soft-keyboard "return" must dismiss the keyboard;
+                                        // blurring the field is what actually closes it in the
+                                        // Capacitor webview (there is no form submit here).
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          event.currentTarget.blur();
+                                        }
+                                      }}
+                                      onFocus={(event) => {
+                                        // Keyboard-dismiss "on drag": the first scroll/drag while
+                                        // the field is focused blurs it, so an open keyboard never
+                                        // locks the results out of view. Scoped to this field's
+                                        // focus lifecycle and cleaned up on blur.
+                                        const field = event.currentTarget;
+                                        // Scroll the field into view above the on-screen keyboard.
+                                        // Tapping it otherwise leaves it hidden behind the keyboard
+                                        // until the user manually scrolls up. The delay lets the
+                                        // keyboard animate in so the shrunken viewport is measured.
+                                        window.setTimeout(() => {
+                                          field.scrollIntoView({
+                                            block: "center",
+                                            behavior: "smooth",
+                                          });
+                                        }, 300);
+                                        const dismiss = () => field.blur();
+                                        window.addEventListener(
+                                          "touchmove",
+                                          dismiss,
+                                          {
+                                            passive: true,
+                                            once: true,
+                                          },
+                                        );
+                                        field.addEventListener(
+                                          "blur",
+                                          () =>
+                                            window.removeEventListener(
+                                              "touchmove",
+                                              dismiss,
+                                            ),
+                                          { once: true },
+                                        );
+                                      }}
+                                    />
+                                    {query ? (
+                                      <button
+                                        type="button"
+                                        aria-label="Clear search"
+                                        onClick={() => {
+                                          setQuery("");
+                                          searchInputRef.current?.focus();
+                                        }}
+                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                      >
+                                        <X className="h-5 w-5" />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              }
+                            >
+                              {loading && people.length === 0 ? (
+                                <SettingsRow
+                                  title="Finding people…"
+                                  density="compact"
+                                  disabled
+                                />
+                              ) : error && people.length === 0 ? (
+                                <SettingsRow
+                                  title={
+                                    errorRateLimited
+                                      ? isAdvisorTab
+                                        ? "Advisors are taking a moment"
+                                        : "People are taking a moment"
+                                      : isAdvisorTab
+                                        ? "Advisors are unavailable"
+                                        : "People are unavailable"
+                                  }
+                                  description={error}
+                                  trailing={
+                                    errorRateLimited ? undefined : (
+                                      <Button
+                                        type="button"
+                                        variant="none"
+                                        effect="fade"
+                                        size="compact"
+                                        className={
+                                          CONNECT_INLINE_BUTTON_CLASSNAME
+                                        }
+                                        onClick={loadNextDirectoryBatch}
+                                      >
+                                        Try again
+                                      </Button>
+                                    )
+                                  }
+                                  density="compact"
+                                  tone={
+                                    errorRateLimited ? "default" : "destructive"
+                                  }
+                                />
+                              ) : people.length === 0 ? (
+                                // Tested against the list that is actually rendered below,
+                                // never against the raw server page. Those were two
+                                // different lists once: the server returned 8 rows, a
+                                // client-side filter hid all 8, and this branch checked the
+                                // 8 -- so the "no one matches" row never appeared and the
+                                // section rendered as blank space under its own heading.
+                                // An empty result has to say so.
+                                hasQuery ? (
+                                  <>
+                                    <SettingsRow
+                                      title={`No one matches "${trimmedQuery}"`}
+                                      description={
+                                        isAdvisorTab
+                                          ? "Try People, or their full name."
+                                          : "Try their full name."
+                                      }
+                                      density="compact"
+                                      disabled
+                                    />
+                                    {/* The row above states a fact, so it stays inert; an
+                          invite is a separate offer and gets its own row
+                          rather than making "No one matches Bob" tappable.
+                          Read together they are the two things left to try:
+                          spell it out, or bring them here. */}
+                                    {canInviteToOne ? (
+                                      <SettingsRow
+                                        icon={InviteFriendsProfileIcon}
+                                        iconTone="capability"
+                                        title="Invite them to One"
+                                        description="Share an invite link with them."
+                                        density="compact"
+                                        onClick={() => {
+                                          void handleInviteToOne();
+                                        }}
+                                        testId="connect-invite-to-one"
+                                      />
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <SettingsRow
+                                    title={
+                                      isAdvisorTab
+                                        ? "No advisors yet"
+                                        : "No people yet"
+                                    }
+                                    description="Find by name, email or phone."
+                                    density="compact"
+                                    disabled
+                                  />
+                                )
+                              ) : (
+                                people.map((person) => {
+                                  const cta = relationshipCta(
+                                    person.relationship,
+                                  );
+                                  const title = connectPersonName(person);
+                                  const isSelected = selectedPeople.has(
+                                    person.userId,
+                                  );
+                                  return (
+                                    <ConnectDirectoryPersonRow
+                                      key={person.userId}
+                                      person={person}
+                                      testId="directory-person-row"
+                                      // Verified is a state, and green is what this design
+                                      // system already spends on a verified one. It is on the
+                                      // row rather than on the tab so the mark still means
+                                      // something in a search that spans both.
+                                      leading={
+                                        <ConnectionPersonAvatar
+                                          size="compact"
+                                          className="!size-9 max-[350px]:!size-8"
+                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
+                                          photoUrl={person.photoUrl}
+                                          label={title}
+                                          verified={Boolean(person.isRia)}
+                                        />
+                                      }
+                                      openLabel={`Open ${title}'s profile`}
+                                      onOpen={
+                                        !isSelectionMode &&
+                                        person.publicPersonRef
+                                          ? () => {
+                                              rememberDirectory();
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  person.publicPersonRef!,
+                                                  { from: connectDirectoryReturnHref(searchParams, query) },
+                                                ),
+                                              ); }
+                                          : undefined
+                                      }
+                                      supplement={
+                                        <DirectoryMutualLine
+                                          person={person}
+                                          onOpenMutual={
+                                            !isSelectionMode &&
+                                            ((person.mutualConnectionCount ?? 0) > 1 ? person.publicPersonRef : person.mutualConnectionPreview?.publicPersonRef)
+                                              ? () => {
+                                                  rememberDirectory();
+                                                  router.push((person.mutualConnectionCount ?? 0) > 1
+                                                    ? connectMutualsHref(person.publicPersonRef!, searchParams, query)
+                                                    :
+                                                    buildPersonProfileRoute(
+                                                      person.mutualConnectionPreview!.publicPersonRef!,
+                                                      { from: connectDirectoryReturnHref(searchParams, query) },
+                                                    ),
+                                                    { scroll: false },
+                                                  ); }
+                                              : undefined
+                                          }
+                                        />
+                                      }
+                                      trailing={
+                                        isSelectionMode ? (
+                                          // A disabled checkbox alone said nothing about WHY.
+                                          // Someone already connected, already asked, or
+                                          // already asking you looked identical to someone
+                                          // selection had simply run out of room for -- both
+                                          // rendered as the same greyed box with a
+                                          // not-allowed cursor and no visible text. A row
+                                          // ineligible because of its relationship isn't a
+                                          // choice at all, so it gets no checkbox -- just the
+                                          // reason, standing in its place. The limit case
+                                          // stays a real (disabled) checkbox, since it flips
+                                          // back to selectable the moment the reader frees a
+                                          // slot, and it already has a persistent explanation
+                                          // in the section description above the list.
+                                          person.relationship !== "none" ? (
+                                            <span
+                                              className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                                              aria-label={`${title}: ${cta.label}, not selectable`}
+                                            >
+                                              {cta.label}
+                                            </span>
+                                          ) : (
+                                            <Checkbox
+                                              checked={isSelected}
+                                              disabled={
+                                                !isSelected &&
+                                                selectedPeople.size >=
+                                                  MAX_BULK_CONNECTION_REQUESTS
+                                              }
+                                              // The default unchecked border (border-input)
+                                              // reads as near-invisible on this row's light
+                                              // background -- readers couldn't tell an
+                                              // eligible, clickable checkbox from empty
+                                              // space. A darker, thicker border only changes
+                                              // that idle state; data-[state=checked] still
+                                              // wins once picked.
+                                              className="border-2 border-foreground/50"
+                                              aria-describedby="connect-selection-limit"
+                                              onCheckedChange={(checked) => {
+                                                if (
+                                                  checked &&
+                                                  selectedPeople.size >=
+                                                    MAX_BULK_CONNECTION_REQUESTS
+                                                ) {
+                                                  toast.error(
+                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
+                                                  );
+                                                  setShowLimitBanner(true);
+                                                  return;
+                                                }
+                                                setSelectedPeople((current) => {
+                                                  const next = new Map(current);
+                                                  if (checked) {
+                                                    // The whole row, not the id: this person
+                                                    // has to survive the reader turning the
+                                                    // page away from them.
+                                                    next.set(
+                                                      person.userId,
+                                                      person,
+                                                    );
+                                                  } else {
+                                                    next.delete(person.userId);
+                                                    if (
+                                                      next.size <
+                                                      MAX_BULK_CONNECTION_REQUESTS
+                                                    ) {
+                                                      setShowLimitBanner(false);
+                                                    }
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              aria-label={`Select ${title}`}
+                                            />
+                                          )
+                                        ) : person.relationship ===
+                                          "pending_outgoing" ? (
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
+                                            // One word at the width of every other action in
+                                            // this column. "Cancel request" plus a 100px
+                                            // floor sized for "Cancelling…" made the widest
+                                            // control on the screen the one belonging to the
+                                            // least common row state -- 116px of a 375px row,
+                                            // against 72px for Connect directly above it. The
+                                            // in-flight state is a spinner in the same box
+                                            // rather than a longer word, so the row never
+                                            // reflows mid-tap. `loading` also sets aria-busy.
+                                            data-profile-role="action"
+                                            data-relationship={person.relationship}
+                                            className={CONNECT_ROW_ACTION_CLASSNAME}
+                                            loading={busyId === person.userId}
+                                            aria-label={`Cancel your request to ${title}`}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void cancelConnectionRequest(
+                                                person,
+                                              );
+                                            }}
+                                          >
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                              {busyId === person.userId ? (
+                                                <Loader2
+                                                  className="h-4 w-4 animate-spin"
+                                                  aria-hidden="true"
+                                                />
+                                              ) : (
+                                                "Cancel"
+                                              )}
+                                            </span>
+                                          </Button>
+                                        ) : person.relationship === "connected" ? (
+                                          <span className={styles.relationship}><Check aria-hidden="true" className="size-3.5" />Connected</span>
+                                        ) : (
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
+                                            data-profile-role="action"
+                                            data-relationship={person.relationship}
+                                            className={CONNECT_ROW_ACTION_CLASSNAME}
+                                            disabled={
+                                              cta.disabled ||
+                                              busyId === person.userId
+                                            }
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void handleConnect(person);
+                                            }}
+                                          >
+                                            <span data-slot="connect-row-action-pill" className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                              {busyId === person.userId
+                                                ? "Sending..."
+                                                : cta.label}
+                                            </span>
+                                          </Button>
+                                        )
+                                      }
+                                    />
+                                  );
+                                })
+                              )}
+                              {people.length > 0 &&
+                              (hasMore || loading || error) ? (
+                                <div
+                                  ref={directoryLoadMoreRef}
+                                  className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
+                                  data-testid="connect-load-more-row"
+                                >
+                                  {loading ? (
+                                    <span
+                                      role="status"
+                                      className="inline-flex items-center gap-2"
+                                    >
+                                      <Loader2
+                                        className="h-3.5 w-3.5 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                      <SectionLabel as="span" compact>
+                                        Loading…
+                                      </SectionLabel>
+                                    </span>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant="none"
+                                      effect="fade"
+                                      size="compact"
+                                      className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                      onClick={loadNextDirectoryBatch}
+                                    >
+                                      {error
+                                        ? "Retry loading people"
+                                        : "Load more people"}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : people.length > 0 ? (
+                                <span className="sr-only" role="status">
+                                  All people loaded
+                                </span>
+                              ) : null}
+                              {isSelectionMode &&
+                                selectedPeople.size > 0 &&
+                                batchConnectDraft === null && (
+                                  <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
+                                    <Button
+                                      type="button"
+                                      variant="blue"
+                                      effect="fill"
+                                      size="prominent"
+                                      disabled={isConnectingMultiple}
+                                      onClick={() => {
+                                        // Everyone picked, not everyone picked who is still on
+                                        // screen. Reading the selection back off the rendered
+                                        // page is what dropped page one's picks on reaching
+                                        // page two.
+                                        void openBatchConnectDraft([
+                                          ...selectedPeople.values(),
+                                        ]);
+                                      }}
+                                    >
+                                      {`Review ${selectedPeople.size}`}
+                                    </Button>
+                                  </div>
+                                )}
+                            </SettingsGroup>
+                          )}
+                        </TabsContent>
+                        <TabsContent forceMount value="connections" hidden={connectionView !== "connections"} aria-label={connectionsHeadingLabel}>
+                          <SettingsGroup
+                            className="bg-transparent"
+                            titleControl={<span className={styles.listMeta}>{connectionsLoaded ? `${connectionsTotalCount} ${isAdvisorTab ? connectionsTotalCount === 1 ? "RIA" : "RIAs" : connectionsTotalCount === 1 ? "connection" : "connections"}` : "Connections"}</span>}
+                            titleAction={
+                              <Button type="button" variant="none" effect="fade" size="compact"
+                                aria-label="Refresh contacts" aria-busy={connectionsRefreshingFirstPage}
+                                disabled={connectionsRefreshingFirstPage} onClick={handleRefreshConnections}
+                                className={styles.utilityAction}>
+                                <RefreshCw aria-hidden="true" className={cn("size-4", connectionsRefreshingFirstPage && "animate-spin")} />
+                                {connectionsRefreshingFirstPage ? "Refreshing…" : "Refresh"}
+                              </Button>
+                            }
+                            toolbar={<div className={styles.rosterSearch}>
+                              <SearchIcon aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input type="search" aria-label="Search my connections by name, email or phone"
+                                placeholder="Name, email or phone" value={connectionsQuery}
+                                onChange={event => setConnectionsQuery(event.target.value)} />
+                            </div>}
+                            separatorInset={false}
+                            headingClassName="!mt-0 !mb-1 !px-0"
+                            contentId="connect-my-connections-panel"
+                            shellClassName={cn(
+                              // Visible, not clipped: the 44px action targets reach 11px past
+                              // the column, and a clipped shell scrolls sideways to reveal
+                              // whichever one takes focus.
+                              "!overflow-visible !rounded-none !border-0 !bg-transparent !shadow-none",
+                            )}
+                            contentClassName="!divide-y-0"
+                            testId="connect-my-connections-group"
+                          >
+                            {(connectionsRefreshError || connectionSearch.error) && (
+                              <SettingsRow
+                                title="Could not refresh connections"
+                                description="Your list may be out of date. Tap to retry."
+                                onClick={connectionSearch.active ? connectionSearch.retry : handleRefreshConnections}
+                                disabled={connectionsRefreshingFirstPage || connectionSearch.loading}
+                                density="compact"
+                              />
+                            )}
+                            {sortedConnections.length === 0 &&
+                            (!connectionsLoaded || connectionSearch.loading) ? (
+                              // The list's resting shape while its first page
+                              // is on the way: same rows, same height, no claim.
+                              Array.from({ length: 4 }, (_, index) => (
+                                <SettingsRow
+                                  key={`connection-placeholder-${index}`}
+                                  layout="person"
+                                  leading={
+                                    <Skeleton className="h-10 w-10 rounded-full" />
+                                  }
+                                  title={
+                                    <Skeleton className="h-4 w-32 rounded" />
+                                  }
+                                  disabled
+                                />
+                              ))
+                            ) : sortedConnections.length === 0 ? (
+                              <SettingsRow
+                                // No description. "Connections appear here." explained what
+                                // an empty list already showed, and the obvious replacement
+                                // -- pointing at the search box -- is the sentence the
+                                // directory section directly below already carries. Saying
+                                // it twice on one screen is what made it noise the first
+                                // time. The title is the whole message.
+                                title={
+                                  connectionSearch.active ? "No matches found" : isAdvisorTab ? "No RIAs yet" : "No connections yet"
+                                }
+                                density="compact"
+                                disabled
+                              />
+                            ) : (
+                              connectionGroups.map((group) => (
+                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
+                                  {group.label ? (
+                                    <div
+                                      role="heading"
+                                      aria-level={3}
+                                      data-slot="settings-group-heading"
+                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
+                                    >
+                                      <ContactsBookIcon aria-hidden="true" className="size-4" />
+                                      {group.label}
+                                    </div>
+                                  ) : null}
+                                  {group.items.map((connection) => {
+                                    const connectionName = connectPersonName(connection);
+                                    return (
+                                    <ConnectPersonRow
+                                      key={connection.connectionId}
+                                      leading={
+                                        <ConnectionPersonAvatar
+                                          size="compact"
+                                          className="!size-9 max-[350px]:!size-8"
+                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
+                                          photoUrl={connection.photoUrl ?? null}
+                                          label={connectionName}
+                                          verified={Boolean(connection.isRia)}
+                                        />
+                                      }
+                                      title={connectionName}
+                                      description={
+                                        connection.createdAt &&
+                                        !Number.isNaN(
+                                          Date.parse(connection.createdAt),
+                                        )
+                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
+                                          : "Connected"
+                                      }
+                                      voiceLabel={connectionName}
+                                      openLabel={`Open ${connectionName}'s profile`}
+                                      onOpen={
+                                        connection.publicPersonRef
+                                          ? () =>
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  connection.publicPersonRef!,
+                                                  { from: ROUTES.CONNECT },
+                                                ),
+                                              )
+                                          : undefined
+                                      }
+                                      trailing={
+                                        <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
+                                          {connection.publicPersonRef ? (
+                                            <Button
+                                              type="button"
+                                              variant="none"
+                                              effect="fade"
+                                              size="compact"
+                                              aria-label={`Message ${connectionName}`}
+                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                              onClick={() => {
+                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
+                                              }}
+                                            >
+                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
+                                            </Button>
+                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="compact"
+                                            aria-label={`Options for ${connectionName}`}
+                                            aria-haspopup="dialog"
+                                            className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                            onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
+                                          >
+                                            <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                          </Button>
+                                        </span>
+                                      }
+                                    />
+                                    );
+                                  })}
+                                </section>
+                              ))
+                            )}
+                          </SettingsGroup>
 
-            {tab === "nearby" ? (
-              <NearbyDirectories getIdToken={getIdToken} />
-            ) : (
-              <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup
-              title={`My connections (${connections.length})`}
-              separatorInset
-            >
-              {connections.length === 0 ? (
-                <SettingsRow
-                  title="No connections yet"
-                  description="People you connect with will appear here."
-                  density="compact"
-                  disabled
-                />
-              ) : (
-                sortedConnections.map((connection) => (
-                  <SettingsRow
-                    key={connection.connectionId}
-                    icon={Users}
-                    iconTone="blue"
-                    stackTrailingOnMobile
-                    title={connection.displayName || connection.userId}
-                    density="compact"
-                    trailing={
-                      <span className="flex shrink-0 items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
-                          disabled={busyId === connection.connectionId}
-                          onClick={() => void viewInformationScopes(connection)}
-                        >
-                          {busyId === connection.connectionId ? "Loading…" : "Scopes"}
-                        </Button>
-                        {pendingRemoveId === connection.connectionId ? (
-                          <>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              effect="fill"
-                              size="sm"
-                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
-                              disabled={busyId === connection.connectionId}
-                              onClick={() => void handleRemove(connection)}
-                            >
-                              {busyId === connection.connectionId
-                                ? "Removing…"
-                                : "Confirm"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fade"
-                              size="sm"
-                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
-                              disabled={busyId === connection.connectionId}
-                              onClick={() => setPendingRemoveId(null)}
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
+                          {(connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore) ? (
+                            <div className="flex justify-center">
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fill"
+                                size="compact"
+                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                disabled={
+                                  connectionsLoadingMore || connectionSearch.loading ||
+                                  connectionsRefreshingFirstPage
+                                }
+                                onClick={() => void (connectionSearch.active ? connectionSearch.loadMore() : handleLoadMoreConnections())}
+                              >
+                                {connectionsLoadingMore || connectionSearch.loading
+                                  ? "Loading…"
+                                  : "Load more connections"}
+                              </Button>
+                            </div>
+                          ) : null}
+
+
+                        </TabsContent>
+                      </Tabs>
+                    </div>
+                    <div
+                      data-connect-surface="circles"
+                      className={cn(CONNECT_SWIPE_PANE_INSET_CLASSNAME, "space-y-3 sm:space-y-4")}
+                    >
+
+                      <ConnectCirclesTab
+                        onSearchActiveChange={setCircleSearchActive}
+                        createDialogOpen={createCircleDialogOpen}
+                        onCreateDialogOpenChange={setCreateCircleDialogOpen}
+                        onStateChange={setCirclesState}
+                        currentUserId={userId}
+                        isActive={surface === "circles"}
+                        // Use the existing exact-person, no-scope connection action.
+                        onRequestConnection={sendConnectRequest}
+                        onCancelConnectionRequest={cancelConnectionRequest}
+                        refreshToken={circleRefreshToken}
+                      />
+                      <div hidden={circleSearchActive}><LivingConnections
+                        key={userId ?? "signed-out"}
+                        currentUserId={userId}
+                        circlesState={circlesState}
+                        ownerName={user?.displayName || "You"}
+                        ownerPhotoUrl={user?.photoURL ?? null}
+                        connections={sortedConnections}
+                        totalCount={connectionsTotalCount}
+                        loading={!connectionsRefreshError && (!connectionsLoaded || connectionsRefreshingFirstPage) && sortedConnections.length === 0}
+                        error={connectionsRefreshError}
+                        onFindPeople={() => { setConnectionView("discover"); setTab("people"); commitSurface("all"); }}
+                        onCreateCircle={() => setCreateCircleDialogOpen(true)}
+                        onRetry={handleRefreshConnections}
+                        onRetryCircles={() => setCircleRefreshToken(value => value + 1)}
+                      /></div>
+                    </div>
+                  </SwipeViews>
+                </div>
+              </SurfaceStack>
+            </AppPageContentRegion>
+          </>
+        )}
+
+        <Dialog
+          modal
+          open={
+            batchConnectDraft !== null &&
+            batchConnectDraft.ownerId === userId
+          }
+          onOpenChange={(open) => {
+            if (!open && !isConnectingMultiple) closeBatchConnectDraft();
+          }}
+        >
+          <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden bg-[color:var(--app-card-surface-default-solid)]">
+            <div className="shrink-0 space-y-5">
+              <DialogHeader className="text-left">
+                <DialogTitle>Send connection requests</DialogTitle>
+                {/*
+                This said "This only sends a connection request." That was true
+                while the bulk path could not carry capabilities. It can now, so
+                the sentence became a promise the sheet no longer keeps whenever
+                a Pick is ticked below. Matches the one-person sheet's wording,
+                which is accurate either way.
+              */}
+                <DialogDescription>
+                  Start safe. Add sharing only if you choose.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+
+            {batchConnectDraft && batchConnectDraft.ownerId === userId ? (
+              <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
+                <SettingsGroup title="Selected people" separatorInset>
+                  {batchConnectDraft.people.map((person) => {
+                    const title = connectPersonName(person);
+                    return (
+                      <SettingsRow
+                        key={`batch-${person.userId}`}
+                        layout="person"
+                        leading={
+                          <ConnectionPersonAvatar
+                            size="list"
+                            photoUrl={person.photoUrl}
+                            label={title}
+                            verified={Boolean(person.isRia)}
+                          />
+                        }
+                        title={
+                          <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                            {title}
+                          </span>
+                        }
+                        density="compact"
+                        trailing={
                           <Button
                             type="button"
                             variant="none"
                             effect="fade"
-                            size="sm"
-                            onClick={() =>
-                              setPendingRemoveId(connection.connectionId)
-                            }
-                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                            className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
+                            size="compact"
+                            disabled={isConnectingMultiple}
+                            onClick={() => {
+                              setBatchConnectDraft((current) => {
+                                if (!current) return current;
+                                const updated = current.people.filter(
+                                  (p) => p.userId !== person.userId,
+                                );
+                                if (updated.length === 0) {
+                                  return null;
+                                }
+                                const {
+                                  [person.userId]: _dropped,
+                                  ...remainingHandles
+                                } = current.requestedHandles;
+                                return {
+                                  ...current,
+                                  people: updated,
+                                  requestedHandles: remainingHandles,
+                                };
+                              });
+                              // Keep the underlying selection synchronized so the UI
+                              // doesn't show them checked if the dialog is closed.
+                              setSelectedPeople((current) => {
+                                const next = new Map(current);
+                                next.delete(person.userId);
+                                return next;
+                              });
+                            }}
+                            className={cn(
+                              CONNECT_INLINE_BUTTON_CLASSNAME,
+                              CONNECT_REMOVE_BUTTON_CLASSNAME,
+                            )}
                           >
                             Remove
                           </Button>
-                        )}
-                      </span>
-                    }
-                  />
-                ))
-              )}
-            </SettingsGroup>
-
-            <div className="space-y-4">
-              <div className="flex w-full items-center gap-2">
-                <div className="relative flex-1">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                    <SearchIcon className="h-4.5 w-4.5" />
-                  </span>
-                  <Input
-                    ref={searchInputRef}
-                    type="search"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search people by name"
-                    aria-label="Search people"
-                    data-voice-control-id="one-connect-search"
-                    className="h-10 pl-11"
-                    enterKeyHint="search"
-                    onKeyDown={(event) => {
-                      // iOS soft-keyboard "return" must dismiss the keyboard;
-                      // blurring the field is what actually closes it in the
-                      // Capacitor webview (there is no form submit here).
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                    }}
-                    onFocus={(event) => {
-                      // Keyboard-dismiss "on drag": the first scroll/drag while
-                      // the field is focused blurs it, so an open keyboard never
-                      // locks the results out of view. Scoped to this field's
-                      // focus lifecycle and cleaned up on blur.
-                      const field = event.currentTarget;
-                      // Scroll the field into view above the on-screen keyboard.
-                      // Tapping it otherwise leaves it hidden behind the keyboard
-                      // until the user manually scrolls up. The delay lets the
-                      // keyboard animate in so the shrunken viewport is measured.
-                      window.setTimeout(() => {
-                        field.scrollIntoView({
-                          block: "center",
-                          behavior: "smooth",
-                        });
-                      }, 300);
-                      const dismiss = () => field.blur();
-                      window.addEventListener("touchmove", dismiss, {
-                        passive: true,
-                        once: true,
-                      });
-                      field.addEventListener(
-                        "blur",
-                        () =>
-                          window.removeEventListener("touchmove", dismiss),
-                        { once: true },
-                      );
-                    }}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fill"
-                  size="sm"
-                  disabled={loading || people.length === 0}
-                  onClick={() => {
-                    setIsSelectionMode((current) => !current);
-                    setSelectedUserIds(new Set());
-                  }}
-                >
-                  {isSelectionMode ? "Cancel selection" : "Select people"}
-                </Button>
-              </div>
-              <SettingsGroup
-                title="People"
-                description={
-                  isSelectionMode
-                    ? (
-                        <span id="connect-selection-limit">
-                          Select up to {MAX_BULK_CONNECTION_REQUESTS} people to send connection requests.
-                        </span>
-                      )
-                    : hasQuery
-                    ? "Send a connection request to someone you know."
-                    : "A few people on Hussh. Search by name to find someone specific."
-                }
-                separatorInset
-              >
-                {loading ? (
-                  <SettingsRow
-                    title="Finding people…"
-                    density="compact"
-                    disabled
-                  />
-                ) : error ? (
-                  <SettingsRow
-                    title="People are unavailable"
-                    description={error}
-                    density="compact"
-                    tone="destructive"
-                  />
-                ) : people.length === 0 ? (
-                  hasQuery ? (
-                    <SettingsRow
-                      title={`No one matches "${trimmedQuery}"`}
-                      description="Check the spelling, or try their full name."
-                      density="compact"
-                      disabled
-                    />
-                  ) : (
-                    <SettingsRow
-                      title="No people yet"
-                      description="Search by name to find someone on Hussh."
-                      density="compact"
-                      disabled
-                    />
-                  )
-                ) : (
-                  sortedPeople.map((person) => {
-                    const cta = relationshipCta(person.relationship);
-                    const title =
-                      person.displayName || person.email || person.userId;
-                    const description = getDirectoryPersonDescription(person);
-                    const isSelected = selectedUserIds.has(person.userId);
-                    const selectionLimitReached =
-                      selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS;
-                    return (
-                      <SettingsRow
-                        key={person.userId}
-                        icon={UserRound}
-                        iconTone="blue"
-                        title={title}
-                        description={description}
-                        density="compact"
-                        trailing={
-                          isSelectionMode ? (
-                            <Checkbox
-                              checked={isSelected}
-                              disabled={
-                                person.relationship !== "none" ||
-                                (!isSelected && selectionLimitReached)
-                              }
-                              aria-describedby="connect-selection-limit"
-                              onCheckedChange={(checked) => {
-                                setSelectedUserIds((current) => {
-                                  const next = new Set(current);
-                                  if (checked) {
-                                    if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                      return current;
-                                    }
-                                    next.add(person.userId);
-                                  } else {
-                                    next.delete(person.userId);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              aria-label={`Select ${title}`}
-                            />
-                          ) : person.relationship === "pending_outgoing" ? (
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fill"
-                              size="sm"
-                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                              disabled={busyId === person.userId}
-                              onClick={() => void cancelConnectionRequest(person)}
-                            >
-                              {busyId === person.userId
-                                ? "Cancelling…"
-                                : "Cancel request"}
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fill"
-                              size="sm"
-                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                              disabled={cta.disabled || busyId === person.userId}
-                              onClick={() => void handleConnect(person)}
-                            >
-                              {busyId === person.userId ? "Sending…" : cta.label}
-                            </Button>
-                          )
                         }
                       />
                     );
-                  })
-                )}
-                {people.length > 0 || currentPage > 1 ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        id="connect-people-per-page-label"
-                        className="text-xs text-muted-foreground"
-                      >
-                        Per page
-                      </span>
-                      <Select
-                        value={String(pageSize)}
-                        onValueChange={(value) => setPageSize(Number(value))}
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          aria-label="People per page"
-                          className="w-[78px]"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PAGE_SIZE_OPTIONS.map((size) => (
-                            <SelectItem key={size} value={String(size)}>
-                              {size}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                        disabled={loading || currentPage <= 1}
-                        onClick={() => goToPage(currentPage - 1)}
-                      >
-                        Previous
-                      </Button>
-                      {/* The directory reports only whether more exists, never
-                          a total, so this names the page rather than claiming
-                          "3 of 12" — a total the surface cannot stand behind. */}
-                      <span
-                        className="text-xs tabular-nums text-muted-foreground"
-                        aria-live="polite"
-                      >
-                        Page {currentPage}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                        disabled={loading || !hasMore}
-                        onClick={() => goToPage(currentPage + 1)}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
+                  })}
+                </SettingsGroup>
+
+                {batchConnectDraft.loadingCatalogs ? (
+                  <SettingsGroup title="Connection access" separatorInset>
+                    <SettingsRow
+                      title="Checking what they can share…"
+                      density="compact"
+                      disabled
+                    />
+                  </SettingsGroup>
+                ) : batchRequestableRows.length > 0 ? (
+                  // One row per person per capability, because a handle is only
+                  // valid for its own owner. Asking four advisors for Picks is
+                  // four separate asks, and each is shown as one.
+                  <SettingsGroup
+                    title="Ask from them"
+                    description="Optional. Each person can decline."
+                    separatorInset
+                  >
+                    {batchRequestableRows.map((row) => (
+                      <SettingsRow
+                        key={`batch-request-${row.userId}-${row.item.handle}`}
+                        icon={QualifiedRowIcon}
+                        iconTone="capability"
+                        title={
+                          <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                            {row.title}
+                          </span>
+                        }
+                        description={row.item.label}
+                        density="compact"
+                        trailing={
+                          <Checkbox
+                            checked={(
+                              batchConnectDraft.requestedHandles[row.userId] ??
+                              []
+                            ).includes(row.item.handle)}
+                            disabled={isConnectingMultiple}
+                            className="border-2 border-foreground/50"
+                            onCheckedChange={(checked) =>
+                              toggleBatchRequestedHandle(
+                                row.userId,
+                                row.item.handle,
+                                checked === true,
+                              )
+                            }
+                            aria-label={`Ask ${row.title} for ${row.item.label}`}
+                          />
+                        }
+                      />
+                    ))}
+                  </SettingsGroup>
                 ) : null}
-                {isSelectionMode && selectedUserIds.size > 0 && (
-                  <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
-                    <Button
-                      type="button"
-                      variant="blue"
-                      effect="fill"
-                      disabled={isConnectingMultiple}
-                      onClick={() => void handleConnectMultiple()}
-                    >
-                      {isConnectingMultiple
-                        ? "Sending requests…"
-                        : `Connect to Selected (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
-                    </Button>
-                  </div>
-                )}
-              </SettingsGroup>
-                </div>
+
+                {!batchConnectDraft.loadingCatalogs &&
+                batchOfferableItems.length > 0 ? (
+                  // Not per person: these handles are the caller's own, so one
+                  // choice is the same offer to everyone selected.
+                  <SettingsGroup
+                    title="Offer now"
+                    description="Offered to everyone selected. They approve first."
+                    separatorInset
+                  >
+                    {batchOfferableItems.map((item) => (
+                      <SettingsRow
+                        key={`batch-offer-${item.handle}`}
+                        title={item.label}
+                        description={item.description}
+                        density="compact"
+                        trailing={
+                          <Checkbox
+                            checked={batchConnectDraft.offeredHandles.includes(
+                              item.handle,
+                            )}
+                            disabled={isConnectingMultiple}
+                            className="border-2 border-foreground/50"
+                            onCheckedChange={(checked) =>
+                              toggleBatchOfferedHandle(
+                                item.handle,
+                                checked === true,
+                              )
+                            }
+                            aria-label={`Offer ${item.label}`}
+                          />
+                        }
+                      />
+                    ))}
+                  </SettingsGroup>
+                ) : null}
+
+                {!batchConnectDraft.loadingCatalogs &&
+                batchRequestableRows.length === 0 &&
+                batchOfferableItems.length === 0 ? (
+                  <SettingsGroup title="Connection access" separatorInset>
+                    <SettingsRow
+                      icon={LockedRowIcon}
+                      iconTone="capability"
+                      title="No access yet"
+                      description="These only send requests."
+                      density="compact"
+                      disabled
+                    />
+                  </SettingsGroup>
+                ) : null}
               </div>
-            )}
-          </div>
-        </SurfaceStack>
-      </AppPageContentRegion>
+            ) : null}
 
-      <Dialog
-        open={scopeDraft !== null}
-        onOpenChange={(open) => {
-          if (!open && busyId === null) setScopeDraft(null);
-        }}
-      >
-        <DialogContent showCloseButton={false} className="gap-5">
-          <DialogHeader className="text-left">
-            <DialogTitle>Review connection capabilities</DialogTitle>
-            <DialogDescription>
-              A connection never shares information by itself. Choose only the
-              capabilities you want to request or offer; the other person can
-              approve a subset or decline them all.
-            </DialogDescription>
-          </DialogHeader>
+            <DialogFooter className="shrink-0 w-full">
+              <FlowActionGroup
+                primary={
+                  <Button
+                    type="button"
+                    variant="blue"
+                    effect="fill"
+                    size="prominent"
+                    className="min-w-[148px]"
+                    // Held until the catalogs land. Sending first is not a slower
+                    // version of the same thing -- it is a send with no picks
+                    // attached, reported as a success, which is the exact failure
+                    // this sheet exists to end.
+                    disabled={
+                      !batchConnectDraft ||
+                      isConnectingMultiple ||
+                      batchConnectDraft.loadingCatalogs
+                    }
+                    onClick={() => void handleConnectMultiple()}
+                  >
+                    {isConnectingMultiple
+                      ? "Sending…"
+                      : batchConnectDraft?.loadingCatalogs
+                        ? "Checking…"
+                        : "Send requests"}
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="standard"
+                    className="min-w-[96px]"
+                    disabled={isConnectingMultiple}
+                    onClick={closeBatchConnectDraft}
+                  >
+                    Cancel
+                  </Button>
+                }
+              />
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-          {scopeDraft ? (
-            <div className="space-y-4">
-              {scopeDraft.catalog.items.length > 0 ? (
-                <SettingsGroup
-                  title={`Request from ${scopeDraft.person.displayName || "this person"}`}
-                  separatorInset
-                >
-                  {scopeDraft.catalog.items.map((item) => (
-                    <SettingsRow
-                      key={`request-${item.handle}`}
-                      title={item.label}
-                      description={item.description}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={scopeDraft.requestedHandles.includes(
-                            item.handle,
-                          )}
-                          onCheckedChange={(checked) =>
-                            toggleDraftHandle(
-                              "requestedHandles",
-                              item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Request ${item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-              {scopeDraft.catalog.offerableItems.length > 0 ? (
-                <SettingsGroup title="Offer to them" separatorInset>
-                  {scopeDraft.catalog.offerableItems.map((item) => (
-                    <SettingsRow
-                      key={`offer-${item.handle}`}
-                      title={item.label}
-                      description={item.description}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={scopeDraft.offeredHandles.includes(
-                            item.handle,
-                          )}
-                          onCheckedChange={(checked) =>
-                            toggleDraftHandle(
-                              "offeredHandles",
-                              item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Offer ${item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-              {scopeDraft.catalog.items.length === 0 &&
-              scopeDraft.catalog.offerableItems.length === 0 ? (
-                <SettingsGroup
-                  title="No capabilities available yet"
-                  description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
-                  separatorInset
-                >
-                  <SettingsRow
-                    title="Connection only"
-                    description="This request does not grant access to any information or Kai debate."
-                    density="compact"
-                    disabled
-                  />
-                </SettingsGroup>
-              ) : null}
+        <AlertDialog
+          open={Boolean(pendingRemoveConnection)}
+          onOpenChange={(open) => {
+            if (!open && !busyId) setPendingRemoveTarget(null);
+          }}
+        >
+          {/* The scope takes Profile's account-dialog roles (title, text, buttons)
+              for this dialog only; the shared dialog is unchanged elsewhere. */}
+          <AlertDialogContent size="sm" data-profile-type-scale="">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove connection</AlertDialogTitle>
+              <AlertDialogDescription>
+                Remove {connectPersonName(pendingRemoveConnection ?? {}, "this person")}{" "}
+                from your connections?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel size="standard" disabled={Boolean(busyId)}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                size="standard"
+                disabled={Boolean(busyId)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (pendingRemoveConnection && !busyId) {
+                    void handleRemove(pendingRemoveConnection);
+                  }
+                }}
+              >
+                {busyId === pendingRemoveId ? "Removing…" : "Remove"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <ContactSyncResultsSheet
+          {...contactSync.resultsSheetProps}
+          onRequestConnection={requestConnectionFromContactMatch}
+          onViewConnections={() => setConnectionView("connections")}
+        />
+        <ContactDiscoverabilityConsentDialog
+          {...contactSync.discoverabilityConsentDialogProps}
+        />
+
+        {showLimitBanner && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
+            <span className="text-xs font-medium text-foreground">
+              You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="compact"
+                className="text-muted-foreground hover:bg-muted"
+                onClick={() => setShowLimitBanner(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="blue"
+                effect="fill"
+                size="compact"
+                onClick={() => {
+                  setShowLimitBanner(false);
+                  if (selectedPeople.size === 0) return;
+                  void openBatchConnectDraft([...selectedPeople.values()]);
+                }}
+              >
+                Review
+              </Button>
             </div>
-          ) : null}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              disabled={busyId !== null}
-              onClick={() => setScopeDraft(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue"
-              effect="fill"
-              disabled={!scopeDraft || busyId === scopeDraft.person.userId}
-              onClick={() => {
-                if (!scopeDraft) return;
-                void sendConnectionRequest(
-                  scopeDraft.person,
-                  scopeDraft.requestedHandles,
-                  scopeDraft.offeredHandles,
-                );
-              }}
-            >
-              {scopeDraft && busyId === scopeDraft.person.userId
-                ? "Sending…"
-                : "Send request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={informationScopeDraft !== null}
-        onOpenChange={(open) => {
-          if (!open) setInformationScopeDraft(null);
-        }}
-      >
-        <DialogContent className="gap-5">
-          <DialogHeader className="text-left">
-            <DialogTitle>Available information scopes</DialogTitle>
-            <DialogDescription>
-              {informationScopeDraft?.connection.displayName || "This person"} controls which
-              scopes appear here. This is metadata only; requesting a scope still requires their
-              explicit consent before an encrypted export can be created.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="search"
-            value={informationScopeQuery}
-            onChange={(event) => setInformationScopeQuery(event.target.value)}
-            placeholder="Search available scopes"
-            aria-label="Search available scopes"
-          />
-          <div className="max-h-[45vh] overflow-y-auto">
-            {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
-              <SettingsGroup title="Discoverable scopes" separatorInset>
-                {visibleInformationScopes.map((item) => (
-                  <SettingsRow
-                    key={item.scope}
-                    title={item.label || item.scope}
-                    description={item.scope}
-                    density="compact"
-                    disabled
-                  />
-                ))}
-              </SettingsGroup>
-            ) : (
-              <SettingsGroup title="No matching scopes" separatorInset>
-                <SettingsRow
-                  title="Nothing is available for this search"
-                  description="Private, internal, and empty scopes are never listed."
-                  density="compact"
-                  disabled
-                />
-              </SettingsGroup>
-            )}
           </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => setInformationScopeDraft(null)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </SettingsPresentationProvider>
     </AppPageShell>
   );
 }

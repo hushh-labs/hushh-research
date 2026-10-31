@@ -8,12 +8,15 @@ Provides:
 - List stocks by tier/sector
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from hushh_mcp.services.universe_list_service import SecurityListDescriptor, SecurityListMember
+
+from .renaissance_rubric import screening_rubric
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +125,7 @@ class RenaissanceService:
                         "tier": stock.tier,
                         "tier_rank": stock.tier_rank,
                         "fcf_billions": stock.fcf_billions,
+                        "fcf_year": 2024,
                         "investment_thesis": stock.investment_thesis,
                     },
                 )
@@ -130,7 +134,9 @@ class RenaissanceService:
 
         if normalized == "renaissance_avoid":
             try:
-                response = self.db.table("renaissance_avoid").select("*").order("ticker").execute()
+                response = await asyncio.to_thread(
+                    lambda: self.db.table("renaissance_avoid").select("*").order("ticker").execute()
+                )
                 rows = response.data or []
             except Exception as exc:  # noqa: BLE001
                 logger.error("Error listing Renaissance avoid members: %s", exc)
@@ -177,11 +183,13 @@ class RenaissanceService:
             Tuple of (is_investable, stock_info)
         """
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .eq("ticker", ticker.upper())
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .eq("ticker", ticker.upper())
+                    .execute()
+                )
             )
 
             if response.data and len(response.data) > 0:
@@ -220,8 +228,10 @@ class RenaissanceService:
     async def get_all_investable(self) -> list[RenaissanceStock]:
         """Get all stocks in the Renaissance investable universe."""
         try:
-            response = (
-                self.db.table("renaissance_universe").select("*").order("tier_rank").execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe").select("*").order("tier_rank").execute()
+                )
             )
 
             return [
@@ -245,12 +255,14 @@ class RenaissanceService:
     async def get_by_tier(self, tier: str) -> list[RenaissanceStock]:
         """Get all stocks in a specific tier."""
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .eq("tier", tier.upper())
-                .order("tier_rank")
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .eq("tier", tier.upper())
+                    .order("tier_rank")
+                    .execute()
+                )
             )
 
             return [
@@ -274,12 +286,14 @@ class RenaissanceService:
     async def get_by_sector(self, sector: str) -> list[RenaissanceStock]:
         """Get all stocks in a specific sector."""
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .ilike("sector", f"%{sector}%")
-                .order("tier_rank")
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .ilike("sector", f"%{sector}%")
+                    .order("tier_rank")
+                    .execute()
+                )
             )
 
             return [
@@ -311,12 +325,14 @@ class RenaissanceService:
         - source: str | None
         """
         try:
-            response = (
-                self.db.table("renaissance_avoid")
-                .select("*")
-                .eq("ticker", ticker.upper())
-                .limit(1)
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_avoid")
+                    .select("*")
+                    .eq("ticker", ticker.upper())
+                    .limit(1)
+                    .execute()
+                )
             )
             rows = response.data or []
             if rows:
@@ -330,9 +346,9 @@ class RenaissanceService:
                     "why_avoid": row.get("why_avoid"),
                     "source": row.get("source"),
                 }
-        except Exception:
-            # Table may not exist yet (before migration 010), or query may fail.
-            pass
+        except Exception as exc:
+            logger.error("renaissance_avoid_lookup_unavailable")
+            raise RuntimeError("Renaissance avoid screening unavailable") from exc
 
         return {
             "is_avoid": False,
@@ -347,15 +363,16 @@ class RenaissanceService:
     async def get_screening_criteria(self) -> list[dict]:
         """Return all screening criteria rows (for UI and LLM prompting)."""
         try:
-            result = self.db.execute_raw(
+            result = await asyncio.to_thread(
+                self.db.execute_raw,
                 """
-                SELECT section, rule_index, title, detail, value_text
-                FROM renaissance_screening_criteria
-                ORDER BY
-                    section ASC,
-                    rule_index ASC NULLS LAST,
-                    id ASC
-                """
+                    SELECT section, rule_index, title, detail, value_text
+                    FROM renaissance_screening_criteria
+                    ORDER BY
+                        section ASC,
+                        rule_index ASC NULLS LAST,
+                        id ASC
+                """,
             )
             return result.data or []
         except Exception:
@@ -369,41 +386,7 @@ class RenaissanceService:
         criteria-first approach, not to duplicate the entire rubric verbatim.
         """
         rows = await self.get_screening_criteria()
-        if not rows:
-            return ""
-
-        investable = [r for r in rows if r.get("section") == "investable_requirements"]
-        avoid = [r for r in rows if r.get("section") == "automatic_avoid_triggers"]
-        math = [r for r in rows if r.get("section") == "the_math"]
-
-        def fmt_rules(rs: list[dict], max_items: int) -> str:
-            parts: list[str] = []
-            for r in rs[:max_items]:
-                idx = r.get("rule_index")
-                title = (r.get("title") or "").strip()
-                detail = (r.get("detail") or "").strip()
-                if idx:
-                    parts.append(f"{idx}. {title} — {detail}")
-                else:
-                    parts.append(f"- {title} — {detail}")
-            return "\n".join(parts)
-
-        math_lines = []
-        for r in math[:6]:
-            title = (r.get("title") or "").strip()
-            value = (r.get("value_text") or r.get("detail") or "").strip()
-            if title and value:
-                math_lines.append(f"- {title}: {value}")
-
-        return (
-            "RENAISSANCE SCREENING RUBRIC\n"
-            "INVESTABLE REQUIREMENTS (all must be met):\n"
-            f"{fmt_rules(investable, 12)}\n\n"
-            "AUTOMATIC AVOID TRIGGERS (any one disqualifies):\n"
-            f"{fmt_rules(avoid, 20)}\n\n"
-            "THE MATH:\n"
-            f"{chr(10).join(math_lines)}\n"
-        ).strip()
+        return screening_rubric(rows)
 
     async def get_analysis_context(self, ticker: str) -> dict:
         """
@@ -422,9 +405,10 @@ class RenaissanceService:
         avoid_ctx = await self.get_avoid_context(ticker)
         screening_ctx = await self.get_screening_context()
 
-        if not is_inv:
+        if not is_inv or avoid_ctx.get("is_avoid"):
             return {
                 "is_investable": False,
+                "curation_conflict": bool(is_inv and avoid_ctx.get("is_avoid")),
                 "tier": None,
                 "tier_description": "Not in Renaissance investable universe",
                 "conviction_weight": 0.0,
@@ -442,13 +426,15 @@ class RenaissanceService:
         # Get sector peers in same or higher tier
         sector_peers = []
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("ticker")
-                .eq("sector", stock.sector)
-                .neq("ticker", ticker.upper())
-                .limit(5)
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("ticker")
+                    .eq("sector", stock.sector)
+                    .neq("ticker", ticker.upper())
+                    .limit(5)
+                    .execute()
+                )
             )
 
             sector_peers = [row["ticker"] for row in response.data]
@@ -472,6 +458,7 @@ class RenaissanceService:
             "conviction_weight": TIER_WEIGHTS.get(stock.tier, 0.5),
             "investment_thesis": stock.investment_thesis,
             "fcf_billions": stock.fcf_billions,
+            "fcf_year": 2024,
             "sector": stock.sector,
             "sector_peers": sector_peers,
             "recommendation_bias": bias_map.get(stock.tier, "NEUTRAL"),

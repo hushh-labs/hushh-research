@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+import { readRouteCacheSource } from "./cache-source-evidence.mjs";
 
 const appRoot = process.cwd();
 const repoRoot = path.resolve(appRoot, "..");
@@ -11,6 +12,10 @@ const outputPath = path.join(
   appRoot,
   "cache-coherence-screen-manifest.generated.json",
 );
+
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
+}
 
 function read(filePath) {
   return fs.readFileSync(filePath, "utf8");
@@ -41,7 +46,9 @@ function routeSort(left, right) {
 }
 
 function routeFromPageFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app"), filePath);
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app"), filePath),
+  );
   const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
   return route ? `/${route}` : "/";
 }
@@ -62,45 +69,7 @@ function routeValuesFromRoutesTs(source) {
 }
 
 function sourceForRoute(route, contractEntry) {
-  const files = new Set();
-  const pageFile = pageFileForRoute(route);
-  if (pageFile) files.add(pageFile);
-  const verificationFile = contractEntry?.shellVerification?.file;
-  if (verificationFile) files.add(verificationFile);
-
-  const sources = [];
-  for (const relative of files) {
-    const absolute = path.join(appRoot, relative);
-    if (fs.existsSync(absolute)) {
-      sources.push(read(absolute));
-    }
-  }
-  let joined = sources.join("\n\n");
-  if (joined.includes("ConnectedSystemDetailClient")) {
-    sources.push(
-      read(
-        path.join(
-          appRoot,
-          "app/one/connected-systems/[systemId]/connected-system-detail-client.tsx",
-        ),
-      ),
-    );
-    joined = sources.join("\n\n");
-  }
-  if (joined.includes("ConnectedSystemsPanel")) {
-    sources.push(
-      read(
-        path.join(
-          appRoot,
-          "components/profile/connected-systems-panel.tsx",
-        ),
-      ),
-    );
-  }
-  if (joined.includes("FeedPage")) {
-    sources.push(read(path.join(appRoot, "components/feed/feed-page.tsx")));
-  }
-  return sources.join("\n\n");
+  return readRouteCacheSource(route, contractEntry, { appRoot, pageFileForRoute, read });
 }
 
 function flagsForSource(source) {
@@ -108,7 +77,7 @@ function flagsForSource(source) {
     cache_service: source.includes("CacheService"),
     use_stale_resource: source.includes("useStaleResource"),
     device_cache: source.includes("DeviceResourceCacheService"),
-    secure_cache: source.includes("SecureResourceCacheService"),
+    secure_cache: source.includes("SecureResourceCacheService") || source.includes("SecureDurableResourceService"),
     cache_sync: source.includes("CacheSyncService"),
     resource_wrapper:
       source.includes("ResourceService") ||
@@ -126,15 +95,25 @@ function flagsForSource(source) {
       source.includes("AgentRealtimeClient") ||
       source.includes("streamAgent") ||
       source.includes("apiFetchStream") ||
+      source.includes("useReferralStream") ||
       source.includes("streamPortfolio"),
     native_beacon:
       source.includes("NativeRouteMarker") ||
+      source.includes("NativeTestBeacon") ||
       source.includes("data-native-test-beacon"),
   };
 }
 
 function isConsentCenterRoute(route) {
   return route === "/consents" || route === "/one/consent";
+}
+
+function isFeedRoute(route) {
+  return route === "/one/feed";
+}
+
+function isTodoListRoute(route) {
+  return route === "/one/todos";
 }
 
 function isConnectedSystemsRoute(route) {
@@ -148,8 +127,8 @@ function isConnectedSystemsRoute(route) {
 
 function screenClassForRoute(route, mode, flags) {
   if (mode === "redirect") return "redirect/alias";
+  if (route === "/") return "public/auth-split";
   if (
-    route === "/" ||
     route === "/developers" ||
     route === "/portfolio/shared"
   ) {
@@ -170,7 +149,7 @@ function screenClassForRoute(route, mode, flags) {
   ) {
     return "hidden flow";
   }
-  if (flags.sse_or_streaming || route === "/agent") return "realtime/SSE";
+  if (flags.sse_or_streaming) return "realtime/SSE";
   if (route.startsWith("/ria") || route.startsWith("/marketplace"))
     return "RIA/provider";
   if (
@@ -178,12 +157,13 @@ function screenClassForRoute(route, mode, flags) {
     route === "/pkm" ||
     route === "/gmail" ||
     isConnectedSystemsRoute(route) ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
+  if (isTodoListRoute(route)) return "PKM-secure";
   if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
@@ -192,11 +172,13 @@ function screenClassForRoute(route, mode, flags) {
 function cachePolicyFor(route, screenClass, flags) {
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split") return "memory-only+sse-background";
   if (screenClass === "auth/pre-vault") return "memory-only";
   if (route === "/kai/portfolio" || route === "/kai/analysis")
     return "secure-resource";
   if (route === "/one/kai") return "device-resource";
   if (route === "/one/kai/news") return "device-resource";
+  if (isFeedRoute(route)) return "memory-only";
   if (isConnectedSystemsRoute(route)) {
     return "memory-only";
   }
@@ -212,12 +194,28 @@ function cachePolicyFor(route, screenClass, flags) {
 }
 
 function routeCacheKeys(route) {
+  if (route === "/one/messages") return ["DIRECT_MESSAGE_THREADS", "DIRECT_MESSAGE_ROUTES", "DIRECT_MESSAGE_SESSION"];
+
+
+  if (route === "/one/gmail") return ["MailReceiptResourceService owner/account session", "mail_receipts.v2:<account-binding> ciphertext (retained V1 fallback)"];
+  if (route === "/one/referrals") return ["referral_dashboard_{user}_{resource}"];
+  if (isFeedRoute(route)) {
+    return [
+      "FEED_LIST",
+      "FEED_UNREAD_COUNT",
+      "CONSENT_CENTER_SUMMARY",
+      "CONSENT_CENTER_LIST",
+      "ONE_LOCATION_STATE",
+      "CONNECTIONS_INCOMING",
+    ];
+  }
   if (isConsentCenterRoute(route))
     return ["CONSENT_CENTER_SUMMARY", "CONSENT_CENTER_LIST"];
-  if (route === "/agent")
-    return ["PKM_METADATA", "KAI_PROFILE", "ANALYSIS_HISTORY"];
   if (route === "/one/kyc")
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
+  if (isTodoListRoute(route)) {
+    return ["PKM_DOMAIN_RESOURCE(one_todos)", "Calendar event projection (memory-only)"];
+  }
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
@@ -260,10 +258,25 @@ function routeCacheKeys(route) {
 }
 
 function resourceClassesFor(route, screenClass) {
+  if (route === "/one/documents/open") return ["encrypted_document", "consent_list"];
+  if (route === "/one/gmail") return ["financial_resource"];
+  if (route === "/one/referrals") return ["user_metadata", "realtime_stream"];
   if (screenClass === "public/static") return ["public_static"];
+  if (screenClass === "public/auth-split") {
+    return ["realtime_stream", "pkm_metadata"];
+  }
   if (screenClass === "auth/pre-vault") return ["auth_state"];
   if (isConsentCenterRoute(route)) return ["consent_list"];
+  if (isFeedRoute(route)) {
+    return [
+      "notification_activity",
+      "consent_list",
+      "location_state",
+      "connection_requests",
+    ];
+  }
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
+  if (isTodoListRoute(route)) return ["pkm_projection", "calendar_events"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
   if (isConnectedSystemsRoute(route)) {
     return ["crm_registry_metadata", "crm_schema_metadata"];
@@ -271,7 +284,7 @@ function resourceClassesFor(route, screenClass) {
   if (
     route === "/pkm" ||
     route === "/gmail" ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return ["pkm_metadata", "pkm_projection"];
@@ -291,18 +304,21 @@ function resourceClassesFor(route, screenClass) {
 function sensitivityClassFor(screenClass, resourceClasses) {
   if (
     resourceClasses.includes("pkm_projection") ||
+    resourceClasses.includes("encrypted_document") ||
     resourceClasses.includes("financial_resource")
   ) {
     return "encrypted-user-data";
   }
   if (
     resourceClasses.includes("vault_metadata") ||
-    resourceClasses.includes("pkm_metadata")
+    resourceClasses.includes("pkm_metadata") ||
+    resourceClasses.includes("user_metadata")
   ) {
     return "user-metadata";
   }
   if (screenClass === "auth/pre-vault") return "auth-state";
   if (screenClass === "public/static") return "public";
+  if (screenClass === "public/auth-split") return "user-metadata";
   return "app-metadata";
 }
 
@@ -346,7 +362,8 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
     (route.startsWith("/one/kai") && route !== "/one/kai/news") ||
     route === "/one/profile" ||
     route === "/one/kyc" ||
-    isConsentCenterRoute(route)
+    isConsentCenterRoute(route) ||
+    isFeedRoute(route)
   ) {
     kpis.push("warmup_completed");
   }
@@ -359,12 +376,18 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 }
 
 function ttlClassFor(route, screenClass) {
+  if (route === "/one/documents/open") return "0ms; private/no-store entitlement and ciphertext reads";
+  if (route === "/one/messages") return "5 minutes per memory snapshot; always revalidate message access on entry";
+  if (route === "/one/referrals") return "0ms; retain memory while revalidating on navigation and signals";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "CACHE_TTL.SHORT for authenticated chat resources; none for anonymous intro";
   if (route.includes("/oauth/return") || route === "/logout")
     return "single-use";
   if (screenClass === "realtime/SSE")
     return "CACHE_TTL.SHORT with active stream patching";
+  if (isFeedRoute(route)) return "CACHE_TTL.SHORT";
   if (isConnectedSystemsRoute(route)) {
     return "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable";
   }
@@ -376,8 +399,12 @@ function ttlClassFor(route, screenClass) {
 }
 
 function warmSourceFor(route, screenClass) {
+  if (route === "/one/documents/open") return "Unlocked-session document state only; no device document cache";
+  if (route === "/one/messages") return "DirectMessagesResourceService owner-scoped memory snapshots";
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "anonymous intro or route-level chat session memory after vault unlock";
   if (route === "/one/kai/news") {
     return "route resource loader with memory/device stale cache; personalized symbols are added only after vault unlock";
   }
@@ -387,6 +414,9 @@ function warmSourceFor(route, screenClass) {
     return "RIA service memory/device cache";
   if (isConsentCenterRoute(route))
     return "UnlockWarmOrchestrator plus ConsentCenterService memory cache";
+  if (isFeedRoute(route)) {
+    return "FeedService plus domain-owned actionable resource caches";
+  }
   if (isConnectedSystemsRoute(route)) {
     return "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh";
   }
@@ -396,30 +426,65 @@ function warmSourceFor(route, screenClass) {
 }
 
 function refreshTriggerFor(route, screenClass) {
+  if (route === "/one/documents/open") return "Live entitlement on every open, preview/download and focus; deadline/session purge";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "authenticated chat stream and user-session invalidation; none for anonymous intro";
   if (isConsentCenterRoute(route)) {
     return "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force";
   }
+  if (isFeedRoute(route)) {
+    return "foreground push/action signal, visible focus/resume, and 45-second visible polling; explicit retry forces";
+  }
   if (screenClass === "realtime/SSE")
     return "SSE stream patch plus stale-aware background refresh";
+  if (isPkmEpochRoute(route)) {
+    return "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force";
+  }
   return "stale-aware background refresh; explicit user refresh may force";
 }
 
+// Screens that read PKM metadata and must notice a domain written elsewhere
+// (Wallet, Kai import, chat) the moment they mount, not after the TTL.
+function isPkmEpochRoute(route) {
+  return (
+    route === "/one/pkm" ||
+    route === "/one/pkm/recent" ||
+    route === "/one/pkm/location" ||
+    route === "/one/pkm/location/detail" ||
+    route === "/one/profile/my-data" ||
+    route === "/one/profile/world-model" ||
+    route === "/one/wallet"
+  );
+}
+
 function invalidatorFor(route, screenClass) {
+  if (route === "/one/documents/open") return "CacheSyncService.onConsentMutated plus vault/session/expiry byte and manifest purge";
+  if (route === "/one/messages") return "CacheSyncService message-change, connection and user/session invalidation";
+
+
+  if (route === "/one/gmail") return "MailReceiptResourceService verified write-through; synchronous vault/sign-out purge; durable owner Reset";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "CacheSyncService user/session and PKM metadata invalidation after unlock";
   if (isConsentCenterRoute(route) || route.includes("/requests"))
     return "CacheSyncService.onConsentMutated";
+  if (isFeedRoute(route)) {
+    return "CacheSyncService Feed read lifecycle plus domain mutation invalidators";
+  }
   if (isConnectedSystemsRoute(route)) {
     return "explicit refresh plus CacheService user/session invalidation";
   }
   if (
     route.startsWith("/one/kai") ||
     route === "/pkm" ||
+    isPkmEpochRoute(route) ||
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
-    route === "/one/kyc"
+    route === "/one/kyc" ||
+    isTodoListRoute(route)
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }
@@ -429,14 +494,28 @@ function invalidatorFor(route, screenClass) {
 }
 
 function realtimePolicyFor(route, screenClass) {
+  if (isFeedRoute(route)) {
+    return "push/action signals refresh the visible Feed; hidden tabs defer until visible; polling is visibility-scoped and concurrent requests dedupe";
+  }
   if (isConsentCenterRoute(route)) {
     return "FCM consent changes invalidate the shared cache and retained-data refresh the visible summary/list; visible SSE fallback reconciles when push is unavailable";
   }
-  if (screenClass !== "realtime/SSE") return "not realtime";
+  if (
+    screenClass !== "realtime/SSE" &&
+    screenClass !== "public/auth-split"
+  ) return "not realtime";
+  if (screenClass === "public/auth-split") {
+    return "anonymous intro stays static; authenticated Chat streams only after the vault and phone guards settle";
+  }
   return "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only";
 }
 
 function reviewerFixtureFor(route, nativeRow) {
+  if (route === "/one/documents/open") return "/one/documents/open?ref=<authorized-request-uuid>";
+  // `/agent` is retained only as a web compatibility redirect. Reviewer
+  // rehearsals must exercise the canonical root Chat surface, never the
+  // redirect itself.
+  if (route === "/agent") return "/";
   if (nativeRow?.initialRoute) return nativeRow.initialRoute;
   if (route.startsWith("/ria/clients/[userId]/accounts")) {
     return "/ria/clients/${REVIEWER_UID}/accounts/acct_demo_taxable_main?test_profile=1";
@@ -460,7 +539,12 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
     findings.push("review native route beacon coverage");
   }
   if (
-    !["public/static", "redirect/alias", "auth/pre-vault"].includes(
+    ![
+      "public/static",
+      "public/auth-split",
+      "redirect/alias",
+      "auth/pre-vault",
+    ].includes(
       screenClass,
     ) &&
     !flags.use_stale_resource &&
@@ -478,7 +562,12 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
   }
   if (
     flags.hushh_loader &&
-    !["auth/pre-vault", "hidden flow", "public/static"].includes(screenClass)
+    ![
+      "auth/pre-vault",
+      "hidden flow",
+      "public/static",
+      "public/auth-split",
+    ].includes(screenClass)
   ) {
     findings.push(
       "loader detected; verify warm cache path avoids blocking loader",
@@ -488,8 +577,9 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
 }
 
 function buildManifest() {
-  const pageRoutes = walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+  const pageRoutes = walkFiles(
+    path.join(appRoot, "app"),
+    (filePath) => path.basename(filePath) === "page.tsx",
   )
     .map(routeFromPageFile)
     .sort(routeSort);
@@ -643,6 +733,26 @@ function linkageInvariants() {
     return fs.existsSync(full) ? read(full) : "";
   };
 
+  // Invariant 0: a PKM write on one route must reach Memory, Profile, and Wallet
+  // when they mount later. The epoch is bumped by every domain emitter and
+  // read by the revision hook; losing either side re-opens the stale-Memory
+  // defect (write-through metadata patch that looks fresh for the TTL).
+  const epochLinks = [
+    ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
+    ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmNaturalModel"],
+    ["components/profile/use-pkm-natural-model.ts", "usePkmDomainChangeRevision"],
+    ["components/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
+  ];
+  for (const [relPath, needle] of epochLinks) {
+    const source = readSource(relPath);
+    if (!source.includes(needle)) {
+      violations.push(
+        `${relPath} must reference ${needle} so a PKM write on another route forces a fresh read on mount`,
+      );
+    }
+  }
+
   // Invariant 1: the /consents read-path service must cache its read responses
   // at CACHE_TTL.MEDIUM (matching the manifest ttl_class). A CACHE_TTL.SHORT
   // write here is the TTL drift that caused stale-driven refetch on scroll.
@@ -679,6 +789,22 @@ function linkageInvariants() {
         "unlock-warm-orchestrator.ts must call ConsentCenterService.getSummary + listEntries so warmed keys match the /consents page-read keys",
       );
     }
+  }
+
+  // Invariant 3: /one/feed is a short-lived, visible-only live projection. The
+  // manifest must stay anchored to the actual list service, SWR hook, live
+  // signal, and coordinator instead of falling back to generic MEDIUM/unknown.
+  const feedPageSource = readSource("components/feed/feed-page.tsx");
+  const feedServiceSource = readSource("lib/services/feed-service.ts");
+  if (
+    !feedPageSource.includes("useStaleResource") ||
+    !feedPageSource.includes("useFeedLiveRefresh") ||
+    !feedPageSource.includes("CacheSyncService") ||
+    !feedServiceSource.includes("CACHE_TTL.SHORT")
+  ) {
+    violations.push(
+      "/one/feed must retain its SWR + visible live-refresh + CacheSyncService lifecycle at CACHE_TTL.SHORT",
+    );
   }
 
   return violations;

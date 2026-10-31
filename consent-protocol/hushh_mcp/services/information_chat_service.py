@@ -18,18 +18,31 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from hushh_mcp.agents.personal_information.agent import (
-    get_personal_information_chat_agent,
-)
+from hushh_mcp.agents.personal_information.agent import build_personal_information_agent
+from hushh_mcp.agents.personal_information.tools import PERSONAL_INFORMATION_CHAT_TOOLS
 from hushh_mcp.hushh_adk.context import HushhContext
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 from hushh_mcp.services.marketplace_information_service import (
     MarketplaceInformationService,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _information_instruction() -> str:
+    """Cache project-neutral prompt data, never a project-bound ADK model."""
+    manifest_path = (
+        Path(__file__).resolve().parents[1] / "agents" / "personal_information" / "agent.yaml"
+    )
+    return ManifestLoader.load(str(manifest_path)).system_instruction
+
 
 # Deterministic publish-card trigger: the model is unreliable at calling
 # propose_publish, so when the user's message is clearly a publish/monetize intent
@@ -81,6 +94,26 @@ _GAVE_UP_MESSAGE = (
 
 # model call seam: (contents, config) -> Gemini response. Injectable for tests.
 ModelCall = Callable[[Any, Any], Awaitable[Any]]
+
+
+class _PromptStoppingTool:
+    """Stop a publish proposal before ADK asks for an unnecessary follow-up."""
+
+    def __init__(self, function: Callable[..., Any]):
+        from google.adk.tools.function_tool import FunctionTool
+
+        class _Tool(FunctionTool):
+            async def run_async(inner, *, args, tool_context):
+                result = await super(_Tool, inner).run_async(args=args, tool_context=tool_context)
+                if isinstance(result, dict) and result.get("proposed") == "publish_slices":
+                    tool_context.state["hussh:specialist_directive"] = {
+                        "kind": "action",
+                        "payload": result,
+                    }
+                    tool_context.actions.skip_summarization = True
+                return result
+
+        self.tool = _Tool(function)
 
 
 def _function_declarations(types: Any) -> list:
@@ -216,12 +249,21 @@ class InformationChatService:
         *,
         chat_store: Any = None,
         model_call: ModelCall | None = None,
+        model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
         tools: list | None = None,
         system_prompt: str | None = None,
+        service_ports: dict[str, Any] | None = None,
+        scope_tokens: dict[str, str] | None = None,
     ) -> None:
+        self._service_ports = dict(service_ports or {})
+        self._scope_tokens = dict(scope_tokens or {})
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
+        # Default shared turns and injected pod models use ADK. Explicit legacy
+        # callbacks remain a compatibility seam when no model is supplied.
+        self._use_adk = model is not None or model_call is None
+        self._adk_model = model
 
         if model_call is not None:
             self._model_call = model_call
@@ -242,13 +284,32 @@ class InformationChatService:
 
             self._model_call = _default_call
 
-        need_agent = system_prompt is None or tools is None
-        agent = get_personal_information_chat_agent() if need_agent else None
+        # The A2A bridge can retain this service across requests. Hold no
+        # project-bound model: resolve it when each ADK turn is built instead.
         self._system_prompt = (
-            system_prompt if system_prompt is not None else agent.manifest.system_instruction
+            system_prompt if system_prompt is not None else _information_instruction()
         )
-        tool_list = tools if tools is not None else agent.hushh_tools
+        tool_list = tools if tools is not None else PERSONAL_INFORMATION_CHAT_TOOLS
         self._dispatch = {getattr(t, "_name", getattr(t, "__name__", "")): t for t in tool_list}
+        self._adk_tools = self._build_adk_tools(tool_list) if self._use_adk else []
+
+    def _build_adk_agent(self):
+        # Build under the current request scope; a cached service must not pin
+        # the model to the project of its first caller.
+        return build_personal_information_agent(tools=self._adk_tools, model=self._adk_model)
+
+    @staticmethod
+    def _build_adk_tools(tool_list: list[Any]) -> list[Any]:
+        from google.adk.tools.function_tool import FunctionTool
+
+        wrapped: list[Any] = []
+        for function in tool_list:
+            name = getattr(function, "_name", getattr(function, "__name__", ""))
+            if name == "propose_publish":
+                wrapped.append(_PromptStoppingTool(function).tool)
+            else:
+                wrapped.append(FunctionTool(function))
+        return wrapped
 
     async def handle_turn(
         self,
@@ -272,6 +333,29 @@ class InformationChatService:
             conversation_id=conversation_id,
         )
 
+        if self._use_adk:
+            if not self._ready():
+                return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
+            try:
+                reply, errored, state_changed, directives = await self._run_adk_tool_loop(
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    history=turn.history,
+                    message=message,
+                )
+            except Exception:
+                logger.exception("Information ADK turn failed")
+                return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
+            client_action = self._build_publish_action(directives)
+            return await self._finish(
+                turn,
+                reply or "Done.",
+                user_id,
+                errored=errored,
+                state_changed=state_changed and not errored,
+                client_action=client_action,
+            )
+
         if self._types is None or not self._ready():
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
@@ -292,7 +376,8 @@ class InformationChatService:
         client_action = self._build_publish_action(directives)
         # Deterministic publish card: if the model didn't stage one but the user
         # clearly asked to publish/monetize, attach it ourselves (topic-tailored).
-        if client_action is None and not errored:
+        # Injected runtimes must use their scoped authored tools for cards.
+        if client_action is None and not errored and not self._service_ports:
             intent, topic = _publish_intent_topic(message)
             if intent:
                 try:
@@ -314,6 +399,51 @@ class InformationChatService:
             errored=errored,
             state_changed=state_changed and not errored,
             client_action=client_action,
+        )
+
+    async def _run_adk_tool_loop(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        history: list[Any],
+        message: str,
+    ) -> tuple[str, bool, bool, list[dict]]:
+        """Execute Memory/marketplace through the shared ADK runner."""
+        try:
+            turn = await run_specialist_adk_turn(
+                agent=self._build_adk_agent(),
+                app_name="hushh_memory",
+                user_id=user_id,
+                consent_token=consent_token,
+                message=message,
+                history=history,
+                scope_tokens=self._scope_tokens,
+                service_ports=self._service_ports,
+                max_llm_calls=_MAX_TOOL_STEPS,
+            )
+            failed = False
+        except SpecialistAdkTurnError as exc:
+            turn = exc.partial_turn
+            failed = True
+
+        directives: list[dict] = []
+        state_changed = False
+        for response in turn.tool_results:
+            name = str(response.name or "")
+            result = response.response if isinstance(response.response, dict) else {}
+            if not result.get("error"):
+                state_changed = state_changed or name in _MUTATING_TOOLS
+                directive = self._directive_from_tool(name, result)
+                if directive is not None:
+                    directives.append(directive)
+        if failed and not (state_changed or directives):
+            raise RuntimeError("Information ADK turn failed")
+        return (
+            turn.final_text,
+            failed and not (state_changed or directives),
+            state_changed,
+            directives,
         )
 
     async def _run_tool_loop(
@@ -338,7 +468,13 @@ class InformationChatService:
         errored = False
         state_changed = False
         directives: list[dict] = []
-        with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
+        with HushhContext(
+            user_id=user_id,
+            consent_token=consent_token,
+            vault_keys={},
+            service_ports=self._service_ports,
+            scope_tokens=self._scope_tokens,
+        ):
             for _ in range(_MAX_TOOL_STEPS):
                 response = await self._model_call(contents, config)
                 calls = list(getattr(response, "function_calls", None) or [])

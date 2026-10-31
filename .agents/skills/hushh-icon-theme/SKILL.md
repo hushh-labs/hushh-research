@@ -1,0 +1,175 @@
+---
+name: hushh-icon-theme
+description: Authoring, styling, and integrating official Phosphor base SVG icons for Hussh capabilities and navigation. Use when designing, creating, or configuring agent capability icons with pure, flat Phosphor outline vector geometry, signature capability color tones, zero 3D artifacts, zero viewBox clipping, transparent backgrounds, deep obsidian dark mode contrast, crisp light mode surfaces, and edge-to-edge agent chat layout.
+---
+
+# Hussh Icon Theme & Surface Contrast Skill: Pure Flat Phosphor & Obsidian Standards
+
+> Authoritative standard for capability icons, navigation icons, dark/light chrome contrast, and edge-to-edge layout across the Hussh / One platform.
+
+---
+
+## 1. Iconography Philosophy & Standard
+
+Hussh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, and modern technical craft**.
+
+1. **Official Phosphor Geometry Base**: Every capability and navigation icon is an authentic Phosphor icon (`Bank`, `Wallet`, `MapPin`, `UsersThree`, `EnvelopeSimple`, `CalendarBlank`, `IdentificationCard`, `Graph`, `LockKey`, `Storefront`, `PlugsConnected`, `SquaresFour`, `ChatCircle`, `Compass`). No cartoonish doodles, no fake 3D shadows, no clip-art.
+2. **Pure Flat Vector Aesthetic**: Flat 2D vector geometry with Phosphor's regular outline weight and no translucent interior shading.
+3. **Focused Signature Palette**: Each icon has a single signature capability hue (not multi-color or rainbow):
+   - **Finance**: Emerald (`#10B981`)
+   - **Wallet**: Amber (`#F59E0B`)
+   - **Location**: Apple Blue (`#007AFF`)
+   - **RIA**: Royal Purple (`#8B5CF6`)
+   - **Email** (Gmail): Rose / Scarlet (`#E11D48`)
+   - **Calendar**: Sky / Ocean Blue (`#0284C7`)
+   - **KYC**: Cobalt Blue (`#2563EB`)
+   - **Memory**: Indigo (`#6366F1`)
+   - **Consent**: Safety Orange (`#F97316`)
+   - **Marketplace**: Forest Emerald (`#059669`)
+   - **Connected Systems**: Electric Cyan (`#00E5FF`)
+4. **Zero ViewBox Clipping**: Always preserve Phosphor's native `viewBox="0 0 256 256"`. Never crop the viewBox. Scale cleanly via container CSS dimensions (`classes.glyph`).
+5. **Clean Transparent Canvas**: Custom capability icons sit on transparent backdrops without artificial colored squircle box backgrounds (`!bg-transparent !shadow-none !ring-0`).
+6. **Muted & Loading States**: Muted states preserve the exact same flat outline geometry with `currentColor` / muted opacity without falling back to solid gray boxes or inconsistent geometry.
+
+---
+
+## 2. Mathematical Geometry Baseline
+
+- **Coordinate Canvas**: Uniform native `viewBox="0 0 256 256"`.
+- **Weight**: Phosphor `weight="regular"` (or `weight="fill"` for intentionally solid glyphs).
+- **Styling**: `color` prop sets the primary hue; interior counters remain transparent. Keys use the shared neutral outline and fixed blue pinpoint.
+- **Container Sizing**: `classes.glyph` controls physical display dimensions with balanced padding inside the tile.
+
+---
+
+## 3. Capability Icon Map
+
+| Capability ID | Display Title | Phosphor Component | Weight | Default Color |
+|---|---|---|---|---|
+| `finance` | **Finance** | `Bank` | `regular` | `#10B981` |
+| `wallet` | **Wallet** | `Wallet` | `regular` | `#F59E0B` |
+| `location` | **Location** | `MapPin` | `regular` | `#007AFF` |
+| `ria` | **RIA** | `UsersThree` | `regular` | `#8B5CF6` |
+| `gmail` | **Email** | `EnvelopeSimple` | `regular` | `#E11D48` |
+| `calendar` | **Calendar** | `CalendarBlank` | `regular` | `#0284C7` |
+| `email` | **KYC** | `IdentificationCard` | `regular` | `#2563EB` |
+| `pkm` | **Memory** | `Graph` | `regular` | `#6366F1` |
+| `files` | **Files** | `FolderSimple` (`FolderRowIcon`) | `regular` | Indigo |
+| `consent` | **Consent** | `LockKey` | `regular` | `#F97316` |
+| `marketplace` | **Marketplace** | `Storefront` | `regular` | `#059669` |
+| `connected-systems` | **Connected Systems** | `PlugsConnected` | `regular` | `#00E5FF` |
+
+---
+
+## 4. Obsidian Dark Punch & Crisp Light Contrast Standard
+
+To avoid washed-out milky gray tones (`#1c1c1e` / `rgb(28, 28, 30)`), dark mode surfaces must have deep obsidian punch while subtly differentiating from root `#000000`:
+
+1. **Dark Mode Surfaces**:
+   - **Root Canvas**: `#000000`
+   - **Elevated / Card Surfaces**: Deep obsidian `#0A0A0C` (cards, rosters, search fields) and `#070709` (sidebars).
+   - **Floating Chrome (Bottom Bar & Agent Bar)**: `rgba(10, 10, 13, 0.94)` with `border: 0.5px solid rgba(255, 255, 255, 0.12)` and high-depth elevation `0 12px 36px -4px rgba(0, 0, 0, 0.85)`.
+   - **Never use milky gray**: Disallow `#1c1c1e` / `#2c2c2e` as card or bar backgrounds.
+2. **Light Mode Surfaces**:
+   - **Card & Bar Surfaces**: `rgba(255, 255, 255, 0.96)` with crisp hairline border `0.5px solid rgba(0, 0, 0, 0.08)` and subtle shadow `0 10px 30px -8px rgba(0, 0, 0, 0.08)`.
+
+---
+
+## 5. Responsive Edge-to-Edge Chat Layout Standard
+
+1. **Full-Height Sidebar**: Desktop history sidebar takes 100% viewport height (`h-dvh` / `h-full`) from top to bottom edge without arbitrary padding breaks.
+2. **Symmetric Unified Top Bar**: Exactly one top bar on canonical `/` route:
+   - Left: Active Agent title & status
+   - Center: Agent / Puppy mode switcher
+   - Right: Model selector, status indicator, and Profile avatar button (`profile-open-button`)
+3. **Always-Visible Composer**: The chat text input bar never translates offscreen on scroll (`transform: none`, permanently visible and accessible).
+
+---
+
+## 6. Universal UI Icon Registry & Replacement Map
+
+To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor geometry. Capability glyphs and neutral utility controls use regular outlines so secondary fills never read as a background. Direct imports from any other icon library, hand-drawn utility SVGs, and per-surface stroke-width overrides are prohibited on application-owned modernized surfaces. Reviewed exceptions are limited to vendor code, branded provider artwork, and non-icon diagrams.
+
+Close and add controls follow the same outline rule: `XIcon`/`CloseIcon` and
+`PlusIcon` default to Phosphor `regular`. Their duotone artwork contains a
+square backing that reads as a second surface inside a button. Preserve the
+official regular paths and native viewBox; do not hide SVG paths with CSS or
+hand-draw substitutes. Animated menu/close controls crossfade registry icons.
+Capabilities also use regular outlines. `Key`, `KeyRound`, `KeyIcon` and the key row aliases share `AccentedKeyIcon`, including password setup and recovery. Its neutral ink follows the theme; `--app-key-accent` remains blue under the gold preference. Verify rendered glyphs, not just import names.
+
+### Settings rows: one treatment, one glyph per concept
+
+Profile uses `PROFILE_ICONS` from `@/components/icons`: existing neutral-outline
+artwork with restrained app-accent details, not the launcher's capability palette.
+Preserve its approved geometry; this mapping also supplies generated iOS base and
+accent assets. Do not redraw it or edit generated assets by hand. Profile menus
+and nested rows keep the same 32px well/28px glyph from `app/globals.css`, with no
+colored tile. Provider logos remain branded; keys retain their fixed Blue detail.
+Capability launchers and other authored capability rows retain their own registry
+palette. A muted state uses the same glyph, not a gray tile. Add missing concepts
+to the shared authored mapping; never import an icon library from application
+code. The existing iconography-motion and Profile registry regressions protect
+these distinct treatments and the import boundary.
+
+Profile menu glyphs also generate native artwork. After changing
+`components/profile/profile-menu-model.ts` or its rendered icons, run
+`npm run build:brand-assets` then `npm run verify:brand-assets` from
+`hushh-webapp`. Commit the resulting `HushhProfile-*.imageset` assets and
+`NativeProfileArtwork.swift` with the authored change; never hand-edit them.
+Update the native artwork test's semantic accent and colour assertions when
+those authored properties change; generator freshness does not check XCTest expectations.
+
+### Card headers, status lines, and the sparkle ban
+
+A card header icon follows the /one launcher: the concept's registry glyph,
+bare on a transparent well, in its own capability colour. Never a filled or
+tinted tile with a white or tinted glyph. Consent is always `ConsentAgentIcon`
+(the /one Consent capability), whatever the card. A person is their face or
+initials (`ConnectionPersonAvatar`), not a silhouette on a tile. Status lines
+use registry outline glyphs in a semantic role from
+`hushh-webapp/lib/morphy-ux/tokens/semantic-roles.ts`: success for a settled
+positive fact (shared), neutral for absence and time (not shared, access ends).
+
+There is no sparkle glyph (founder directive, 2026-09-28). "AI did this" is not
+a concept; draw the concept instead: a preview, a draft, the agent that acts, or
+the chat glyph for talking to One. The contract test above rejects any sparkle
+reference, the registry included, and any consent card element that paints a
+background behind a sole glyph.
+
+Read this portable skill directly from `.agents/skills/hushh-icon-theme/`.
+Automatic discovery depends on the active host; do not create a vendor-specific
+copy or adapter for this policy.
+
+### UI Replacement Index
+
+| Legacy Lucide Icon | Canonical Phosphor Component | Export Name in `@/components/icons` | Default Weight |
+|---|---|---|---|
+| `Search` | `MagnifyingGlass` | `SearchIcon` | `regular` |
+| `Grid` / `LayoutGrid` | `SquaresFour` | `GridIcon` | `regular` |
+| `List` / `Menu` | `List` | `ListIcon`, `MenuIcon` | `regular` |
+| `ChevronRight` | `CaretRight` | `CaretRightIcon`, `ChevronRightIcon` | `regular` |
+| `ChevronDown` | `CaretDown` | `CaretDownIcon`, `ChevronDownIcon` | `regular` |
+| `ChevronLeft` | `CaretLeft` | `CaretLeftIcon`, `ChevronLeftIcon` | `regular` |
+| `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `regular` |
+| `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `regular` |
+| `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `regular` |
+| `Plus` | `Plus` | `PlusIcon` | `regular` |
+| `X` | `X` | `XIcon`, `CloseIcon` | `regular` |
+| `Check` | `Check` | `CheckIcon` | `regular` |
+| `Trash` / `Trash2` | `Trash` | `TrashIcon` | `regular` |
+| `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `regular` |
+| `Copy` | `Copy` | `CopyIcon` | `regular` |
+| `Send` | `PaperPlaneRight` | `SendIcon` | `regular` |
+| `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `regular` |
+| `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `regular` |
+| `Sliders` | `Sliders` | `SlidersIcon` | `regular` |
+| `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `regular` |
+| `ExternalLink` | `ArrowSquareOut` | `ExternalLinkIcon` | `regular` |
+| `Sidebar` | `SidebarSimple` | `PanelLeftCloseIcon`, `PanelLeftOpenIcon` | `regular` |
+| `Shield` | `ShieldCheck` | `ShieldIcon` | `regular` |
+| `Lock` | `LockKey` | `LockIcon` | `regular` |
+| `User` | `User` | `UserIcon` | `regular` |
+| `Laptop` | `Laptop` | `LaptopIcon` | `regular` |
+| `Key` | `Key` | `KeyIcon` | `regular` |
+| `Mail` | `EnvelopeSimple` | `MailIcon` | `regular` |
+| `LogOut` | `SignOut` | `LogOutIcon` | `regular` |

@@ -1,15 +1,16 @@
 {
   "displayName": "[Managed] Unexpected Error Spike",
   "documentation": {
-    "content": "Unexpected client/server errors from request.summary logs crossed threshold.",
+    "content": "Unexpected backend server errors from request.summary logs crossed threshold.\n\nDiagnostic only: request.summary server errors are covered by Backend 5xx Rate High. Retain the metric and dashboard.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
-  "enabled": true,
+  "enabled": false,
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "ops",
+    "incident_purpose": "diagnostic"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "WARNING",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

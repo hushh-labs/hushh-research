@@ -1,0 +1,439 @@
+import { act, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => {
+  const toast = Object.assign(vi.fn(), { dismiss: vi.fn() });
+  const user = {
+    uid: "recipient-user",
+    getIdToken: vi.fn().mockResolvedValue("firebase-token"),
+  };
+  return {
+    toast,
+    user,
+    auth: { user: user as typeof user | null },
+    platform: { value: "web", native: false },
+    initializeFCM: vi.fn(),
+    prepareFCMListeners: vi.fn(),
+    getState: vi.fn(),
+    getVaultOwnerToken: vi.fn(),
+    onConsentMutated: vi.fn(),
+    onConnectionGraphMutated: vi.fn(),
+    onOneLocationStateMutated: vi.fn(),
+    dispatchConsentStateChanged: vi.fn(),
+    dispatchFeedStateChanged: vi.fn(),
+    markPendingConsentOpened: vi.fn(),
+    navigation: { pathname: "/one/setup", search: "" },
+    apiFetchStream: vi.fn(),
+    apiFetch: vi.fn(),
+    vault: { unlocked: true, token: "vault-owner-token" },
+  };
+});
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.navigation.pathname,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(mocks.navigation.search),
+}));
+
+vi.mock("sonner", () => ({ toast: mocks.toast }));
+
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: {
+      ...actual.Capacitor,
+      isNativePlatform: () => mocks.platform.native,
+      getPlatform: () => mocks.platform.value,
+    },
+  };
+});
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mocks.auth.user, userId: mocks.auth.user?.uid ?? null }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    isVaultUnlocked: mocks.vault.unlocked,
+    getVaultOwnerToken: mocks.getVaultOwnerToken,
+  }),
+}));
+
+vi.mock("@/lib/notifications", () => ({
+  initializeFCM: mocks.initializeFCM,
+  prepareFCMListeners: mocks.prepareFCMListeners,
+  clearDeliveredConsentNotifications: vi.fn(),
+  FCM_MESSAGE_EVENT: "fcm-message",
+}));
+
+vi.mock("@/lib/one-location/service", () => ({
+  OneLocationService: { getState: mocks.getState },
+}));
+
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: {
+    getPendingConsents: vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ pending: [] }),
+    }),
+    markPendingConsentOpened: mocks.markPendingConsentOpened,
+    apiFetchStream: mocks.apiFetchStream,
+    apiFetch: mocks.apiFetch,
+  },
+}));
+
+vi.mock("@/lib/services/app-background-task-service", () => ({
+  AppBackgroundTaskService: {
+    startTask: vi.fn(),
+    completeTask: vi.fn(),
+    dismissTask: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/cache/cache-sync-service", () => ({
+  CacheSyncService: {
+    onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
+    onOneLocationStateMutated: mocks.onOneLocationStateMutated,
+    onConsentReviewed: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/consent/consent-events", () => ({
+  CONSENT_STATE_CHANGED_EVENT: "consent-state-changed",
+  dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
+}));
+
+vi.mock("@/lib/feed/feed-events", () => ({
+  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
+}));
+
+import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+
+/**
+ * The request storm this file exists for.
+ *
+ * Consent SSE is deliberately switched off in production: the backend answers
+ * 410 with CONSENT_SSE_DISABLED and tells the client to use FCM instead. The
+ * client discarded the status, treated a settled configuration as a transient
+ * blip, and reconnected on a fixed 3-second timer with no cap. Every retry cost
+ * two Cloud Run invocations, one logged backend error and one failed
+ * api_request_completed metric -- per open tab, forever. The founder's console
+ * showed the error count climbing from 79 to 157 while he sat on one screen.
+ */
+
+const EMPTY_LOCATION_STATE = {
+  recipients: [],
+  ownerGrants: [],
+  receivedGrants: [],
+  requests: [],
+  referrals: [],
+  publicInvites: [],
+  networkConnections: [],
+  publicInviteSubmissions: [],
+  capabilityScopes: [],
+};
+
+function streamResponse(status: number, body: string) {
+  return {
+    ok: false,
+    status,
+    body: null,
+    text: vi.fn().mockResolvedValue(body),
+  };
+}
+
+describe("consent SSE stops retrying a permanent refusal", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mocks.auth.user = mocks.user;
+    mocks.platform = { value: "web", native: false };
+    mocks.navigation = { pathname: "/one/setup", search: "" };
+    mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
+    mocks.getVaultOwnerToken?.mockReturnValue?.("vault-owner-token");
+    // Web with notifications never granted -- the default state for a signed-in
+    // browser user, and the one that puts the SSE fallback in the path.
+    mocks.initializeFCM.mockResolvedValue({ status: "push_not_requested" });
+    mocks.prepareFCMListeners.mockResolvedValue(undefined);
+    mocks.apiFetch.mockResolvedValue({ ok: true, json: async () => ({ enabled: true }) });
+    mocks.getPendingConsents?.mockResolvedValue?.({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ pending: [] }),
+    });
+  });
+
+  it("uses inbox delivery without requesting a known disabled stream", async () => {
+    mocks.apiFetch.mockResolvedValue({ ok: true, json: async () => ({ enabled: false }) });
+    render(<ConsentNotificationProvider><div>Setup</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      "/api/consent/events/recipient-user?capabilities=1",
+      expect.objectContaining({ headers: { Authorization: "Bearer firebase-token" }, cache: "no-store" }),
+    );
+    expect(mocks.apiFetchStream).not.toHaveBeenCalled();
+  });
+
+  it("gives up after one 410 instead of reconnecting forever", async () => {
+    mocks.apiFetchStream.mockResolvedValue(
+      streamResponse(
+        410,
+        JSON.stringify({
+          detail: {
+            error_code: "CONSENT_SSE_DISABLED",
+            message: "Consent SSE is disabled. Use FCM notifications.",
+          },
+        }),
+      ),
+    );
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+
+    // Let the first attempt run.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+
+    // Past the old fixed 3s reconnect and every backoff step after it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot open a stream after sign-out while availability is being checked", async () => {
+    let resolveDiscovery!: (value: unknown) => void;
+    mocks.apiFetch.mockImplementationOnce(() => new Promise(resolve => { resolveDiscovery = resolve; }));
+    const view = render(<ConsentNotificationProvider><div>Setup</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    const signal = mocks.apiFetch.mock.calls[0]![1].signal as AbortSignal;
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolveDiscovery({ ok: true, json: async () => ({ enabled: true }) });
+    });
+    expect(mocks.apiFetchStream).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("refreshes authentication and bounds recovery of an expired 410 stream", async () => {
+    mocks.apiFetchStream.mockResolvedValue(streamResponse(410, JSON.stringify({ detail: { error_code: "STREAM_EXPIRED" } })));
+    const view = render(<ConsentNotificationProvider><div>Feed</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    expect(mocks.user.getIdToken).toHaveBeenCalledWith(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+    view.unmount();
+  });
+
+  it("aborts the live stream and stops reconnecting when sign-out withdraws the user", async () => {
+    let streamSignal: AbortSignal | undefined;
+    mocks.apiFetchStream.mockImplementation((_path: string, init: RequestInit) => {
+      streamSignal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        streamSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    });
+    const view = render(<ConsentNotificationProvider><div>Profile</div></ConsentNotificationProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledOnce();
+    expect(streamSignal?.aborted).toBe(false);
+
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(streamSignal?.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledOnce();
+  });
+
+  it.each([null, "60"])("bounds recoverable retries and honors Retry-After %s", async (retryAfter) => {
+    // 503 is transient. The fix must not turn every failure into a give-up --
+    // but it must not retry forever either.
+    mocks.apiFetchStream.mockResolvedValue(
+      { ...streamResponse(503, "service unavailable"), headers: new Headers(
+        retryAfter ? { "Retry-After": retryAfter } : {},
+      ) },
+    );
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+
+    if (retryAfter) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
+      expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    }
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+
+    // Six attempts maximum, with ordinary backoff or the provider's busy delay.
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+  });
+  it("bounds repeated successful responses that immediately close", async () => {
+    mocks.apiFetchStream.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    }));
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+  });
+
+  it("preserves a connection removal delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: connection-removed:conn-1:episode-2:recipient-user",
+      `data: ${JSON.stringify({
+        type: "connection_removed",
+        message_id: "connection-removed:conn-1:episode-2:recipient-user",
+        connection_id: "conn-1",
+        action: "REMOVED",
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+      "recipient-user",
+    );
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "connection_removed" }),
+    );
+  });
+
+  it("preserves a silent graph activation delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: connection-graph-changed:transition-1:recipient-user",
+      `data: ${JSON.stringify({
+        type: "connection_graph_changed",
+        user_id: "recipient-user",
+        message_id: "connection-graph-changed:transition-1:recipient-user",
+        sync_only: "true",
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("recipient-user");
+  });
+
+  it("preserves a Circle lifecycle type delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: location_circle_deleted:event-1",
+      `data: ${JSON.stringify({
+        type: "location_circle_deleted",
+        user_id: "recipient-user",
+        message_id: "location_circle_deleted:event-1",
+        circle_id: "circle-1",
+        circle_name: "Family",
+        notification_title: "Circle deleted",
+        notification_body: '"Family" was deleted by its owner.',
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["workspace", "circles", "sms_roster"],
+      {
+        notificationType: "location_circle_deleted",
+        circleId: "circle-1",
+        eventId: "location_circle_deleted:event-1",
+      },
+    );
+  });
+});

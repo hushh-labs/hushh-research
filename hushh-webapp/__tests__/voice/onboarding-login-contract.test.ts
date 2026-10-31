@@ -30,7 +30,6 @@ describe("One Voice Login onboarding contracts", () => {
       "auth.sign_in_apple",
       "auth.open_terms",
       "auth.open_privacy",
-      "auth.close_legal",
       "onboarding.back_to_intro",
     ]);
     expect(actions.get("auth.sign_in_google")).toMatchObject({
@@ -56,11 +55,9 @@ describe("One Voice Login onboarding contracts", () => {
       reachability: { screens: ["login"] },
       control_ids: ["auth_privacy"],
     });
-    expect(actions.get("auth.close_legal")).toMatchObject({
-      execution_target: { path: "local_handler", target: "auth.close_legal" },
-      reachability: { screens: ["login"] },
-      control_ids: ["auth_close_legal"],
-    });
+    // Terms and Privacy are plain links to their full pages, so there is no
+    // in-screen legal document for a voice action to close.
+    expect(actions.has("auth.close_legal")).toBe(false);
     expect(actions.get("onboarding.back_to_intro")).toMatchObject({
       execution_target: {
         path: "local_handler",

@@ -1,23 +1,45 @@
 import surfaceMap from "@/frontend-native-surface-map.generated.json";
 import { APP_ROUTE_LAYOUT_CONTRACT, resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { PUBLIC_ROUTES, PUBLIC_ROUTE_SEMANTICS } from "@/lib/seo/site";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
+import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("One route voice playbooks", () => {
+  it.each([["", "Setup", "/one/setup"], ["from=%2Fone%2Fprofile%2Fhosting", "Hosting", "/one/profile/hosting"]])("preserves the cloud visit parent (%s)", (query, label, href) => {
+    const breadcrumb = resolveTopShellBreadcrumb("/one/setup/cloud", new URLSearchParams(query));
+    expect(breadcrumb?.items[1]).toEqual({ label, href });
+    expect(breadcrumb?.backHref).toBe(href);
+    const playbook = resolveAppRouteLayout("/one/setup/cloud").voicePlaybook;
+    expect(playbook.primaryActionId).toBe("setup.finish_cloud");
+  });
+
   it("authors exactly one bounded playbook for every physical route", () => {
     const physicalRoutes = surfaceMap.routes
-      .filter((entry) => entry.physical_page_exists)
+      .filter(
+        (entry) =>
+          entry.physical_page_exists || entry.route_contract?.mode === "redirect",
+      )
       .map((entry) => entry.route)
       .sort();
-    const authoredRoutes = APP_ROUTE_LAYOUT_CONTRACT.map((entry) => entry.route).sort();
+    const authoredRoutes = APP_ROUTE_LAYOUT_CONTRACT.map(
+      (entry) => entry.route,
+    ).sort();
 
     expect(authoredRoutes).toEqual(physicalRoutes);
     expect(new Set(authoredRoutes).size).toBe(authoredRoutes.length);
+    const screenMismatches: string[] = [];
     for (const entry of APP_ROUTE_LAYOUT_CONTRACT) {
       expect(entry.voicePlaybook.playbookId).toMatch(/^route\./);
       expect(entry.voicePlaybook.purpose.length).toBeGreaterThan(0);
-      expect(entry.voicePlaybook.screen).toBe(deriveVoiceRouteScreen(entry.route).screen);
+      const derivedScreen = deriveVoiceRouteScreen(entry.route, undefined, {
+        authenticated: true,
+      }).screen;
+      if (entry.voicePlaybook.screen !== derivedScreen) {
+        screenMismatches.push(
+          `${entry.route}: authored=${entry.voicePlaybook.screen} derived=${derivedScreen}`,
+        );
+      }
       expect(entry.voicePlaybook.completionBoundary.length).toBeGreaterThan(0);
       expect(Array.isArray(entry.interactionLayerPolicy.allowedFamilies)).toBe(true);
       if (entry.voicePlaybook.proactivity === "on_entry") {
@@ -25,9 +47,9 @@ describe("One route voice playbooks", () => {
         expect(entry.voicePlaybook.primaryActionId).toBeTruthy();
       }
     }
-    expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([
-      "legal_document",
-    ]);
+    expect(screenMismatches).toEqual([]);
+    // Terms and Privacy leave Login for their own pages; no legal overlay.
+    expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([]);
     expect(
       resolveAppRouteLayout("/register-phone").interactionLayerPolicy.allowedFamilies,
     ).toEqual(["country_picker"]);

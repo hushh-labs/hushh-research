@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
     updateProfile: vi.fn(),
     refreshLicenseProfile: vi.fn(),
   },
-  openKaiCommandBar: vi.fn(),
   draftClear: vi.fn(),
   onPersonaStateChanged: vi.fn(),
   invalidateResourcePrefix: vi.fn(),
@@ -26,6 +25,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
   CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
@@ -207,9 +207,6 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: mocks.toast }));
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { RIA_ONBOARDING: "/ria/onboarding", ONE_HOME: "/one" },
 }));
-vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
-  openKaiCommandBar: mocks.openKaiCommandBar,
-}));
 
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 
@@ -241,6 +238,7 @@ describe("RiaProfileSection manage actions", () => {
     vi.clearAllMocks();
     mocks.useAuth.mockReturnValue({
       user: { uid: "u1", getIdToken: vi.fn().mockResolvedValue("tok") },
+      userId: "u1",
     });
     mocks.usePersonaState.mockReturnValue({
       riaOnboardingStatus: VERIFIED_STATUS,
@@ -283,6 +281,42 @@ describe("RiaProfileSection manage actions", () => {
     );
   });
 
+  it("keeps the edit, license, and delete surfaces mutually exclusive", async () => {
+    // Regression: each of these is its own Drawer/Dialog portal. If one is
+    // left open (or mid-close-animation) when another is triggered, its
+    // overlay can sit on top of the surface the person is actually trying to
+    // reach and swallow every tap on it -- Delete advisor profile looking
+    // like it "won't open or respond" is exactly that shape of bug. Opening
+    // any one of the three must always close the other two first.
+    renderSection();
+    await waitFor(() =>
+      expect(screen.getByTestId("ria-profile-edit-services")).toBeTruthy(),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ria-profile-edit-services"));
+    });
+    expect(screen.getByTestId("edit-panel")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ria-profile-delete"));
+    });
+    expect(screen.queryByTestId("edit-panel")).toBeNull();
+    expect(screen.getByTestId("delete-dialog")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ria-profile-update-license"));
+    });
+    expect(screen.queryByTestId("delete-dialog")).toBeNull();
+    expect(screen.getByTestId("license-dialog")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ria-profile-delete"));
+    });
+    expect(screen.queryByTestId("license-dialog")).toBeNull();
+    expect(screen.getByTestId("delete-dialog")).toBeTruthy();
+  });
+
   it("delete confirms, calls deleteProfile, switches persona, and routes to One", async () => {
     renderSection();
     await waitFor(() =>
@@ -298,6 +332,16 @@ describe("RiaProfileSection manage actions", () => {
       expect(screen.getByTestId("delete-dialog")).toBeTruthy(),
     );
 
+    // The destructive action is gated behind a typed confirmation: tapping it
+    // before the word is entered must do nothing at all.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-confirm"));
+    });
+    expect(mocks.riaService.deleteProfile).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+      target: { value: "DELETE" },
+    });
     await act(async () => {
       fireEvent.click(screen.getByTestId("delete-confirm"));
     });

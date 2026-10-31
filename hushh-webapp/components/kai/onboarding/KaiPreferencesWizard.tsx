@@ -1,24 +1,15 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeftIcon as ArrowLeft, CheckIcon as Check } from "@/components/icons";
 
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  useLocalOnboardingActionHandler,
-  type LocalOnboardingActionResult,
-} from "@/lib/agent/local-onboarding-actions";
-import type {
-  DrawdownResponse,
-  HorizonAnchorChoice,
-  InvestmentHorizon,
-  VolatilityPreference,
-} from "@/lib/services/kai-profile-service";
+import { useKaiPreferencesWizard, type KaiPreferencesWizardModel, type WizardAnswers, type WizardCompletePayload } from "./use-kai-preferences-wizard";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -29,49 +20,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { kaiAppSectionTitleClassName } from "@/components/kai/shared/kai-typography";
-
-type WizardAnswers = {
-  investment_horizon: InvestmentHorizon | null;
-  drawdown_response: DrawdownResponse | null;
-  volatility_preference: VolatilityPreference | null;
-};
-
-type WizardCompletePayload = WizardAnswers & {
-  horizonAnchorChoice?: HorizonAnchorChoice;
-};
-
-const QUESTIONS = [
-  {
-    id: "investment_horizon" as const,
-    prompt: "How long do you expect to keep this money invested?",
-    options: [
-      { value: "short_term" as const, label: "Less than 3 years" },
-      { value: "medium_term" as const, label: "3–7 years" },
-      { value: "long_term" as const, label: "More than 7 years" },
-    ],
-  },
-  {
-    id: "drawdown_response" as const,
-    prompt: "If your portfolio drops 20%, what would you most likely do?",
-    options: [
-      { value: "reduce" as const, label: "Reduce investments to limit further losses" },
-      { value: "stay" as const, label: "Stay invested and review the situation" },
-      { value: "buy_more" as const, label: "Invest more at lower prices" },
-    ],
-  },
-  {
-    id: "volatility_preference" as const,
-    prompt: "Which feels more comfortable to you?",
-    options: [
-      { value: "small" as const, label: "Smaller, steadier returns" },
-      { value: "moderate" as const, label: "Moderate ups and downs for better returns" },
-      { value: "large" as const, label: "Larger swings for higher potential returns" },
-    ],
-  },
-] as const;
+import { FormLabel, SectionLabel } from "@/components/app-ui/typography";
+import finance from "@/components/kai/shared/finance-workspace.module.css";
 
 export function KaiPreferencesWizard(props: {
   mode: "onboarding" | "edit";
+  controller?: KaiPreferencesWizardModel;
   layout?: "page" | "sheet";
   isSubmitting?: boolean;
   initialStep?: number;
@@ -86,180 +40,26 @@ export function KaiPreferencesWizard(props: {
    */
   terminalFooter?: ReactNode;
 }) {
-  const total = QUESTIONS.length;
+  const owned = useKaiPreferencesWizard({ ...props, enabled: !props.controller });
+  const { step, total, activeQuestion, activeValue, isSubmitting, canContinue, handleSelect,
+    handlePrimary, handleBack, horizonDialogOpen, setHorizonDialogOpen, horizonAnchorChoice,
+    setHorizonAnchorChoice, cancelHorizon, applyHorizon, primaryLabel, questions: QUESTIONS } = props.controller ?? owned;
   const layout = props.layout ?? "page";
-  const [step, setStep] = useState(() => {
-    const initial = props.initialStep ?? 0;
-    return Math.min(Math.max(initial, 0), total - 1);
-  });
-  const [answers, setAnswers] = useState<WizardAnswers>({
-    investment_horizon: props.initialAnswers?.investment_horizon ?? null,
-    drawdown_response: props.initialAnswers?.drawdown_response ?? null,
-    volatility_preference: props.initialAnswers?.volatility_preference ?? null,
-  });
-
-  const [pendingHorizon, setPendingHorizon] = useState<InvestmentHorizon | null>(null);
-  const [horizonDialogOpen, setHorizonDialogOpen] = useState(false);
-  const [horizonAnchorChoice, setHorizonAnchorChoice] = useState<HorizonAnchorChoice>("from_now");
-
-  const isLast = step === total - 1;
-
-  const activeQuestion = QUESTIONS[step]!;
-  const activeValue = answers[activeQuestion.id];
-  const isSubmitting = props.isSubmitting === true;
-
-  const canContinue = Boolean(activeValue);
-
-  function setAnswer<K extends keyof WizardAnswers>(key: K, value: WizardAnswers[K]) {
-    setAnswers((prev) => {
-      const next = { ...prev, [key]: value };
-      void props.onAnswersChange?.(next);
-      return next;
-    });
-  }
-
-  function handleSelect(value: string) {
-    if (activeQuestion.id !== "investment_horizon") {
-      if (activeQuestion.id === "drawdown_response") {
-        setAnswer("drawdown_response", value as DrawdownResponse);
-      } else {
-        setAnswer("volatility_preference", value as VolatilityPreference);
-      }
-      return;
-    }
-
-    const next = value as InvestmentHorizon;
-    if (props.mode !== "edit") {
-      setAnswer("investment_horizon", next);
-      return;
-    }
-
-    const prev = answers.investment_horizon;
-    if (!prev || prev === next) {
-      setAnswer("investment_horizon", next);
-      return;
-    }
-
-    // Edit semantics: anchor prompt on horizon changes.
-    setPendingHorizon(next);
-    setHorizonAnchorChoice("from_now");
-    setHorizonDialogOpen(true);
-  }
-
-  // Voice parity: answering a question by voice sets the same answer state as
-  // tapping its radio option, then advances exactly like tapping the
-  // Next/Continue button would (or completes the wizard on the last
-  // question). If voice answers a question other than the one on screen, we
-  // jump there first rather than silently skipping ahead.
-  async function answerQuestionByVoice<K extends keyof WizardAnswers>(
-    questionId: K,
-    value: WizardAnswers[K]
-  ): Promise<LocalOnboardingActionResult> {
-    const questionIndex = QUESTIONS.findIndex((q) => q.id === questionId);
-    if (questionIndex === -1) {
-      return { status: "failed", summary: "Unknown wizard question." };
-    }
-    if (questionIndex !== step) {
-      setStep(questionIndex);
-      setAnswer(questionId, value);
-      return {
-        status: "succeeded",
-        summary: `Recorded ${String(questionId).replaceAll("_", " ")}.`,
-      };
-    }
-
-    setAnswer(questionId, value);
-    if (questionIndex === total - 1) {
-      const nextAnswers: WizardAnswers = { ...answers, [questionId]: value };
-      await Promise.resolve(
-        props.onComplete({
-          ...nextAnswers,
-          horizonAnchorChoice: props.mode === "edit" ? horizonAnchorChoice : undefined,
-        })
-      );
-      return { status: "succeeded", summary: "Preferences saved." };
-    }
-    setStep((s) => Math.min(total - 1, s + 1));
-    return { status: "succeeded", summary: "Moving to the next question." };
-  }
-
-  useLocalOnboardingActionHandler("kai.setup.answer_horizon", async (slots) => {
-    const value = String(slots.answer ?? "").trim();
-    if (value !== "short_term" && value !== "medium_term" && value !== "long_term") {
-      return { status: "blocked", summary: "That's not one of the horizon options." };
-    }
-    return answerQuestionByVoice("investment_horizon", value as InvestmentHorizon);
-  });
-
-  useLocalOnboardingActionHandler("kai.setup.answer_drawdown", async (slots) => {
-    const value = String(slots.answer ?? "").trim();
-    if (value !== "reduce" && value !== "stay" && value !== "buy_more") {
-      return { status: "blocked", summary: "That's not one of the drawdown options." };
-    }
-    return answerQuestionByVoice("drawdown_response", value as DrawdownResponse);
-  });
-
-  useLocalOnboardingActionHandler("kai.setup.answer_volatility", async (slots) => {
-    const value = String(slots.answer ?? "").trim();
-    if (value !== "small" && value !== "moderate" && value !== "large") {
-      return { status: "blocked", summary: "That's not one of the volatility options." };
-    }
-    return answerQuestionByVoice("volatility_preference", value as VolatilityPreference);
-  });
-
-  async function handlePrimary() {
-    if (!canContinue || isSubmitting) return;
-    if (!isLast) {
-      setStep((s) => Math.min(total - 1, s + 1));
-      return;
-    }
-
-    await Promise.resolve(
-      props.onComplete({
-        ...answers,
-        horizonAnchorChoice: props.mode === "edit" ? horizonAnchorChoice : undefined,
-      })
-    );
-  }
-
-  const primaryLabel =
-    props.mode === "edit"
-      ? isLast
-        ? "Save changes"
-        : "Next"
-      : isLast
-      ? "Continue"
-      : "Next";
-
   const reserveBackSlot = props.mode === "onboarding";
-  // In onboarding, step 0 relies on the shared route-level TopAppBar back
-  // chevron to leave the flow entirely (this wizard is rendered under a
-  // "flow" layout route, which keeps that chrome visible) — showing a
-  // second "Back" pill here for step 0 would be a redundant, visually
-  // duplicate affordance for the exact same action. From step 1 onward the
-  // wizard's own Back pill is the only way to walk back through the
-  // questions (the TopAppBar cannot do that), so it stays visible there.
   const showBack = props.mode === "onboarding" && step > 0;
-  const canGoPrevious = step > 0;
   const isPageLayout = layout === "page";
 
-  function handleBack() {
-    if (isSubmitting) return;
-    if (canGoPrevious) {
-      setStep((s) => Math.max(0, s - 1));
-      return;
-    }
-
-    props.onBack?.();
+  if (props.mode === "onboarding") {
+    return <FinanceSetupForm model={props.controller ?? owned} terminalFooter={props.terminalFooter} />;
   }
 
   return (
     <main
       data-top-content-anchor={isPageLayout ? "true" : undefined}
       className={cn(
-        "w-full bg-transparent flex flex-col",
+        "w-full max-w-full bg-transparent flex flex-col",
         isPageLayout
-          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-5 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)]"
           : "min-h-0 px-4 pt-4 pb-4"
       )}
     >
@@ -329,7 +129,7 @@ export function KaiPreferencesWizard(props: {
                   isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
-                No right or wrong answers. We’ll tune Kai to your investing style.
+                We’ll tune One to you.
               </p>
 
               <div
@@ -370,7 +170,7 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "h-12 rounded-full type-headline",
                   "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                  "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
+                  "motion-reduce:transition-none",
                   canContinue
                     ? "!bg-primary !text-primary-foreground hover:!bg-primary/90"
                     : "!bg-muted !text-muted-foreground"
@@ -445,7 +245,7 @@ export function KaiPreferencesWizard(props: {
           </div>
 
           <AlertDialogFooter className="pt-2">
-            <AlertDialogCancel onClick={() => setPendingHorizon(null)}>
+            <AlertDialogCancel onClick={cancelHorizon}>
               Cancel
             </AlertDialogCancel>
             <Button
@@ -454,13 +254,7 @@ export function KaiPreferencesWizard(props: {
               effect="fill"
               size="sm"
               className="rounded-xl"
-              onClick={() => {
-                if (pendingHorizon) {
-                  setAnswer("investment_horizon", pendingHorizon);
-                }
-                setPendingHorizon(null);
-                setHorizonDialogOpen(false);
-              }}
+              onClick={applyHorizon}
               showRipple
             >
               Apply
@@ -470,6 +264,31 @@ export function KaiPreferencesWizard(props: {
       </AlertDialog>
     </main>
   );
+}
+
+function FinanceSetupForm({ model, terminalFooter }: { model: KaiPreferencesWizardModel; terminalFooter?: ReactNode }) {
+  const formId = useId();
+  return <main data-top-content-anchor="true" className={`${finance.workspace} w-full px-4 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)] sm:px-6`}>
+    <div className="mx-auto w-full max-w-[28rem] space-y-6 py-5">
+      <header className="space-y-2">
+        <SectionLabel role="heading" aria-level={1}>Your investment preferences</SectionLabel>
+        <p className={finance.description}>You can change these later.</p>
+      </header>
+      <form className="space-y-5" onSubmit={event => { event.preventDefault(); void model.submit(); }}>
+        {model.questions.map(question => <fieldset key={question.id} disabled={model.isSubmitting} className="min-w-0 space-y-2">
+          <FormLabel as="legend" id={`${formId}-${question.id}`} className="mb-2">{question.prompt}</FormLabel>
+          <RadioGroup data-voice-control-id={`kai_wizard_${question.id}`} aria-labelledby={`${formId}-${question.id}`} value={model.answers[question.id] ?? ""} onValueChange={entry => model.selectAnswer(question.id, entry)}>
+            <SettingsGroup testId={`finance-preference-${question.id}`}>
+              {question.options.map(option => <RadioOptionRow key={option.value} value={option.value} label={option.label} />)}
+            </SettingsGroup>
+          </RadioGroup>
+        </fieldset>)}
+        <Button type="submit" data-voice-control-id="kai_wizard_launch_dashboard" variant="none" effect="fill" fullWidth loading={model.isSubmitting} disabled={!model.canSubmit || model.isSubmitting}
+          className="min-h-11 rounded-full !bg-primary text-sm !text-primary-foreground disabled:!bg-muted disabled:!text-muted-foreground">{model.isSubmitting ? "Saving…" : "Continue"}</Button>
+      </form>
+      {terminalFooter}
+    </div>
+  </main>;
 }
 
 function RadioOptionRow(props: { value: string; label: string }) {

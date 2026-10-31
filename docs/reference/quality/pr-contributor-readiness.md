@@ -32,6 +32,10 @@ Do this first:
 7. For sensitive surfaces, state the trust boundary, error path, rollback or
    safe-failure behavior, and privacy impact.
 8. For stacked work, link the predecessor PR and explain what lands first.
+9. Complete the Live Memory impact row in the PR template for every feature.
+   A new durable owner-data source needs the
+   [source admission contract](../architecture/live-memory-source-contract.md)
+   and its CI gate; an existing source needs its kind, change signal and test.
 
 ## Review-Ready Standard
 

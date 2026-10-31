@@ -1,25 +1,20 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
+
+import { FIRST_PLATYPUS, NOW, firstPlatypusSnapshot } from "../lib/plaid-vault/fixtures";
+
 const mocks = vi.hoisted(() => ({
-  getStatus: vi.fn(),
-  setActiveSource: vi.fn(),
   peekCachedFullBlob: vi.fn(),
   peekCachedEncryptedBlob: vi.fn(),
   loadDomainData: vi.fn(),
   storeMergedDomainWithPreparedBlob: vi.fn(),
+  saveMergedDomain: vi.fn(),
   cacheSync: vi.fn(),
   warm: vi.fn(),
+  invalidateWarm: vi.fn(),
   trackGrowth: vi.fn(),
-}));
-
-vi.mock("@/lib/kai/brokerage/plaid-portfolio-service", () => ({
-  PlaidPortfolioService: {
-    getStatus: mocks.getStatus,
-    setActiveSource: mocks.setActiveSource,
-    refresh: vi.fn(),
-    cancelRefreshRun: vi.fn(),
-  },
 }));
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
@@ -31,6 +26,10 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   },
 }));
 
+vi.mock("@/lib/services/pkm-write-coordinator", () => ({
+  PkmWriteCoordinator: { saveMergedDomain: mocks.saveMergedDomain },
+}));
+
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onPlaidSourceProjected: mocks.cacheSync,
@@ -38,22 +37,11 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: mocks.warm },
+  UnlockWarmOrchestrator: { run: mocks.warm, invalidateForUser: mocks.invalidateWarm },
 }));
 
 vi.mock("@/lib/observability/growth", () => ({
   trackGrowthFunnelStepCompleted: mocks.trackGrowth,
-}));
-
-vi.mock("@/lib/services/app-background-task-service", () => ({
-  AppBackgroundTaskService: {
-    getState: () => ({ tasks: [] }),
-    startTask: vi.fn(),
-    updateTask: vi.fn(),
-    cancelTask: vi.fn(),
-    completeTask: vi.fn(),
-    failTask: vi.fn(),
-  },
 }));
 
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
@@ -69,18 +57,7 @@ const statementPortfolio = {
   ],
 };
 
-const plaidPortfolio = {
-  holdings: [
-    {
-      symbol: "PLAID",
-      name: "Brokerage holding",
-      quantity: 2,
-      market_value: 200,
-    },
-  ],
-};
-
-function makeFinancial(snapshotCount = 1) {
+function makeFinancial(options: { snapshotCount?: number; withVault?: boolean } = {}) {
   const snapshots = [
     {
       id: "statement-july",
@@ -88,14 +65,14 @@ function makeFinancial(snapshotCount = 1) {
       canonical_v2: statementPortfolio,
     },
   ];
-  if (snapshotCount > 1) {
+  if ((options.snapshotCount ?? 1) > 1) {
     snapshots.push({
       id: "statement-june",
       imported_at: "2026-06-17T00:00:00.000Z",
       canonical_v2: statementPortfolio,
     });
   }
-  return {
+  const base: Record<string, unknown> = {
     portfolio: statementPortfolio,
     sources: {
       active_source: "statement",
@@ -105,27 +82,42 @@ function makeFinancial(snapshotCount = 1) {
       },
     },
   };
-}
-
-function makePlaidStatus() {
-  return {
-    configured: false,
-    user_id: "reviewer-user",
-    source_preference: "statement" as const,
-    items: [{ item_id: "plaid-item" }],
-    aggregate: {
-      item_count: 1,
-      account_count: 1,
-      holdings_count: 1,
-      institution_names: ["Demo Brokerage"],
-      sync_status: "completed",
-      last_synced_at: "2026-07-17T12:00:00.000Z",
-      portfolio_data: plaidPortfolio,
+  if (options.withVault === false) return base;
+  // A bank sealed in the vault makes Plaid an available source.
+  const linked = applyConnectionLink(
+    base,
+    {
+      item_id: "item_fp",
+      access_token: "access-sandbox-item-fp",
+      institution: FIRST_PLATYPUS,
+      products: ["investments"],
     },
-  };
+    NOW,
+  );
+  return applySnapshot(linked, "item_fp", firstPlatypusSnapshot("item_fp", "fp"), NOW);
 }
 
-async function renderReadyHook() {
+/** Runs the coordinator's build against the given memory, like the real one. */
+function saveRunsBuild(current: Record<string, unknown>) {
+  mocks.saveMergedDomain.mockImplementation(
+    async (params: {
+      build: (context: { currentDomainData: Record<string, unknown> }) => {
+        domainData: Record<string, unknown>;
+      };
+    }) => {
+      const plan = params.build({ currentDomainData: current });
+      return { success: true, fullBlob: { financial: plan.domainData } };
+    },
+  );
+}
+
+function useFinancial(financial: Record<string, unknown>) {
+  mocks.peekCachedFullBlob.mockReturnValue({ blob: { financial }, dataVersion: 7 });
+  mocks.loadDomainData.mockResolvedValue(financial);
+  saveRunsBuild(financial);
+}
+
+async function renderReadyHook(expectedSources = ["statement", "plaid"]) {
   const hook = renderHook(() =>
     usePortfolioSources({
       userId: "reviewer-user",
@@ -137,40 +129,45 @@ async function renderReadyHook() {
 
   await waitFor(() => {
     expect(hook.result.current.isLoading).toBe(false);
-    expect(hook.result.current.availableSources).toEqual(["statement", "plaid"]);
+    expect(hook.result.current.availableSources).toEqual(expectedSources);
   });
   return hook;
 }
 
-describe("usePortfolioSources source selection", () => {
+describe("usePortfolioSources", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getStatus.mockResolvedValue(makePlaidStatus());
-    mocks.setActiveSource.mockResolvedValue({
-      user_id: "reviewer-user",
-      active_source: "plaid",
-    });
-    mocks.peekCachedFullBlob.mockImplementation(() => ({
-      blob: { financial: makeFinancial() },
-      dataVersion: 7,
-    }));
     mocks.peekCachedEncryptedBlob.mockReturnValue({ dataVersion: 7 });
-    mocks.loadDomainData.mockResolvedValue(makeFinancial());
-    mocks.storeMergedDomainWithPreparedBlob.mockImplementation(
-      async ({ domainData }: { domainData: Record<string, unknown> }) => ({
-        success: true,
-        fullBlob: { financial: domainData },
-      }),
-    );
     mocks.warm.mockResolvedValue(undefined);
+    useFinancial(makeFinancial());
   });
 
-  it("keeps the confirmed source selected until both durable writes settle", async () => {
-    let resolveBackendWrite: (() => void) | undefined;
-    mocks.setActiveSource.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveBackendWrite = resolve;
+  it("only reads on load: no memory write, so no refused save on unlock", async () => {
+    await renderReadyHook();
+
+    // The retired server copy used to be re-saved here without a change plan
+    // and the server answered 428 on every unlock.
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
+    expect(mocks.storeMergedDomainWithPreparedBlob).not.toHaveBeenCalled();
+  });
+
+  it("reports sealed connections from memory, marked as vault custody", async () => {
+    const { result } = await renderReadyHook();
+
+    expect(result.current.plaidStatus?.custody).toBe("vault");
+    expect(result.current.plaidStatus?.aggregate?.item_count).toBe(1);
+  });
+
+  it("keeps the confirmed source selected until the owner-confirmed save settles", async () => {
+    let releaseSave: (() => void) | undefined;
+    const financial = makeFinancial();
+    mocks.saveMergedDomain.mockImplementationOnce(
+      (params: { build: (c: { currentDomainData: Record<string, unknown> }) => { domainData: Record<string, unknown> } }) =>
+        new Promise((resolve) => {
+          releaseSave = () => {
+            const plan = params.build({ currentDomainData: financial });
+            resolve({ success: true, fullBlob: { financial: plan.domainData } });
+          };
         }),
     );
     const { result } = await renderReadyHook();
@@ -184,32 +181,26 @@ describe("usePortfolioSources source selection", () => {
     expect(result.current.activeSource).toBe("statement");
 
     await act(async () => {
-      resolveBackendWrite?.();
+      releaseSave?.();
       await changePromise;
     });
 
     expect(result.current.isChangingSource).toBe(false);
     expect(result.current.activeSource).toBe("plaid");
-    expect(mocks.storeMergedDomainWithPreparedBlob).toHaveBeenCalledTimes(1);
-  });
-
-  it("retains the last confirmed source when the server preference write fails", async () => {
-    mocks.setActiveSource.mockRejectedValueOnce(new Error("network unavailable"));
-    const { result } = await renderReadyHook();
-
-    await act(async () => {
-      await expect(result.current.changeActiveSource("plaid")).rejects.toThrow(
-        "network unavailable",
-      );
+    // The re-warm must not reuse the warm result from before the change.
+    expect(mocks.invalidateWarm).toHaveBeenCalledWith("reviewer-user");
+    expect(mocks.invalidateWarm.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.warm.mock.invocationCallOrder[0]!,
+    );
+    const call = mocks.saveMergedDomain.mock.calls[0]![0];
+    expect(call.confirmation).toMatchObject({
+      confirmedByUser: true,
+      source: "portfolio_source_change",
     });
-
-    expect(result.current.activeSource).toBe("statement");
-    expect(result.current.isChangingSource).toBe(false);
-    expect(mocks.storeMergedDomainWithPreparedBlob).not.toHaveBeenCalled();
   });
 
-  it("compensates the server preference when the encrypted write is not accepted", async () => {
-    mocks.storeMergedDomainWithPreparedBlob.mockResolvedValueOnce({
+  it("keeps the last confirmed source when the save is not accepted", async () => {
+    mocks.saveMergedDomain.mockResolvedValueOnce({
       success: false,
       conflict: true,
       fullBlob: { financial: makeFinancial() },
@@ -223,35 +214,12 @@ describe("usePortfolioSources source selection", () => {
     });
 
     expect(result.current.activeSource).toBe("statement");
-    expect(mocks.setActiveSource).toHaveBeenCalledTimes(2);
-    expect(mocks.setActiveSource).toHaveBeenLastCalledWith({
-      userId: "reviewer-user",
-      activeSource: "statement",
-      vaultOwnerToken: "vault-owner-token",
-    });
+    expect(result.current.isChangingSource).toBe(false);
   });
 
-  it("rejects unavailable sources before issuing any durable write", async () => {
-    mocks.getStatus.mockResolvedValueOnce({
-      ...makePlaidStatus(),
-      aggregate: {
-        ...makePlaidStatus().aggregate,
-        portfolio_data: null,
-        holdings_count: 0,
-      },
-    });
-    const hook = renderHook(() =>
-      usePortfolioSources({
-        userId: "reviewer-user",
-        vaultOwnerToken: "vault-owner-token",
-        vaultKey: "vault-key",
-        initialStatementPortfolio: statementPortfolio,
-      }),
-    );
-
-    await waitFor(() => {
-      expect(hook.result.current.availableSources).toEqual(["statement"]);
-    });
+  it("rejects unavailable sources before issuing any write", async () => {
+    useFinancial(makeFinancial({ withVault: false }));
+    const hook = await renderReadyHook(["statement"]);
 
     await act(async () => {
       await expect(hook.result.current.changeActiveSource("plaid")).rejects.toThrow(
@@ -259,17 +227,11 @@ describe("usePortfolioSources source selection", () => {
       );
     });
 
-    expect(mocks.setActiveSource).not.toHaveBeenCalled();
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
   });
 
-  it("keeps saved-statement deletion available when the derived preference is unavailable", async () => {
-    const financial = makeFinancial(2);
-    mocks.peekCachedFullBlob.mockReturnValue({
-      blob: { financial },
-      dataVersion: 7,
-    });
-    mocks.loadDomainData.mockResolvedValue(financial);
-    mocks.setActiveSource.mockRejectedValueOnce(new Error("service unavailable"));
+  it("deletes a saved statement through one owner-confirmed save that replaces the domain", async () => {
+    useFinancial(makeFinancial({ snapshotCount: 2 }));
     const { result } = await renderReadyHook();
 
     await act(async () => {
@@ -278,6 +240,14 @@ describe("usePortfolioSources source selection", () => {
       ).resolves.toBeUndefined();
     });
 
-    expect(mocks.storeMergedDomainWithPreparedBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1);
+    const call = mocks.saveMergedDomain.mock.calls[0]![0];
+    expect(call.confirmation).toMatchObject({
+      confirmedByUser: true,
+      source: "portfolio_statement_delete",
+    });
+    const plan = call.build({ currentDomainData: makeFinancial({ snapshotCount: 2 }) });
+    expect(plan.mergeDecision).toMatchObject({ merge_mode: "replace_domain" });
+    expect(mocks.storeMergedDomainWithPreparedBlob).not.toHaveBeenCalled();
   });
 });

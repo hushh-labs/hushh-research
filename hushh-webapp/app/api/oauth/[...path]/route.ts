@@ -12,12 +12,12 @@ export const dynamic = "force-dynamic";
 async function proxyOAuthRequest(
   request: NextRequest,
   params: { path: string[] },
-  method: "POST"
+  method: "POST" | "GET"
 ) {
   const requestId = resolveRequestId(request);
   const targetUrl = `${getDeveloperApiUrl()}/oauth/${params.path.join("/")}${request.nextUrl.search}`;
   const authorization = request.headers.get("authorization") || "";
-  const body = await request.text();
+  const body = method === "POST" ? await request.text() : "";
 
   try {
     const response = await fetch(targetUrl, {
@@ -49,4 +49,16 @@ export async function POST(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   return proxyOAuthRequest(request, await params, "POST");
+}
+
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  const resolved = await params;
+  if (resolved.path.length !== 2 || resolved.path[0] !== "authorize" || !/^oar_[a-f0-9]{32}$/.test(resolved.path[1] ?? "")) {
+    return withRequestIdJson(resolveRequestId(request), { error: "Not found" }, { status: 404 });
+  }
+  return proxyOAuthRequest(request, resolved, "GET");
 }

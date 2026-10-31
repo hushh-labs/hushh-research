@@ -20,10 +20,35 @@ describe("Agent command handoff contract", () => {
       "skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad",
     );
     expect(userRequestedBranch).toContain("handleCreateNewChat()");
-    expect(userRequestedBranch).toContain("setQueuedHandoffPrompt(transcript)");
+    expect(userRequestedBranch).toContain("setQueuedHandoffPrompt({ text: transcript })");
     expect(source).toContain("const restoreEpoch = historyRestoreEpochRef.current");
+    // Restoration now shares a positive authority guard across both cached
+    // publication and background refresh; handoff still invalidates its epoch.
+    expect(source).toContain("const authorityCurrent = () => !cancelled");
     expect(source).toContain(
-      "cancelled || restoreEpoch !== historyRestoreEpochRef.current",
+      "const restoreCurrent = () => authorityCurrent() && restoreEpoch === historyRestoreEpochRef.current",
+    );
+  });
+
+  it("brings One back on screen before a handoff runs a One turn", () => {
+    // `openAgent({ handoff })` re-expands a workspace that may still be in
+    // Puppy mode, and the handoff then enqueues a prompt to One, appends One's
+    // "confirm here to continue" turn, or opens the vault dialog. Behind the
+    // Puppy surface all three are invisible or over the wrong agent, and the
+    // header would say the answer was generated on the owner's machine.
+    const source = fs.readFileSync(workspacePath, "utf8");
+    const effect = source.slice(
+      source.indexOf("consumedHandoffIdRef.current === handoff.id"),
+      source.indexOf(
+        'if (handoff.reason === "user_requested" && emailDraftInstruction)',
+      ),
+    );
+
+    expect(effect).toContain('setAgentSurface("one")');
+    // After the dedupe guard, so a re-render carrying an already-consumed
+    // handoff cannot yank the surface away from a reader who just switched.
+    expect(effect.indexOf("consumedHandoffIdRef.current = handoff.id")).toBeLessThan(
+      effect.indexOf('setAgentSurface("one")'),
     );
   });
 
@@ -38,7 +63,9 @@ describe("Agent command handoff contract", () => {
     );
 
     expect(loadContext).toContain("peekAgentPkmContext({");
-    expect(loadContext).toContain("message: text");
+    // The whole current turn: typed text plus any pasted attachment, which
+    // now travels to One as its own part instead of inside `text`.
+    expect(loadContext).toContain("message: turnSourceText");
     expect(loadContext).toContain("loadAgentPkmContext({");
   });
 });

@@ -28,6 +28,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "isPasskeyAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPasskeyPrf", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticatePasskeyPrf", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelPasskeyAuthentication", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getFoodPreferences", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getProfessionalData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storePreferencesToCloud", returnType: CAPPluginReturnPromise),
@@ -44,6 +45,10 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     
     private let TAG = "HushhVault"
     private let defaultClientVersion = "2.0.0"
+    private let accountNotFoundCode = "AUTH_ACCOUNT_NOT_FOUND"
+    private let maxLifecyclePayloadDepth = 6
+    private let maxLifecyclePayloadNodes = 64
+    private let maxLifecyclePayloadEntries = 32
     private var clientVersionHeaderValue: String {
         if let configuredVersion = Bundle.main.object(forInfoDictionaryKey: "HushhClientVersion") as? String {
             let trimmedVersion = configuredVersion.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,6 +66,43 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             jsName: jsName
         )
     }
+
+    private func accountNotFoundCode(
+        in value: Any?,
+        depth: Int = 0,
+        remainingNodes: inout Int
+    ) -> String? {
+        guard depth <= maxLifecyclePayloadDepth, remainingNodes > 0 else {
+            return nil
+        }
+        remainingNodes -= 1
+
+        if let string = value as? String {
+            return string == accountNotFoundCode ? string : nil
+        }
+        if let dictionary = value as? [String: Any] {
+            for (_, child) in dictionary.prefix(maxLifecyclePayloadEntries) {
+                if let code = accountNotFoundCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array.prefix(maxLifecyclePayloadEntries) {
+                if let code = accountNotFoundCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        }
+        return nil
+    }
     
     // URLSession with 30s timeout (matching Android)
     private lazy var urlSession: URLSession = {
@@ -72,13 +114,19 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // Keep active passkey authorization flows alive until delegate completion.
     private var activePasskeyFlows: [String: NSObject] = [:]
+    // AuthenticationServices presents one credential sheet at a time. Keep
+    // every passkey ceremony (registration and authentication) latched until
+    // the original system callback settles.
+    private var activePasskeyOperationId: String?
+    private var activePasskeyRequestId: String?
+    private var activePasskeyCancellationRequested = false
     
     // MARK: - Key Derivation (PBKDF2)
     @objc func deriveKey(_ call: CAPPluginCall) {
         let password = call.getString("passphrase") ?? call.getString("password")
         let salt = call.getString("salt")
         if password == nil {
-            call.reject("Missing passphrase")
+            call.reject("Missing password")
             return
         }
         
@@ -245,7 +293,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         
         performRequest(urlStr: urlStr, body: ["userId": userId], authToken: authToken) { json, error in
             if let error = error {
-                call.reject("Failed to check vault: \(error)")
+                if error == self.accountNotFoundCode {
+                    call.reject("Account not found.", error)
+                } else {
+                    call.reject("Failed to check vault: \(error)")
+                }
                 return
             }
             if let json = json, let hasVault = json["hasVault"] as? Bool {
@@ -364,7 +416,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if let error = error, error.contains("404") {
                 call.resolve(["vault": NSNull()])
             } else {
-                call.reject(error ?? "Failed to get vault")
+                if error == self.accountNotFoundCode {
+                    call.reject("Account not found.", error)
+                } else {
+                    call.reject(error ?? "Failed to get vault")
+                }
             }
         }
     }
@@ -462,7 +518,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
             if let error = error {
                 print("❌ [\(self.TAG)] setupVault failed")
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -479,6 +535,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let userId = call.getString("userId"),
               let vaultKeyHash = call.getString("vaultKeyHash"),
               let method = call.getString("method"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty,
               let encryptedVaultKey = call.getString("encryptedVaultKey"),
               let salt = call.getString("salt"),
               let iv = call.getString("iv") else {
@@ -519,9 +576,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             body["passkeyLastUsedAt"] = passkeyLastUsedAt
         }
 
-        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+        performRequest(urlStr: urlStr, body: body, authToken: authToken, vaultOwnerToken: vaultOwnerToken) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -534,7 +591,8 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setPrimaryVaultMethod(_ call: CAPPluginCall) {
         guard let userId = call.getString("userId"),
-              let primaryMethod = call.getString("primaryMethod") else {
+              let primaryMethod = call.getString("primaryMethod"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
             call.reject("Missing required parameters")
             return
         }
@@ -549,9 +607,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             "primaryWrapperId": primaryWrapperId
         ]
 
-        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+        performRequest(urlStr: urlStr, body: body, authToken: authToken, vaultOwnerToken: vaultOwnerToken) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -594,7 +652,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             vaultOwnerToken: vaultOwnerToken
         ) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -651,13 +709,25 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let displayName = String(displayNameRaw.prefix(80))
+        let requestId = normalizedPasskeyRequestId(call)
+        guard activePasskeyOperationId == nil else {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
+            return
+        }
         let operationId = UUID().uuidString
+        activePasskeyOperationId = operationId
+        activePasskeyRequestId = requestId
+        activePasskeyCancellationRequested = false
         let coordinator = NativePasskeyFlowCoordinator(
             mode: .register(userId: userId, displayName: displayName, rpId: rpIdRaw),
             plugin: self
         ) { [weak self] result in
             guard let self else { return }
+            guard self.activePasskeyOperationId == operationId else { return }
             self.activePasskeyFlows.removeValue(forKey: operationId)
+            self.activePasskeyOperationId = nil
+            self.activePasskeyRequestId = nil
+            self.activePasskeyCancellationRequested = false
             switch result {
             case .success(let payload):
                 call.resolve(payload)
@@ -694,7 +764,15 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let credentialId = call.getString("credentialId")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestId = normalizedPasskeyRequestId(call)
+        guard activePasskeyOperationId == nil else {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
+            return
+        }
         let operationId = UUID().uuidString
+        activePasskeyOperationId = operationId
+        activePasskeyRequestId = requestId
+        activePasskeyCancellationRequested = false
         let coordinator = NativePasskeyFlowCoordinator(
             mode: .authenticate(
                 userId: userId,
@@ -705,7 +783,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             plugin: self
         ) { [weak self] result in
             guard let self else { return }
+            guard self.activePasskeyOperationId == operationId else { return }
             self.activePasskeyFlows.removeValue(forKey: operationId)
+            self.activePasskeyOperationId = nil
+            self.activePasskeyRequestId = nil
+            self.activePasskeyCancellationRequested = false
             switch result {
             case .success(let payload):
                 call.resolve(payload)
@@ -716,6 +798,33 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
         activePasskeyFlows[operationId] = coordinator
         coordinator.start()
+    }
+
+    @objc func cancelPasskeyAuthentication(_ call: CAPPluginCall) {
+        guard #available(iOS 18.0, *) else {
+            call.resolve(["cancelled": false])
+            return
+        }
+
+        let requestId = normalizedPasskeyRequestId(call)
+        guard let operationId = activePasskeyOperationId,
+              !activePasskeyCancellationRequested,
+              requestId == nil || requestId == activePasskeyRequestId,
+              let coordinator = activePasskeyFlows[operationId] as? NativePasskeyFlowCoordinator else {
+            call.resolve(["cancelled": false])
+            return
+        }
+
+        // The coordinator retains the OS-owned controller until its delegate
+        // callback or bounded fallback settles. Do not remove it here.
+        activePasskeyCancellationRequested = true
+        coordinator.cancel()
+        call.resolve(["cancelled": true])
+    }
+
+    private func normalizedPasskeyRequestId(_ call: CAPPluginCall) -> String? {
+        let requestId = call.getString("requestId")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return requestId?.isEmpty == false ? requestId : nil
     }
     
     // MARK: - Domain Data
@@ -1084,15 +1193,26 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
             let status = httpResponse.statusCode
             var parsedJson: [String: Any]?
-            if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if ((200...299).contains(status) || data.count <= 16_384),
+               let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 parsedJson = jsonObject
             }
 
             if !(200...299).contains(status) {
+                if status == 401 {
+                    var remainingNodes = self.maxLifecyclePayloadNodes
+                    if let code = self.accountNotFoundCode(
+                        in: parsedJson,
+                        remainingNodes: &remainingNodes
+                    ) {
+                        completion(nil, code)
+                        return
+                    }
+                }
                 let backendDetail =
                     (parsedJson?["detail"] as? String) ??
                     (parsedJson?["error"] as? String) ??
-                    String(data: data, encoding: .utf8)
+                    String(data: data.prefix(300), encoding: .utf8)
                 let trimmedDetail = backendDetail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if trimmedDetail.isEmpty {
                     completion(nil, "HTTP \(status)")
@@ -1191,6 +1311,11 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
     private let mode: Mode
     private weak var plugin: CAPPlugin?
     private let completion: (Result<[String: Any], Error>) -> Void
+    private var authorizationController: ASAuthorizationController?
+    private var didComplete = false
+    private var cancellationRequested = false
+    private var cancellationFallback: DispatchWorkItem?
+    private let cancellationSettleTimeout: TimeInterval = 2
 
     init(
         mode: Mode,
@@ -1204,20 +1329,77 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
     }
 
     func start() {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.didComplete else { return }
+            if self.cancellationRequested {
+                self.finish(.failure(NativePasskeyError.cancelled))
+                return
+            }
             let requests: [ASAuthorizationRequest]
             do {
                 requests = try self.buildRequests()
             } catch {
-                self.completion(.failure(error))
+                self.finish(.failure(error))
                 return
             }
 
             let controller = ASAuthorizationController(authorizationRequests: requests)
             controller.delegate = self
             controller.presentationContextProvider = self
+            self.authorizationController = controller
+            if self.cancellationRequested {
+                self.finish(.failure(NativePasskeyError.cancelled))
+                return
+            }
             controller.performRequests()
         }
+    }
+
+    func cancel() {
+        if Thread.isMainThread {
+            cancelOnMain()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.cancelOnMain()
+            }
+        }
+    }
+
+    private func cancelOnMain() {
+        guard !didComplete, !cancellationRequested else { return }
+        cancellationRequested = true
+
+        // ASAuthorizationController owns the system passkey sheet. Retain it
+        // and wait for its delegate result rather than allowing a new request
+        // to start during dismissal.
+        let fallback = DispatchWorkItem { [weak self] in
+            self?.finish(.failure(NativePasskeyError.cancelled))
+        }
+        cancellationFallback = fallback
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + cancellationSettleTimeout,
+            execute: fallback
+        )
+        authorizationController?.cancel()
+    }
+
+    private func finish(_ result: Result<[String: Any], Error>) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.finish(result)
+            }
+            return
+        }
+        guard !didComplete else { return }
+        didComplete = true
+        cancellationFallback?.cancel()
+        cancellationFallback = nil
+        authorizationController = nil
+        completion(
+            cancellationRequested
+                ? .failure(NativePasskeyError.cancelled)
+                : result
+        )
     }
 
     private func buildRequests() throws -> [ASAuthorizationRequest] {
@@ -1277,11 +1459,11 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
         switch mode {
         case .register:
             guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration else {
-                completion(.failure(NativePasskeyError.missingCredential))
+                finish(.failure(NativePasskeyError.missingCredential))
                 return
             }
             guard let prfOutput = credential.prf?.first else {
-                completion(.failure(NativePasskeyError.missingPrfOutput))
+                finish(.failure(NativePasskeyError.missingPrfOutput))
                 return
             }
 
@@ -1291,7 +1473,7 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     prfOutput: prfOutput,
                     prfSalt: prfSalt
                 )
-                completion(
+                finish(
                     .success([
                         "credentialId": credential.credentialID.base64EncodedString(),
                         "prfSalt": prfSalt.base64EncodedString(),
@@ -1299,16 +1481,16 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     ])
                 )
             } catch {
-                completion(.failure(error))
+                finish(.failure(error))
             }
 
         case let .authenticate(_, _, _, prfSalt):
             guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
-                completion(.failure(NativePasskeyError.missingCredential))
+                finish(.failure(NativePasskeyError.missingCredential))
                 return
             }
             guard let prfOutput = credential.prf?.first else {
-                completion(.failure(NativePasskeyError.missingPrfOutput))
+                finish(.failure(NativePasskeyError.missingPrfOutput))
                 return
             }
 
@@ -1317,14 +1499,14 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     prfOutput: prfOutput,
                     prfSalt: prfSalt
                 )
-                completion(
+                finish(
                     .success([
                         "credentialId": credential.credentialID.base64EncodedString(),
                         "vaultKeyHex": vaultKeyHex,
                     ])
                 )
             } catch {
-                completion(.failure(error))
+                finish(.failure(error))
             }
         }
     }
@@ -1334,10 +1516,10 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
         didCompleteWithError error: Error
     ) {
         if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-            completion(.failure(NativePasskeyError.cancelled))
+            finish(.failure(NativePasskeyError.cancelled))
             return
         }
-        completion(.failure(NativePasskeyError.internalFailure(error.localizedDescription)))
+        finish(.failure(NativePasskeyError.internalFailure(error.localizedDescription)))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {

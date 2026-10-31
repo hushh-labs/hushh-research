@@ -1,32 +1,120 @@
 """Two-way connection graph: request -> accept/reject handshake.
 
 Requests are directional (requester -> addressee). Accepting creates a mutual
-`connections` row (canonicalized user_a_id < user_b_id) AND mirrors two
-directional `trusted_connections` edges (source='connection') so existing
-location/SOS readers keep working. Identity name-resolution reuses the broad
-discovery directory `list_directory_candidates`, read-only.
+`connections` row (canonicalized user_a_id < user_b_id) and keeps the legacy
+directional `trusted_connections` relationship mirror for older readers. That
+mirror is not Circle membership: no connection path may create a Circle member.
+Identity name-resolution reuses the broad discovery directory
+`list_directory_candidates`, read-only.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
+import json
 import logging
+from collections import Counter
+from collections.abc import Mapping
 from contextlib import contextmanager
-from typing import Any, Callable
+from datetime import datetime, timezone
+from typing import Any, Callable, cast
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_others
+from hushh_mcp.consent.scope_labels import human_scope_label
+from hushh_mcp.consent.scope_sensitivity import covers, scope_sensitivity
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
+    activate_contact_sync_connections_bulk,
     ensure_connection_origin,
+    lock_connection_graph_users,
 )
-from hushh_mcp.services.feed_service import FeedService
+from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_PREFERENCE_DEFAULT,
+    CONTACT_SYNC_PREFERENCE_ENABLED,
+    contact_sync_preference_state,
+    resolve_revoked_contact_match,
+)
+from hushh_mcp.services.people_search_sql import (
+    directory_search_rank,
+    mask_directory_phone,
+    normalize_directory_name,
+    people_query_match_params,
+)
+from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+_CONNECTION_FEED_EVENT_TYPES = frozenset(
+    {"connection_accepted", "connection_rejected", "connection_revoked", "connection_withdrawn"}
+)
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    FastAPI's response encoder happily serializes a raw datetime for the REST
+    routes, but the voice tool layer hands this same dict straight to
+    Gemini Live's plain json.dumps, which does not -- a raw datetime there
+    crashes the whole live session with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
+
+
+# The SQL predicate for "this RIA profile is real enough to carry a capability".
+#
+# One string, interpolated into every statement that asks the question, because
+# THREE things now have to agree on it: the capability catalog, the directory's
+# advisor/people split, and the `isRia` annotation on each directory row. If the
+# Connect advisor tab used a looser rule than the catalog, that tab would list
+# people whose only possible outcome is an empty capability sheet -- an advisor
+# directory whose rows cannot advise.
+#
+# Must track ria_iam_service._RIA_VERIFIED_STATUSES; the test suite asserts each
+# of those statuses appears literally in the emitted SQL. The verification
+# success path writes 'verified' (migration 028 retired 'finra_verified' and
+# 'active' is never written), so omitting 'verified' hands a genuinely verified
+# RIA an empty catalog and silently blocks RIA Picks.
+#
+# Static text under our control, never user input -- it is interpolated, not
+# bound, because a bound array would erase those literals from the SQL text.
+_RIA_VERIFIED_STATUS_SQL = RIA_VERIFIED_STATUS_SQL
+
+# Who a directory search is asking about.
+#
+# The split is server-side and not a client-side filter on purpose: filtering a
+# page after LIMIT can only subtract from a page that was already chosen wrongly,
+# so "page 2 of advisors" would be page 2 of everyone with the non-advisors
+# removed -- pages of varying size, and advisors past the first page unreachable.
+DIRECTORY_AUDIENCE_ALL = "all"
+DIRECTORY_AUDIENCE_PEOPLE = "people"
+DIRECTORY_AUDIENCE_RIA = "ria"
+DIRECTORY_AUDIENCES = (
+    DIRECTORY_AUDIENCE_ALL,
+    DIRECTORY_AUDIENCE_PEOPLE,
+    DIRECTORY_AUDIENCE_RIA,
+)
+
+CONTACT_SYNC_MAX_LOOKUPS = 1000
+CONTACT_SYNC_MINUTE_LOOKUP_LIMIT = 12_000
+CONTACT_SYNC_DAY_LOOKUP_LIMIT = 20_000
 
 # Single source of truth for connection-capability display metadata. Both the
 # offer catalog and the receiver-facing proposal list read from here so the two
@@ -58,6 +146,11 @@ def _capability_description(capability_key: str | None) -> str:
     return "A connection capability selected by the other person."
 
 
+# Why a person reported a connection request. A closed enum, never free text:
+# the request's own message is already stored and is what the team reviews.
+CONNECTION_REPORT_REASONS = ("spam", "harassment", "inappropriate", "impersonation", "other")
+
+
 class ConnectionsError(RuntimeError):
     def __init__(self, code: str, message: str, *, status_code: int = 400) -> None:
         super().__init__(message)
@@ -79,7 +172,13 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
 
 
 def _default_directory_search(
-    owner_user_id: str, *, query: str, page: int, limit: int
+    owner_user_id: str,
+    *,
+    query: str,
+    page: int,
+    limit: int,
+    audience: str = DIRECTORY_AUDIENCE_ALL,
+    name_only: bool = False,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -88,7 +187,23 @@ def _default_directory_search(
         query=query,
         page=page,
         limit=limit,
+        audience=audience,
+        name_only=name_only,
     )
+
+
+def _default_directory_profiles(owner_user_id: str, user_ids: list[str]) -> list[dict[str, Any]]:
+    """Resolve a bounded preview through the same live directory eligibility gate."""
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    if not user_ids:
+        return []
+    result = OneLocationAgentService().search_directory_candidates(
+        owner_user_id=owner_user_id,
+        candidate_user_ids=user_ids,
+        limit=len(user_ids),
+    )
+    return cast(list[dict[str, Any]], result["items"])
 
 
 def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bool:
@@ -100,18 +215,123 @@ def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bo
     )
 
 
-def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path)."""
+def _default_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path).
+
+    ``connection_request_id`` is forwarded so the notification can deep-link
+    straight to the review sheet; without it a tap can only open the list.
+    """
     from hushh_mcp.services.push_notifications import send_connection_request_push
 
-    send_connection_request_push(addressee_user_id, requester_user_id)
+    send_connection_request_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
+
+
+def _default_cancel_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_request_cancelled_push
+
+    send_connection_request_cancelled_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
+
+
+def _default_resolution_notifier(
+    *,
+    requester_user_id: str,
+    resolver_user_id: str,
+    accepted: bool,
+    connection_request_id: str | None = None,
+) -> None:
+    """Best-effort push telling the requester their request was resolved.
+
+    `accept_request`/`reject_request` had no notifier call at all before this
+    -- the requester's only signal was an unpushed Feed row, so they learned
+    the outcome from the Feed's foreground poll (45s) or their next app open.
+    """
+    from hushh_mcp.services.push_notifications import send_connection_request_resolved_push
+
+    send_connection_request_resolved_push(
+        requester_user_id,
+        resolver_user_id,
+        accepted=accepted,
+        connection_request_id=connection_request_id,
+    )
+
+
+def _default_disconnect_notifier(
+    *,
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_removed_push
+
+    send_connection_removed_push(
+        recipient_user_id,
+        counterpart_user_id,
+        actor_user_id=actor_user_id,
+        connection_id=connection_id,
+        revocation_id=revocation_id,
+    )
+
+
+def _notify_connection_graph_changed(
+    *,
+    user_ids: set[str],
+    connection_id: str = "",
+) -> None:
+    """Post-commit, silent graph reconciliation for remote devices."""
+
+    try:
+        from hushh_mcp.services.push_notifications import send_connection_graph_changed_push
+    except Exception:  # noqa: BLE001 - notifications cannot undo a committed mutation
+        logger.warning("connection.graph_sync_unavailable", exc_info=True)
+        return
+
+    transition_id = str(uuid4())
+    for user_id in sorted(user_ids - {""}):
+        try:
+            send_connection_graph_changed_push(
+                user_id,
+                transition_id=transition_id,
+                connection_id=connection_id,
+            )
+        except Exception:  # noqa: BLE001 - one failed device must not fail the mutation
+            logger.warning("connection.graph_sync_failed", exc_info=True)
 
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
-    from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+    from hushh_mcp.consent.scope_generator import (
+        DynamicScopeGenerator,
+        ScopeCatalogUnavailableError,
+    )
 
-    return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    try:
+        return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    except ScopeCatalogUnavailableError as exc:
+        raise ConnectionsError(
+            "INFORMATION_CATALOG_UNAVAILABLE",
+            "Available information could not be checked. Please try again.",
+            status_code=503,
+        ) from exc
 
 
 class ConnectionsService:
@@ -121,14 +341,28 @@ class ConnectionsService:
         directory_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         directory_search: Callable[..., dict[str, Any]] | None = None,
         directory_visible: Callable[[str, str], bool] | None = None,
+        directory_profiles: Callable[[str, list[str]], list[dict[str, Any]]] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
+        cancel_notifier: Callable[..., Any] | None = None,
+        resolution_notifier: Callable[..., Any] | None = None,
+        disconnect_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
+        self._directory_profiles = directory_profiles or _default_directory_profiles
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
+        self._cancel_notifier = (
+            cancel_notifier if cancel_notifier is not None else _default_cancel_notifier
+        )
+        self._resolution_notifier = (
+            resolution_notifier if resolution_notifier is not None else _default_resolution_notifier
+        )
+        self._disconnect_notifier = (
+            disconnect_notifier if disconnect_notifier is not None else _default_disconnect_notifier
+        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -151,6 +385,88 @@ class ConnectionsService:
             return [self._row_mapping(row) for row in result.fetchall()]
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
+
+    def _display_name_for(self, user_id: str) -> str | None:
+        """Best-effort canonical relationship-safe label for Feed copy.
+
+        The cache can contain the raw Firebase uid in ``display_name`` for a
+        user who has not synced an identity yet. Reuse the same canonical
+        display-name/email-handle ladder as push notifications so a technical
+        identifier never becomes human-facing Feed copy.
+        """
+        uid = (user_id or "").strip()
+        if not uid:
+            return None
+        try:
+            row = self._execute_one(
+                """
+                SELECT user_id, display_name, email
+                FROM actor_identity_cache
+                WHERE user_id = :uid
+                LIMIT 1
+                """,
+                {"uid": uid},
+            )
+        except Exception:  # noqa: BLE001 - name is cosmetic; never break the action
+            logger.exception("connections.feed_display_name_lookup_failed")
+            return None
+        label = label_from_identity_row(row, allow_email_handle=True)
+        return label or None
+
+    def _record_connection_feed_transition(
+        self,
+        *,
+        owner_user_id: str,
+        counterpart_user_id: str,
+        actor_user_id: str,
+        event_type: str,
+        source_row_id: str,
+    ) -> None:
+        """Persist relationship history on the owning mutation transaction.
+
+        ``_execute_one`` automatically reuses ``_transaction_connection`` in
+        production. Unlike the best-effort Feed helper, failures here must
+        propagate so an accepted/rejected/revoked relationship can never
+        commit without the two corresponding, source-idempotent Feed rows.
+        """
+
+        owner = (owner_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        actor = (actor_user_id or "").strip()
+        source_id = (source_row_id or "").strip()
+        if not owner or not counterpart or not actor or not source_id:
+            raise ValueError("Connection Feed transitions require complete identities.")
+        if event_type not in _CONNECTION_FEED_EVENT_TYPES:
+            raise ValueError(f"Unsupported connection Feed event type: {event_type}")
+
+        counterpart_label = self._display_name_for(counterpart)
+        self._execute_one(
+            """
+            INSERT INTO feed_events (
+              user_id, source_domain, event_type, metadata, source_row_id
+            )
+            VALUES (
+              :owner_user_id,
+              'connections',
+              :event_type,
+              jsonb_strip_nulls(jsonb_build_object(
+                'actor_is_self', :actor_is_self,
+                'counterpart_label',
+                  NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
+              )),
+              :source_row_id
+            )
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            {
+                "owner_user_id": owner,
+                "event_type": event_type,
+                "actor_is_self": owner == actor,
+                "counterpart_label": counterpart_label,
+                "source_row_id": source_id,
+            },
+        )
 
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
@@ -198,15 +514,157 @@ class ConnectionsService:
         with connection.begin_nested():
             yield
 
+    def _has_established_verified_contact_email(
+        self, user_id: str, verified_requester_email: str | None
+    ) -> bool:
+        """Recheck fresh server-issued email evidence against current account state."""
+        email = str(verified_requester_email or "").strip().lower()
+        if not email:
+            return False
+        return bool(
+            self._execute_one(
+                """
+                SELECT identity.user_id
+                FROM actor_identity_cache identity
+                JOIN vault_keys account_state ON account_state.user_id = identity.user_id
+                WHERE identity.user_id = :user_id
+                  AND identity.email_verified = TRUE
+                  AND LOWER(BTRIM(identity.email)) = :verified_requester_email
+                  AND (
+                    account_state.vault_status = 'active'
+                    OR account_state.setup_completed = TRUE
+                  )
+                LIMIT 1
+                """,
+                {"user_id": user_id, "verified_requester_email": email},
+            )
+        )
+
+    def reserve_contact_sync_lookup_budget(
+        self,
+        user_id: str,
+        lookup_count: int,
+        *,
+        verified_requester_email: str | None = None,
+    ) -> None:
+        """Atomically consume the cross-instance contact-sync abuse budget.
+
+        SlowAPI remains an inexpensive outer request-count guard. This budget
+        is lookup-weighted and Postgres-authoritative, so splitting a large
+        address book across requests or Cloud Run instances cannot multiply
+        the allowance. The table/service seam can move to Redis/Memorystore
+        later without changing the route contract.
+        """
+
+        requester_id = str(user_id or "").strip()
+        count = int(lookup_count)
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if count < 1 or count > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync between 1 and {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        with self._transaction():
+            if getattr(self, "_transaction_connection", None) is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            requester = self._execute_one(
+                """
+                SELECT user_id
+                FROM actor_identity_cache
+                WHERE user_id = :user_id
+                  AND phone_verified = TRUE
+                  AND phone_number IS NOT NULL
+                LIMIT 1
+                """,
+                {"user_id": requester_id},
+            )
+            if not requester and not self._has_established_verified_contact_email(
+                requester_id, verified_requester_email
+            ):
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "We couldn't confirm your account verification. Please try again or contact support.",
+                    status_code=403,
+                )
+            # Bound per-user retention while charging. Fixed UTC buckets are
+            # sufficient for abuse control and keep the write path index-only.
+            self._execute_many(
+                """
+                DELETE FROM contact_sync_lookup_budgets
+                WHERE user_id = :user_id
+                  AND bucket_start < date_trunc('day', NOW()) - INTERVAL '2 days'
+                RETURNING user_id
+                """,
+                {"user_id": requester_id},
+            )
+            charged = self._execute_many(
+                """
+                INSERT INTO contact_sync_lookup_budgets (
+                  user_id, bucket_kind, bucket_start, lookup_count, updated_at
+                )
+                VALUES
+                  (
+                    :user_id, 'minute', date_trunc('minute', NOW()),
+                    :lookup_count, NOW()
+                  ),
+                  (
+                    :user_id, 'day', date_trunc('day', NOW()),
+                    :lookup_count, NOW()
+                  )
+                ON CONFLICT (user_id, bucket_kind, bucket_start) DO UPDATE SET
+                  lookup_count = contact_sync_lookup_budgets.lookup_count
+                    + EXCLUDED.lookup_count,
+                  updated_at = NOW()
+                WHERE contact_sync_lookup_budgets.lookup_count + EXCLUDED.lookup_count
+                  <= CASE EXCLUDED.bucket_kind
+                    WHEN 'minute' THEN :minute_limit
+                    ELSE :day_limit
+                  END
+                RETURNING bucket_kind
+                """,
+                {
+                    "user_id": requester_id,
+                    "lookup_count": count,
+                    "minute_limit": CONTACT_SYNC_MINUTE_LOOKUP_LIMIT,
+                    "day_limit": CONTACT_SYNC_DAY_LOOKUP_LIMIT,
+                },
+            )
+            if {str(row.get("bucket_kind") or "") for row in charged} != {"minute", "day"}:
+                # Raising inside engine.begin() rolls both bucket charges back.
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_BUDGET_EXCEEDED",
+                    "You have checked many contacts recently. Try again later.",
+                    status_code=429,
+                )
+
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
-        needle = (query or "").strip().lower()
+        # The directory implementation and the in-memory fallback both fold
+        # supported name separators before matching. Keep the query identical
+        # when this service delegates to either path; otherwise punctuation or
+        # repeated whitespace changes which person is discoverable.
+        needle = normalize_directory_name(query or "")
         if not needle:
             raise ConnectionsError(
                 "CONNECTION_QUERY_EMPTY", "No name given to look up.", status_code=422
             )
-        people = self._directory_lookup(owner_user_id) or []
-        matches = [p for p in people if needle in str(p.get("displayName") or "").strip().lower()]
+        # Ask the directory for THIS name. Filtering the unqualified first page
+        # (the 50 alphabetically-first people) could only ever find someone who
+        # happened to sort into it, so a name past that page never resolved.
+        matches = list(
+            self.search_directory(owner_user_id, query=needle, page=1, limit=20, name_only=True)[
+                "items"
+            ]
+        )
         if len(matches) == 1:
             return str(matches[0].get("userId") or "")
         raise IdentityUnresolvedError(
@@ -224,18 +682,17 @@ class ConnectionsService:
         return f"scp_{hashlib.sha256(material).hexdigest()[:32]}"
 
     def _scope_catalog_for_owner(self, owner_user_id: str) -> list[dict[str, str]]:
-        # Must track ria_iam_service._RIA_VERIFIED_STATUSES. The verification
-        # success path writes 'verified' (migration 028 retired 'finra_verified'
-        # and 'active' is never written), so omitting 'verified' here would hand a
-        # genuinely verified RIA an empty catalog and silently block RIA Picks.
+        # Gate text lives in _RIA_VERIFIED_STATUS_SQL so this, the directory
+        # audience split, and the row-level `isRia` annotation cannot drift.
         ria = self._execute_one(
-            """
+            f"""
             SELECT id
             FROM ria_profiles
             WHERE user_id = :user_id
-              AND verification_status IN ('active', 'verified', 'finra_verified')
+              AND {_RIA_VERIFIED_STATUS_SQL}
             LIMIT 1
-            """,
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the only caller-supplied value here is bound.
             {"user_id": owner_user_id},
         )
         if not ria:
@@ -267,6 +724,66 @@ class ConnectionsService:
             "offerableItems": self._scope_catalog_for_owner(viewer),
         }
 
+    def get_person_context(self, viewer_user_id: str, counterpart_user_id: str) -> dict[str, Any]:
+        """Directory-bounded identity and participant-only connection state.
+
+        A resolved request is historical information, never present eligibility.
+        Location must independently re-read its own relationship/key rules.
+        """
+        viewer, counterpart = viewer_user_id.strip(), counterpart_user_id.strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        self._assert_directory_visible(viewer, counterpart)
+        params = {"viewer": viewer, "counterpart": counterpart}
+        row = self._execute_one(
+            """SELECT identity.display_name,
+            COALESCE(identity.custom_photo_url,identity.photo_url) AS photo_url,
+            EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
+                AND ((c.user_a_id=:viewer AND c.user_b_id=:counterpart)
+                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected
+            FROM actor_identity_cache identity WHERE identity.user_id=:counterpart""",
+            params,
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
+        request = self._execute_one(
+            """SELECT id,requester_user_id,addressee_user_id,status FROM connection_requests
+            WHERE (requester_user_id=:viewer AND addressee_user_id=:counterpart)
+               OR (requester_user_id=:counterpart AND addressee_user_id=:viewer)
+            ORDER BY (status='pending') DESC,created_at DESC,id DESC LIMIT 1""",
+            params,
+        )
+        direction = "outgoing" if request and request["requester_user_id"] == viewer else "incoming"
+        relationship = (
+            "connected"
+            if row["connected"]
+            else f"pending_{direction}"
+            if request and request["status"] == "pending"
+            else "none"
+        )
+        return {
+            "person": {
+                "userId": counterpart,
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "email": None,
+                "relationship": relationship,
+            },
+            "request": {
+                "id": str(request["id"]),
+                "direction": direction,
+                "status": request["status"],
+            }
+            if request
+            else None,
+        }
+
     def get_information_scope_catalog(
         self,
         viewer_user_id: str,
@@ -274,66 +791,202 @@ class ConnectionsService:
         *,
         query: str = "",
         domain: str = "",
+        page: int = 1,
         limit: int = 20,
+        catalog_revision: str = "",
     ) -> dict[str, Any]:
-        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+        """Search a person's dynamically discoverable ``attr.*`` scopes.
 
-        This is deliberately post-connection and metadata-only. A relationship
-        never grants access to values: callers must make a separate, consented
-        request that binds a requester-owned connector key before an encrypted
-        export can exist.
+        Scope metadata is discoverable independently from the social graph.
+        A relationship never grants access to values: callers must make a
+        separate, consented request bound to a requester-owned connector key
+        before an encrypted export can exist.
         """
-        from hushh_mcp.consent.scope_generator import rank_scope_matches
-
         viewer = (viewer_user_id or "").strip()
         counterpart = (counterpart_user_id or "").strip()
         if not viewer or not counterpart or viewer == counterpart:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        active_connection = self._execute_one(
-            """
-            SELECT id
-            FROM connections
-            WHERE status = 'active'
-              AND user_a_id = LEAST(:viewer, :counterpart)
-              AND user_b_id = GREATEST(:viewer, :counterpart)
-            LIMIT 1
-            """,
-            {"viewer": viewer, "counterpart": counterpart},
-        )
-        if not active_connection:
-            raise ConnectionsError(
-                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
-                "Connect with this person before searching their available scopes.",
-                status_code=403,
-            )
-
-        safe_entries = [
-            {
-                "scope": str(entry.get("scope") or ""),
-                "label": str(entry.get("label") or "") or None,
-                "domain": str(entry.get("domain") or "") or None,
-                "path": str(entry.get("path") or "") or None,
-                "wildcard": bool(entry.get("wildcard")),
-            }
-            for entry in self._scope_entries_lookup(counterpart)
-            if isinstance(entry, dict)
-            and str(entry.get("scope") or "").startswith("attr.")
-            and entry.get("exposure_eligibility") is not False
-            and entry.get("consumer_visible") is not False
-            and entry.get("internal_only") is not True
-            and entry.get("visibility_posture") != "private"
-        ]
+        safe_entries = self._safe_information_scope_entries(counterpart)
         return {
             "counterpartUserId": counterpart,
-            "items": rank_scope_matches(
+            **self.page_information_scope_entries(
                 safe_entries,
                 query=query,
                 domain=domain,
+                page=page,
                 limit=limit,
+                catalog_revision=catalog_revision,
             ),
         }
+
+    @staticmethod
+    def page_information_scope_entries(
+        safe_entries: list[dict[str, Any]],
+        *,
+        query: str = "",
+        domain: str = "",
+        page: int = 1,
+        limit: int = 100,
+        catalog_revision: str = "",
+        ranker: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        """Page already-authorized metadata; this helper grants no read authority.
+
+        ``ranker`` replaces the default ranking (the person-facing catalog
+        search passes its synonym-aware one). It must only filter and order
+        the entries it is given; the revision always digests the full catalog.
+        """
+        from hushh_mcp.consent.scope_generator import rank_scope_matches
+
+        try:
+            normalized_page = max(1, int(page or 1))
+        except (TypeError, ValueError):
+            normalized_page = 1
+        try:
+            normalized_limit = max(1, min(int(limit or 20), 100))
+        except (TypeError, ValueError):
+            normalized_limit = 20
+        revision = hashlib.sha256(
+            json.dumps(
+                sorted(safe_entries, key=lambda entry: entry["scope"]),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        reset = bool(catalog_revision and catalog_revision != revision)
+        if reset:
+            normalized_page = 1
+        offset = (normalized_page - 1) * normalized_limit
+        ranked = (
+            ranker(safe_entries)
+            if ranker is not None
+            else rank_scope_matches(
+                safe_entries,
+                query=query,
+                domain=domain,
+                # Rank the bounded catalog before slicing it. Ranking only the
+                # requested page makes `hasMore` false on page one and can move a
+                # valid exact scope behind a different page boundary.
+                limit=None,
+            )
+        )
+        page_items = ranked[offset : offset + normalized_limit]
+        domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
+        return {
+            "items": [
+                {key: value for key, value in entry.items() if key != "registry_handle"}
+                for entry in page_items
+            ],
+            "page": normalized_page,
+            "limit": normalized_limit,
+            "hasMore": offset + len(page_items) < len(ranked),
+            "totalCount": len(ranked),
+            "catalogTruncated": False,
+            "catalogRevision": revision,
+            "paginationReset": reset,
+            "nextPage": normalized_page + 1 if offset + len(page_items) < len(ranked) else None,
+            "domains": [
+                {"domain": name, "count": count} for name, count in sorted(domain_counts.items())
+            ],
+        }
+
+    def _safe_information_scope_entries(self, counterpart_user_id: str) -> list[dict[str, Any]]:
+        """Return the current safe catalog before ranking or pagination.
+
+        Enumeration is separate from presentation ranking so a valid opaque
+        scope cannot become unrequestable because it fell beyond a suggestion
+        page. The caller still receives only public metadata; raw PKM values
+        never enter this projection.
+        """
+        safe_entries: list[dict[str, Any]] = []
+        raw_entries = [
+            entry
+            for entry in self._scope_entries_lookup(counterpart_user_id)
+            if isinstance(entry, dict)
+        ]
+        # C7: every PKM sensitivity tag in the owner's catalog, by scope. A
+        # wildcard inherits the tags of every branch it covers, because a grant
+        # on it shares those branches too.
+        tagged = [
+            (str(entry.get("scope") or "").strip(), tag)
+            for entry in raw_entries
+            for tag in (entry.get("sensitivity_label"), entry.get("sensitivity"))
+            if tag
+        ]
+        for entry in raw_entries:
+            scope = str(entry.get("scope") or "").strip()
+            if not self._is_requestable_dynamic_scope(scope):
+                # Manifest metadata can contain collection markers, but only
+                # the authored placement accepted by internal-path policy is
+                # eligible for an external selector or token issuer.
+                continue
+            if not is_scope_requestable_by_others(scope):
+                # Contract C4: runtime secrets, credentials, keys and tokens
+                # are never requestable by another person. Every catalog page
+                # and every request validation passes through here, so this
+                # one check covers both listing and request creation.
+                continue
+            if (
+                entry.get("exposure_eligibility") is False
+                or entry.get("consumer_visible") is False
+                or entry.get("internal_only") is True
+                or entry.get("visibility_posture") == "private"
+            ):
+                continue
+            safe_entries.append(
+                {
+                    "scope": scope,
+                    "registry_handle": str(entry.get("registry_handle") or "").strip() or None,
+                    "label": human_scope_label(scope, str(entry.get("label") or "")),
+                    "description": str(entry.get("description") or "") or None,
+                    "domain": str(entry.get("domain") or "") or None,
+                    "path": str(entry.get("path") or "") or None,
+                    "wildcard": bool(entry.get("wildcard")),
+                    "sensitivity": scope_sensitivity(
+                        scope,
+                        [tag for tagged_scope, tag in tagged if covers(scope, tagged_scope)],
+                    ),
+                }
+            )
+        return safe_entries
+
+    @staticmethod
+    def _is_requestable_dynamic_scope(scope: str) -> bool:
+        """Keep discovery and token issuance on the same dynamic-scope grammar.
+
+        The manifest catalog also contains structural paths used to describe
+        PKM collections. Those paths are useful to the owner but are not
+        consent selectors. Checking the active token contract here prevents a
+        profile or chat card from offering a value that approval would reject.
+        """
+        if not scope.startswith("attr.") or not ConsentScope.is_dynamic_scope(scope):
+            return False
+        scope_path = scope.split(".", 2)[-1]
+        if is_internal_manifest_path(scope_path):
+            return False
+        return bool(ConsentScope.validate(scope))
+
+    def get_exact_requestable_scope_entries(
+        self, viewer_user_id: str, counterpart_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Return the full current requestable catalog for server validation.
+
+        This intentionally does not call the ranked/paged presentation path.
+        The relationship and consent mutation layer uses this method to
+        validate opaque references against current authority, independent of
+        which page the user happened to load. Public profile visibility remains
+        the owning profile/connection contract; this method only applies the
+        safe, requestable scope policy and never broadens discovery.
+        """
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        return self._safe_information_scope_entries(counterpart)
 
     def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
         directory_visible = getattr(self, "_directory_visible", None)
@@ -424,12 +1077,76 @@ class ConnectionsService:
                 "label": _capability_label(row.get("capability_key")),
                 "description": _capability_description(row.get("capability_key")),
                 "status": str(row.get("status") or "pending"),
-                "createdAt": row.get("created_at"),
-                "expiresAt": row.get("expires_at"),
-                "resolvedAt": row.get("resolved_at"),
+                "createdAt": _iso(row.get("created_at")),
+                "expiresAt": _iso(row.get("expires_at")),
+                "resolvedAt": _iso(row.get("resolved_at")),
             }
             for row in rows
         ]
+
+    def _expire_pending_scope_proposals(self, request_id: str) -> int:
+        """Settle review choices whose consent window elapsed.
+
+        Acceptance owns the parent request lock. This compare-and-transition
+        still makes a concurrent maintenance sweep harmless: only the winner
+        receives rows and therefore only the winner writes EXPIRED events.
+        """
+        rows = self._execute_many(
+            """
+            UPDATE connection_scope_proposals
+            SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at <= NOW()
+            RETURNING id
+            """,
+            {"request_id": request_id},
+        )
+        for row in rows:
+            self._record_scope_event(
+                str(row.get("id") or ""),
+                event_type="EXPIRED",
+                actor_user_id=None,
+                reason="scope_review_window_expired",
+            )
+        return len(rows)
+
+    def _reviewable_scope_proposals(self, request_id: str) -> list[dict[str, Any]]:
+        """Lock and return only still-current bilateral scope choices."""
+        return self._execute_many(
+            """
+            SELECT id, scope_handle, capability_key, direction,
+                   owner_user_id, receiver_user_id, status, expires_at
+            FROM connection_scope_proposals
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at > NOW()
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE
+            """,
+            {"request_id": request_id},
+        )
+
+    def _scope_proposal_history_exists(self, request_id: str) -> bool:
+        """Return whether a request ever carried a bilateral scope choice.
+
+        Expiry maintenance may settle a proposal before a caller retries the
+        request. The immutable proposal row is therefore the durable signal
+        that a now-empty pending request was a scope-review envelope, rather
+        than an ordinary connection request.
+        """
+        return bool(
+            self._execute_one(
+                """
+                SELECT id
+                FROM connection_scope_proposals
+                WHERE connection_request_id = :request_id
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                {"request_id": request_id},
+            )
+        )
 
     def expire_due_capabilities(self) -> int:
         """Expire proposal-bound capability projections atomically.
@@ -444,7 +1161,7 @@ class ConnectionsService:
                 """
                 UPDATE connection_scope_proposals
                 SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
-                WHERE status = 'active' AND expires_at <= NOW()
+                WHERE status IN ('pending', 'active') AND expires_at <= NOW()
                 RETURNING id
                 """
             )
@@ -576,7 +1293,7 @@ class ConnectionsService:
                 {
                     "type": str(row.get("event_type") or ""),
                     "reason": row.get("reason"),
-                    "createdAt": row.get("created_at"),
+                    "createdAt": _iso(row.get("created_at")),
                 }
             )
         return {
@@ -637,7 +1354,6 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_NO_SELF", "You cannot connect with yourself.", status_code=422
             )
-
         # Direct identifiers are selectors, not authority. A scope-bearing
         # request must pass the same owner-controlled directory boundary as
         # discovery, otherwise a caller who knows an RIA user id could
@@ -647,6 +1363,37 @@ class ConnectionsService:
             self._assert_directory_visible(requester_user_id, target)
 
         with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            # Contact sync, disconnect, and request creation share this sorted
+            # per-user gate. Whichever action wins is fully visible to the next
+            # one, so a stale client cannot leave a redundant pending request
+            # immediately after an automatic connection is created.
+            active_connection = None
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={requester_user_id, target},
+                )
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
+            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            if active_connection and not requested_scopes and not offered_scopes:
+                raise ConnectionsError(
+                    "CONNECTION_ALREADY_CONNECTED",
+                    "You are already connected with this person.",
+                    status_code=409,
+                )
+
             # Idempotent: if a pending request already exists (either direction), return it.
             existing = self._execute_one(
                 """
@@ -657,26 +1404,147 @@ class ConnectionsService:
                     (requester_user_id = :a AND addressee_user_id = :b)
                     OR (requester_user_id = :b AND addressee_user_id = :a)
                   )
+                ORDER BY created_at ASC, id ASC
                 LIMIT 1
+                FOR UPDATE
                 """,
                 {"a": requester_user_id, "b": target},
             )
             if existing:
-                return self._request_payload(existing)
+                # A pending request is idempotent only when it represents the
+                # same bilateral scope envelope. Returning an older request
+                # for a newly selected scope is a false success: the new scope
+                # was never proposed. Runtime transactions settle expired
+                # choices, lock the remaining proposal set, and compare it in
+                # the existing request's direction before returning it.
+                if transaction_connection is not None:
+                    existing_request_id = str(existing.get("id") or "")
+                    proposals = self._reviewable_scope_proposals(existing_request_id)
+                    expired_count = self._expire_pending_scope_proposals(existing_request_id)
+                    caller_requested = {scope["handle"] for scope in requested_scopes}
+                    caller_offered = {scope["handle"] for scope in offered_scopes}
+                    stale_scope_envelope = bool(expired_count)
+                    if (
+                        not proposals
+                        and not stale_scope_envelope
+                        and active_connection
+                        and (caller_requested or caller_offered)
+                    ):
+                        stale_scope_envelope = self._scope_proposal_history_exists(
+                            existing_request_id
+                        )
+                    if not proposals and stale_scope_envelope:
+                        cancelled = self._execute_one(
+                            """
+                            UPDATE connection_requests
+                            SET status = 'cancelled',
+                                responded_at = COALESCE(responded_at, NOW()),
+                                updated_at = NOW(),
+                                metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object(
+                                    'supersededReason', 'scope_review_expired'
+                                  )
+                            WHERE id = CAST(:request_id AS UUID)
+                              AND status = 'pending'
+                            RETURNING id
+                            """,
+                            {"request_id": existing_request_id},
+                        )
+                        if not cancelled:
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_STALE",
+                                "A connection scope changed or expired. Review the request again.",
+                                status_code=409,
+                            )
+                        # Continue below and create a fresh request envelope in
+                        # this same transaction. The expired proposal audit and
+                        # parent cancellation therefore commit with its replacement.
+                        existing = None
+                    else:
+                        existing_requested = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "requested"
+                        }
+                        existing_offered = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "offered"
+                        }
+                        same_direction = str(existing.get("requester_user_id") or "") == (
+                            requester_user_id
+                        )
+                        has_scopes = bool(
+                            existing_requested
+                            or existing_offered
+                            or caller_requested
+                            or caller_offered
+                        )
+                        if has_scopes and (
+                            not same_direction
+                            or existing_requested != caller_requested
+                            or existing_offered != caller_offered
+                        ):
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_ALREADY_PENDING",
+                                "A different connection scope review is already pending.",
+                                status_code=409,
+                            )
+                if existing:
+                    return self._request_payload(existing)
 
-            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
-            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            # `accept_request` owns the pending-request row rather than this
+            # graph gate. If it was already accepting the row when our first
+            # connection read ran, the pending SELECT above waits for that
+            # transaction and then sees no pending row. Re-read the canonical
+            # graph after that wait so its newly committed connection cannot
+            # be followed by a redundant unscoped request.
+            if transaction_connection is not None and active_connection is None:
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+                if active_connection and not requested_scopes and not offered_scopes:
+                    raise ConnectionsError(
+                        "CONNECTION_ALREADY_CONNECTED",
+                        "You are already connected with this person.",
+                        status_code=409,
+                    )
 
+            # The insert is also the block check: a person who declined-and-
+            # blocked this requester (Google Play user-generated content
+            # policy) gets no new request, and no extra round trip is added.
             row = self._execute_one(
                 """
                 INSERT INTO connection_requests (
                   requester_user_id, addressee_user_id, status, message, created_at, updated_at
                 )
-                VALUES (:requester, :addressee, 'pending', :message, NOW(), NOW())
+                SELECT :requester, :addressee, 'pending', :message, NOW(), NOW()
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM connection_requests blocked
+                  WHERE blocked.requester_user_id = :requester
+                    AND blocked.addressee_user_id = :addressee
+                    AND blocked.status = 'rejected'
+                    AND blocked.metadata ->> 'blocked_by' = :addressee
+                )
                 RETURNING id
                 """,
                 {"requester": requester_user_id, "addressee": target, "message": message},
             )
+            if not row:
+                # Neutral wording: a blocked person is not told they were blocked.
+                raise ConnectionsError(
+                    "CONNECTION_UNAVAILABLE",
+                    "You can't send a request to this person.",
+                    status_code=403,
+                )
             # All child proposals and their immutable events commit with the
             # parent request. The nudge stays outside this transaction.
             request_id = str((row or {}).get("id") or "")
@@ -730,7 +1598,7 @@ class ConnectionsService:
                         event_type="PROPOSED",
                         actor_user_id=requester_user_id,
                     )
-        self._notify_new_request(target, requester_user_id)
+        self._notify_new_request(target, requester_user_id, request_id)
         # Avoid a redundant post-insert read for ordinary connections. Scoped
         # requests are hydrated from the canonical child rows on the next
         # request/list read; authority never comes from this response.
@@ -756,9 +1624,11 @@ class ConnectionsService:
         Exact radius was checked against encrypted anchors immediately before
         this call. The presence versions bind that assessment to this transaction:
         if either owner checks out, expires, or checks in elsewhere first, no
-        request is written. Both presence rows are locked in canonical owner-id
-        order so opposite-direction requests cannot race past one another. The
-        nearby source is deliberately not copied into durable request metadata.
+        request is written. The alias is resolved without a row lock, then the
+        same sorted graph gate as contact sync is acquired before both presence
+        rows are locked and revalidated. Opposite-direction and contact-sync
+        writes therefore cannot race past one another. The nearby source is
+        deliberately not copied into durable request metadata.
         """
 
         requester = (requester_user_id or "").strip()
@@ -779,11 +1649,10 @@ class ConnectionsService:
         }
         db = get_db()
         with db.engine.begin() as conn:
-            # READ COMMITTED takes a fresh snapshot per statement. Acquiring and
-            # consuming the canonical pair locks first means the mutation query
-            # below can see a reverse pending request committed by a waiter that
-            # held these same locks immediately before this transaction.
-            conn.execute(
+            # Resolve the opaque alias before the shared graph gate without
+            # holding a presence row. Taking a presence lock first would invert
+            # account-reset's graph-gate -> presence order and create a deadlock.
+            candidate_rows = conn.execute(
                 text(
                     """
                     SELECT p.owner_user_id
@@ -798,11 +1667,23 @@ class ConnectionsService:
                       AND p.status = 'active'
                       AND p.expires_at > NOW()
                     ORDER BY p.owner_user_id
-                    FOR UPDATE OF p
                     """
                 ),
                 params,
             ).fetchall()
+            candidate_owner_ids = {
+                str(self._row_mapping(row).get("owner_user_id") or "").strip()
+                for row in candidate_rows
+            }
+            candidate_targets = sorted(candidate_owner_ids - {requester})
+            if requester not in candidate_owner_ids or len(candidate_targets) != 1:
+                return None
+            target_user_id = candidate_targets[0]
+            lock_connection_graph_users(
+                conn,
+                user_ids={requester, target_user_id},
+            )
+            params = {**params, "target_user_id": target_user_id}
 
             result = conn.execute(
                 text(
@@ -835,6 +1716,7 @@ class ConnectionsService:
                       JOIN locked target
                         ON target.participant_alias = CAST(:participant_alias AS UUID)
                        AND target.owner_user_id <> viewer.owner_user_id
+                       AND target.owner_user_id = :target_user_id
                       WHERE viewer.owner_user_id = :requester_user_id
                         AND viewer.version = :requester_presence_version
                         AND target.version = :target_presence_version
@@ -893,7 +1775,7 @@ class ConnectionsService:
                         AND NOT EXISTS (SELECT 1 FROM connected)
                         AND NOT EXISTS (SELECT 1 FROM existing)
                       ON CONFLICT DO NOTHING
-                      RETURNING requester_user_id, addressee_user_id
+                      RETURNING id, requester_user_id, addressee_user_id
                     )
                     SELECT
                       e.addressee_user_id AS target_user_id,
@@ -907,7 +1789,11 @@ class ConnectionsService:
                         WHEN EXISTS (SELECT 1 FROM existing) THEN 'pending_incoming'
                         ELSE 'pending_outgoing'
                       END AS relationship,
-                      EXISTS (SELECT 1 FROM inserted) AS created
+                      EXISTS (SELECT 1 FROM inserted) AS created,
+                      -- The new row's id, so the nudge can deep-link to the
+                      -- review sheet. Without it this path could only ever send
+                      -- the unscoped Connections-list link.
+                      (SELECT i.id FROM inserted i LIMIT 1) AS created_request_id
                     FROM eligible e
                     WHERE EXISTS (SELECT 1 FROM connected)
                        OR EXISTS (SELECT 1 FROM existing)
@@ -926,15 +1812,58 @@ class ConnectionsService:
             self._notify_new_request(
                 str(row.get("target_user_id") or ""),
                 requester,
+                str(row.get("created_request_id") or ""),
             )
         return {"relationship": str(row.get("relationship") or "")}
 
     @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
+        """Order a pair the way `connections_canonical_order` will judge it.
+
+        The table declares `CHECK (user_a_id < user_b_id)`, and that `<` is
+        evaluated by Postgres under the database collation -- `en_US.UTF8`,
+        which compares case-insensitively at the primary level. Python's `<` is
+        bytewise, so every uppercase letter sorts before every lowercase one.
+        The two disagree, and they disagreed silently:
+
+            'RPNmQAmVdlNz84GVfXxta50wnYx1' < 'oGltkj09rMcRnru7sBvfziC94px1'
+            Python   -> True          Postgres -> False
+
+        A pair ordered by Python and then inserted was rejected outright with
+        CheckViolation, so accepting a connection failed whenever two Firebase
+        UIDs differed in case at the first distinguishing character -- roughly
+        half of all pairs, forever. It read as intermittent because the other
+        half worked, and the route logged nothing, so the only symptom was
+        "That didn't go through. Try again." Measured on UAT: 88 of 390 pending
+        requests could never have been accepted.
+
+        Note the survivorship trap in the data. Every row in `connections`
+        agrees with Python's ordering, which looks like proof the code is fine.
+        It is the opposite: the disagreeing pairs were refused at INSERT, so
+        they were never written.
+
+        Ordering is therefore delegated to the database, which owns the
+        constraint. Reproducing a collation in Python would only recreate the
+        same drift the moment the database's collation changed.
+        """
         return (x, y) if x < y else (y, x)
 
-    def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
-        """Fire the (best-effort) addressee nudge. Never raises."""
+    def _notify_new_request(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge. Never raises.
+
+        ``connection_request_id`` is what lets the notification deep-link to the
+        review sheet rather than the Connections list -- the Consent Center opens
+        that sheet purely from ``?requestId``. It is threaded through here rather
+        than re-queried in the notifier because both call sites already hold it.
+        The requester's display name is deliberately NOT looked up here: this
+        runs immediately after a write, and the notifier resolves it lazily so a
+        cosmetic read never sits on the request path.
+        """
         notifier = getattr(self, "_notifier", None)
         if notifier is None:
             return
@@ -942,9 +1871,86 @@ class ConnectionsService:
             notifier(
                 addressee_user_id=addressee_user_id,
                 requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
+
+    def _notify_request_cancelled(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge when a request is withdrawn.
+
+        Never raises, and always called after the transaction commits -- a
+        broken notifier must never unwind the cancellation itself.
+        """
+        notifier = getattr(self, "_cancel_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                addressee_user_id=addressee_user_id,
+                requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_cancelled_failed error=%s", exc)
+
+    def _notify_request_resolved(
+        self,
+        requester_user_id: str,
+        resolver_user_id: str,
+        *,
+        accepted: bool,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) requester nudge once accept/reject commits.
+
+        Same shape as `_notify_new_request`: called AFTER the transaction
+        commits (never inside it -- push is best-effort and must not become a
+        reason the mutation itself can fail or roll back), never raises, and
+        resolves the resolver's display name lazily inside the notifier so
+        this stays a cheap call on the response path.
+        """
+        notifier = getattr(self, "_resolution_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                requester_user_id=requester_user_id,
+                resolver_user_id=resolver_user_id,
+                accepted=accepted,
+                connection_request_id=str(connection_request_id or "").strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_resolved_failed error=%s", exc)
+
+    def _notify_connection_removed(
+        self,
+        recipient_user_id: str,
+        counterpart_user_id: str,
+        *,
+        actor_user_id: str,
+        connection_id: str,
+        revocation_id: str,
+    ) -> None:
+        """Wake one side after disconnect commits; notifier failures are inert."""
+        notifier = getattr(self, "_disconnect_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                recipient_user_id=recipient_user_id,
+                counterpart_user_id=counterpart_user_id,
+                actor_user_id=actor_user_id,
+                connection_id=connection_id,
+                revocation_id=revocation_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_removed_failed error=%s", exc)
 
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
@@ -955,7 +1961,7 @@ class ConnectionsService:
             WHERE id = :id
             LIMIT 1
             {lock_clause}
-            """,  # nosec B608 - lock_clause is a fixed internal literal
+            """,  # nosec B608 # lock_clause is a fixed internal literal
             {"id": (request_id or "").strip()},
         )
         if not row:
@@ -1148,6 +2154,7 @@ class ConnectionsService:
         actor_user_id: str,
         selected_requested_scope_handles: list[str] | None,
         selected_offered_scope_handles: list[str] | None,
+        proposals: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         selected_requested = {
             str(handle or "").strip() for handle in (selected_requested_scope_handles or [])
@@ -1155,23 +2162,17 @@ class ConnectionsService:
         selected_offered = {
             str(handle or "").strip() for handle in (selected_offered_scope_handles or [])
         }
-        proposals = self._execute_many(
-            """
-            SELECT id, scope_handle, capability_key, direction, owner_user_id, receiver_user_id, status
-            FROM connection_scope_proposals
-            WHERE connection_request_id = :request_id AND status = 'pending'
-            ORDER BY created_at ASC, id ASC
-            """,
-            {"request_id": request_id},
+        reviewable_proposals = (
+            self._reviewable_scope_proposals(request_id) if proposals is None else proposals
         )
         known_requested = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "requested"
         }
         known_offered = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "offered"
         }
         if not selected_requested.issubset(known_requested) or not selected_offered.issubset(
@@ -1183,7 +2184,7 @@ class ConnectionsService:
                 status_code=409,
             )
         results: list[dict[str, Any]] = []
-        for proposal in proposals:
+        for proposal in reviewable_proposals:
             direction = str(proposal.get("direction") or "")
             scope_handle = str(proposal.get("scope_handle") or "")
             selected = scope_handle in (
@@ -1209,15 +2210,23 @@ class ConnectionsService:
                     # for any separate materialization contract.
                     activated = True
                 next_status = "active" if activated else "declined"
-            self._execute_one(
+            transitioned = self._execute_one(
                 """
                 UPDATE connection_scope_proposals
                 SET status = :status, resolved_at = NOW()
-                WHERE id = CAST(:proposal_id AS UUID) AND status = 'pending'
+                WHERE id = CAST(:proposal_id AS UUID)
+                  AND status = 'pending'
+                  AND expires_at > NOW()
                 RETURNING id
                 """,
                 {"status": next_status, "proposal_id": str(proposal.get("id") or "")},
             )
+            if not transitioned:
+                raise ConnectionsError(
+                    "CONNECTION_SCOPE_REVIEW_STALE",
+                    "A connection scope changed or expired. Review the request again.",
+                    status_code=409,
+                )
             self._record_scope_event(
                 str(proposal.get("id") or ""),
                 event_type="ACTIVATED" if next_status == "active" else "DECLINED",
@@ -1261,6 +2270,71 @@ class ConnectionsService:
                 actor_user_id=actor_user_id,
                 reason=reason,
             )
+
+    def _end_one_location_circle_memberships(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Take a disconnected pair out of each other's Circles.
+
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
+
+    def _end_drive_owner_allows(self, *, user_a_id: str, user_b_id: str) -> None:
+        """End each owner Allow on a document request between the pair.
+
+        An Allow lets a request from outside the owner's Trusted circle run
+        automatic Drive search and sharing while the two stay connected. Like
+        revoked scope grants and named Circles, it never comes back with a
+        reconnection, so it ends in this disconnect transaction.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only the lightweight unit doubles; see the Circle cleanup above.
+            return
+        from hushh_mcp.services.drive_owner_allowed import (
+            end_owner_allows_for_disconnected_pair,
+        )
+
+        end_owner_allows_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
 
     def _revoke_pair_capabilities(
         self,
@@ -1398,6 +2472,95 @@ class ConnectionsService:
             {"user_a": user_a_id, "user_b": user_b_id},
         )
 
+    def _cancel_pending_pair_requests(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+        actor_user_id: str,
+    ) -> int:
+        """Settle every still-reviewable envelope when a pair disconnects.
+
+        The graph advisory gate is already held by the caller. Expired choices
+        retain expiry semantics; current choices are declined by the explicit
+        disconnect. Cancelling the parent in the same statement prevents a
+        later acceptance from silently recreating the relationship or a grant.
+        """
+        rows = self._execute_many(
+            """
+            WITH pending_requests AS MATERIALIZED (
+              SELECT request.id
+              FROM connection_requests request
+              WHERE request.status = 'pending'
+                AND (
+                  (request.requester_user_id = :user_a
+                   AND request.addressee_user_id = :user_b)
+                  OR
+                  (request.requester_user_id = :user_b
+                   AND request.addressee_user_id = :user_a)
+                )
+              ORDER BY request.created_at ASC, request.id ASC
+              FOR UPDATE
+            ),
+            expired_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'expired',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND proposal.expires_at <= NOW()
+              RETURNING proposal.id
+            ),
+            expired_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'EXPIRED', NULL, 'scope_review_window_expired'
+              FROM expired_proposals
+              RETURNING id
+            ),
+            declined_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'declined',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND (proposal.expires_at IS NULL OR proposal.expires_at > NOW())
+              RETURNING proposal.id
+            ),
+            declined_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'DECLINED', :actor_user_id, 'connection_disconnected'
+              FROM declined_proposals
+              RETURNING id
+            )
+            UPDATE connection_requests request
+            SET status = 'cancelled',
+                responded_at = COALESCE(request.responded_at, NOW()),
+                updated_at = NOW(),
+                metadata = COALESCE(request.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                    'supersededReason', 'connection_disconnected'
+                  )
+            FROM pending_requests pending
+            WHERE request.id = pending.id
+              AND request.status = 'pending'
+            RETURNING request.id
+            """,
+            {
+                "user_a": user_a_id,
+                "user_b": user_b_id,
+                "actor_user_id": actor_user_id,
+            },
+        )
+        return len(rows)
+
     def accept_request(
         self,
         user_id: str,
@@ -1408,7 +2571,41 @@ class ConnectionsService:
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         with self._transaction():
-            req = self._load_request(request_id, for_update=True)
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                # Read the immutable participants before taking any row lock so
+                # every graph writer can acquire the same sorted advisory gate
+                # first. Locking the request before the connection row creates
+                # the inverse of contact-sync/disconnect ordering and can
+                # deadlock accept against either path.
+                candidate = self._load_request(request_id, for_update=False)
+                if str(candidate.get("addressee_user_id")) != user_id:
+                    raise ConnectionsError(
+                        "CONNECTION_NOT_ADDRESSEE",
+                        "Only the addressee can accept.",
+                        status_code=403,
+                    )
+                candidate_requester = str(candidate.get("requester_user_id") or "")
+                candidate_addressee = str(candidate.get("addressee_user_id") or "")
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={candidate_requester, candidate_addressee},
+                )
+                req = self._load_request(request_id, for_update=True)
+                if (
+                    str(req.get("requester_user_id") or "") != candidate_requester
+                    or str(req.get("addressee_user_id") or "") != candidate_addressee
+                ):
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_CHANGED",
+                        "The connection request changed while it was being reviewed.",
+                        status_code=409,
+                    )
+            else:
+                # Lightweight unit doubles do not expose a transaction
+                # connection. Preserve their single-read behavior; every real
+                # runtime database goes through the gated path above.
+                req = self._load_request(request_id, for_update=True)
             if str(req.get("addressee_user_id")) != user_id:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
@@ -1425,7 +2622,9 @@ class ConnectionsService:
                     "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
                 )
 
-            pending_proposals = self._proposal_items(str(req.get("id") or ""))
+            canonical_request_id = str(req.get("id") or "")
+            self._expire_pending_scope_proposals(canonical_request_id)
+            pending_proposals = self._reviewable_scope_proposals(canonical_request_id)
             if pending_proposals and (
                 selected_requested_scope_handles is None or selected_offered_scope_handles is None
             ):
@@ -1436,17 +2635,40 @@ class ConnectionsService:
                 )
 
             requester = str(req.get("requester_user_id"))
-            user_a, user_b = self._canonical_pair(requester, user_id)
+            # The statement that must satisfy `connections_canonical_order`
+            # decides the order itself, and reports back what it chose.
+            #
+            # Ordering the pair in Python and inserting the result is what
+            # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
+            # under en_US.UTF8, which compares case-insensitively, while
+            # Python's `<` is bytewise and puts every uppercase letter first.
+            # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
+            # rejected with CheckViolation, and accepting a connection failed
+            # for roughly half of all real UID pairs -- 88 of 390 pending
+            # requests on UAT, silently, because this route logged nothing.
+            #
+            # LEAST/GREATEST is the same comparison the constraint uses, in the
+            # same statement, so the two cannot drift apart again. RETURNING
+            # the columns means the canonical values used downstream are the
+            # ones actually stored rather than a second guess at them.
             connection = self._execute_one(
                 """
                 INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-                VALUES (:a, :b, 'active', 'request', NOW(), NOW())
+                VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW())
                 ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
                   status = 'active', revoked_at = NULL, updated_at = NOW()
-                RETURNING id
+                RETURNING id, user_a_id, user_b_id
                 """,
-                {"a": user_a, "b": user_b},
+                {"a": requester, "b": user_id},
             )
+            # Prefer what the row actually stores, and fall back to the raw
+            # pair if RETURNING gave nothing. The fallback is safe because
+            # `ensure_connection_origin` canonicalises again on its own, so the
+            # worst case is passing the pair the other way round -- never a
+            # mis-ordered origin, and never the empty strings that a bare
+            # `.get()` would hand it.
+            user_a = str((connection or {}).get("user_a_id") or "") or requester
+            user_b = str((connection or {}).get("user_b_id") or "") or user_id
             # Location eligibility needs BOTH an active `connections` row and
             # an active non-circle origin. Acceptance wrote only the first, so
             # a person could be connected in Connect and simply absent from
@@ -1472,11 +2694,15 @@ class ConnectionsService:
             # Mirror both directional trusted edges so location/SOS readers keep working.
             self._mirror_trusted_edge(requester, user_id)
             self._mirror_trusted_edge(user_id, requester)
+            # A connection is intentionally only a connection. Circle
+            # membership is an explicit, owner-driven action and must never be
+            # inferred from this acceptance transaction.
             scope_results = self._resolve_scope_proposals(
-                request_id=str(req.get("id") or ""),
+                request_id=canonical_request_id,
                 actor_user_id=user_id,
                 selected_requested_scope_handles=selected_requested_scope_handles,
                 selected_offered_scope_handles=selected_offered_scope_handles,
+                proposals=pending_proposals,
             )
             self._execute_one(
                 """
@@ -1488,19 +2714,41 @@ class ConnectionsService:
                 {"id": req.get("id")},
             )
             connection_id = (connection or {}).get("id")
-
-        # Feed is a best-effort, post-commit projection. It must not cause a
-        # caller to retry an already-authorized connection transition.
-        for owner, counterpart in ((user_id, requester), (requester, user_id)):
-            try:
-                FeedService().record_event(
-                    user_id=owner,
-                    source_domain="connections",
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
                     event_type="connection_accepted",
-                    metadata={"counterpart_user_id": counterpart},
+                    source_row_id=source_request_id,
                 )
-            except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
-                logger.exception("connections.accepted_feed_projection_failed")
+
+        # After commit, not inside the transaction: push is best-effort and
+        # must never be why an accept can fail or roll back. The requester
+        # (not `user_id`, who is the addressee doing the accepting) is who
+        # gets nudged -- this was missing entirely; see _notify_request_resolved.
+        self._notify_request_resolved(
+            requester,
+            user_id,
+            accepted=True,
+            connection_request_id=source_request_id,
+        )
+        # The requester receives the accepted alert above. The accepting
+        # person's other devices need a silent graph wake-up as well.
+        _notify_connection_graph_changed(
+            user_ids={user_id},
+            connection_id=str(connection_id or ""),
+        )
+
+        # Accepting a connection grants nothing on its own. Location sharing is
+        # opt-in and one-directional: it starts only when a person explicitly
+        # requests the other's location and that request is approved (see
+        # OneLocationAgentService.request_access / approve_request). A prior
+        # "auto-share on connect" hook lived here and silently granted both
+        # people mutual live location on every accepted connection with no
+        # request involved -- removed; see OneLocationAgentService.approve_request
+        # for the only path that may create a share grant.
         return {
             "status": "accepted",
             "requestId": req.get("id"),
@@ -1541,40 +2789,134 @@ class ConnectionsService:
                 "No claimed circle invite for this peer.",
                 status_code=403,
             )
-        user_a, user_b = self._canonical_pair(user_id, peer_user_id)
+        # Same ordering hazard as `accept_request`, same fix: the statement that
+        # the CHECK judges is the statement that picks the order.
         conn = self._execute_one(
             """
             INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-            VALUES (:a, :b, 'active', 'circle_invite', NOW(), NOW())
+            VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'circle_invite', NOW(), NOW())
             ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
               status = 'active', revoked_at = NULL, updated_at = NOW()
             RETURNING id
             """,
-            {"a": user_a, "b": user_b},
+            {"a": user_id, "b": peer_user_id},
         )
         # Mirror both directional trusted edges (parity with accept_request) so
         # location/SOS readers treat this as a full mutual connection.
         self._mirror_trusted_edge(user_id, peer_user_id)
         self._mirror_trusted_edge(peer_user_id, user_id)
+        _notify_connection_graph_changed(
+            user_ids={user_id, peer_user_id},
+            connection_id=str((conn or {}).get("id") or ""),
+        )
         return {"status": "connected", "connectionId": (conn or {}).get("id")}
 
-    def reject_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+    def _log_request_report(
+        self, *, reason: str | None, reporter: str, reported: Any, request_id: Any
+    ) -> None:
+        if reason is None:
+            return
+        # The team's review queue: query Cloud Logging for this event, then read
+        # the request row (and its message) it points to.
+        logger.warning(
+            "one_connection_request_reported reason=%s reporter=%s reported=%s request=%s",
+            reason,
+            reporter,
+            reported,
+            request_id,
+        )
+
+    def reject_request(
+        self,
+        user_id: str,
+        request_id: str,
+        *,
+        block: bool = False,
+        report_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Decline a request. ``block`` also stops that person from sending this
+        user another request (recorded on the request's metadata).
+
+        ``report_reason`` is the recipient's in-app "Report" (Google Play
+        user-generated content policy): it always blocks, and logs a
+        reviewable ``one_connection_request_reported`` record.
+        """
         user_id = (user_id or "").strip()
+        reason = str(report_reason or "").strip().lower() or None
+        if reason is not None:
+            if reason not in CONNECTION_REPORT_REASONS:
+                raise ConnectionsError(
+                    "CONNECTION_REPORT_REASON_INVALID",
+                    "Choose a reason for the report.",
+                    status_code=422,
+                )
+            block = True
+        if block:
+            existing = self._load_request(request_id)
+            if (
+                str(existing.get("addressee_user_id")) == user_id
+                and str(existing.get("status") or "") == "rejected"
+            ):
+                # Blocking after an earlier plain decline.
+                with self._transaction():
+                    self._execute_one(
+                        """
+                        UPDATE connection_requests
+                        SET metadata = COALESCE(metadata, '{}'::jsonb)
+                              || jsonb_build_object('blocked_by', :blocker, 'blocked_at', NOW()),
+                            updated_at = NOW()
+                        WHERE id = :id AND addressee_user_id = :blocker
+                        RETURNING id
+                        """,
+                        {"id": existing.get("id"), "blocker": user_id},
+                    )
+                logger.warning(
+                    "one_connection_blocked blocker=%s blocked=%s request=%s",
+                    user_id,
+                    existing.get("requester_user_id"),
+                    existing.get("id"),
+                )
+                self._log_request_report(
+                    reason=reason,
+                    reporter=user_id,
+                    reported=existing.get("requester_user_id"),
+                    request_id=existing.get("id"),
+                )
+                return {"status": "rejected", "requestId": existing.get("id"), "blocked": True}
         with self._transaction():
             req = self._load_request(request_id, for_update=True)
             if str(req.get("addressee_user_id")) != user_id:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
                 )
-            self._execute_one(
+            request_status = str(req.get("status") or "")
+            if request_status == "rejected":
+                return {"status": "rejected", "requestId": req.get("id")}
+            if request_status != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
+            updated_request = self._execute_one(
                 """
                 UPDATE connection_requests
-                SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
+                SET status = 'rejected', responded_at = NOW(), updated_at = NOW(),
+                    metadata = CASE WHEN :block
+                      THEN COALESCE(metadata, '{}'::jsonb)
+                           || jsonb_build_object('blocked_by', :blocker, 'blocked_at', NOW())
+                      ELSE metadata END
                 WHERE id = :id AND status = 'pending'
                 RETURNING id
                 """,
-                {"id": req.get("id")},
+                {"id": req.get("id"), "block": bool(block), "blocker": user_id},
             )
+            if not updated_request:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING",
+                    "Request is no longer pending.",
+                    status_code=409,
+                )
             self._resolve_pending_scope_proposals(
                 str(req.get("id") or ""),
                 status="declined",
@@ -1582,15 +2924,34 @@ class ConnectionsService:
                 reason="connection_rejected",
             )
             requester = str(req.get("requester_user_id"))
-        try:
-            FeedService().record_event(
-                user_id=requester,
-                source_domain="connections",
-                event_type="connection_rejected",
-                metadata={"counterpart_user_id": user_id},
+            source_request_id = str(req.get("id") or "")
+            for owner, counterpart in ((requester, user_id), (user_id, requester)):
+                self._record_connection_feed_transition(
+                    owner_user_id=owner,
+                    counterpart_user_id=counterpart,
+                    actor_user_id=user_id,
+                    event_type="connection_rejected",
+                    source_row_id=source_request_id,
+                )
+        # After commit, not inside the transaction -- see accept_request's
+        # identical placement and rationale.
+        self._notify_request_resolved(
+            requester,
+            user_id,
+            accepted=False,
+            connection_request_id=source_request_id,
+        )
+        if block:
+            logger.warning(
+                "one_connection_blocked blocker=%s blocked=%s request=%s",
+                user_id,
+                requester,
+                source_request_id,
             )
-        except Exception:  # noqa: BLE001 - projection cannot roll back rejection
-            logger.exception("connections.rejected_feed_projection_failed")
+            self._log_request_report(
+                reason=reason, reporter=user_id, reported=requester, request_id=source_request_id
+            )
+            return {"status": "rejected", "requestId": req.get("id"), "blocked": True}
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -1598,7 +2959,29 @@ class ConnectionsService:
         request_id = (request_id or "").strip()
         with self._transaction():
             req = None
+            # The fallback below has always been intended, and was unreachable.
+            #
+            # Callers that hold only the other person's user id -- a Circle
+            # roster row, a directory row whose outgoing-request map has not
+            # loaded yet -- pass that instead of a request id, and this method
+            # was written to accept it. But `_load_request` casts the string to
+            # a UUID primary key, so a Firebase uid raised a driver error, not
+            # the `ConnectionsError` the `except` was waiting for: the person
+            # got "Request failed (500)" and the request stayed pending.
+            #
+            # Asking whether it parses first is what makes the fallback real.
+            looks_like_request_id = True
             try:
+                UUID(request_id)
+            except (TypeError, ValueError):
+                looks_like_request_id = False
+            try:
+                if not looks_like_request_id:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_NOT_FOUND",
+                        "Request not found.",
+                        status_code=404,
+                    )
                 req = self._load_request(request_id, for_update=True)
             except ConnectionsError as err:
                 if err.code == "CONNECTION_REQUEST_NOT_FOUND":
@@ -1623,7 +3006,7 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
                 )
-            self._execute_one(
+            cancelled_row = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
@@ -1637,6 +3020,23 @@ class ConnectionsService:
                 status="declined",
                 actor_user_id=user_id,
                 reason="connection_cancelled",
+            )
+            if cancelled_row:
+                requester = str(req.get("requester_user_id") or "")
+                addressee = str(req.get("addressee_user_id") or "")
+                for owner, counterpart in ((requester, addressee), (addressee, requester)):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=requester,
+                        event_type="connection_withdrawn",
+                        source_row_id=str(req["id"]),
+                    )
+        if cancelled_row:
+            self._notify_request_cancelled(
+                str(req.get("addressee_user_id") or ""),
+                user_id,
+                connection_request_id=str(req.get("id") or ""),
             )
         return {"status": "cancelled", "requestId": req.get("id")}
 
@@ -1662,7 +3062,7 @@ class ConnectionsService:
         else:
             where = "cr.requester_user_id = :user_id"
             counterpart_col = "cr.addressee_user_id"
-        # nosec B608 - counterpart_col/where are hardcoded literals selected by
+        # nosec B608 # counterpart_col/where are hardcoded literals selected by
         # `direction` above (never user input); user_id is always parameterized.
         status_clause = "" if include_resolved else "AND cr.status = 'pending'"
         rows = self._execute_many(
@@ -1670,7 +3070,8 @@ class ConnectionsService:
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
                    cr.message, cr.created_at, cr.metadata,
                    {counterpart_col} AS counterpart_user_id,
-                   a.display_name AS counterpart_display_name
+                   a.display_name AS counterpart_display_name,
+                   COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS counterpart_photo_url
             FROM connection_requests cr
             LEFT JOIN actor_identity_cache a ON a.user_id = {counterpart_col}
             WHERE {where} {status_clause}
@@ -1685,71 +3086,271 @@ class ConnectionsService:
                 "addresseeUserId": str(r.get("addressee_user_id") or ""),
                 "status": str(r.get("status") or ""),
                 "message": r.get("message"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
+                "counterpartPhotoUrl": r.get("counterpart_photo_url"),
                 "scopes": self._proposal_items(str(r.get("id") or "")),
             }
             for r in rows
         ]
 
+    @staticmethod
+    def _call_directory_search(
+        directory_search: Callable[..., dict[str, Any]],
+        owner_user_id: str,
+        *,
+        query: str,
+        page: int,
+        limit: int,
+        audience: str,
+        name_only: bool = False,
+    ) -> tuple[dict[str, Any], bool]:
+        """Call the injected directory search with the options it supports.
+
+        Returns the page and whether the split was applied at the source.
+
+        `_directory_search` is a documented injection point -- tests and the
+        Location caller replace it with their own callables. Passing a keyword
+        those older callables never declared would turn an added tab into a
+        TypeError on the default People tab, so the parameter is offered only to
+        implementations that actually accept it. A double that does not is asked
+        the question it already understood, and the audience split is then
+        applied in Python below.
+
+        Name resolvers also request ``name_only`` from the production adapter;
+        older injected name-search callables keep their existing signature.
+        """
+        parameters: Mapping[str, inspect.Parameter]
+        try:
+            parameters = inspect.signature(directory_search).parameters
+        except (TypeError, ValueError):  # builtins / C callables expose no signature
+            parameters = {}
+        accepts_audience = "audience" in parameters
+        options: dict[str, Any] = {"query": query, "page": page, "limit": limit}
+        if accepts_audience:
+            options["audience"] = audience
+        if name_only and (
+            "name_only" in parameters
+            or any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+            )
+        ):
+            options["name_only"] = name_only
+        return directory_search(owner_user_id, **options), accepts_audience
+
+    def _filter_people_by_audience(
+        self, people: list[dict[str, Any]], audience: str
+    ) -> list[dict[str, Any]]:
+        """Keep only the advisors, or only the people who are not advisors.
+
+        The two audiences partition the directory: everyone appears in exactly
+        one of them, so separating advisors never makes a person unreachable.
+        """
+        if audience == DIRECTORY_AUDIENCE_ALL:
+            return people
+        ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        want_ria = audience == DIRECTORY_AUDIENCE_RIA
+        return [p for p in people if (str(p.get("userId") or "") in ria_user_ids) is want_ria]
+
+    def _verified_ria_user_ids(self, user_ids: list[str]) -> set[str]:
+        """Which of these people hold a capability-bearing RIA profile.
+
+        One statement for the whole page rather than one per row: the caller is
+        annotating up to 50 rows, and a per-row lookup would put 50 round trips
+        behind a single directory read.
+        """
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return set()
+        rows = self._execute_many(
+            f"""
+            SELECT user_id
+            FROM ria_profiles
+            WHERE user_id = ANY(:user_ids)
+              AND {_RIA_VERIFIED_STATUS_SQL}
+            """,  # nosec B608 # _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the user ids are bound as an array parameter.
+            {"user_ids": candidates},
+        )
+        return {str(row.get("user_id") or "") for row in rows}
+
+    def _public_person_refs(self, user_ids: list[str]) -> dict[str, str]:
+        """Resolve public route addresses for one bounded page of people."""
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return {}
+        rows = self._execute_many(
+            """
+            SELECT user_id, public_person_ref
+            FROM actor_profiles
+            WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+            """,
+            {"user_ids": candidates},
+        )
+        return {
+            str(row.get("user_id") or ""): str(row.get("public_person_ref") or "")
+            for row in rows
+            if row.get("user_id") and row.get("public_person_ref")
+        }
+
     def search_directory(
-        self, user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+        audience: str = DIRECTORY_AUDIENCE_ALL,
+        name_only: bool = False,
     ) -> dict[str, Any]:
+        """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
-        needle = (query or "").strip().lower()
+        needle = " ".join((query or "").strip().lower().split())
+        # An unknown audience widens rather than narrows: a typo in a caller
+        # must not silently hide people who are really there.
+        audience = (audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
+        if audience not in DIRECTORY_AUDIENCES:
+            audience = DIRECTORY_AUDIENCE_ALL
 
         # Reuse the One Location "Ready people" directory (list_verified_recipients)
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
         # relationship is annotated on top.
+        # Set when the page was cut without knowing the audience, so the split
+        # still has to happen in Python below.
+        audience_pending = audience != DIRECTORY_AUDIENCE_ALL
         directory_search = getattr(self, "_directory_search", None)
         if directory_search is not None:
-            directory_page = directory_search(user_id, query=needle, page=page, limit=limit)
+            directory_page, audience_applied = self._call_directory_search(
+                directory_search,
+                user_id,
+                query=needle,
+                page=page,
+                limit=limit,
+                audience=audience,
+                name_only=name_only,
+            )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
+            if audience_applied:
+                audience_pending = False
         else:
+            # The in-memory fallback has to answer the same question the SQL
+            # path answers, or the two disagree about who is findable depending
+            # on which one a deployment happens to take. Same two tiers, same
+            # A-Z within each, and the same rule that ranking and matching
+            # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
             if needle:
-                people = [
-                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-                ]
+
+                def _tier(person: dict[str, Any]) -> int | None:
+                    return directory_search_rank(
+                        str(person.get("displayName") or ""),
+                        needle,
+                        email=person.get("email"),
+                        phone_number=person.get("phoneNumber"),
+                        phone_verified=bool(person.get("phoneVerified")),
+                        name_only=name_only,
+                    )
+
+                ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
+                ranked.sort(
+                    key=lambda entry: (
+                        entry[0],
+                        str(entry[1].get("displayName") or "").strip().lower(),
+                        str(entry[1].get("userId") or ""),
+                    )
+                )
+                people = [p for _, p in ranked]
+            else:
+                people = sorted(
+                    people,
+                    key=lambda p: (
+                        str(p.get("displayName") or "").strip().lower(),
+                        str(p.get("userId") or ""),
+                    ),
+                )
+            # Split BEFORE the page is cut, exactly as the SQL path does. A
+            # filter applied after LIMIT can only subtract from a page that was
+            # already chosen wrongly: pages of uneven size, and every advisor
+            # past the first page unreachable.
+            if audience_pending:
+                people = self._filter_people_by_audience(people, audience)
+                audience_pending = False
             offset = (page - 1) * limit
             has_more = offset + limit < len(people)
             people = people[offset : offset + limit]
 
-        # Load the caller's pending requests (both directions) and active
-        # connections once, then classify each person in Python.
+        if audience_pending:
+            # The page was cut by a directory implementation that predates the
+            # audience split, so the only remaining option is to filter what it
+            # returned. This narrows a page rather than paging the narrowed set,
+            # so `hasMore` still describes the unsplit list. Reachable only via
+            # an injected `_directory_search` double; the shipped implementation
+            # accepts `audience` and splits in SQL.
+            people = self._filter_people_by_audience(people, audience)
+
+        # Annotate only the returned page. Reading the caller's entire pending
+        # and connected graph here made a 20-row directory page scale with all
+        # 5,000 relationships instead of with the page the caller can see.
+        page_user_ids = sorted(
+            {str(person.get("userId") or "") for person in people} - {"", user_id}
+        )
         out_pending = {
             str(r.get("addressee_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT addressee_user_id FROM connection_requests
-                WHERE requester_user_id = :user_id AND status = 'pending'
+                WHERE requester_user_id = :user_id
+                  AND addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         in_pending = {
             str(r.get("requester_user_id") or "")
-            for r in self._execute_many(
-                """
+            for r in (
+                self._execute_many(
+                    """
                 SELECT requester_user_id FROM connection_requests
-                WHERE addressee_user_id = :user_id AND status = 'pending'
+                WHERE addressee_user_id = :user_id
+                  AND requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+                  AND status = 'pending'
                 """,
-                {"user_id": user_id},
+                    {"user_id": user_id, "page_user_ids": page_user_ids},
+                )
+                if page_user_ids
+                else []
             )
         }
         connected: set[str] = set()
-        for r in self._execute_many(
-            """
-            SELECT user_a_id, user_b_id FROM connections
-            WHERE status = 'active' AND (user_a_id = :user_id OR user_b_id = :user_id)
-            """,
-            {"user_id": user_id},
-        ):
+        connection_rows = (
+            self._execute_many(
+                """
+                SELECT user_a_id, user_b_id FROM connections
+                WHERE status = 'active'
+                  AND (
+                    (user_a_id = :user_id
+                     AND user_b_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                    OR
+                    (user_b_id = :user_id
+                     AND user_a_id = ANY(CAST(:page_user_ids AS TEXT[])))
+                  )
+                """,
+                {"user_id": user_id, "page_user_ids": page_user_ids},
+            )
+            if page_user_ids
+            else []
+        )
+        for r in connection_rows:
             a = str(r.get("user_a_id") or "")
             b = str(r.get("user_b_id") or "")
             connected.add(b if a == user_id else a)
@@ -1763,22 +3364,231 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
+        # Annotated on the row, not inferred from which tab asked: voice name
+        # resolution searches everyone, and a row that only knew its kind from
+        # its tab would go back to being unlabelled there. Same for roleLabel.
+        ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        public_person_refs = self._public_person_refs([str(p.get("userId") or "") for p in people])
+
+        # One page-bound graph read, then a bounded live directory lookup for
+        # shared peers. Preview visibility must not depend on the current page.
+        mutual_rows = (
+            self._execute_many(
+                MUTUAL_CONNECTIONS_SQL,
+                {"user_id": user_id, "page_user_ids": page_user_ids},
+            )
+            if page_user_ids
+            else []
+        )
+        mutuals = {str(row.get("candidate_id") or ""): row for row in mutual_rows}
+        preview_user_ids = sorted(
+            {str(row.get("preview_user_id") or "") for row in mutual_rows} - {""}
+        )
+        eligible_people = (
+            {
+                str(person.get("userId") or ""): person
+                for person in self._directory_profiles(user_id, preview_user_ids)
+            }
+            if preview_user_ids
+            else {}
+        )
+
+        def mutual_payload(uid: str) -> dict[str, Any]:
+            row = mutuals.get(uid) or {}
+            count = max(0, int(row.get("mutual_count") or 0))
+            peer = eligible_people.get(str(row.get("preview_user_id") or ""))
+            return {
+                "mutualConnectionCount": count,
+                "mutualConnectionPreview": {
+                    "displayName": peer["displayName"],
+                    "photoUrl": peer.get("photoUrl"),
+                    "publicPersonRef": peer.get("publicPersonRef"),
+                }
+                if count and peer and peer.get("displayName")
+                else None,
+            }
+
         return {
             "items": [
                 {
                     "userId": str(p.get("userId") or ""),
+                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
                     "maskedEmail": p.get("maskedEmail"),
-                    "maskedPhone": p.get("maskedPhone"),
+                    "maskedPhone": mask_directory_phone(
+                        (p.get("phoneNumber") if p.get("phoneVerified") else None)
+                        or p.get("maskedPhone")
+                    ),
                     "relationship": relationship(str(p.get("userId") or "")),
+                    **mutual_payload(str(p.get("userId") or "")),
+                    "isRia": str(p.get("userId") or "") in ria_user_ids,
+                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
                 }
                 for p in people
             ],
             "page": page,
             "hasMore": has_more,
+            "audience": audience,
         }
+
+    def list_mutual_connections_page(
+        self, user_id: str, *, person_ref: str, page: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        """Read shared identities through the same live directory eligibility gate."""
+        from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+        target = self._execute_one(
+            """SELECT user_id FROM actor_profiles
+               WHERE public_person_ref = CAST(:person_ref AS UUID)
+                 AND public_profile_status = 'active' LIMIT 1""",
+            {"person_ref": person_ref},
+        )
+        target_id = str((target or {}).get("user_id") or "")
+        profiles = (
+            self._directory_profiles(user_id, [target_id])
+            if target_id and target_id != user_id
+            else []
+        )
+        if not profiles:
+            raise ConnectionsError(
+                "MUTUAL_CONNECTIONS_UNAVAILABLE",
+                "This person's connections are unavailable.",
+                status_code=404,
+            )
+        result = OneLocationAgentService().search_directory_candidates(
+            owner_user_id=user_id,
+            mutual_target_user_id=target_id,
+            page=page,
+            limit=limit,
+        )
+        counts = self._execute_many(
+            MUTUAL_CONNECTIONS_SQL, {"user_id": user_id, "page_user_ids": [target_id]}
+        )
+        return {
+            "person": {
+                "publicPersonRef": person_ref,
+                "displayName": profiles[0].get("displayName"),
+            },
+            "items": [
+                {
+                    "publicPersonRef": person.get("publicPersonRef"),
+                    "displayName": person.get("displayName"),
+                    "photoUrl": person.get("photoUrl"),
+                }
+                for person in result["items"]
+                if person.get("publicPersonRef")
+            ],
+            "page": result["page"],
+            "hasMore": result["hasMore"],
+            "totalCount": max(0, int((counts[0] if counts else {}).get("mutual_count") or 0)),
+        }
+
+    @staticmethod
+    def _voice_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+        updated_at = (row or {}).get("updated_at")
+        return {
+            "shareScopesFromLastRequest": bool(
+                (row or {}).get("share_scopes_from_last_request", False)
+            ),
+            "updatedAt": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+        }
+
+    def get_last_request_scope_handles(
+        self, *, requester_user_id: str, addressee_user_id: str
+    ) -> dict[str, list[str]]:
+        """Scope handles from this requester's most recent request to this
+        exact recipient, split by direction. Empty for a first-time
+        recipient -- there is deliberately no wider "usual scopes" fallback,
+        so a repeat request can only ever offer what this specific person was
+        already asked before, never a guess extrapolated from someone else.
+        """
+        latest_request = self._execute_one(
+            """
+            SELECT id
+            FROM connection_requests
+            WHERE requester_user_id = :requester_user_id
+              AND addressee_user_id = :addressee_user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {
+                "requester_user_id": requester_user_id,
+                "addressee_user_id": addressee_user_id,
+            },
+        )
+        if not latest_request:
+            return {"requestedScopeHandles": [], "offeredScopeHandles": []}
+        proposals = self._execute_many(
+            """
+            SELECT scope_handle, direction
+            FROM connection_scope_proposals
+            WHERE connection_request_id = CAST(:request_id AS UUID)
+            """,
+            {"request_id": str(latest_request.get("id") or "")},
+        )
+        return {
+            "requestedScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "requested" and row.get("scope_handle")
+            ],
+            "offeredScopeHandles": [
+                str(row.get("scope_handle") or "")
+                for row in proposals
+                if row.get("direction") == "offered" and row.get("scope_handle")
+            ],
+        }
+
+    def get_voice_preferences(self, *, user_id: str) -> dict[str, Any]:
+        """Return the standing default for voice-initiated connection requests.
+
+        A missing row means the person has never set a preference: reusing
+        scopes from a recipient's last request defaults off, matching
+        `connect.send_request`'s own current always-empty behavior. It never
+        grants access by itself -- the recipient still approves every
+        request -- so no lock or audit event is needed here.
+        """
+        row = self._execute_one(
+            """
+            SELECT share_scopes_from_last_request, updated_at
+            FROM connection_voice_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._voice_preferences_payload(row)
+
+    def update_voice_preferences(
+        self, *, user_id: str, share_scopes_from_last_request: bool
+    ) -> dict[str, Any]:
+        """Write the person's standing voice-request scope-sharing default."""
+        row = self._execute_one(
+            """
+            INSERT INTO connection_voice_preferences (
+              user_id, share_scopes_from_last_request, created_at, updated_at
+            ) VALUES (
+              :user_id, :share_scopes_from_last_request, NOW(), NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+              share_scopes_from_last_request = EXCLUDED.share_scopes_from_last_request,
+              updated_at = NOW()
+            RETURNING share_scopes_from_last_request, updated_at
+            """,
+            {
+                "user_id": user_id,
+                "share_scopes_from_last_request": share_scopes_from_last_request,
+            },
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_VOICE_PREFERENCES_UPDATE_FAILED",
+                "Could not update voice preferences.",
+                status_code=500,
+            )
+        return self._voice_preferences_payload(row)
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
@@ -1786,7 +3596,15 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, c.created_at
+                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, a.email_verified, c.created_at,
+                   EXISTS (
+                     SELECT 1
+                     FROM connection_origins contact_origin
+                     WHERE contact_origin.connection_id = c.id
+                       AND contact_origin.status = 'active'
+                       AND contact_origin.origin_kind = 'contact_sync'
+                       AND contact_origin.source_ref = :user_id
+                   ) AS connected_from_contacts
             FROM connections c
             LEFT JOIN actor_identity_cache a
               ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
@@ -1796,36 +3614,690 @@ class ConnectionsService:
             """,
             {"user_id": user_id},
         )
+        # Match search_directory's RIA annotation with one batched lookup for
+        # existing connections; an empty list does not need a lookup.
+        ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
+        public_person_refs = self._public_person_refs([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
                 "userId": str(r.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(r.get("user_id") or "")),
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
-                "createdAt": r.get("created_at"),
+                "email": r.get("email"),
+                "emailVerified": r.get("email_verified") is True,
+                "createdAt": _iso(r.get("created_at")),
+                "isRia": str(r.get("user_id") or "") in ria_user_ids,
+                "connectedFromContacts": bool(r.get("connected_from_contacts")),
             }
             for r in rows
         ]
 
+    def list_connections_page(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+        audience: str = DIRECTORY_AUDIENCE_ALL,
+    ) -> dict[str, Any]:
+        """Return a stable bounded connection page without truncating legacy reads."""
+
+        viewer_id = str(user_id or "").strip()
+        normalized_page = max(1, int(page or 1))
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        normalized_query = str(query or "").strip().lower()
+        normalized_audience = str(audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
+        if normalized_audience not in {DIRECTORY_AUDIENCE_ALL, DIRECTORY_AUDIENCE_RIA}:
+            normalized_audience = DIRECTORY_AUDIENCE_ALL
+        offset = (normalized_page - 1) * normalized_limit
+
+        rows = self._execute_many(
+            f"""
+            WITH filtered AS (
+              SELECT
+                connection.id AS connection_id,
+                CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END AS user_id,
+                identity.display_name, COALESCE(NULLIF(BTRIM(identity.custom_photo_url), ''), NULLIF(BTRIM(identity.photo_url), '')) AS photo_url, identity.email, connection.created_at,
+                LOWER(BTRIM(COALESCE(
+                  NULLIF(identity.display_name, ''),
+                  CASE
+                    WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END
+                ))) AS normalized_name
+              FROM connections connection
+              LEFT JOIN actor_identity_cache identity
+                ON identity.user_id = CASE
+                  WHEN connection.user_a_id = :user_id THEN connection.user_b_id
+                  ELSE connection.user_a_id
+                END
+              WHERE connection.status = 'active'
+                AND (
+                  connection.user_a_id = :user_id
+                  OR connection.user_b_id = :user_id
+                )
+                AND (
+                  :query = ''
+                  OR POSITION(
+                    :query IN LOWER(BTRIM(COALESCE(
+                      NULLIF(identity.display_name, ''),
+                      CASE
+                        WHEN connection.user_a_id = :user_id
+                        THEN connection.user_b_id
+                        ELSE connection.user_a_id
+                      END
+                    )))
+                  ) > 0
+                )
+                AND (
+                  :audience = 'all'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_filter
+                    WHERE ria_filter.user_id = CASE
+                      WHEN connection.user_a_id = :user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {_RIA_VERIFIED_STATUS_SQL}
+                  )
+                )
+            ),
+            matched AS (
+              -- One rule for every people search; see people_search_sql.py.
+              SELECT *,
+                CASE
+                  WHEN :query = '' THEN 0
+                  WHEN normalized_name ~ :query_prefix_re THEN 0
+                  WHEN normalized_name ~ :query_word_re THEN 1
+                  ELSE 2
+                END AS match_rank
+              FROM filtered
+            ),
+            narrowed AS (
+              SELECT * FROM matched
+              WHERE NOT :query_is_single_char
+                 OR match_rank < 2
+                 OR NOT EXISTS (
+                      SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                    )
+            ),
+            total AS (
+              SELECT COUNT(*)::BIGINT AS total_count FROM narrowed
+            ),
+            page_rows AS (
+              SELECT *
+              FROM narrowed
+              ORDER BY match_rank, normalized_name, user_id, connection_id
+              OFFSET :offset
+              LIMIT :limit
+            )
+            SELECT
+              page_rows.connection_id, page_rows.user_id,
+              page_rows.display_name, page_rows.photo_url, page_rows.email,
+              page_rows.created_at, page_rows.normalized_name,
+              total.total_count,
+              CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM connection_origins contact_origin
+                WHERE contact_origin.connection_id = page_rows.connection_id
+                  AND contact_origin.status = 'active'
+                  AND contact_origin.origin_kind = 'contact_sync'
+                  AND contact_origin.source_ref = :user_id
+              ) END AS connected_from_contacts,
+              CASE WHEN page_rows.user_id IS NULL THEN FALSE ELSE EXISTS (
+                SELECT 1
+                FROM ria_profiles ria_annotation
+                WHERE ria_annotation.user_id = page_rows.user_id
+                  AND {_RIA_VERIFIED_STATUS_SQL}
+              ) END AS is_ria
+            FROM total
+            LEFT JOIN page_rows ON TRUE
+            ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                     page_rows.user_id, page_rows.connection_id
+            """,  # nosec B608 # the RIA predicate is a static module constant.
+            {
+                "user_id": viewer_id,
+                "query": normalized_query,
+                **people_query_match_params(normalized_query),
+                "audience": normalized_audience,
+                "offset": offset,
+                "limit": normalized_limit,
+            },
+        )
+        total_count = int((rows[0] if rows else {}).get("total_count") or 0)
+        page_rows = [row for row in rows if row.get("connection_id")]
+        public_person_refs = self._public_person_refs(
+            [str(row.get("user_id") or "") for row in page_rows]
+        )
+        items = [
+            {
+                "connectionId": str(row.get("connection_id") or ""),
+                "userId": str(row.get("user_id") or ""),
+                "publicPersonRef": public_person_refs.get(str(row.get("user_id") or "")),
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "email": row.get("email"),
+                "createdAt": row.get("created_at"),
+                "isRia": bool(row.get("is_ria")),
+                "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            }
+            for row in page_rows
+        ]
+        return {
+            "items": items,
+            "page": normalized_page,
+            "hasMore": offset + len(items) < total_count,
+            "totalCount": total_count,
+            "audience": normalized_audience,
+        }
+
+    def begin_contact_sync(self) -> datetime:
+        """Use the database clock before asynchronous matching or graph waits."""
+        row = self._execute_one("SELECT clock_timestamp() AS started_at")
+        started_at = (row or {}).get("started_at")
+        if not isinstance(started_at, datetime) or started_at.tzinfo is None:
+            raise ConnectionsError(
+                "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                "Contact sync is temporarily unavailable.",
+                status_code=503,
+            )
+        return started_at
+
+    def sync_contact_matches(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+        sync_started_at: datetime | None = None,
+        verified_requester_email: str | None = None,
+        allow_reconnect: bool = True,
+    ) -> dict[str, Any]:
+        """Materialize eligible contact matches without broadening consent.
+
+        Matching remains read-only and happens before this method. This method
+        re-derives every digest from the current verified server phone, locks
+        relationship state, and writes all canonical graph projections inside
+        one transaction. It never creates a location/information grant.
+        """
+
+        requester_id = str(user_id or "").strip()
+        if not requester_id:
+            raise ConnectionsError(
+                "CONTACT_SYNC_AUTH_REQUIRED", "Sign in before syncing contacts.", status_code=401
+            )
+        if len(phone_lookups) > CONTACT_SYNC_MAX_LOOKUPS or len(matches) > CONTACT_SYNC_MAX_LOOKUPS:
+            raise ConnectionsError(
+                "CONTACT_SYNC_LOOKUP_COUNT_INVALID",
+                f"Sync at most {CONTACT_SYNC_MAX_LOOKUPS} contacts at a time.",
+                status_code=422,
+            )
+
+        proofs: dict[str, tuple[str, str]] = {}
+        for lookup in phone_lookups:
+            lookup_id = str(lookup.get("lookup_id") or "").strip()
+            digest = str(lookup.get("hash") or "").strip().lower()
+            last4 = str(lookup.get("last4") or "").strip()
+            proof_valid = (
+                bool(lookup_id)
+                and len(digest) == 64
+                and all(ch in "0123456789abcdef" for ch in digest)
+                and len(last4) == 4
+                and all(ch in "0123456789" for ch in last4)
+            )
+            if not proof_valid:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_LOOKUP_PROOF_INVALID",
+                    "Each contact-sync proof must include a SHA-256 digest and exactly four trailing digits.",
+                    status_code=422,
+                )
+            proofs[lookup_id] = (digest, last4)
+
+        normalized_matches: list[dict[str, Any]] = []
+        seen_lookup_ids: set[str] = set()
+        for match in matches:
+            lookup_id = str(match.get("lookup_id") or "").strip()
+            target_user_id = str(match.get("user_id") or "").strip()
+            if (
+                not lookup_id
+                or lookup_id in seen_lookup_ids
+                or lookup_id not in proofs
+                or not target_user_id
+                or target_user_id == requester_id
+            ):
+                continue
+            seen_lookup_ids.add(lookup_id)
+            normalized_matches.append({**match, "lookup_id": lookup_id, "user_id": target_user_id})
+
+        if not normalized_matches:
+            return {
+                "checkedLookupCount": len(phone_lookups),
+                "matchedCount": 0,
+                "autoConnectedCount": 0,
+                "alreadyConnectedCount": 0,
+                "requestRequiredCount": 0,
+                "suppressedCount": 0,
+                "indeterminateLookupIds": [],
+                "items": [],
+            }
+
+        candidate_user_ids = sorted({str(item["user_id"]) for item in normalized_matches})
+        proof_items = sorted(
+            (
+                str(item["lookup_id"]),
+                proofs[str(item["lookup_id"])][0],
+                proofs[str(item["lookup_id"])][1],
+            )
+            for item in normalized_matches
+        )
+        outcomes: list[dict[str, Any]] = []
+        activated_target_ids: set[str] = set()
+        with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is None:
+                raise ConnectionsError(
+                    "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                    "Contact sync is temporarily unavailable.",
+                    status_code=503,
+                )
+            # Reset/deletion takes this same gate before touching Circles or
+            # connections. Acquire it before every graph row lock so cleanup
+            # cannot finish a DELETE and then be followed by a late edge
+            # recreation for either side of the pair.
+            lock_connection_graph_users(
+                transaction_connection,
+                user_ids={requester_id, *candidate_user_ids},
+            )
+            # Connections precede identity in the global lock order used by
+            # full account deletion. Existing rows are locked first so contact
+            # sync never holds the identity SHARE lock while waiting for a
+            # transaction that already owns the same connection row.
+            existing_rows = self._execute_many(
+                """
+                SELECT
+                  connection.id, connection.user_a_id, connection.user_b_id,
+                  connection.status, connection.revoked_at,
+                  CASE connection.revoked_by_side
+                    WHEN 'a' THEN connection.user_a_id
+                    WHEN 'b' THEN connection.user_b_id
+                  END AS revoked_by_user_id, connection.revoked_by_at,
+                  CASE
+                    WHEN connection.user_a_id = :requester_id THEN connection.user_b_id
+                    ELSE connection.user_a_id
+                  END AS target_user_id
+                FROM connections connection
+                WHERE (
+                    connection.user_a_id = :requester_id
+                    AND connection.user_b_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  ) OR (
+                    connection.user_b_id = :requester_id
+                    AND connection.user_a_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                  )
+                ORDER BY connection.user_a_id, connection.user_b_id
+                FOR UPDATE
+                """,
+                {"requester_id": requester_id, "candidate_user_ids": candidate_user_ids},
+            )
+            existing_by_target: dict[str, dict[str, Any]] = {}
+            for row in existing_rows:
+                target = str(row.get("target_user_id") or "")
+                if target in candidate_user_ids and {
+                    str(row.get("user_a_id") or ""),
+                    str(row.get("user_b_id") or ""),
+                } == {requester_id, target}:
+                    existing_by_target[target] = row
+
+            # Exact proof uniqueness is an identity-cache invariant at the
+            # mutation boundary, not merely a property of the earlier async
+            # lookup. SHARE is compatible across concurrent syncs while it
+            # blocks every INSERT/UPDATE/DELETE writer's ROW EXCLUSIVE lock.
+            # The recount below and all graph writes therefore observe one
+            # stable set of verified phone bindings. This avoids selecting an
+            # arbitrary account if a stale duplicate arrives between the
+            # initial match and this mutation; migration 198 also prevents new
+            # duplicate verified owners at the database boundary.
+            self._execute_many("LOCK TABLE actor_identity_cache IN SHARE MODE")
+            # Read requester and candidate identities in canonical order. The
+            # table SHARE lock already keeps those rows stable through commit,
+            # so row locks would add contention without strengthening safety.
+            locked_identity_rows = self._execute_many(
+                """
+                SELECT user_id, phone_number, phone_verified, display_name,
+                       photo_url, custom_photo_url
+                FROM actor_identity_cache
+                WHERE user_id = ANY(CAST(:identity_user_ids AS TEXT[]))
+                ORDER BY user_id
+                """,
+                {"identity_user_ids": sorted({requester_id, *candidate_user_ids})},
+            )
+            locked_identities = {str(row.get("user_id") or ""): row for row in locked_identity_rows}
+            requester = locked_identities.get(requester_id) or {}
+            requester_phone_verified = bool(requester.get("phone_verified")) and bool(
+                str(requester.get("phone_number") or "").strip()
+            )
+            if not requester_phone_verified and not self._has_established_verified_contact_email(
+                requester_id, verified_requester_email
+            ):
+                raise ConnectionsError(
+                    "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                    "We couldn't confirm your account verification. Please try again or contact support.",
+                    status_code=403,
+                )
+            proof_match_rows = self._execute_many(
+                """
+                WITH submitted_lookup AS (
+                  SELECT lookup_id, digest_hex, last4
+                  FROM UNNEST(
+                    CAST(:lookup_ids AS TEXT[]),
+                    CAST(:digest_hexes AS TEXT[]),
+                    CAST(:last4_values AS TEXT[])
+                  ) AS submitted(lookup_id, digest_hex, last4)
+                ),
+                correlated_identity AS (
+                  SELECT
+                    submitted.lookup_id,
+                    identity.user_id,
+                    COUNT(*) OVER (
+                      PARTITION BY submitted.lookup_id
+                    ) AS match_count
+                  FROM submitted_lookup submitted
+                  JOIN actor_identity_cache identity
+                    ON RIGHT(
+                      regexp_replace(identity.phone_number, '[^0-9]', '', 'g'), 4
+                    ) = submitted.last4
+                   AND encode(
+                     digest(
+                       convert_to(
+                         '+' || regexp_replace(
+                           identity.phone_number, '[^0-9]', '', 'g'
+                         ),
+                         'UTF8'
+                       ),
+                       'sha256'
+                     ),
+                     'hex'
+                   ) = submitted.digest_hex
+                  WHERE identity.phone_verified = TRUE
+                    AND identity.phone_number IS NOT NULL
+                )
+                SELECT lookup_id, user_id, match_count
+                FROM correlated_identity
+                ORDER BY lookup_id, user_id
+                """,
+                {
+                    "lookup_ids": [item[0] for item in proof_items],
+                    "digest_hexes": [item[1] for item in proof_items],
+                    "last4_values": [item[2] for item in proof_items],
+                },
+            )
+            unambiguous_target_by_lookup = {
+                str(row.get("lookup_id") or ""): str(row.get("user_id") or "")
+                for row in proof_match_rows
+                if int(row.get("match_count") or 0) == 1
+                and str(row.get("user_id") or "") != requester_id
+            }
+            identity_rows: list[dict[str, Any]] = []
+            for match in normalized_matches:
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                identity = locked_identities.get(target_user_id) or {}
+                digits = "".join(
+                    ch for ch in str(identity.get("phone_number") or "") if ch in "0123456789"
+                )
+                expected_digest, expected_last4 = proofs[lookup_id]
+                current_digest = (
+                    hashlib.sha256(f"+{digits}".encode("utf-8")).hexdigest() if digits else ""
+                )
+                if (
+                    bool(identity.get("phone_verified"))
+                    and digits[-4:] == expected_last4
+                    and current_digest == expected_digest
+                    and unambiguous_target_by_lookup.get(lookup_id) == target_user_id
+                ):
+                    identity_rows.append({**identity, "lookup_id": lookup_id})
+            revalidated_user_ids = sorted({str(row.get("user_id") or "") for row in identity_rows})
+            profile_rows = self._execute_many(
+                """
+                SELECT actor.user_id, actor.contact_discoverable,
+                       actor.contact_sync_consent_enabled_at,
+                       actor.contact_sync_consent_rule_version,
+                       actor.contact_sync_consent_contract_version,
+                       marketplace.is_discoverable AS marketplace_is_discoverable,
+                       marketplace.display_name AS marketplace_display_name
+                FROM actor_profiles actor
+                LEFT JOIN marketplace_public_profiles marketplace
+                  ON marketplace.user_id = actor.user_id
+                WHERE actor.user_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                ORDER BY actor.user_id
+                """,
+                {"candidate_user_ids": revalidated_user_ids},
+            )
+            profiles = {str(row.get("user_id") or ""): row for row in profile_rows}
+            revalidated_rows_by_lookup: dict[str, list[dict[str, Any]]] = {}
+            for row in identity_rows:
+                target_user_id = str(row.get("user_id") or "")
+                profile = profiles.get(target_user_id) or {}
+                preference_state = contact_sync_preference_state(
+                    discoverable=profile.get("contact_discoverable"),
+                    enabled_at=profile.get("contact_sync_consent_enabled_at"),
+                    rule_version=profile.get("contact_sync_consent_rule_version"),
+                    contract_version=profile.get("contact_sync_consent_contract_version"),
+                )
+                enriched = {
+                    **row,
+                    "contact_sync_preference_state": preference_state,
+                    "contact_sync_directory_visible": (
+                        profile.get("marketplace_is_discoverable") is not False
+                    ),
+                    "marketplace_display_name": profile.get("marketplace_display_name"),
+                }
+                revalidated_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
+                    enriched
+                )
+            activations: list[dict[str, Any]] = []
+            activation_required_target_ids: set[str] = set()
+            for match in sorted(
+                normalized_matches,
+                key=lambda item: (str(item["user_id"]), str(item["lookup_id"])),
+            ):
+                lookup_id = str(match["lookup_id"])
+                target_user_id = str(match["user_id"])
+                revalidated_rows = revalidated_rows_by_lookup.get(lookup_id) or []
+                identity = revalidated_rows[0] if len(revalidated_rows) == 1 else {}
+                proof_valid = bool(
+                    identity and str(identity.get("user_id") or "") == target_user_id
+                )
+                if not proof_valid:
+                    # The async match is only a candidate. A preference or
+                    # verified phone can change before this transaction; stale
+                    # candidates become checked-unmatched and write nothing.
+                    continue
+                existing = existing_by_target.get(target_user_id)
+                existing_status = str((existing or {}).get("status") or "")
+                has_directory_match_authority = bool(
+                    identity["contact_sync_directory_visible"]
+                    and identity["contact_sync_preference_state"]
+                    in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
+                )
+
+                directory_activation = {
+                    "target_user_id": target_user_id,
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": identity["contact_sync_preference_state"],
+                    },
+                }
+
+                outcome = "auto_connected"
+                if existing_status == "active":
+                    # The canonical graph already discloses this person to the
+                    # requester. Recognizing their exact verified-phone proof
+                    # does not create a relationship or widen target consent.
+                    # Add durable contact provenance only when the target is
+                    # currently eligible under the directory match policy.
+                    if has_directory_match_authority:
+                        activations.append(directory_activation)
+                        activation_required_target_ids.add(target_user_id)
+                    outcome = "already_connected"
+                elif not has_directory_match_authority:
+                    # A directory-hidden, explicitly disabled, or malformed
+                    # target may be recognized only through an already-active
+                    # edge. New and revoked pairs remain undisclosed.
+                    continue
+                elif existing_status == "revoked" and existing is not None:
+                    outcome, revoked_at = resolve_revoked_contact_match(
+                        existing,
+                        requester_id=requester_id,
+                        sync_started_at=sync_started_at,
+                        allow_reconnect=allow_reconnect,
+                    )
+                    if outcome == "auto_connected":
+                        activations.append(
+                            {**directory_activation, "reconnect_revoked_at": revoked_at}
+                        )
+                        activation_required_target_ids.add(target_user_id)
+                else:
+                    # Matching materializes the social relationship only. It
+                    # does not activate a pending scope proposal or create a
+                    # location/information grant.
+                    activations.append(directory_activation)
+                    activation_required_target_ids.add(target_user_id)
+
+                outcomes.append(
+                    {
+                        "lookupId": lookup_id,
+                        "userId": target_user_id,
+                        "displayName": identity.get("display_name")
+                        or identity.get("marketplace_display_name"),
+                        "photoUrl": identity.get("custom_photo_url") or identity.get("photo_url"),
+                        "outcome": outcome,
+                    }
+                )
+
+            if activations:
+                activated_target_ids = set(
+                    activate_contact_sync_connections_bulk(
+                        transaction_connection,
+                        requester_user_id=requester_id,
+                        activations=activations,
+                        sync_started_at=sync_started_at,
+                    )
+                )
+                # A canonical row can become a disconnect tombstone after the
+                # earlier FOR UPDATE scan only when it did not exist yet. The
+                # conditional bulk upsert refuses that conflict; report it as
+                # suppressed and never create its connection origin or legacy
+                # relationship-mirror rows.
+                for item in outcomes:
+                    if (
+                        str(item["userId"]) in activation_required_target_ids
+                        and str(item["userId"]) not in activated_target_ids
+                    ):
+                        item["outcome"] = "suppressed"
+
+        newly_connected_user_ids = {
+            str(item["userId"])
+            for item in outcomes
+            if item["outcome"] == "auto_connected" and str(item["userId"]) in activated_target_ids
+        }
+        if newly_connected_user_ids:
+            _notify_connection_graph_changed(
+                user_ids={requester_id, *newly_connected_user_ids},
+            )
+        counts = {
+            "auto_connected": sum(item["outcome"] == "auto_connected" for item in outcomes),
+            "already_connected": sum(item["outcome"] == "already_connected" for item in outcomes),
+            "request_required": sum(item["outcome"] == "request_required" for item in outcomes),
+            "suppressed": sum(item["outcome"] == "suppressed" for item in outcomes),
+        }
+        outcome_lookup_ids = {str(item["lookupId"]) for item in outcomes}
+        indeterminate_lookup_ids = sorted(
+            {
+                str(item["lookup_id"])
+                for item in normalized_matches
+                if str(item["lookup_id"]) not in outcome_lookup_ids
+            }
+        )
+        return {
+            "checkedLookupCount": len(phone_lookups),
+            "matchedCount": len(outcomes),
+            "autoConnectedCount": counts["auto_connected"],
+            "alreadyConnectedCount": counts["already_connected"],
+            "requestRequiredCount": counts["request_required"],
+            "suppressedCount": counts["suppressed"],
+            # These opaque lookups matched during the initial read but could
+            # not be revalidated under the mutation transaction (for example,
+            # a concurrent consent change or busy profile lock). The client
+            # must keep them out of both match results and invitation targets.
+            "indeterminateLookupIds": indeterminate_lookup_ids,
+            "items": outcomes,
+        }
+
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        removed_pair: tuple[str, str, str, str] | None = None
         with self._transaction():
-            # Lock the graph edge before revoking its capability descendants.
-            row = self._execute_one(
+            # Resolve the immutable pair without taking a row lock, then share
+            # the same deterministic per-user graph gate as contact sync,
+            # reset and deletion. Acquiring this gate before ``connections FOR
+            # UPDATE`` preserves the global lock order and keeps Circle cleanup
+            # in the same disconnect transaction.
+            candidate = self._execute_one(
                 """
                 SELECT id, user_a_id, user_b_id, status
                 FROM connections
                 WHERE id = :id
                   AND (user_a_id = :user_id OR user_b_id = :user_id)
                 LIMIT 1
-                FOR UPDATE
                 """,
                 {"id": (connection_id or "").strip(), "user_id": user_id},
             )
-            if not row:
+            if not candidate:
                 return {"removed": 0}
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={
+                        str(candidate.get("user_a_id") or ""),
+                        str(candidate.get("user_b_id") or ""),
+                    },
+                )
+                # Revalidate membership and pair identity after waiting for the
+                # advisory gate; the row may have changed while we waited.
+                row = self._execute_one(
+                    """
+                    SELECT id, user_a_id, user_b_id, status
+                    FROM connections
+                    WHERE id = :id
+                      AND (user_a_id = :user_id OR user_b_id = :user_id)
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    {"id": (connection_id or "").strip(), "user_id": user_id},
+                )
+                if not row:
+                    return {"removed": 0}
+            else:
+                # Lightweight unit doubles have no transaction connection;
+                # production databases always take the gated revalidation.
+                row = candidate
             user_a = row.get("user_a_id")
             user_b = row.get("user_b_id")
+            if transaction_connection is not None:
+                self._cancel_pending_pair_requests(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                    actor_user_id=user_id,
+                )
             self._revoke_pair_capabilities(
                 user_a_id=str(user_a or ""),
                 user_b_id=str(user_b or ""),
@@ -1843,26 +4315,96 @@ class ConnectionsService:
                 """,
                 {"a": user_a, "b": user_b},
             )
-            conn = self._execute_one(
+            # Revoke provenance independently of the new explicit-sync choice.
+            # Reconnecting never restores revoked scope grants or named Circles.
+            self._execute_many(
                 """
-                UPDATE connections
+                UPDATE connection_origins
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-                WHERE id = :id AND status = 'active'
+                WHERE connection_id = CAST(:connection_id AS UUID)
+                  AND status = 'active'
+                  AND origin_kind IN (
+                    'direct_request', 'circle_member', 'legacy_invite',
+                    'import', 'contact_sync'
+                  )
                 RETURNING id
                 """,
-                {"id": (connection_id or "").strip()},
+                {"connection_id": (connection_id or "").strip()},
             )
-        if conn:
-            FeedService().record_event(
-                user_id=user_a,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata={"counterpart_user_id": user_b},
+            conn = self._execute_one(
+                """
+                WITH episode AS MATERIALIZED (SELECT clock_timestamp() AS revoked_at)
+                UPDATE connections
+                SET status = 'revoked', revoked_at = episode.revoked_at, updated_at = NOW(),
+                    revoked_by_side = CASE WHEN user_a_id = :actor_user_id THEN 'a'
+                      WHEN user_b_id = :actor_user_id THEN 'b' END,
+                    revoked_by_at = episode.revoked_at
+                FROM episode
+                WHERE id = :id AND status = 'active'
+                RETURNING id, connections.revoked_at
+                """,
+                {"id": (connection_id or "").strip(), "actor_user_id": user_id},
             )
-            FeedService().record_event(
-                user_id=user_b,
-                source_domain="connections",
-                event_type="connection_revoked",
-                metadata={"counterpart_user_id": user_a},
-            )
+            if conn:
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
+                self._end_drive_owner_allows(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
+                # Each named-Circle origin removal recomputes the aggregate.
+                # Multiple origins can temporarily reactivate it and replace
+                # revoked_at. The explicit disconnect owns the final state and
+                # its original actor episode, within this same graph gate.
+                self._execute_one(
+                    """
+                    UPDATE connections
+                    SET status = 'revoked', revoked_at = :episode,
+                        revoked_by_at = :episode,
+                        revoked_by_side = CASE WHEN user_a_id = :actor THEN 'a'
+                          WHEN user_b_id = :actor THEN 'b' END,
+                        updated_at = NOW()
+                    WHERE id = :id
+                    RETURNING id
+                    """,
+                    {"id": conn["id"], "episode": conn["revoked_at"], "actor": user_id},
+                )
+                user_a_id = str(user_a or "")
+                user_b_id = str(user_b or "")
+                connection_source_id = str(conn.get("id") or connection_id)
+                revoked_at = conn.get("revoked_at")
+                if revoked_at:
+                    connection_source_id = f"{connection_source_id}:{revoked_at}"
+                for owner, counterpart in (
+                    (user_a_id, user_b_id),
+                    (user_b_id, user_a_id),
+                ):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_revoked",
+                        source_row_id=connection_source_id,
+                    )
+                removed_pair = (
+                    user_a_id,
+                    user_b_id,
+                    str(conn.get("id") or connection_id),
+                    str(conn.get("revoked_at") or ""),
+                )
+        if removed_pair:
+            user_a_id, user_b_id, removed_connection_id, revocation_id = removed_pair
+            for recipient, counterpart in (
+                (user_a_id, user_b_id),
+                (user_b_id, user_a_id),
+            ):
+                self._notify_connection_removed(
+                    recipient,
+                    counterpart,
+                    actor_user_id=user_id,
+                    connection_id=removed_connection_id,
+                    revocation_id=revocation_id,
+                )
         return {"removed": 1 if conn else 0}

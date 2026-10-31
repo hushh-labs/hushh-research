@@ -4,40 +4,40 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Compass as PhosphorCompass,
-  MagnifyingGlass,
-  SquaresFour,
-  type IconProps as PhosphorIconProps,
-} from "@phosphor-icons/react";
-import {
-  BriefcaseBusiness,
-  ChartSpline,
-  ChartCandlestick,
-  CircleUserRound,
+  BOTTOM_NAVIGATION_ICONS,
+  Briefcase,
+  BarChart3 as ChartBar,
+  ChartColumnIncreasing as ChartLineUp,
   Database,
-  FileSpreadsheet,
-  FolderSearch,
-  Mail,
+  Mail as EnvelopeSimple,
+  FolderSearch as FolderSimple,
   MapPin,
-  Newspaper,
   ShieldCheck,
-  Store,
-  Users,
-  WalletCards,
-} from "lucide-react";
+  Store as Storefront,
+  Table,
+  UserRound as UserCircle,
+  UsersRound as UsersThree,
+  Wallet,
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import type { SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import { BottomNavigationSurface } from "@/components/app-ui/bottom-navigation-surface";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
+import { useNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -50,20 +50,12 @@ import {
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
+import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
-function FilledSquaresFourIcon(props: PhosphorIconProps) {
-  return <SquaresFour {...props} weight="fill" />;
-}
-
-function FilledCompassIcon(props: PhosphorIconProps) {
-  return <PhosphorCompass {...props} weight="fill" />;
-}
-
-function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
-  return <MagnifyingGlass {...props} weight="fill" />;
-}
+const BOTTOM_GAP_PX = 4;
 
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
@@ -72,57 +64,61 @@ const BOTTOM_NAV_OPTION_META: Record<
   dashboard: {
     value: "dashboard",
     label: "One",
-    icon: SquaresFour,
-    activeIcon: FilledSquaresFourIcon,
+    ...BOTTOM_NAVIGATION_ICONS.dashboard,
     dataTourId: "nav-one-dashboard",
+  },
+  chat: {
+    value: "chat",
+    label: "Chat",
+    ...BOTTOM_NAVIGATION_ICONS.chat,
+    dataTourId: "nav-chat",
   },
   finance: {
     value: "finance",
     label: "Market",
-    icon: ChartCandlestick,
+    icon: ChartBar,
     dataTourId: "nav-market",
   },
   portfolio: {
     value: "portfolio",
     label: "Portfolio",
-    icon: WalletCards,
+    icon: Wallet,
     dataTourId: "nav-portfolio",
   },
   analysis: {
     value: "analysis",
     label: "Analysis",
-    icon: ChartSpline,
+    icon: ChartLineUp,
     dataTourId: "nav-analysis",
   },
   connect: {
     value: "connect",
     label: "Connect",
-    icon: PhosphorCompass,
-    activeIcon: FilledCompassIcon,
+    ...BOTTOM_NAVIGATION_ICONS.connect,
     dataTourId: "nav-connect",
   },
   "ria-home": {
     value: "ria-home",
-    label: "RIA",
-    icon: BriefcaseBusiness,
+    label: "Advisor",
+    icon: Briefcase,
     dataTourId: "nav-ria-home",
   },
   clients: {
     value: "clients",
     label: "Clients",
-    icon: Users,
+    icon: UsersThree,
     dataTourId: "nav-ria-clients",
   },
   picks: {
     value: "picks",
     label: "Picks",
-    icon: FileSpreadsheet,
+    icon: Table,
     dataTourId: "nav-ria-picks",
   },
   gmail: {
     value: "gmail",
-    label: "Gmail",
-    icon: Mail,
+    label: "Mail",
+    icon: EnvelopeSimple,
     dataTourId: "nav-one-gmail",
   },
   email: {
@@ -146,19 +142,19 @@ const BOTTOM_NAV_OPTION_META: Record<
   feed: {
     value: "feed",
     label: "Feed",
-    icon: Newspaper,
+    ...BOTTOM_NAVIGATION_ICONS.feed,
     dataTourId: "nav-one-feed",
   },
   pkm: {
     value: "pkm",
     label: "Memory",
-    icon: FolderSearch,
+    icon: FolderSimple,
     dataTourId: "nav-one-pkm",
   },
   marketplace: {
     value: "marketplace",
     label: "Market",
-    icon: Store,
+    icon: Storefront,
     dataTourId: "nav-one-marketplace",
   },
   connected: {
@@ -167,36 +163,31 @@ const BOTTOM_NAV_OPTION_META: Record<
     icon: Database,
     dataTourId: "nav-one-systems",
   },
-  search: {
-    value: "search",
-    label: "Search",
-    icon: MagnifyingGlass,
-    activeIcon: FilledMagnifyingGlassIcon,
-    dataTourId: "nav-search",
-  },
   profile: {
     value: "profile",
     label: "Profile",
-    icon: CircleUserRound,
+    icon: UserCircle,
     dataTourId: "nav-profile",
   },
 };
 
+// Tab routes already warmed this session (see the prefetch effect).
+const prefetchedTabHrefs = new Set<string>();
+
 function navOptionForKey(
   key: AppBottomNavKey,
-  pendingConsents: number,
-  feedUnreadCount: number,
+  pendingConsents: number | null,
+  feedUnreadCount: number | null,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Feed is the single notification home in the persistent navigation. Its
-  // live "Needs you" section includes pending consent requests, while its
-  // chronological section owns unread Feed events. Consent is not currently a
-  // feed_events writer, so these are disjoint counts.
-  let badge: number | undefined;
+  // "Needs you" requests and unread feed_events overlap for several domains
+  // but not all of them. Counts alone cannot calculate that union exactly, so
+  // use an honest attention dot instead of double-counting or hiding activity.
+  let badge: "dot" | undefined;
   if (key === "feed") {
-    const feedNotificationCount = pendingConsents + feedUnreadCount;
-    if (feedNotificationCount > 0) {
-      badge = feedNotificationCount;
+    if ((pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0) {
+      badge = "dot";
     }
   }
   return { ...option, badge };
@@ -212,12 +203,13 @@ export const Navbar = ({
   layout?: "fixed" | "slot";
 }) => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const agentPopover = useOptionalAgentPopover();
-  const pendingConsents = useConsentPendingSummaryCount();
-  const feedUnreadCount = useFeedUnreadCount();
+  const surface = useVoiceSurfaceMetadata();
+  const nativeAppearance = useNativeControlAppearance();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -225,6 +217,13 @@ export const Navbar = ({
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
+  // The persistent navigation is hidden while the session/setup shell is
+  // deciding. Keep its presentation-only badge requests idle during that
+  // interval so they cannot consume the connection pool needed by the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const badgesAreVisible = !useOnboardingChrome && !chromeSuppressed;
+  const pendingConsents = useConsentPendingSummaryCount({ enabled: badgesAreVisible });
+  const feedUnreadCount = useFeedUnreadCount({ enabled: badgesAreVisible });
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const setAgentNavigationContext = useKaiSession(
@@ -259,13 +258,10 @@ export const Navbar = ({
       }
     }
   }, [pathname, setAgentNavigationContext]);
-  const agentWindowOpen =
-    agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
     busyOperations["portfolio_import_surface"],
   );
   const hideNavbar =
-    agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
     pathname === ROUTES.DEVELOPERS ||
@@ -282,9 +278,41 @@ export const Navbar = ({
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
     return keys.map((key) =>
-      navOptionForKey(key, pendingConsents ?? 0, feedUnreadCount ?? 0),
+      navOptionForKey(key, pendingConsents, feedUnreadCount),
     );
   }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
+
+  // Warm every tab's route once the shell is up, so a tap resolves in about a
+  // frame instead of showing the loading boundary while the segment loads.
+  // Idle time only, once per destination.
+  const tabHrefs = useMemo(
+    () =>
+      resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope)
+        .map((key) => resolveBottomNavAction(key, bottomNavScope))
+        .flatMap((action) => (action.type === "route" ? [action.href] : [])),
+    [normalizedPathname, bottomNavScope],
+  );
+  useEffect(() => {
+    if (!isVaultUnlocked || typeof window === "undefined") return;
+    const pending = tabHrefs.filter((href) => !prefetchedTabHrefs.has(href));
+    if (pending.length === 0) return;
+    const run = () => {
+      for (const href of pending) {
+        prefetchedTabHrefs.add(href);
+        router.prefetch(href);
+      }
+    };
+    const idle = (window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    if (idle.requestIdleCallback) {
+      const id = idle.requestIdleCallback(run, { timeout: 1500 });
+      return () => idle.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 300);
+    return () => window.clearTimeout(id);
+  }, [isVaultUnlocked, router, tabHrefs]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -304,24 +332,29 @@ export const Navbar = ({
     };
 
     // When the bottom nav is genuinely gone for this context (unauthenticated,
-    // onboarding chrome, or no nav options), collapse the reserved height to 0.
-    if (!isAuthenticated || useOnboardingChrome || navOptions.length === 0) {
+    // onboarding chrome, no nav options, or explicitly hidden by the shell),
+    // collapse the reserved height to 0.
+    if (
+      !isAuthenticated ||
+      useOnboardingChrome ||
+      navOptions.length === 0 ||
+      shellNavigationHidden ||
+      hideNavbar
+    ) {
       setBottomChromeVars("0px", "58px");
       return;
     }
 
     const el = pillRef.current;
     if (!el) {
-      // The navbar is temporarily unmounted (e.g. the agent window is open, which
-      // also hides the agent bar that consumes --app-bottom-fixed-ui). Do NOT
-      // zero the reserved height here: when the agent window closes the navbar
-      // remounts but this effect's other deps are unchanged, so it would not
+      // The navbar can be temporarily unmounted while the shell changes context,
+      // which also hides the agent bar that consumes --app-bottom-fixed-ui. Do NOT
+      // zero the reserved height here: when the navbar remounts this effect's
+      // other deps may be unchanged, so it would not
       // re-measure and the stale 0px would collapse the agent bar onto the nav.
       // Preserve the last measured value until a real measurement runs.
       return;
     }
-
-    const BOTTOM_GAP_PX = 4;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
@@ -342,23 +375,18 @@ export const Navbar = ({
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-    // `agentWindowOpen` is included so the pill is re-measured when the navbar
-    // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
-    // stays stale and the agent bar overlaps the nav).
   }, [
-    agentWindowOpen,
     isAuthenticated,
     navOptions.length,
     useOnboardingChrome,
+    hideNavbar,
+    shellNavigationHidden,
   ]);
 
-  const bottomNavWidth =
-    navOptions.length > 0
-      ? "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"
-      : "0px";
   const routeActiveNav = resolveBottomNavActiveKey(
     normalizedPathname,
     bottomNavScope,
+    searchParams,
   );
   const optimisticNav = useMemo(() => {
     const pendingTarget = [...interactionIntents]
@@ -370,40 +398,17 @@ export const Navbar = ({
           intent.target,
       )?.target;
     if (!pendingTarget) return null;
-    return (
-      navOptions.find((option) => {
-        const action = resolveBottomNavAction(
-          option.value as AppBottomNavKey,
-          resolveBottomNavSpecialistOptionKeys(bottomNavScope).includes(
-            option.value as AppBottomNavKey,
-          )
-            ? bottomNavScope
-            : "one",
-        );
-        return action.type === "route" && action.href === pendingTarget;
-      })?.value ?? null
+    const target = new URL(pendingTarget, "https://app.invalid");
+    const pendingKey = resolveBottomNavActiveKey(
+      target.pathname,
+      bottomNavScope,
+      target.searchParams,
     );
+    return navOptions.some((option) => option.value === pendingKey)
+      ? pendingKey
+      : null;
   }, [bottomNavScope, interactionIntents, navOptions]);
   const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
-
-  if (shellNavigationHidden || hideNavbar) {
-    return null;
-  }
-
-  if (useOnboardingChrome) {
-    return null;
-  }
-
-  if (!isAuthenticated) {
-    // On the signed-out onboarding flow the theme control is infused INSIDE the
-    // agent bar (see agent-bar.tsx), so no separate top/bottom toggle renders
-    // here. Keeping the hero completely clean.
-    return null;
-  }
-
-  if (navOptions.length === 0) {
-    return null;
-  }
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -431,10 +436,6 @@ export const Navbar = ({
         ? bottomNavScope
         : "one",
     );
-    if (action.type === "command") {
-      openKaiCommandBar();
-      return;
-    }
     if (action.type === "route") {
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
@@ -442,13 +443,42 @@ export const Navbar = ({
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
+      // Tab switches swap in place, the way Threads and Muse do: no fade out,
+      // no fade in. The full envelope faded the old screen out at once and
+      // left an empty page (the null loading boundary) until the new route
+      // resolved: 180 to 621 ms before the next tab was readable on a Galaxy
+      // S24 Ultra, 2026-09-22. The routes are prefetched below, so the new
+      // screen is ready by the time the tap lands.
       requestInternalAppNavigation({
         href: action.href,
         scroll: false,
         source: "tap",
+        transitionMode: "contextual",
+        ...(key !== activeNav ? { feedback: "selection" as const } : {}),
       });
     }
   };
+
+  const nativeColumn = useNativeNavigationColumn(pillRef,
+    layout === "slot" && nativeAppearance !== null && isAuthenticated && !hideNavbar && !useOnboardingChrome && !shellNavigationHidden);
+  const nativeNavigation = useNativeNavigation({
+    column: nativeColumn,
+    enabled: layout === "slot" && nativeAppearance !== null,
+    visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
+      !hideNavbar && !shellNavigationHidden && !chromeSuppressed,
+    interactionEnabled: !surface?.interactionLayer?.blocksUnderlyingActions,
+    selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
+      ? activeNav as NativeNavigationTab : "dashboard",
+    feedAttention: (pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0,
+    appearance: nativeAppearance?.appearance ?? "light",
+    accentHex: nativeAppearance?.accentHex ?? "",
+    foregroundHex: nativeAppearance?.foregroundHex ?? "",
+    onSelect: navigateTo,
+  });
+
+  if (shellNavigationHidden || hideNavbar || useOnboardingChrome || !isAuthenticated || navOptions.length === 0) {
+    return null;
+  }
 
   return (
     <nav
@@ -458,12 +488,15 @@ export const Navbar = ({
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
-          : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+          : cn(
+              "fixed inset-x-0 flex justify-center transform-gpu",
+              BOTTOM_CHROME_INSET_CLASSNAME,
+            ),
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
         // `lg`, so hiding it above 1024px leaves signed-in users with no way to
-        // reach One / Connect / Feed / Search at all.
+        // reach One / Connect / Feed at all.
         "pointer-events-none",
       )}
       style={
@@ -475,41 +508,24 @@ export const Navbar = ({
           : undefined
       }
     >
+      {/* The shared bottom chrome column: the pill fills it edge to edge, so
+          it and the "Talk to One" bar above it share both edges. No route or
+          viewport arithmetic here; the shell owns the width. */}
       <div
         data-testid="app-bottom-nav-frame"
-        className="pointer-events-none mx-auto flex w-full justify-center"
-        style={{
-          maxWidth:
-            "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
-        }}
+        className={cn(
+          "pointer-events-none mx-auto flex justify-center",
+          BOTTOM_CHROME_COLUMN_CLASSNAME,
+        )}
       >
         <div
           className={cn(
-            "relative flex items-stretch justify-center gap-2",
+            "relative flex w-full items-stretch justify-center gap-2",
             "pointer-events-none",
           )}
-          style={{ maxWidth: "calc(100vw - 2rem)" }}
           ref={pillRef}
         >
-          <div
-            className="min-w-0 pointer-events-auto"
-            style={{ width: bottomNavWidth }}
-          >
-            <SegmentedPill
-              size="default"
-              layout="stacked"
-              hitArea="segment"
-              value={activeNav}
-              options={navOptions}
-              onValueChange={navigateTo}
-              ariaLabel="Route navigation"
-              className={cn(
-                "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
-                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
-              )}
-            />
-          </div>
+          <BottomNavigationSurface native={nativeNavigation} value={activeNav} options={navOptions} onValueChange={navigateTo} />
         </div>
       </div>
     </nav>

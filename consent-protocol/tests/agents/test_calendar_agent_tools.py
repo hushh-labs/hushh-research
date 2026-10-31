@@ -4,18 +4,46 @@ import asyncio
 from types import SimpleNamespace
 
 from hushh_mcp.agents.calendar import tools
+from hushh_mcp.agents.calendar.read_offer import (
+    STATE_CALENDAR_OFFER,
+    STATE_EVENT_OFFER,
+    current_calendar_read_offer,
+)
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
 class _Calendar:
     def __init__(self) -> None:
         self.proposal_payload: dict[str, object] | None = None
+        self.last_list: dict[str, object] | None = None
+        self.last_detail: dict[str, object] | None = None
+        self.connections = SimpleNamespace(read_grant_binding=self._read_grant_binding)
+
+    async def _read_grant_binding(self, **_: object) -> tuple[str, ...]:
+        return ("user-1", "calendar", "google-sub", "connected-at", "connection-rev", "grant-rev")
 
     async def list_events(self, **kwargs: object) -> dict[str, object]:
+        self.last_list = kwargs
         return {"events": [{"id": "event-1", "title": "Planning"}], "time_zone": "Asia/Kolkata"}
+
+    async def list_calendars(self, **kwargs: object) -> dict[str, object]:
+        return {"calendars": [{"id": "team@example.com", "name": "Team"}], "truncated": False}
+
+    async def get_event(self, **kwargs: object) -> dict[str, object]:
+        self.last_detail = kwargs
+        return {
+            "calendar_id": kwargs["calendar_id"],
+            "event": {"id": kwargs["event_id"], "title": "Planning"},
+        }
 
     async def freebusy(self, **kwargs: object) -> dict[str, object]:
         return {"calendars": {"primary": {"busy": []}}}
+
+    async def find_openings(self, **kwargs: object) -> dict[str, object]:
+        return {
+            "duration_minutes": kwargs["duration_minutes"],
+            "openings": [{"start_at": "2026-08-11T10:00:00Z", "end_at": "2026-08-11T10:30:00Z"}],
+        }
 
     async def propose(self, **kwargs: object) -> dict[str, object]:
         self.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
@@ -34,11 +62,97 @@ class _Calendar:
 
 class _UnavailableCalendar:
     async def list_events(self, **kwargs: object) -> dict[str, object]:
-        raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
+        raise GoogleConnectionError(
+            "Connect Google Calendar first", status_code=403, reason_code="google_not_connected"
+        )
+
+
+class _RateLimitedCalendar:
+    async def list_events(self, **kwargs: object) -> dict[str, object]:
+        # Not 401/403 -- _handle_connection_error returns None for this, so
+        # this exercises the "no connect directive applies" fallback rather
+        # than the reauth path _UnavailableCalendar exercises above.
+        raise GoogleConnectionError("Too many requests", status_code=429)
+
+
+class _FlakyCalendar:
+    async def list_events(self, **kwargs: object) -> dict[str, object]:
+        # Unexpected provider failures must not expose their raw messages.
+        raise RuntimeError("private provider detail")
+
+
+def test_calendar_summary_fails_clean_on_a_non_reauth_provider_error(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _RateLimitedCalendar())
+
+    result = asyncio.run(tools.calendar_summary(_context()))
+
+    assert result == {
+        "status": "rate_limited",
+        "message": "Google Calendar is busy right now. Please try again shortly.",
+    }
+
+
+def test_calendar_summary_fails_clean_on_an_unexpected_exception(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _FlakyCalendar())
+
+    result = asyncio.run(tools.calendar_summary(_context()))
+
+    assert result == {"status": "failed", "message": tools._CALENDAR_UNAVAILABLE_MESSAGE}
+
+
+def test_calendar_summary_reports_timeout_without_provider_details(monkeypatch) -> None:
+    class SlowCalendar:
+        async def list_events(self, **kwargs: object) -> dict[str, object]:
+            raise TimeoutError("private provider detail")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: SlowCalendar())
+    assert asyncio.run(tools.calendar_summary(_context())) == {
+        "status": "timeout",
+        "message": "Calendar took too long. Please try again.",
+    }
+
+
+def test_calendar_summary_fails_clean_when_signed_out(monkeypatch) -> None:  # noqa: ANN001
+    # user_id resolution now happens INSIDE the same error boundary as the
+    # service call -- previously it ran before the try, so a signed-out
+    # state raised GoogleConnectionError straight out of the tool.
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Calendar())
+    context = SimpleNamespace(state={})
+
+    result = asyncio.run(tools.calendar_summary(context))
+
+    assert result["status"] == "connection_required"
+
+
+def test_propose_fails_clean_when_the_provider_response_is_missing_fields(monkeypatch) -> None:  # noqa: ANN001
+    class _MalformedCalendar:
+        async def propose(self, **kwargs: object) -> dict[str, object]:
+            return {"proposal_id": "gcal_example"}  # no plan, no expires_at
+
+    context = _context()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _MalformedCalendar())
+
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    assert result["status"] == "failed"
+    assert f"{tools._STATE_PENDING_DIRECTIVE}:calendar" not in context.state
 
 
 def _context() -> SimpleNamespace:
-    return SimpleNamespace(state={"hussh:user_id": "user-1", "hussh:timezone": "Asia/Kolkata"})
+    return SimpleNamespace(
+        state={
+            "hussh:user_id": "user-1",
+            "hussh:timezone": "Asia/Kolkata",
+            "hussh:conversation_id": "conversation-1",
+        }
+    )
 
 
 def test_calendar_summary_uses_authenticated_state_and_never_uses_a_token(monkeypatch) -> None:  # noqa: ANN001
@@ -50,6 +164,110 @@ def test_calendar_summary_uses_authenticated_state_and_never_uses_a_token(monkey
     assert result["events"] == [{"id": "event-1", "title": "Planning"}]
 
 
+def test_calendar_read_tools_resolve_selected_calendar_and_event_from_private_offer(
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    calendar = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    context = _context()
+    calendars = asyncio.run(tools.calendar_calendars(context))
+    events = asyncio.run(
+        tools.calendar_events(
+            context,
+            start_at="2026-08-11T00:00:00+05:30",
+            end_at="2026-08-12T00:00:00+05:30",
+            calendar_ordinal=1,
+        )
+    )
+    detail = asyncio.run(tools.calendar_event_detail(context, ordinal=1))
+    assert calendars["status"] == "ok"
+    assert calendars["calendars"][0]["name"] == "Team"
+    assert context.state[STATE_CALENDAR_OFFER]["ids"] == ["team@example.com"]
+    assert calendar.last_list["calendar_id"] == "team@example.com"
+    assert events["status"] == "ok"
+    assert context.state[STATE_EVENT_OFFER]["ids"] == ["event-1"]
+    assert detail["status"] == "ok"
+    assert detail["event"]["id"] == "event-1"
+    assert calendar.last_detail["calendar_id"] == "team@example.com"
+    assert calendar.last_detail["event_id"] == "event-1"
+
+
+def test_calendar_detail_refuses_unoffered_ordinal_and_wrong_conversation(monkeypatch) -> None:  # noqa: ANN001
+    calendar = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    context = _context()
+    asyncio.run(tools.calendar_summary(context))
+    assert (
+        asyncio.run(tools.calendar_event_detail(context, ordinal=2))["status"] == "input_required"
+    )
+    assert calendar.last_detail is None
+
+    context.state["hussh:conversation_id"] = "another-conversation"
+    assert (
+        asyncio.run(tools.calendar_event_detail(context, ordinal=1))["status"] == "input_required"
+    )
+    assert calendar.last_detail is None
+
+
+def test_calendar_selected_list_refuses_guessed_id_and_changed_account(monkeypatch) -> None:  # noqa: ANN001
+    calendar = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    context = _context()
+    asyncio.run(tools.calendar_calendars(context))
+    guessed = asyncio.run(
+        tools.calendar_events(
+            context,
+            start_at="2026-08-11T00:00:00+05:30",
+            end_at="2026-08-12T00:00:00+05:30",
+            calendar_id="guessed@example.com",
+        )
+    )
+    assert guessed["status"] == "input_required"
+    assert calendar.last_list is None
+
+    offer = context.state[STATE_CALENDAR_OFFER]
+    binding = tuple(offer["grant_binding"])
+    assert (
+        current_calendar_read_offer(
+            offer,
+            kind="calendars",
+            owner_id="user-1",
+            conversation_id="conversation-1",
+            grant_binding=(*binding[:2], "another-google-sub", *binding[3:]),
+        )
+        is None
+    )
+    assert (
+        current_calendar_read_offer(
+            offer,
+            kind="calendars",
+            owner_id="user-1",
+            conversation_id="conversation-1",
+            grant_binding=binding,
+            now_ms=offer["created_at_ms"] + 300_001,
+        )
+        is None
+    )
+
+
+def test_calendar_list_missing_optional_permission_asks_for_specific_upgrade(monkeypatch) -> None:  # noqa: ANN001
+    class _BaseGrantOnly:
+        async def list_calendars(self, **_: object) -> dict[str, object]:
+            raise GoogleConnectionError(
+                "Calendar list permission is missing",
+                status_code=403,
+                reason_code="calendar_list_permission_required",
+            )
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _BaseGrantOnly())
+    result = asyncio.run(tools.calendar_calendars(_context()))
+    assert result["status"] == "connection_required"
+    assert result["directive"]["payload"]["confirmLabel"] == "Allow calendar list access"
+    assert "subscribed calendars" in result["directive"]["payload"]["summary"]
+    assert result["directive"]["payload"]["includeCalendarList"] is True
+    assert result["reason_code"] == "calendar_list_permission_required"
+
+
 def test_calendar_connection_requirement_becomes_a_connect_directive(monkeypatch) -> None:  # noqa: ANN001
     context = _context()
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _UnavailableCalendar())
@@ -57,6 +275,7 @@ def test_calendar_connection_requirement_becomes_a_connect_directive(monkeypatch
     result = asyncio.run(tools.calendar_summary(context))
 
     assert result["status"] == "connection_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["delegateAgentId"] == "agent_calendar"
     assert directive["payload"]["type"] == "calendar.connect"
@@ -78,18 +297,263 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     )
 
     assert result["status"] == "confirmation_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["payload"]["proposalId"] == "gcal_example"
     assert directive["payload"]["type"] == "calendar.execute_proposal"
+    assert directive["payload"]["googleMeet"] is True
+    assert directive["payload"]["confirmLabel"] == "Schedule meeting"
     assert calendar.proposal_payload is not None
     assert str(calendar.proposal_payload["start_at"]).endswith("+05:30")
+
+
+def test_calendar_free_slots_uses_authenticated_owner_state(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Calendar())
+
+    result = asyncio.run(
+        tools.calendar_free_slots(
+            _context(),
+            start_at="2026-08-11T09:00:00+05:30",
+            end_at="2026-08-11T17:00:00+05:30",
+            duration_minutes=30,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["openings"][0]["start_at"] == "2026-08-11T10:00:00Z"
+
+
+def test_calendar_conflict_requires_an_explicit_schedule_anyway_choice(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T10:00:00+05:30",
+                "end_at": "2026-08-11T10:30:00+05:30",
+                "time_zone": "Asia/Kolkata",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    directive = context.state["hussh:pending_directive:calendar"]
+    assert result["conflicts"][0]["title"] == "Design review"
+    assert "Design review" in directive["payload"]["summary"]
+    assert directive["payload"]["confirmLabel"] == "Schedule anyway"
+
+
+def test_calendar_confirmation_uses_the_chat_users_timezone_not_plan_utc(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T04:30:00Z",
+                "end_at": "2026-08-11T05:00:00Z",
+                # Google/provider plan data is allowed to be UTC. It must not
+                # dictate the confirmation display timezone.
+                "time_zone": "UTC",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T04:30:00Z"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
+    assert "10:00 AM IST" in summary
+    assert "UTC" not in summary
+    assert (
+        context.state["hussh:pending_directive:calendar"]["payload"]["timeZone"] == "Asia/Kolkata"
+    )
 
 
 class _ReadOnlyCalendar:
     async def propose(self, **kwargs: object) -> dict[str, object]:
         raise GoogleConnectionError(
-            "Additional Google Calendar permission is required", status_code=403
+            "Additional Google Calendar permission is required",
+            status_code=403,
+            reason_code="google_permission_required",
         )
+
+
+def test_calendar_all_day_confirmation_preserves_exclusive_end_date() -> None:
+    assert tools._display_all_day("2026-10-02", "2026-10-03") == "Fri, Oct 2 (all day)"
+    assert tools._display_all_day("2026-10-02", "2026-10-05") == (
+        "Fri, Oct 2 to Sun, Oct 4 (all day)"
+    )
+
+
+def test_calendar_confirmation_formats_midnight_and_noon_in_local_timezone() -> None:
+    assert tools._display_time("2026-10-01T18:30:00Z", "Asia/Kolkata") == (
+        "Fri, Oct 2 at 12:00 AM IST"
+    )
+    assert tools._display_time("2026-10-02T06:30:00Z", "Asia/Kolkata") == (
+        "Fri, Oct 2 at 12:00 PM IST"
+    )
+
+
+def test_timezone_falls_back_to_utc_on_a_path_shaped_value() -> None:
+    # ZoneInfo raises ValueError (not ZoneInfoNotFoundError) for a key shaped
+    # like an absolute or relative path -- "../etc", "/UTC" -- which the
+    # narrower except clause this replaces did not catch.
+    context = SimpleNamespace(state={"hussh:timezone": "../etc"})
+    assert tools._timezone(context) == "UTC"
+
+
+def test_calendar_propose_directive_carries_structured_event_fields(monkeypatch) -> None:  # noqa: ANN001
+    # The client card needs title/time/attendees as distinct fields, not just
+    # the flattened `summary` sentence -- this is the additive payload change.
+    context = _context()
+    calendar = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+            attendees=["person@example.com"],
+            location="Room 4",
+        )
+    )
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["title"] == "Planning"
+    assert payload["startAt"] == "2026-08-11T10:00:00Z"
+    assert payload["endAt"] == "2026-08-11T10:30:00Z"
+    assert payload["attendees"] == ["person@example.com"]
+    assert payload["sendUpdates"] is True
+    # Byte-identical to the pre-existing assertions -- purely additive.
+    assert payload["type"] == "calendar.execute_proposal"
+    assert payload["proposalId"] == "gcal_example"
+
+
+def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_event(
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    # A cancel proposal's input payload only ever has event_id + send_updates
+    # -- the real title/time/attendees live under plan["current_event"], the
+    # event GoogleCalendarService.propose() fetched from Google. The
+    # directive's structured fields must come from there, not fall back to
+    # the bare event_id the flat `summary` string uses.
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_cancel",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "event_id": "evt-1",
+                "send_updates": True,
+                "current_event": {
+                    "title": "Design review",
+                    "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    "end": {"dateTime": "2026-08-11T10:30:00+05:30"},
+                    "location": "Room 4",
+                    "attendees": [{"email": "person@example.com", "response_status": "accepted"}],
+                },
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["eventId"] == "evt-1"
+    assert payload["title"] == "Design review"
+    assert payload["startAt"] == "2026-08-11T10:00:00+05:30"
+    assert payload["endAt"] == "2026-08-11T10:30:00+05:30"
+    assert payload["location"] == "Room 4"
+    assert payload["attendees"] == ["person@example.com"]
+
+
+def test_calendar_propose_directive_carries_a_structured_conflicts_list(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T10:00:00+05:30",
+                "end_at": "2026-08-11T10:30:00+05:30",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["conflicts"] == [
+        {"title": "Design review", "startAt": "2026-08-11T10:00:00+05:30"}
+    ]
 
 
 def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkeypatch) -> None:  # noqa: ANN001
@@ -110,3 +574,232 @@ def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkey
     assert directive["payload"]["type"] == "calendar.connect"
     assert directive["payload"]["accessLevel"] == "manage"
     assert directive["payload"]["confirmLabel"] == "Allow Calendar scheduling"
+    assert result["reason_code"] == "google_permission_required"
+    assert directive["payload"]["reasonCode"] == "google_permission_required"
+    assert "scheduling" in directive["payload"]["summary"]
+    assert "Connect Google Calendar" not in directive["payload"]["summary"]
+
+
+def _current_event_with_guests() -> dict[str, object]:
+    return {
+        "title": "Standup",
+        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+        "end": {"dateTime": "2026-08-11T10:30:00+05:30"},
+        "attendees": [
+            {"email": email, "response_status": "accepted"}
+            for email in ("owner@example.com", "a@example.com", "b@example.com", "c@example.com")
+        ],
+    }
+
+
+def _review(monkeypatch, plan: dict[str, object]) -> tuple[str, dict[str, object]]:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        calendar.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
+        return {"proposal_id": "gcal_review", "expires_at": "2026-08-11T12:00:00Z", "plan": plan}
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    return context, calendar  # type: ignore[return-value]
+
+
+def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:  # noqa: ANN001
+    # Regression: the review said "notify 0 attendee(s)" for a meeting with
+    # four guests, because it counted only attendees the model passed.
+    # Negative control: the previous summary counted plan["attendees"] (absent
+    # here) and fails this assertion.
+    plan = {
+        "event_id": "evt-1",
+        "start_at": "2026-08-12T04:30:00Z",
+        "end_at": "2026-08-12T05:00:00Z",
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+        "attendee_change": {"added": [], "removed": [], "result_count": 4},
+    }
+    context, calendar = _review(monkeypatch, plan)
+    asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at="2026-08-12T10:00:00",
+            end_at="2026-08-12T10:30:00",
+        )
+    )
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert "notify 4 attendees" in payload["summary"]
+    assert "0 attendee" not in payload["summary"]
+    assert payload["title"] == "Standup"
+    assert payload["attendees"] == [
+        "owner@example.com",
+        "a@example.com",
+        "b@example.com",
+        "c@example.com",
+    ]
+    # Omitted fields are never sent as empty values that would clear them.
+    assert set(calendar.proposal_payload) == {  # type: ignore[arg-type]
+        "event_id",
+        "start_at",
+        "end_at",
+        "time_zone",
+        "send_updates",
+    }
+
+
+def test_a_reschedule_review_names_every_attendee_it_removes(monkeypatch) -> None:  # noqa: ANN001
+    plan = {
+        "event_id": "evt-1",
+        "start_at": "2026-08-12T04:30:00Z",
+        "end_at": "2026-08-12T05:00:00Z",
+        "attendees": ["new@example.com"],
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+        "attendee_change": {
+            "added": ["new@example.com"],
+            "removed": ["a@example.com", "b@example.com", "c@example.com"],
+            "result_count": 2,
+        },
+    }
+    context, _ = _review(monkeypatch, plan)
+    asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at="2026-08-12T10:00:00",
+            end_at="2026-08-12T10:30:00",
+            attendees=["new@example.com"],
+        )
+    )
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert "adds 1 attendee (new@example.com)" in payload["summary"]
+    assert (
+        "removes 3 attendees (a@example.com, b@example.com, c@example.com)" in (payload["summary"])
+    )
+    assert payload["attendeesRemoved"] == ["a@example.com", "b@example.com", "c@example.com"]
+    assert payload["attendees"] == ["owner@example.com", "new@example.com"]
+
+
+def test_a_cancel_review_counts_the_guests_it_will_notify(monkeypatch) -> None:  # noqa: ANN001
+    plan = {
+        "event_id": "evt-1",
+        "send_updates": True,
+        "current_event": _current_event_with_guests(),
+    }
+    context, _ = _review(monkeypatch, plan)
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
+    assert summary == "Cancel “Standup” and notify 4 attendees?"
+
+
+def test_calendar_events_searches_within_a_bound_and_reports_truncation(monkeypatch) -> None:  # noqa: ANN001
+    seen: dict[str, object] = {}
+
+    class _Listing(_Calendar):
+        async def list_events(self, **kwargs: object) -> dict[str, object]:
+            seen.update(kwargs)
+            return {"events": [], "truncated": True, "more_events_exist": "more exist"}
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Listing())
+    result = asyncio.run(
+        tools.calendar_events(
+            _context(),
+            start_at="2026-08-11T00:00:00",
+            end_at="2026-08-18T00:00:00",
+            query="dentist",
+            limit=9_999,
+        )
+    )
+    assert seen["query"] == "dentist"
+    assert seen["max_results"] == 250
+    assert result["truncated"] is True
+
+
+def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound(monkeypatch):
+    from hushh_mcp.agents.calendar.read_offer import STATE_INVITATION_OFFER
+    from hushh_mcp.services import calendar_schedule_service
+
+    calendar = _Calendar()
+    event = {
+        "id": "instance-id",
+        "calendar_id": "selected-calendar",
+        "title": "Client Sync",
+        "response_status": "needsAction",
+        "conflicts": [],
+    }
+
+    class Schedule:
+        async def invitations(self, **kwargs):
+            return {
+                "events": [event],
+                "account_email": "owner@example.com",
+                "pending_count": 1,
+                "complete": True,
+                "start_at": "2030-10-14T00:00:00Z",
+                "end_at": "2030-10-15T00:00:00Z",
+            }
+
+    schedule = Schedule()
+    schedule.calendar = calendar
+    from types import MethodType
+
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+
+    def bound_schedule(*, calendar: object):
+        assert calendar is schedule.calendar
+        return schedule
+
+    monkeypatch.setattr(calendar_schedule_service, "CalendarScheduleService", bound_schedule)
+    calendar.invitations = MethodType(GoogleCalendarService.invitations, calendar)
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    ctx = _context()
+    ctx.state["hussh:conversation_id"] = "same-conversation"
+    result = asyncio.run(tools.calendar_invitations(ctx))
+    assert result["events"][0]["ordinal"] == 1
+    assert result["directive"]["payload"]["type"] == "calendar.invitations"
+    opened = asyncio.run(tools.open_calendar_invitation(ctx, 1, "accepted"))
+    assert opened["status"] == "review_required"
+    assert opened["directive"]["payload"] == {
+        "type": "calendar.invitations",
+        "filter": "all",
+        "calendarId": "selected-calendar",
+        "eventId": "instance-id",
+        "decision": "accepted",
+        "accountEmail": "owner@example.com",
+        "timeZone": "Asia/Kolkata",
+        "startAt": "2030-10-14T00:00:00Z",
+        "endAt": "2030-10-15T00:00:00Z",
+    }
+    assert calendar.proposal_payload is None
+    ctx.state["hussh:conversation_id"] = "another-conversation"
+    assert (
+        asyncio.run(tools.open_calendar_invitation(ctx, 1, "declined"))["status"]
+        == "input_required"
+    )
+    ctx.state["hussh:conversation_id"] = "same-conversation"
+    terms = asyncio.run(
+        tools.open_calendar_invitation(
+            ctx,
+            1,
+            "offer_times",
+            alternative_date="2030-10-18",
+            alternative_start_time="15:00",
+            alternative_end_time="18:00",
+            alternative_duration_minutes=45,
+            organizer_message="Could we meet Friday after 3 PM?",
+        )
+    )
+    assert terms["directive"]["payload"]["terms"] == {
+        "date": "2030-10-18",
+        "startTime": "15:00",
+        "endTime": "18:00",
+        "durationMinutes": 45,
+        "message": "Could we meet Friday after 3 PM?",
+    }
+    ctx.state[STATE_INVITATION_OFFER]["created_at_ms"] = 1
+    assert asyncio.run(tools.open_calendar_invitation(ctx, 1))["status"] == "input_required"
+    changed = asyncio.run(
+        tools.calendar_invitations(ctx, expected_account_email="changed@example.com")
+    )
+    assert changed["status"] == "connection_changed"
+    assert ctx.state[STATE_INVITATION_OFFER] is None

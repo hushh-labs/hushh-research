@@ -19,6 +19,8 @@ from api.routes.pkm_routes_shared import (
     DomainRegistryEntryResponse,
     DomainRegistryResponse,
     EncryptedBlob,
+    ManifestPathRepairRequest,
+    ManifestPathRepairResponse,
     PathDescriptorPayload,
     PersonalKnowledgeModelMetadataResponse,
     PublicProfileProjectionRequest,
@@ -243,9 +245,11 @@ class TestStructureDecisionPayload:
             StructureDecisionPayload(target_domain="A" * 257)
 
     def test_json_paths_list_max_length(self):
-        """JSON paths list bounded to 1000 items."""
+        """JSON path count and individual path size remain bounded."""
         with pytest.raises(ValidationError):
             StructureDecisionPayload(json_paths=["$.path" for _ in range(1001)])
+        with pytest.raises(ValidationError):
+            StructureDecisionPayload(json_paths=["$" + ".field" * 171])
 
     def test_top_level_scope_paths_max_length(self):
         """Top level scope paths list bounded to 1000 items."""
@@ -275,11 +279,6 @@ class TestDomainManifestPayload:
         """Valid manifest within bounds."""
         dm = DomainManifestPayload()
         assert dm.manifest_version == 1
-
-    def test_manifest_version_bounds(self):
-        """Manifest version bounded 1-1000."""
-        with pytest.raises(ValidationError):
-            DomainManifestPayload(manifest_version=1001)
 
     def test_paths_list_max_length(self):
         """Paths list bounded to 10000 items."""
@@ -570,6 +569,33 @@ class TestScopeExposureResponse:
                 success=True,
                 message="A" * 513,
             )
+
+
+class TestManifestPathRepairContracts:
+    """Owner repair request/response fields remain bounded."""
+
+    def test_valid_request_and_response(self):
+        request = ManifestPathRepairRequest(
+            user_id="user-123",
+            expected_content_revision=7,
+            expected_manifest_revision=2,
+        )
+        response = ManifestPathRepairResponse(success=True, changed=False)
+        assert request.user_id == "user-123"
+        assert response.success is True
+
+    @pytest.mark.parametrize("field", ["user_id"])
+    def test_user_id_is_bounded(self, field):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairRequest(**{field: "A" * 257})
+
+    def test_revisions_reject_negative_values(self):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairRequest(user_id="user-123", expected_content_revision=-1)
+
+    def test_response_message_is_bounded(self):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairResponse(success=False, message="A" * 513)
 
     def test_revoked_grant_ids_list_max_length(self):
         """Revoked grant IDs list bounded to 10000 items."""

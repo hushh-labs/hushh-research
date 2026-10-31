@@ -124,3 +124,85 @@ def test_verify_enforces_session_binding(client: TestClient) -> None:
         json={"link": link, "expected_session_id": "sess_b"},
     )
     assert replayed.json()["valid"] is False
+
+
+# --- verbatim dynamic scope over HTTP -----------------------------------------
+
+
+def test_create_link_reports_the_delegated_scope_not_the_enum(client: TestClient):
+    """A dynamic scope must come back as itself, not as `pkm.read`."""
+    link = _create_link(client, scope="attr.food.recipes.*")
+    assert link["scope"] == "attr.food.recipes.*"
+    assert link["scope_str"] == "attr.food.recipes.*"
+
+
+def test_narrow_link_does_not_verify_against_a_sibling_domain(client: TestClient):
+    """The original defect, end to end.
+
+    Both scopes resolve to `ConsentScope.PKM_READ`, so comparing the enum
+    answered `valid: true` here and a recipes delegation reached holdings.
+    """
+    link = _create_link(client, scope="attr.food.recipes.*")
+
+    same = client.post(
+        "/api/trust/verify-link",
+        json={
+            "link": link,
+            "required_scope": "attr.food.recipes.*",
+            "expected_session_id": "sess_a",
+        },
+    )
+    assert same.status_code == 200
+    assert same.json()["valid"] is True
+
+    sibling = client.post(
+        "/api/trust/verify-link",
+        json={
+            "link": link,
+            "required_scope": "attr.financial.holdings.*",
+            "expected_session_id": "sess_a",
+        },
+    )
+    assert sibling.status_code == 200
+    body = sibling.json()
+    assert body["valid"] is False
+    assert body["reason"] == "Scope mismatch"
+
+
+def test_a_link_cannot_be_retargeted_after_signing(client: TestClient):
+    """The verbatim scope is signed, so editing it invalidates the link."""
+    link = _create_link(client, scope="attr.food.recipes.*")
+    widened = {**link, "scope_str": "attr.financial.holdings.*"}
+
+    response = client.post(
+        "/api/trust/verify-link",
+        json={"link": widened, "expected_session_id": "sess_a"},
+    )
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+
+
+def test_static_scopes_are_unaffected(client: TestClient):
+    """A non-dynamic scope keeps its existing behaviour exactly."""
+    link = _create_link(client, scope="agent.kai.analyze")
+    assert link["scope"] == "agent.kai.analyze"
+
+    ok = client.post(
+        "/api/trust/verify-link",
+        json={
+            "link": link,
+            "required_scope": "agent.kai.analyze",
+            "expected_session_id": "sess_a",
+        },
+    )
+    assert ok.json()["valid"] is True
+
+    wrong = client.post(
+        "/api/trust/verify-link",
+        json={
+            "link": link,
+            "required_scope": "agent.nav.review",
+            "expected_session_id": "sess_a",
+        },
+    )
+    assert wrong.json()["valid"] is False

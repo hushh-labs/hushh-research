@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPortal } from "react-dom";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { readWorldModelInvitationHandoff } from "@/lib/world-model/invitation-handoff";
 
 const mocks = vi.hoisted(() => ({
   checkVault: vi.fn(),
@@ -11,20 +13,29 @@ const mocks = vi.hoisted(() => ({
   peekVaultPresence: vi.fn(),
   refreshVaultPresence: vi.fn(),
   replace: vi.fn(),
+  retrySessionVerification: vi.fn(),
   signOut: vi.fn(),
   vaultUnlocked: false,
+  ownerTokenStatus: "valid",
+  retryOwnerTokenRenewal: vi.fn(),
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
+    ownerId: undefined as string | null | undefined,
     loading: false,
+    sessionVerificationRequired: false,
   },
   VaultAuthSessionNotReadyError: class VaultAuthSessionNotReadyError extends Error {
     readonly code = "VAULT_AUTH_SESSION_NOT_READY";
   },
 }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: mocks.isNativePlatform },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: mocks.isNativePlatform },
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
@@ -33,7 +44,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: mocks.authState.user,
+    userId: mocks.authState.ownerId === undefined ? mocks.authState.user?.uid ?? null : mocks.authState.ownerId,
     loading: mocks.authState.loading,
+    sessionVerificationRequired: mocks.authState.sessionVerificationRequired,
+    retrySessionVerification: mocks.retrySessionVerification,
     signOut: mocks.signOut,
   }),
 }));
@@ -41,6 +55,8 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     isVaultUnlocked: mocks.vaultUnlocked,
+    ownerTokenStatus: mocks.ownerTokenStatus,
+    retryOwnerTokenRenewal: mocks.retryOwnerTokenRenewal,
     unlockVault: vi.fn(),
   }),
 }));
@@ -90,15 +106,213 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 describe("VaultLockGuard", () => {
+  afterEach(() => vi.useRealTimers());
+  const dialogPrototype = HTMLDialogElement.prototype;
+  const originalShowModal = Object.getOwnPropertyDescriptor(dialogPrototype, "showModal");
+  const originalClose = Object.getOwnPropertyDescriptor(dialogPrototype, "close");
+  const showModal = vi.fn(function(this: HTMLDialogElement) { this.setAttribute("open", ""); });
+  beforeAll(() => {
+    // JSDOM has no browser top layer. Actual inertness/focus behavior is covered
+    // in Chromium/WebKit; this double proves the guard requests modal isolation.
+    Object.defineProperty(dialogPrototype, "showModal", { configurable: true, value: showModal });
+    Object.defineProperty(dialogPrototype, "close", {
+      configurable: true, value: function(this: HTMLDialogElement) { this.removeAttribute("open"); },
+    });
+  });
+  afterAll(() => {
+    if (originalShowModal) Object.defineProperty(dialogPrototype, "showModal", originalShowModal);
+    else Reflect.deleteProperty(dialogPrototype, "showModal");
+    if (originalClose) Object.defineProperty(dialogPrototype, "close", originalClose);
+    else Reflect.deleteProperty(dialogPrototype, "close");
+  });
+
+  it("uses top-layer privacy isolation for a previously mounted route portal", () => {
+    mocks.vaultUnlocked = true;
+    const page = () => <VaultLockGuard>{createPortal(<button>Private portal sentinel</button>, document.body)}</VaultLockGuard>;
+    const view = render(page());
+    const sentinel = screen.getByText("Private portal sentinel");
+    mocks.authState.sessionVerificationRequired = true;
+    view.rerender(page());
+    expect(screen.getByText("Private portal sentinel")).toBe(sentinel);
+    const gate = screen.getByRole("dialog", { name: "Verifying access" });
+    expect(gate).toHaveAttribute("open");
+    expect(gate).toHaveAttribute("aria-modal", "true");
+    expect(gate).toHaveStyle({ position: "fixed", background: "var(--background)" });
+    expect(showModal).toHaveBeenCalled();
+    const cancel = new Event("cancel", { cancelable: true, bubbles: true });
+    gate.dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    const retainedModalEscape = vi.fn();
+    document.addEventListener("keydown", retainedModalEscape, true);
+    fireEvent.keyDown(gate, { key: "Escape" });
+    expect(retainedModalEscape).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", retainedModalEscape, true);
+    const retainedModalOutside = vi.fn();
+    document.addEventListener("pointerdown", retainedModalOutside);
+    document.addEventListener("focusin", retainedModalOutside);
+    fireEvent.pointerDown(gate);
+    fireEvent.focusIn(gate);
+    expect(retainedModalOutside).not.toHaveBeenCalled();
+    document.removeEventListener("pointerdown", retainedModalOutside);
+    document.removeEventListener("focusin", retainedModalOutside);
+    mocks.authState.sessionVerificationRequired = false;
+    view.rerender(page());
+    expect(screen.queryByRole("dialog", { name: "Verifying access" })).toBeNull();
+    expect(screen.getByText("Private portal sentinel")).toBe(sentinel);
+  });
+
+  it("never mounts private portals on a fresh unsettled gate", () => {
+    mocks.vaultUnlocked = true;
+    mocks.authState.loading = true;
+    render(<VaultLockGuard>{createPortal(<button>Fresh private portal</button>, document.body)}</VaultLockGuard>);
+    expect(screen.queryByText("Fresh private portal")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Verifying access" })).toHaveAttribute("open");
+  });
+
+  it("drops retained portals if browser-modal isolation is unavailable", () => {
+    mocks.vaultUnlocked = true;
+    const page = () => <VaultLockGuard>{createPortal(<button>Unsupported private portal</button>, document.body)}</VaultLockGuard>;
+    const view = render(page());
+    expect(screen.getByText("Unsupported private portal")).toBeInTheDocument();
+    showModal.mockImplementationOnce(() => { throw new Error("unsupported modal"); });
+    mocks.ownerTokenStatus = "unavailable";
+    view.rerender(page());
+    expect(screen.queryByText("Unsupported private portal")).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("preserves a route draft through auth and token recovery without another unlock", async () => {
+    mocks.vaultUnlocked = true;
+    const page = <VaultLockGuard><input aria-label="Draft" defaultValue="" /></VaultLockGuard>;
+    const view = render(page);
+    const draft = screen.getByRole("textbox", { name: "Draft" });
+    fireEvent.change(draft, { target: { value: "Keep this draft" } });
+    mocks.authState.loading = true;
+    view.rerender(<VaultLockGuard><input aria-label="Draft" defaultValue="" /></VaultLockGuard>);
+    expect(draft).not.toBeVisible();
+    expect(screen.getByText("Checking session...")).toBeVisible();
+    mocks.authState.loading = false;
+    mocks.ownerTokenStatus = "unavailable";
+    view.rerender(<VaultLockGuard><input aria-label="Draft" defaultValue="" /></VaultLockGuard>);
+    expect(draft).not.toBeVisible();
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mocks.retryOwnerTokenRenewal).toHaveBeenCalledOnce();
+    mocks.ownerTokenStatus = "valid";
+    view.rerender(<VaultLockGuard><input aria-label="Draft" defaultValue="" /></VaultLockGuard>);
+    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+    expect(draft).toHaveValue("Keep this draft");
+  });
+
+  it("recovers from a failed Vault read without guessing that an unlock is required", async () => {
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValueOnce(new Error("offline"));
+    mocks.checkVault.mockResolvedValueOnce(false);
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Reconnect to continue securely",
+    );
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Protected route")).toBeTruthy();
+  });
+
+  it("offers sign out when a Vault read cannot recover", async () => {
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValue(new Error("offline"));
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
+  });
+
+  it("automatically retries a failed Vault read without revealing protected content", async () => {
+    vi.useFakeTimers();
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce(true);
+    const view = render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds automatic Vault retries and cancels recovery when the owner signs out", async () => {
+    vi.useFakeTimers();
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValue(new Error("offline"));
+    const page = () => <VaultLockGuard><div>Protected route</div></VaultLockGuard>;
+    const view = render(page());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    for (const delay of [2_000, 5_000, 10_000, 30_000]) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    }
+    expect(mocks.checkVault).toHaveBeenCalledTimes(4);
+    expect(screen.queryByText("Protected route")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(5);
+    mocks.authState.user = null;
+    view.rerender(page());
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(5);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/one/profile");
     mocks.authState.user = { uid: "user_1" };
+    mocks.authState.ownerId = undefined;
     mocks.authState.loading = false;
+    mocks.authState.sessionVerificationRequired = false;
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
     mocks.isNativePlatform.mockReturnValue(false);
     mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(false);
     mocks.vaultUnlocked = false;
+    mocks.ownerTokenStatus = "valid";
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("keeps a retained Firebase identity without an admitted owner on recovery", async () => {
+    mocks.authState.ownerId = null;
+    mocks.authState.sessionVerificationRequired = true;
+    render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.queryByText("Protected route")).toBeNull();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.checkVault).not.toHaveBeenCalled();
+  });
+
+  it("keeps a protected PWM claim token out of the login redirect on session loss", async () => {
+    const token = "a".repeat(43);
+    mocks.authState.user = null;
+    window.history.replaceState({}, "", `/one/profile/world-model#claim=${token}`);
+    render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledTimes(1));
+    const login = new URL(mocks.replace.mock.calls[0][0], "https://one.local");
+    expect(login.pathname).toBe("/login");
+    const destination = login.searchParams.get("redirect")!;
+    expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
+    expect(decodeURIComponent(login.href)).not.toContain(token);
+    const id = new URL(destination, "https://one.local").searchParams.get("handoff")!;
+    expect(readWorldModelInvitationHandoff(id, null)).toBe(token);
   });
 
   it("uses the focused hard-gate unlock surface instead of a route hero", async () => {
@@ -222,5 +436,42 @@ describe("VaultLockGuard", () => {
 
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("Protected route")).toBeNull();
+  });
+
+  it("hides unlocked vault content while auth session validation is pending", () => {
+    mocks.vaultUnlocked = true;
+    mocks.authState.loading = true;
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByText("Checking session...")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+  });
+
+  it("keeps an unlocked Vault hidden behind an actionable recovery surface when verification is unavailable", async () => {
+    mocks.vaultUnlocked = true;
+    mocks.authState.sessionVerificationRequired = true;
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Reconnect to continue securely",
+    );
+    expect(screen.queryByText("Protected route")).toBeNull();
+
+    screen.getByRole("button", { name: "Try again" }).click();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    await waitFor(() => {
+      expect(mocks.retrySessionVerification).toHaveBeenCalledTimes(1);
+      expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,0 +1,97 @@
+id: af88a2db-00a7-47b3-b768-0c3069b0611e
+app_name: nav
+user_id: conformance_fixture_user
+state:
+  hussh:timezone: UTC
+  hussh:specialist_directive:
+    kind: prompt
+    payload:
+      kind: consent_actions
+      items:
+        - id: one_location_grant:fixture-grant
+          label: Fixture Alex
+          summary: Fixture Alex can view your live location
+          scope: cap.location.live.view
+          expiresAt: null
+          metadata:
+            grant_id: fixture-grant
+            request_source: one_location_share_grant
+          actions:
+            - revoke
+            - details
+events:
+  - content:
+      parts:
+        - text: Who can see my location right now?
+      role: user
+    invocation_id: e-7963fec9-5c26-4cfc-a337-c98cb26cbe24
+    author: user
+    actions:
+      state_delta: {}
+    id: 2a7643e9-44ed-46f4-b6b3-67cdd237b648
+    timestamp: 1789526750.2236328
+  - model_version: gemini-3.8-flash
+    content:
+      parts:
+        - function_call:
+            id: call_115672
+            args:
+              request: Who can see my location right now?
+            name: consent
+          thought_signature: AY89a185ftKzaQEbGFJLt2e7oWMxMEZ-pAzxNVNAlGJt8pv6iZ0T80PVvps05kI6ABQcltoENL2mbg2s0pS2AE3iuJYRej85ehe-0snyVamJUEVs7vC0lwRFZW6r2Va902sDFOopKJwg7aQOKtwye1Nfe4ZEhKzTaaKKaVmo2pCHjnE5Sc_ZTt8V-r6KjVyCkeXjD5ij_V02FXY10gABNOR-UQP4SQVArzKeusZ5Jy-2T7thmborEJ_R0dhaBqoYoUOqqq5KkcaLiIsz3Jdez75WucMasXZsyqdueZlndxytUJXEahdpWICpN_xal3MrbsdnFYkGpbfbvlBtl9w-QRuqUelBiFcaDcb_czAY41R9IpIMLcgstWn5gRjn0wZJ0U6jNzmYVL5NpNXLuBaeYGBMZNBakG0lS39CpgitQGoEcVsGokQ8uGbcC1cpFDs6Emq_4HQ6RCa8JYNFBvoUiNlZAOb06ZkzLhJr5Y9gwdoaZBAQiS34sopTN3dF6Mi0H_PTa0TeCUYmoJWqq7Ms7NjBQ0s4CYUtkdGKqPcyjKGAz5BFu2fcV-NzDOgE-BWhCpfhq-8yp85OQpz4u1-Ni0oIPyt2c3zaRXHT3Wp6eIqBq65AwJYwQ2cVuNBpSlQsGCeSCQ8xjNvyJD6dOkUNYIcojU-bU-Hi1cBZA-vAACB57yaMd_hY-4khkQL5qnQDHrzpw-_V32aj2j4PdFDs5Z1NutGiHfdaW6oszez1Pcjjr5mr7FO1nMM4u-GEE_q84pglVU9zA0E-iRe2B1GlC0efyF4LsrOkBYrularm_ZN0p7z9DwV7fFjXkUiLoFy8Yq7wJ5ZDQD36jF9M4-HN2Ywo0oscEontK2TpZC-1X8LsIqFEfaxO2od3nrQ0sXFEc2MqqYLOCuYLsUaoH5GnavTggqJ6OFuow2HYbnw8gQAuC94ikORN1SeoTD4=
+      role: model
+    finish_reason: STOP
+    usage_metadata:
+      candidates_token_count: 21
+      candidates_tokens_details:
+        - modality: TEXT
+          token_count: 21
+      prompt_token_count: 408
+      prompt_tokens_details:
+        - modality: TEXT
+          token_count: 408
+      thoughts_token_count: 145
+      total_token_count: 574
+      traffic_type: ON_DEMAND
+    invocation_id: e-7963fec9-5c26-4cfc-a337-c98cb26cbe24
+    author: nav
+    node_info:
+      path: nav@1
+    long_running_tool_ids: []
+    id: 7fcee26e-e1cc-4b92-bcc0-79b46b06bb6f
+    timestamp: 1789526750.591678
+  - content:
+      parts:
+        - function_response:
+            id: call_115672
+            name: consent
+            response:
+              result: "Fixture Alex can view your live location right now. \n\nSince this sharing is revocable, an app card is available with options to Stop sharing and view Details."
+        - text: "Fixture Alex can view your live location right now. \n\nSince this sharing is revocable, an app card is available with options to Stop sharing and view Details."
+      role: user
+    invocation_id: e-7963fec9-5c26-4cfc-a337-c98cb26cbe24
+    author: nav
+    actions:
+      skip_summarization: true
+      state_delta:
+        hussh:specialist_directive:
+          kind: prompt
+          payload:
+            kind: consent_actions
+            items:
+              - id: one_location_grant:fixture-grant
+                label: Fixture Alex
+                summary: Fixture Alex can view your live location
+                scope: cap.location.live.view
+                expiresAt: null
+                metadata:
+                  grant_id: fixture-grant
+                  request_source: one_location_share_grant
+                actions:
+                  - revoke
+                  - details
+    node_info:
+      path: nav@1
+    id: 97d67367-9462-4c18-af5b-a5bd0747eecf
+    timestamp: 1789526758.9726038
+last_update_time: 1789526758.9726038

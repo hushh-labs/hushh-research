@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/cache-service";
 import {
   normalizeOneSetupCapabilityId,
+  ONE_CLOUD_SETUP_PREREQUISITE_ID,
   ONE_RUNTIME_SETUP_PREREQUISITE_ID,
 } from "@/lib/onboarding/setup-capability-ids";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -25,11 +26,42 @@ export type OneRuntimeSetupChoice =
   | "hushh_managed_vertex"
   | "byok_pending_vault";
 
+/**
+ * One's chat onboarding progress. Only which questions were answered or
+ * skipped plus two local calendar dates; never an answer value (the preferred
+ * name and reply style live in encrypted memory). `null` means never started.
+ */
+export type OneChatOnboardingQuestionId = "name" | "focus" | "tone";
+export type OneChatOnboardingState = {
+  version: 1;
+  status: "in_progress" | "completed";
+  answered: OneChatOnboardingQuestionId[];
+  skipped: OneChatOnboardingQuestionId[];
+  completedOn: string | null;
+  tipDismissedOn: string | null;
+};
+
 export type PreVaultUserState = {
   userId: string;
-  hasVault: boolean;
+  /**
+   * Whether this account owns a lock. `null` means the record carried no
+   * answer — not that the answer is no.
+   *
+   * It has to be nullable because this record is not always read from the
+   * backend. `primeSetupResolved` builds one locally when the cache is cold,
+   * and that payload says nothing about locks. While this was a plain
+   * `boolean`, `normalizeResponse` turned "said nothing" into a confident
+   * `false`, `readBootstrapVaultCheck` served that as the answer, and
+   * `VaultService.checkVault` pinned it into a 30-minute session hint —
+   * so finishing setup could persist "this person has no lock" moments after
+   * they made one. Every downstream reader already handles `null` by asking
+   * again; the type was the only thing stopping it.
+   */
+  hasVault: boolean | null;
   vaultStatus: VaultStatus;
   firstLoginAt: number | null;
+  /** Server account date; native Firebase restoration metadata is synthetic. */
+  createdAt?: number | null;
   lastLoginAt: number | null;
   loginCount: number;
   setupCompleted: boolean | null;
@@ -42,8 +74,18 @@ export type PreVaultUserState = {
   // the durable, cross-device echo. Always an array (never null) so callers can
   // treat absent as "nothing set up".
   setupCapabilityIds: string[];
+  // Capabilities the person explicitly declined (e.g. dismissed a connect
+  // prompt), so a proactive prompt knows not to re-ask. Never includes
+  // "connections" -- that prerequisite is mandatory. Distinct from
+  // setupCapabilityIds, which only ever records completions. Always an
+  // array (never null), same convention as setupCapabilityIds.
+  setupCapabilityDeclinedIds: string[];
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
+  oneChatOnboarding: OneChatOnboardingState | null;
+  initialContactsSource?: "google" | "device" | "none" | null;
+  initialContactsWelcomeAcknowledged?: boolean | null;
+  initialContactsCircleId?: string | null;
   oneRuntimeSetupChoice: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion: number | null;
   onboardingPhase:
@@ -70,12 +112,16 @@ export type PreVaultUserState = {
 type BootstrapStateResponse = Partial<PreVaultUserState>;
 
 type PreVaultStateUpdatePayload = {
+  initialContactsSource?: "google" | "device" | "none";
+  initialContactsWelcomeAcknowledged?: true;
   setupCompleted?: boolean;
   setupSkipped?: boolean;
   setupCompletedAt?: number | null;
   navSetupCompletedAt?: number | null;
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
+  setupCapabilityDeclinedIds?: string[];
+  oneChatOnboarding?: OneChatOnboardingState;
   oneRuntimeSetupChoice?: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion?: 1;
   onboardingPhase?: PreVaultUserState["onboardingPhase"];
@@ -118,6 +164,38 @@ function toStringArray(value: unknown): string[] {
   return Array.from(seen).sort();
 }
 
+const CHAT_ONBOARDING_QUESTION_ORDER: readonly OneChatOnboardingQuestionId[] = [
+  "name",
+  "focus",
+  "tone",
+];
+
+function toCalendarDate(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function toQuestionIds(value: unknown): OneChatOnboardingQuestionId[] {
+  if (!Array.isArray(value)) return [];
+  return CHAT_ONBOARDING_QUESTION_ORDER.filter((id) => value.includes(id));
+}
+
+/** Mirror of the backend normalizer: bounded shape only, answered wins over skipped. */
+export function normalizeOneChatOnboarding(value: unknown): OneChatOnboardingState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) return null;
+  if (record.status !== "in_progress" && record.status !== "completed") return null;
+  const answered = toQuestionIds(record.answered);
+  return {
+    version: 1,
+    status: record.status,
+    answered,
+    skipped: toQuestionIds(record.skipped).filter((id) => !answered.includes(id)),
+    completedOn: toCalendarDate(record.completedOn),
+    tipDismissedOn: toCalendarDate(record.tipDismissedOn),
+  };
+}
+
 function toNullableBool(value: unknown): boolean | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "boolean") return value;
@@ -130,6 +208,32 @@ function toNullableBool(value: unknown): boolean | null {
   return null;
 }
 
+/**
+ * Whether the payload actually reported lock ownership, and what it said.
+ *
+ * Three cases, and only the third is new:
+ *
+ *  - the payload states `hasVault` — believe it. The backend consulted the
+ *    wrapper rows to answer (`check_vault_exists`), so it is better informed
+ *    than the status string, and an explicit `false` beside an "active" status
+ *    means a header row with no usable unlock method. ORing the two, as this
+ *    used to, threw that answer away.
+ *  - the payload states only a status — derive from it, as before.
+ *  - the payload states neither — the record is a locally built one that knows
+ *    nothing about locks. Return `null` so the readers ask, instead of
+ *    inventing a "no".
+ */
+function resolveReportedHasVault(
+  payload: BootstrapStateResponse,
+): boolean | null {
+  const reported = toNullableBool(payload.hasVault);
+  if (reported !== null) return reported;
+  const status =
+    typeof payload.vaultStatus === "string" ? payload.vaultStatus.trim() : "";
+  if (!status) return null;
+  return status === "active";
+}
+
 function normalizeResponse(
   userId: string,
   payload: BootstrapStateResponse,
@@ -137,9 +241,10 @@ function normalizeResponse(
   const status = (payload.vaultStatus || "placeholder") as VaultStatus;
   return {
     userId: String(payload.userId || userId),
-    hasVault: Boolean(payload.hasVault) || status === "active",
+    hasVault: resolveReportedHasVault(payload),
     vaultStatus: status,
     firstLoginAt: toMillis(payload.firstLoginAt),
+    createdAt: toMillis(payload.createdAt),
     lastLoginAt: toMillis(payload.lastLoginAt),
     loginCount: Number(payload.loginCount || 0),
     setupCompleted: toNullableBool(payload.setupCompleted),
@@ -148,8 +253,16 @@ function normalizeResponse(
     navSetupCompletedAt: toMillis(payload.navSetupCompletedAt),
     navSetupSkippedAt: toMillis(payload.navSetupSkippedAt),
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
+    setupCapabilityDeclinedIds: toStringArray(payload.setupCapabilityDeclinedIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
+    oneChatOnboarding: normalizeOneChatOnboarding(payload.oneChatOnboarding),
+    initialContactsSource: ["google", "device", "none"].includes(String(payload.initialContactsSource))
+      ? payload.initialContactsSource : null,
+    initialContactsWelcomeAcknowledged: typeof payload.initialContactsWelcomeAcknowledged === "boolean"
+      ? payload.initialContactsWelcomeAcknowledged : null,
+    initialContactsCircleId: typeof payload.initialContactsCircleId === "string"
+      ? payload.initialContactsCircleId : null,
     oneRuntimeSetupChoice: normalizeOneRuntimeSetupChoice(
       payload.oneRuntimeSetupChoice,
     ),
@@ -411,11 +524,66 @@ export class PreVaultUserStateService {
     });
   }
 
+  /**
+   * Whether the person has explicitly declined this capability (e.g.
+   * dismissed a connect prompt) -- as opposed to simply never having
+   * reached for it. A JIT connect prompt checks this before it interrupts.
+   */
+  static hasDeclinedCapability(
+    state: PreVaultUserState | null | undefined,
+    capabilityId: string,
+  ): boolean {
+    return Boolean(state?.setupCapabilityDeclinedIds.includes(capabilityId));
+  }
+
+  /**
+   * Mirror the per-capability declined set to the durable backend store,
+   * same replace-the-full-set contract as `syncSetupCapabilities`: the
+   * caller passes the full desired set already merged with the local copy.
+   */
+  static async syncDeclinedCapabilities(
+    userId: string,
+    setupCapabilityDeclinedIds: readonly string[],
+  ): Promise<PreVaultUserState> {
+    return this.updatePreVaultState(userId, {
+      setupCapabilityDeclinedIds: toStringArray([...setupCapabilityDeclinedIds]),
+    });
+  }
+
+  /**
+   * Replace the durable chat-onboarding progress record. It carries question
+   * ids and dates only; the backend re-normalizes and rejects anything else.
+   */
+  static async syncOneChatOnboarding(
+    userId: string,
+    oneChatOnboarding: OneChatOnboardingState,
+  ): Promise<PreVaultUserState> {
+    const normalized = normalizeOneChatOnboarding(oneChatOnboarding);
+    if (!normalized) throw new Error("Invalid chat onboarding state");
+    return this.updatePreVaultState(userId, { oneChatOnboarding: normalized });
+  }
+
   static hasOneRuntimeChoice(
     state: PreVaultUserState | null | undefined,
   ): boolean {
     return Boolean(
       state?.setupCapabilityIds.includes(ONE_RUNTIME_SETUP_PREREQUISITE_ID),
+    );
+  }
+
+  /**
+   * Has the server recorded a valid agent-home choice?
+   *
+   * The marker is written by an authenticated server flow: BYOC writes it only after
+   * proving project access, while Shared records an explicit no-pod choice after the
+   * server confirms there is no existing or pending pod assignment. Hussh Pods retains
+   * its own gated selection flow. A client cannot mark the prerequisite complete alone.
+   */
+  static hasOneCloudProject(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
+    return Boolean(
+      state?.setupCapabilityIds.includes(ONE_CLOUD_SETUP_PREREQUISITE_ID),
     );
   }
 

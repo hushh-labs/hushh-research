@@ -1,12 +1,92 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import threading
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import pkm, pkm_routes_shared
+
+
+@pytest.fixture
+def shared_owner_placement(monkeypatch, active_account_lifecycle):
+    """Exercise the real hub guard with an explicitly Shared route-test owner."""
+    from hushh_mcp.services import owner_placement_guard
+
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", placement)
+    return placement
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_does_not_block_committed_mutation_response(monkeypatch):
+    push_started = threading.Event()
+    release_push = threading.Event()
+
+    def _blocked_push(*_args, **_kwargs):
+        push_started.set()
+        release_push.wait(timeout=2)
+
+    async def _shared_pool_must_not_run(*_args, **_kwargs):
+        raise AssertionError("Location pushes must not use FastAPI's shared thread pool")
+
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _shared_pool_must_not_run)
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _blocked_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    await asyncio.wait_for(
+        pkm_routes_shared._notify_location_pkm_changed("user_123"),
+        timeout=0.1,
+    )
+    assert push_started.wait(timeout=1)
+    assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS
+
+    release_push.set()
+    await asyncio.gather(
+        *tuple(pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS),
+        return_exceptions=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_backlog_is_bounded(monkeypatch):
+    release_fillers = asyncio.Event()
+    monkeypatch.setattr(pkm_routes_shared, "_LOCATION_SYNC_PUSH_MAX_PENDING", 1)
+
+    async def _pending_delivery():
+        await release_fillers.wait()
+
+    fillers = {asyncio.create_task(_pending_delivery())}
+    pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.update(fillers)
+    pushes: list[str] = []
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: pushes.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    try:
+        await pkm_routes_shared._notify_location_pkm_changed("user_123")
+        await asyncio.sleep(0)
+        assert pushes == []
+        assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS == fillers
+    finally:
+        release_fillers.set()
+        await asyncio.gather(*fillers, return_exceptions=True)
+        pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.difference_update(fillers)
 
 
 def _confirmed_mutation_plan_payload(
@@ -24,6 +104,9 @@ def _confirmed_mutation_plan_payload(
         "target_scope_handle": "pending_scope_route_001",
         "proposed_domain": "financial",
         "proposed_scope": "portfolio",
+        # financial.* is reserved (contracts/pkm/reserved-branches.v1.json); in
+        # enforce mode only a catalogued Finance writer may change it.
+        "writer_id": "kai_manage_portfolio_save",
         "friendly_domain_name": "Financial",
         "friendly_scope_name": "Portfolio",
         "confidence": 1.0,
@@ -68,6 +151,15 @@ def _build_app() -> FastAPI:
         "user_id": "user_123"
     }
     return app
+
+
+def test_memory_proposal_request_accepts_a_long_imported_profile():
+    request = pkm.PKMAgentLabStructureRequest(
+        user_id="user_123",
+        message="x" * 12001,
+    )
+
+    assert len(request.message) == 12001
 
 
 @pytest.mark.parametrize(
@@ -219,6 +311,140 @@ def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
     ]
 
 
+def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch):
+    pushes: list[tuple[str, dict]] = []
+    streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": True,
+                "data_version": 8,
+                "updated_at": "2026-09-20T00:00:00Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/pkm/store-domain",
+            json={
+                "user_id": "user_123",
+                "domain": "location",
+                "encrypted_blob": {
+                    "ciphertext": "ciphertext-only",
+                    "iv": "iv",
+                    "tag": "tag",
+                    "algorithm": "aes-256-gcm",
+                },
+                "summary": {},
+                "mutation_plan": plan,
+            },
+        )
+        assert push_delivered.wait(timeout=2)
+
+    assert response.status_code == 200
+    assert len(pushes) == 1
+    user_id, push = pushes[0]
+    assert user_id == "user_123"
+    assert push["notification_type"] == "location_pkm_changed"
+    assert push["show_alert"] is False
+    assert push["data"]["domain"] == "location"
+    assert push["data"]["data_version"] == "8"
+    assert set(push["data"]) == {
+        "domain",
+        "operation",
+        "data_version",
+        "updated_at",
+        "sync_only",
+        "message_id",
+    }
+    assert "ciphertext" not in str(push)
+    assert streams[0][0] == "user_123"
+    assert streams[0][1]["type"] == "location_pkm_changed"
+    assert streams[0][1]["message_id"] == push["data"]["message_id"]
+    assert streams[0][1]["operation"] == "stored"
+
+
+def test_failed_location_store_does_not_emit_sync_doorbell(monkeypatch):
+    notifications: list[object] = []
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": False,
+                "conflict": True,
+                "data_version": 9,
+                "updated_at": "2026-09-20T00:00:01Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: notifications.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: notifications.append("stream"),
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "location",
+            "encrypted_blob": {
+                "ciphertext": "ciphertext-only",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {},
+            "mutation_plan": plan,
+        },
+    )
+
+    assert response.status_code == 409
+    assert notifications == []
+
+
 def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
     captured: dict[str, object] = {}
 
@@ -268,41 +494,144 @@ def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
     assert captured["mutation_plan"]["operation"] == "delete"
 
 
-def test_device_sync_feed_is_owner_bound(monkeypatch):
+@pytest.mark.parametrize("route_kind", ["legacy", "confirmed"])
+def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, route_kind):
+    # The subject is the sync push. A whole-domain Location delete spans two
+    # reserved branches no single writer owns, so enforce refuses it (no app
+    # control issues one today; test_reserved_branches covers the refusal).
+    # Shadow is the registry's rollback value, under which the push must hold.
+    monkeypatch.setattr(pkm_routes_shared, "enforcement_mode", lambda: "shadow")
+    pushes: list[tuple[str, dict]] = []
+    streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
+
     class _FakePkmService:
-        async def list_device_sync_events(self, **kwargs):
-            assert kwargs == {
-                "user_id": "user_123",
-                "after_cursor": 4,
-                "limit": 25,
-            }
+        async def get_mutation_sharing_impact(self, **_kwargs):
             return {
-                "events": [
-                    {
-                        "cursor": 5,
-                        "domain": "financial",
-                        "operation": "delete",
-                        "content_revision": 8,
-                        "manifest_revision": None,
-                        "created_at": "2026-07-28T12:00:00Z",
-                    }
-                ],
-                "next_cursor": 5,
-                "has_more": False,
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def delete_domain_data(self, _user_id, _domain, **kwargs):
+            if not kwargs:
+                return True
+            return {
+                "success": True,
+                "conflict": False,
+                "deleted": True,
+                "data_version": 12,
+                "updated_at": "2026-09-20T12:00:00Z",
             }
 
     monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
-    client = TestClient(_build_app())
 
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    with TestClient(_build_app()) as client:
+        if route_kind == "legacy":
+            response = client.delete("/api/pkm/domain-data/user_123/location")
+        else:
+            plan = _confirmed_delete_plan_payload()
+            plan["proposed_domain"] = "location"
+            plan["confirmation_receipt"]["displayed_domain"] = "location"
+            response = client.post(
+                "/api/pkm/delete-domain",
+                json={
+                    "user_id": "user_123",
+                    "domain": "location",
+                    "expected_data_version": 11,
+                    "mutation_plan": plan,
+                },
+            )
+        assert push_delivered.wait(timeout=2)
+
+    assert response.status_code == 200
+    assert len(pushes) == 1
+    user_id, push = pushes[0]
+    assert user_id == "user_123"
+    assert push["notification_type"] == "location_pkm_changed"
+    assert push["show_alert"] is False
+    assert push["data"]["domain"] == "location"
+    assert push["data"]["operation"] == "cleared"
+    assert set(push["data"]) == {
+        "domain",
+        "operation",
+        "data_version",
+        "updated_at",
+        "sync_only",
+        "message_id",
+    }
+    assert streams == [
+        (
+            "user_123",
+            {
+                "type": "location_pkm_changed",
+                "user_id": "user_123",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": push["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **push["data"],
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "created_at",
+    [datetime(2026, 7, 28, 12, tzinfo=timezone.utc), "2026-07-28T12:00:00+00:00", None],
+)
+def test_device_sync_feed_is_owner_bound(monkeypatch, created_at):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from hushh_mcp.services.personal_knowledge_model_service import PersonalKnowledgeModelService
+
+    service = PersonalKnowledgeModelService()
+    service._db = MagicMock()
+    service._execute_query = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                {
+                    "id": 5,
+                    "domain": "financial",
+                    "operation_type": "domain_delete",
+                    "new_manifest_version": None,
+                    "metadata": {"data_version": 8},
+                    "created_at": created_at,
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: service)
+    client = TestClient(_build_app())
     response = client.get(
         "/api/pkm/device-sync/user_123",
         params={"after_cursor": 4, "limit": 25},
     )
     assert response.status_code == 200
-    assert response.json()["events"][0]["operation"] == "delete"
-
+    event = response.json()["events"][0]
+    assert event["operation"] == "delete"
+    assert event["created_at"] == (None if created_at is None else "2026-07-28T12:00:00+00:00")
+    service._db.table.assert_called_once_with("pkm_events")
+    service._db.table.return_value.select.return_value.eq.assert_called_once_with(
+        "user_id", "user_123"
+    )
     forbidden = client.get("/api/pkm/device-sync/another_user")
     assert forbidden.status_code == 403
+    service._execute_query.assert_awaited_once()
 
 
 def test_store_domain_rechecks_v7_kill_switch_before_commit(monkeypatch):
@@ -441,9 +770,20 @@ def test_store_domain_rejects_stale_sharing_impact(monkeypatch):
     assert detail["sharing_impact"]["recipient_labels"] == ["Hushh Technologies"]
 
 
-def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
+def test_memory_proposals_are_enriched_with_current_sharing_impact(
+    monkeypatch, shared_owner_placement
+):
+    calls = []
+    impacts = []
+
     class _FakeAgentLabService:
         async def generate_structure_preview(self, **_kwargs):
+            calls.append(_kwargs)
+            assert (
+                _kwargs["continuation_scope"]
+                == hashlib.sha256(b"synthetic-owner-token").hexdigest()
+            )
+            assert "synthetic-owner-token" not in str(_kwargs)
             return {
                 "agent_id": "pkm_structure",
                 "agent_name": "PKM Structure",
@@ -471,6 +811,7 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
 
     class _FakePkmService:
         async def get_mutation_sharing_impact(self, **kwargs):
+            impacts.append(kwargs)
             assert kwargs == {
                 "user_id": "user_123",
                 "domain": "financial",
@@ -487,7 +828,10 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
 
     app = FastAPI()
     app.include_router(pkm.router)
-    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {
+        "user_id": "user_123",
+        "token": "synthetic-owner-token",
+    }
     monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: _FakeAgentLabService())
     monkeypatch.setattr(pkm, "get_pkm_service", lambda: _FakePkmService())
 
@@ -502,6 +846,21 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
     assert payload["preview_cards"][0]["sharing_impact"]["recipient_labels"] == [
         "Hushh Technologies"
     ]
+    assert payload["performance"]["sharing_impact_calls"] == 1
+    assert payload["performance"]["sharing_impact_cache_hits"] == 0
+
+    repeated = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
+    )
+    assert repeated.status_code == 200
+    assert len(calls) == len(impacts) == 2
+    wrong_owner = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "other-owner", "message": "Synthetic memory"},
+    )
+    assert wrong_owner.status_code == 403
+    assert len(calls) == len(impacts) == 2
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     lab_response = TestClient(app).post(
@@ -517,6 +876,74 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
         json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
     )
     assert unset_environment_response.status_code == 404
+
+
+def test_memory_proposals_deduplicate_same_scope_sharing_impact(
+    monkeypatch, shared_owner_placement
+):
+    class _FakeAgentLabService:
+        async def generate_structure_preview(self, **_kwargs):
+            card = {
+                "write_mode": "can_save",
+                "target_domain": "Professional",
+                "primary_json_path": "profile.work",
+                "manifest_draft": {
+                    "domain": "professional",
+                    "top_level_scope_paths": ["profile"],
+                },
+            }
+            return {
+                "agent_id": "pkm_structure",
+                "agent_name": "PKM Structure",
+                "model": "deterministic-test",
+                "used_fallback": False,
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "create_domain",
+                    "target_domain": "professional",
+                },
+                "preview_cards": [card.copy(), card.copy()],
+                "preview_summary": {"card_count": 2},
+            }
+
+    class _FakePkmService:
+        def __init__(self):
+            self.calls = 0
+
+        async def get_mutation_sharing_impact(self, **kwargs):
+            self.calls += 1
+            assert kwargs == {
+                "user_id": "user_123",
+                "domain": "professional",
+                "scope_path": "profile",
+            }
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "summary": "No active recipients are affected.",
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    pkm_service = _FakePkmService()
+    monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: _FakeAgentLabService())
+    monkeypatch.setattr(pkm, "get_pkm_service", lambda: pkm_service)
+
+    response = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "user_123", "message": "Save a professional preference"},
+    )
+
+    assert response.status_code == 200
+    assert pkm_service.calls == 1
+    payload = response.json()
+    assert payload["performance"]["sharing_impact_calls"] == 1
+    assert payload["performance"]["sharing_impact_cache_hits"] == 1
+    assert all("sharing_impact" in card for card in payload["preview_cards"])
 
 
 def test_memory_mutation_impact_preflight_returns_authoritative_recipient_ids(monkeypatch):
@@ -684,9 +1111,12 @@ def test_manifest_route_serializes_datetime_fields(monkeypatch):
 
 
 def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
+    seen_legacy: list[bool] = []
+
     class _FakeUpgradeService:
-        async def build_status(self, user_id: str):
+        async def build_status(self, user_id: str, *, legacy_client: bool = False):
             assert user_id == "user_123"
+            seen_legacy.append(legacy_client)
             return {
                 "user_id": "user_123",
                 "model_version": 3,
@@ -766,6 +1196,13 @@ def test_upgrade_status_route_serializes_run_and_steps(monkeypatch):
     assert payload["run"]["mode"] == "real"
     assert payload["run"]["error_context"]["correlation_id"] == "corr_123"
     assert payload["run"]["steps"][0]["checkpoint_payload"]["stage"] == "loading_domain"
+    # A build that sends no client level is a legacy client: never offered the
+    # reserved-branch relocation. A current one is.
+    current = client.get(
+        "/api/pkm/upgrade/status/user_123", headers={"x-hushh-client-version": "2.0.0"}
+    )
+    assert current.status_code == 200
+    assert seen_legacy == [True, False]
 
 
 def test_manifest_route_serializes_legacy_manifest_payload(monkeypatch):
@@ -882,6 +1319,13 @@ def test_manifest_route_recovers_from_partially_malformed_legacy_fields(monkeypa
 
 
 def test_validate_store_domain_route_accepts_payload_without_writing(monkeypatch):
+    class _NoStoredManifest:
+        # The reserved-branch guard compares a shipped manifest with the stored
+        # one; this dry run has none stored, so nothing reads as a change.
+        async def get_manifest_json_paths(self, _user_id: str, _domain: str):
+            return None
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _NoStoredManifest())
     client = TestClient(_build_app())
     response = client.post(
         "/api/pkm/store-domain/validate",
@@ -916,7 +1360,7 @@ def test_validate_store_domain_route_accepts_payload_without_writing(monkeypatch
 
 def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     class _FakeUpgradeService:
-        async def build_status(self, user_id: str):
+        async def build_status(self, user_id: str, *, legacy_client: bool = False):
             assert user_id == "user_123"
             return {
                 "user_id": "user_123",
@@ -971,3 +1415,110 @@ def test_canonical_pkm_router_exposes_validate_store_domain(monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert "without saving it" in payload["message"]
+
+
+def test_commit_lookup_is_owner_scoped_and_answers_existence_only(monkeypatch):
+    """A write the device never got to confirm can be confirmed, by its owner only.
+
+    The commit id is derived on the server from the TOKEN's user, exactly as the
+    write path derives it, so naming another owner's plan finds nothing. The
+    answer carries existence and the committed revision, never the write.
+    """
+    from hushh_mcp.services.personal_knowledge_model_service import (
+        PersonalKnowledgeModelService,
+    )
+    from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
+
+    plan = "pkm_plan_" + "a" * 32
+    stored = {
+        derive_pkm_mutation_commit_id(user_id="user_123", domain="professional", plan_id=plan): 7,
+        # The same plan id, committed by someone else.
+        derive_pkm_mutation_commit_id(user_id="other_owner", domain="food", plan_id=plan): 3,
+    }
+    queries: list[dict] = []
+
+    class _Query:
+        def __init__(self):
+            self.filters: dict = {}
+
+        def select(self, columns):
+            self.filters["select"] = columns
+            return self
+
+        def eq(self, column, value):
+            self.filters[column] = value
+            return self
+
+        def in_(self, column, values):
+            self.filters[f"{column}__in"] = list(values)
+            return self
+
+    class _Db:
+        def table(self, name):
+            assert name == "pkm_domain_commits"
+            return _Query()
+
+    service = PersonalKnowledgeModelService()
+    service._db = _Db()
+
+    async def execute(query):
+        queries.append(query.filters)
+        assert query.filters["user_id"] == "user_123"
+        rows = [
+            {"commit_id": commit_id, "result_content_revision": revision}
+            for commit_id, revision in stored.items()
+            if commit_id in query.filters["commit_id__in"]
+        ]
+        return type("Result", (), {"data": rows})()
+
+    monkeypatch.setattr(service, "_execute_query", execute)
+    monkeypatch.setattr(pkm, "get_pkm_service", lambda: service)
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/pkm/commits/lookup",
+        json={
+            "user_id": "user_123",
+            "commits": [
+                {"domain": "professional", "plan_id": plan},
+                # Negative controls: the other owner's commit, and a plan never written.
+                {"domain": "food", "plan_id": plan},
+                {"domain": "professional", "plan_id": "pkm_plan_" + "b" * 32},
+                # A domain no write can have: answered "not committed", never queried.
+                {"domain": "vault", "plan_id": plan},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "commits": [
+            {"exists": True, "data_version": 7},
+            {"exists": False, "data_version": None},
+            {"exists": False, "data_version": None},
+            {"exists": False, "data_version": None},
+        ]
+    }
+    assert len(queries) == 1 and len(queries[0]["commit_id__in"]) == 3
+    assert queries[0]["commit_kind"] == "mutation"
+
+    forbidden = client.post(
+        "/api/pkm/commits/lookup",
+        json={"user_id": "other_owner", "commits": [{"domain": "food", "plan_id": plan}]},
+    )
+    assert forbidden.status_code == 403
+    malformed = client.post(
+        "/api/pkm/commits/lookup",
+        json={"user_id": "user_123", "commits": [{"domain": "food", "plan_id": "not-a-plan"}]},
+    )
+    assert malformed.status_code == 422
+    too_many = client.post(
+        "/api/pkm/commits/lookup",
+        json={
+            "user_id": "user_123",
+            "commits": [{"domain": "food", "plan_id": plan}] * 65,
+        },
+    )
+    assert too_many.status_code == 422

@@ -22,7 +22,9 @@ import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
+  isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
+import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 
 const conversation = {
   id: "conversation-1",
@@ -53,23 +55,50 @@ describe("agent chat history memory cache", () => {
     mocks.history.mockResolvedValue(messages);
   });
 
-  it("single-flights unlock warming and serves the latest history from memory", async () => {
+  it("single-flights list warming and warms the latest history independently", async () => {
     const input = { userId: "user-1", vaultOwnerToken: "token" };
     const [first, joined] = await Promise.all([
       warmAgentChatHistoryCache(input),
       warmAgentChatHistoryCache(input),
     ]);
 
-    expect(first.latestMessages).toEqual(messages);
+    expect(first.conversations).toEqual([conversation]);
     expect(joined).toEqual(first);
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(mocks.history).toHaveBeenCalledTimes(1);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
 
     await warmAgentChatHistoryCache(input);
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(peekAgentChatHistoryCache("user-1")?.latestConversationId).toBe(
       "conversation-1",
     );
+  });
+
+  it("shows the conversation list while the newest transcript is still pending", async () => {
+    let resolveHistory: ((value: typeof messages) => void) | undefined;
+    mocks.history.mockImplementationOnce(() => new Promise<typeof messages>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    const input = { userId: "user-1", vaultOwnerToken: "token" };
+    const result = await warmAgentChatHistoryCache(input);
+    expect(result.conversations).toEqual([conversation]);
+    expect(result.latestMessages).toEqual([]);
+    expect(peekAgentChatHistoryCache(input.userId)?.conversations).toEqual([conversation]);
+    resolveHistory?.(messages);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    expect(peekAgentChatHistoryCache(input.userId)?.latestMessages).toEqual(messages);
+  });
+
+  it("cannot restore a late transcript after vault lock", async () => {
+    let resolveHistory: ((value: typeof messages) => void) | undefined;
+    mocks.history.mockImplementationOnce(() => new Promise<typeof messages>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    await warmAgentChatHistoryCache({ userId: "user-1", vaultOwnerToken: "token" });
+    clearAgentChatHistoryCache("user-1");
+    resolveHistory?.(messages);
+    await vi.waitFor(() => expect(peekAgentChatHistoryCache("user-1")).toBeNull());
   });
 
   it("loads non-latest conversations lazily and clears protected history on lock", async () => {
@@ -108,5 +137,41 @@ describe("agent chat history memory cache", () => {
     await expect(warming).rejects.toThrow("cache was invalidated");
     expect(peekAgentChatHistoryCache("user-1")).toBeNull();
     expect(mocks.history).not.toHaveBeenCalled();
+  });
+
+  it("clears a protected snapshot when a consent mutation invalidates Chat history", async () => {
+    await warmAgentChatHistoryCache({ userId: "user-1", vaultOwnerToken: "token" });
+    expect(peekAgentChatHistoryCache("user-1")).not.toBeNull();
+
+    window.dispatchEvent(new CustomEvent(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, {
+      detail: { userId: "user-1" },
+    }));
+
+    expect(peekAgentChatHistoryCache("user-1")).toBeNull();
+  });
+
+  it("retains expired presentation while one refresh waits, and fences captured snapshots on invalidation", async () => {
+    const input = { userId: "user-1", vaultOwnerToken: "token", vaultKey: "synthetic-key" };
+    await warmAgentChatHistoryCache(input);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6 * 60 * 1000);
+    try {
+      const retained = peekAgentChatHistoryCache(input.userId)!;
+      expect(retained.isFresh).toBe(false);
+      expect(retained.latestMessages).toEqual(messages);
+      expect(isAgentChatHistorySnapshotCurrent(input.userId, retained)).toBe(true);
+      expect(isAgentChatHistorySnapshotCurrent("other-owner", retained)).toBe(false);
+      let settle!: (value: typeof conversation[]) => void;
+      mocks.list.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+      const refresh = warmAgentChatHistoryCache({ ...input, force: true });
+      const joined = warmAgentChatHistoryCache({ ...input, force: true });
+      expect(refresh).toBe(joined);
+      expect(peekAgentChatHistoryCache(input.userId)?.latestMessages).toEqual(messages);
+      clearAgentChatHistoryCache(input.userId);
+      expect(isAgentChatHistorySnapshotCurrent(input.userId, retained)).toBe(false);
+      settle([conversation]);
+      await expect(refresh).rejects.toThrow("cache was invalidated");
+      expect(peekAgentChatHistoryCache(input.userId)).toBeNull();
+    } finally { clock.mockRestore(); }
   });
 });

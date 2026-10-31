@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-10-24",
+  "note": "Authored development sources live under .agents. Root AGENTS.md loads the one portable framework; repository vendor directories, startup hooks and per-host discovery adapters are retired. Pinned imports remain separately classified and are not approved or activated by relocation. Retired redundant host aliases and unapproved KG procedure in the canonical consolidation. Historical KG source: ac3dea21efde66f3b05014731bdc637c3ac12b3d; SKILL blob2372a472bac7928833d1d79a11c37388d648a625, PROMPT blob317de1ab9d89ec7370c5f34790ec2a4d1d590e1c. Relocation never activates imported writers.",
+  "sources": {
+    ".agents/imports/impeccable/SKILL.md": {
+      "classification": "imported_dependency_pending_review",
+      "sha256": "a1ea82ce80f4db6f53757a84fc37b639fdc2354ca25e54a30ab6d45dcf944628"
+    }
+  },
+  "imported_agents": {
+    ".agents/imports/impeccable/agents/impeccable_asset_producer.toml": "327e6f53d377ebe297748a603777d496b08be0e77565dd62a4ae26cf632af244",
+    ".agents/imports/impeccable/agents/impeccable_documenter.toml": "d5922228b571900e21a47855d7de9e081c2246fc9cec6c6235b1a6da31098896",
+    ".agents/imports/impeccable/agents/impeccable_finish_reviewer.toml": "f09f9d44730ab6b3942620242e64e3197d7dc06ecb40da83cd20dfcffc480dbd",
+    ".agents/imports/impeccable/agents/impeccable_manual_edit_applier.toml": "7c519ed4a94aa01677b741afa9ae56c71d3b9bc19f48f4166d87b1e4579613ed"
+  },
+  "imports": {
+    "impeccable": {
+      "import_commit": "f844e6b66",
+      "declared_version": "4.0.4",
+      "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
+      "disposition": "Retain pinned source bytes and licenses under .agents/imports without native discovery; imported writers remain unapproved and outside the engineering fleet.",
+      "source": "https://github.com/pbakaus/impeccable",
+      "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
+      "upstream_path": ".agents/skills/impeccable",
+      "imported_tree": "cb64801c3c3ee2e00324ce6f5ded1e1100326155",
+      "provenance_verification": "all 152 original imported files match the upstream Git tree exactly",
+      "license": "Apache-2.0; upstream NOTICE identifies MIT-derived platform references",
+      "license_file": ".agents/imports/impeccable/LICENSE",
+      "notice_file": ".agents/imports/impeccable/NOTICE.md",
+      "execution_review": {
+        "nested_authored_agents": 4,
+        "discovery_metadata": "agents/openai.yaml",
+        "host_bypass_entrypoint": "scripts/live-copy-edit-agent.mjs",
+        "host_bypass_flags": [
+          "--dangerously-bypass-approvals-and-sandbox",
+          "--permission-mode bypassPermissions"
+        ],
+        "relocation_requires": [
+          "preserve the full relative resource graph",
+          "reconcile installed hook and shortcut paths without invoking imported installers",
+          "validate dependency-backed detector modes independently"
+        ]
+      },
+      "dependency_review": {
+        "bundle_local_manifest_or_lock": false,
+        "optional_dynamic_dependencies": [
+          "htmlparser2",
+          "css-select",
+          "css-tree",
+          "domutils",
+          "puppeteer",
+          "@babel/parser",
+          "svelte/compiler"
+        ],
+        "coverage_boundary": "missing parser dependencies can downgrade detection; fallback success is not equivalent coverage"
+      },
+      "local_skill_path": ".agents/imports/impeccable"
+    },
+    "impeccable/modern-screenshot": {
+      "package": "modern-screenshot",
+      "version": "4.7.0",
+      "registry_tarball": "https://registry.npmjs.org/modern-screenshot/-/modern-screenshot-4.7.0.tgz",
+      "registry_integrity": "sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==",
+      "vendored_sha256": "bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b",
+      "matching_path": "package/dist/index.js",
+      "declared_version": "4.7.0",
+      "license": "MIT",
+      "license_file": ".agents/imports/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt",
+      "source": "https://github.com/qq15725/modern-screenshot",
+      "local_path": ".agents/imports/impeccable/scripts/modern-screenshot.umd.js",
+      "provenance_verification": "vendored bytes match package/dist/index.js in the published npm 4.7.0 tarball exactly"
+    },
+    "impeccable/platform-design-skills": {
+      "source": "https://raw.githubusercontent.com/ehmo/platform-design-skills/baff03e456864470db3ba8acebc41a003cbfa541/LICENSE",
+      "upstream_commit": "baff03e456864470db3ba8acebc41a003cbfa541",
+      "sha256": "1126322e2cc8d165adc4c792eeb195717de2bcc7b39be1ce77959d78e87ef685",
+      "scope": "upstream original license for references attributed in Impeccable NOTICE; no exact derivative-source revision inferred",
+      "declared_version": "derived references; original revision not recorded by importer",
+      "license": "MIT",
+      "license_file": ".agents/imports/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt",
+      "notice_file": ".agents/imports/impeccable/NOTICE.md",
+      "provenance_verification": "derivation attributed by pinned Impeccable upstream NOTICE; original permission text retained from pinned upstream license commit"
+    }
+  },
+  "practice_sources": {
+    ".agents/skills/animate/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/animation-vocabulary/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/apple-design/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/brandkit/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/client-env-parity/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/context-refresh/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/emil-design-eng/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/find-animation-opportunities/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/hushh-icon-theme/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/imagegen-frontend-mobile/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/imagegen-frontend-web/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/improve-animations/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/industrial-brutalist-ui/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/less-text-karma-ji/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/pdf-artifact-generation/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/pick-ui-library/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/profile-ui/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/prototype/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/review-animations/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/stitch-design-taste/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/verify-before-claim/SKILL.md": {
+      "classification": "portable_practice"
+    },
+    ".agents/skills/wire-voice-action/SKILL.md": {
+      "classification": "portable_practice"
+    }
+  }
+}

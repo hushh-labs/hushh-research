@@ -10,9 +10,28 @@ import {
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+// A mutation doorbell mid-flight is expected to need one re-read; a domain
+// under continuous write pressure must not turn that into unbounded recursion.
+const MAX_REFRESH_RETRY_ATTEMPTS = 3;
+const REFRESH_RETRY_BACKOFF_MS = 150;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
+const domainRevisions = new Map<string, number>();
+const deviceEvictions = new Map<string, Promise<void>>();
+// Serialize persistence and stale-write cleanup per domain, so an old session
+// cannot delete a renewed session's replacement snapshot.
+const deviceWrites = new Map<string, Promise<void>>();
+const blockedDeviceRevisionByDomain = new Map<string, number>();
+
+function domainRevisionKey(userId: string, domain: string): string {
+  return `${userId}:${domain}`;
+}
+
+function domainRevision(userId: string, domain: string): number {
+  return domainRevisions.get(domainRevisionKey(userId, domain)) ?? 0;
+}
 
 type DomainResourceCacheTier = "memory" | "device" | "network";
 type DomainResourceSource = "cache" | "secure_cache" | "network";
@@ -35,6 +54,17 @@ export interface PkmDomainResourceSnapshot<T = Record<string, unknown>> {
     refreshedAt: string;
   };
 }
+
+export interface PkmDomainResourceBatchResult {
+  snapshots: Record<string, PkmDomainResourceSnapshot>;
+  failedDomains: string[];
+}
+
+export type PkmDomainResourceBatchProgress = {
+  domain: string;
+  snapshot: PkmDomainResourceSnapshot | null;
+  failed: boolean;
+};
 
 interface PkmDomainResourceParams {
   userId: string;
@@ -164,12 +194,32 @@ export class PkmDomainResourceService {
     if (!params.vaultKey) {
       return null;
     }
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const revisionKey = domainRevisionKey(params.userId, params.domain);
+    let pendingEviction = deviceEvictions.get(revisionKey);
+    while (pendingEviction) {
+      await pendingEviction;
+      pendingEviction = deviceEvictions.get(revisionKey);
+    }
+    const currentRevision = domainRevision(params.userId, params.domain);
+    if (blockedDeviceRevisionByDomain.get(revisionKey) === currentRevision) {
+      return null;
+    }
     const resourceKey = toDeviceResourceKey(params);
+    const revision = currentRevision;
     const snapshot = await SecureResourceCacheService.read<PkmDomainResourceSnapshot>({
       userId: params.userId,
       resourceKey,
       vaultKey: params.vaultKey,
     });
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+    if (domainRevision(params.userId, params.domain) !== revision) {
+      await SecureResourceCacheService.invalidateResourcePrefix(
+        params.userId,
+        `pkm_domain:${params.domain}:`,
+      ).catch(() => undefined);
+      return null;
+    }
     if (!snapshot) {
       logRequest("cache_miss", {
         tier: "device",
@@ -250,7 +300,7 @@ export class PkmDomainResourceService {
         segmentSignature: segmentSignature(params.segmentIds),
       });
       if (params.backgroundRefresh !== false) {
-        void this.refresh(params);
+        void this.refresh(params).catch(() => undefined);
       }
       return cached.data;
     }
@@ -278,7 +328,7 @@ export class PkmDomainResourceService {
           return secure;
         }
         if (params.backgroundRefresh !== false) {
-          void this.refresh(params);
+          void this.refresh(params).catch(() => undefined);
         }
         return secure;
       }
@@ -291,6 +341,54 @@ export class PkmDomainResourceService {
       segmentSignature: segmentSignature(params.segmentIds),
     });
     return await this.refresh(params);
+  }
+
+  /**
+   * Loads independent PKM domains without allowing one unavailable domain to
+   * make an owner-facing Memory view or private-agent inventory look empty.
+   * Each domain still follows the usual memory -> encrypted device -> network
+   * resolution path; no decrypted result is persisted by this helper.
+   */
+  static async getManyStaleFirst(
+    params: Omit<PkmDomainResourceParams, "domain" | "segmentIds"> & {
+      domains: readonly string[];
+      forceRefresh?: boolean;
+      backgroundRefresh?: boolean;
+      concurrency?: number;
+      onProgress?: (progress: PkmDomainResourceBatchProgress) => void;
+    }
+  ): Promise<PkmDomainResourceBatchResult> {
+    const domains = [...new Set(params.domains.map((domain) => domain.trim()).filter(Boolean))];
+    const snapshots: Record<string, PkmDomainResourceSnapshot> = {};
+    const failedDomains: string[] = [];
+    const concurrency = Math.min(Math.max(1, params.concurrency ?? 4), domains.length || 1);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < domains.length) {
+        const domain = domains[nextIndex];
+        nextIndex += 1;
+        if (!domain) return;
+        try {
+          const snapshot = await this.getStaleFirst({
+            userId: params.userId,
+            domain,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+            forceRefresh: params.forceRefresh,
+            backgroundRefresh: params.backgroundRefresh,
+          });
+          if (snapshot?.data) snapshots[domain] = snapshot;
+          params.onProgress?.({ domain, snapshot, failed: false });
+        } catch {
+          failedDomains.push(domain);
+          params.onProgress?.({ domain, snapshot: null, failed: true });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    return { snapshots, failedDomains: failedDomains.sort() };
   }
 
   static async prepareDomainWriteContext(
@@ -332,11 +430,30 @@ export class PkmDomainResourceService {
   static async refresh(
     params: PkmDomainResourceParams
   ): Promise<PkmDomainResourceSnapshot | null> {
+    return this.refreshAttempt(params, 0);
+  }
+
+  /**
+   * A mutation doorbell mid-flight re-reads once the dust settles -- correct,
+   * because the stale response must not repopulate the cache. But a domain
+   * under continuous write pressure (another failed writer retrying the same
+   * domain, or simply one that will keep 404ing because it was never
+   * created) bumped the revision again before the re-read landed, and this
+   * recursed with no cap and no backoff: one page load produced well over a
+   * hundred identical network fetches for an address that was never there.
+   * MAX_REFRESH_RETRY_ATTEMPTS bounds that. Exhausted invalidated reads
+   * reject: neither absence nor an obsolete snapshot is authoritative.
+   */
+  private static async refreshAttempt(
+    params: PkmDomainResourceParams,
+    attempt: number,
+  ): Promise<PkmDomainResourceSnapshot | null> {
     if (!params.userId || !params.domain || !params.vaultKey) {
       return null;
     }
 
-    const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}`;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}:${vaultEpoch}`;
     const existing = inflightRefreshes.get(inflightKey);
     if (existing) {
       logRequest("inflight_dedupe_hit", {
@@ -352,14 +469,33 @@ export class PkmDomainResourceService {
       domain: params.domain,
       segmentSignature: segmentSignature(params.segmentIds),
     });
+    const startRevision = domainRevision(params.userId, params.domain);
     const request = PersonalKnowledgeModelService.loadDomainDataWithBlob({
       userId: params.userId,
       domain: params.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken || undefined,
       segmentIds: params.segmentIds,
+      // A refresh must reach the server, not relabel a cached ciphertext as
+      // current network evidence. Shared refreshes still single-flight here.
+      forceRefresh: true,
     })
       .then(async ({ data, blob }) => {
+        if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+        if (domainRevision(params.userId, params.domain) !== startRevision) {
+          // This read began before a same-tab, cross-tab, or cross-device
+          // mutation doorbell. Let every waiter converge on one post-event
+          // read instead of allowing the old response to repopulate caches.
+          if (inflightRefreshes.get(inflightKey) === request) {
+            inflightRefreshes.delete(inflightKey);
+          }
+          if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+            throw new Error("Memory changed repeatedly while loading. Try again.");
+          }
+          await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+          return await this.refreshAttempt(params, attempt + 1);
+        }
         if (!data) {
           CacheService.getInstance().invalidate(toCacheKey(params));
           return null;
@@ -381,13 +517,51 @@ export class PkmDomainResourceService {
           snapshot,
         });
         if (hasUserConsent(params)) {
-          await SecureResourceCacheService.write({
-            userId: params.userId,
-            resourceKey: toDeviceResourceKey(params),
-            value: snapshot,
-            ttlMs: DEVICE_TTL_MS,
-            vaultKey: params.vaultKey!,
+          const writeKey = domainRevisionKey(params.userId, params.domain);
+          const previousWrite = deviceWrites.get(writeKey) || Promise.resolve();
+          const write = previousWrite.catch(() => undefined).then(async () => {
+            if (!isVaultSessionEpochCurrent(vaultEpoch) || domainRevision(params.userId, params.domain) !== startRevision) return;
+            await SecureResourceCacheService.write({
+              userId: params.userId,
+              resourceKey: toDeviceResourceKey(params),
+              value: snapshot,
+              ttlMs: DEVICE_TTL_MS,
+              vaultKey: params.vaultKey!,
+            });
+            if (!isVaultSessionEpochCurrent(vaultEpoch) || domainRevision(params.userId, params.domain) !== startRevision) {
+              await SecureResourceCacheService.invalidateResourcePrefix(
+                params.userId, `pkm_domain:${params.domain}:`,
+              ).catch(() => undefined);
+            }
           });
+          deviceWrites.set(writeKey, write);
+          try {
+            await write;
+          } finally {
+            if (deviceWrites.get(writeKey) === write) deviceWrites.delete(writeKey);
+          }
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+          if (
+            blockedDeviceRevisionByDomain.get(
+              domainRevisionKey(params.userId, params.domain),
+            ) === startRevision
+          ) {
+            blockedDeviceRevisionByDomain.delete(
+              domainRevisionKey(params.userId, params.domain),
+            );
+          }
+          if (domainRevision(params.userId, params.domain) !== startRevision) {
+            // Serialized persistence already removed the obsolete fallback.
+            if (inflightRefreshes.get(inflightKey) === request) {
+              inflightRefreshes.delete(inflightKey);
+            }
+            if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+              throw new Error("Memory changed repeatedly while loading. Try again.");
+            }
+            await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+            if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+            return await this.refreshAttempt(params, attempt + 1);
+          }
         }
         return snapshot;
       })
@@ -413,12 +587,47 @@ export class PkmDomainResourceService {
   static invalidateDomain(
     userId: string,
     domain: string,
-    options?: { includeDevice?: boolean }
+    options?: { includeDevice?: boolean; includeBackingCaches?: boolean }
   ): void {
     const cache = CacheService.getInstance();
+    const revisionKey = domainRevisionKey(userId, domain);
+    domainRevisions.set(revisionKey, domainRevision(userId, domain) + 1);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
+    if (options?.includeBackingCaches) {
+      cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
+      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
+      cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+    }
     if (options?.includeDevice) {
-      void SecureResourceCacheService.invalidateResourcePrefix(userId, `pkm_domain:${domain}:`);
+      const deviceRevision = domainRevision(userId, domain);
+      blockedDeviceRevisionByDomain.set(revisionKey, deviceRevision);
+      const previous = deviceEvictions.get(revisionKey);
+      const eviction = (previous ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() =>
+          SecureResourceCacheService.invalidateResourcePrefix(
+            userId,
+            `pkm_domain:${domain}:`,
+          ),
+        )
+        .then(() => {
+          if (
+            domainRevision(userId, domain) === deviceRevision &&
+            blockedDeviceRevisionByDomain.get(revisionKey) === deviceRevision
+          ) {
+            blockedDeviceRevisionByDomain.delete(revisionKey);
+          }
+        })
+        .catch(() => undefined);
+      let tracked!: Promise<void>;
+      tracked = eviction.finally(() => {
+        if (deviceEvictions.get(revisionKey) === tracked) {
+          deviceEvictions.delete(revisionKey);
+        }
+      });
+      deviceEvictions.set(revisionKey, tracked);
     }
   }
 }
@@ -445,9 +654,10 @@ export function usePkmDomainResource(
     enabled: Boolean(params.enabled ?? true) && Boolean(params.userId && params.domain),
     resourceLabel: `pkm_domain:${params.domain}`,
     refreshKey,
-    load: async () =>
+    load: async (options) =>
       await PkmDomainResourceService.getStaleFirst({
         ...params,
+        forceRefresh: options?.force,
         backgroundRefresh: params.backgroundRefresh,
       }),
   });

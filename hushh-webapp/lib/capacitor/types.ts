@@ -55,6 +55,13 @@ export interface TrustLink {
   fromAgent: string;
   toAgent: string;
   scope: ConsentScope | string;
+  /**
+   * The verbatim delegated authority. Every dynamic `attr.*` scope resolves to
+   * the same `pkm.read` enum server-side, so this is what distinguishes
+   * `attr.food.recipes.*` from `attr.financial.*`. It is part of the link's
+   * signature, so it must be round-tripped to verify-link unchanged.
+   */
+  scopeStr?: string;
   createdAt: number;
   expiresAt: number;
   signedByUser: string;

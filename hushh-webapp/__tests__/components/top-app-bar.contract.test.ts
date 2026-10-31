@@ -74,7 +74,8 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('data-testid="top-app-bar-header"');
     expect(source).toContain('data-testid="top-app-bar-tabs"');
     expect(source).toContain("export function AppTopShell");
-    expect(source).toContain('<AmbientChromeMask\n            edge="top"');
+    expect(source).toContain("<AmbientChromeMask");
+    expect(source).toContain('edge="top"');
     expect(source).toContain("data-ambient-chrome-ignore");
     expect(source).not.toContain("bar-glass bar-glass-top");
     expect(source).toContain("ambient-chrome-top-foreground");
@@ -95,9 +96,7 @@ describe("Top app bar responsive contract", () => {
     expect(tabs).toContain(
       "calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%)",
     );
-    expect(tabs).not.toContain(
-      ': `translate3d(${activeIndex * 100}%, 0, 0)`',
-    );
+    expect(tabs).not.toContain(": `translate3d(${activeIndex * 100}%, 0, 0)`");
     expect(source).not.toContain("topChromeHideDistance");
     expect(source).toContain('data-testid="app-top-shell-layout"');
     expect(source).not.toContain("max-xl:hidden");
@@ -110,11 +109,53 @@ describe("Top app bar responsive contract", () => {
       '"pointer-events-none relative flex h-full w-full flex-col justify-end"',
     );
     expect(providers).toContain("<AppTopShell model={topShellModel} />");
+    expect(providers).toContain(
+      "Keep persistent top chrome outside the route Suspense",
+    );
+    expect(
+      providers.match(/<AppTopShell model=\{topShellModel\} \/>/g),
+    ).toHaveLength(1);
+    const topShellMount = providers.indexOf(
+      "<AppTopShell model={topShellModel} />",
+    );
+    expect(topShellMount).toBeLessThan(
+      providers.indexOf("<Suspense", topShellMount),
+    );
+    expect(providers).not.toContain("KaiCommandBarGlobal");
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");
     expect(providers).toContain("}, [topShellScrollResetKey]);");
     expect(providers).not.toContain("<TopAppBar />");
+  });
+
+  it("renders signed-in hubs and public knowledge tabs as one segmented strip", () => {
+    // Finance used to take the underline arm while Connect and Consent took
+    // the segmented pill; one signed-in shell, one tab style.
+    const tabs = read("components/app-ui/top-shell-tabs.tsx");
+    const branch = tabs.slice(
+      tabs.indexOf("const usesModuleSegmentedTabs ="),
+      tabs.indexOf("const usesCompactLabels"),
+    );
+    for (const id of ["location", "connect", "consent", "finance", "ria", "public"]) {
+      expect(branch).toContain(`tabSet.id === "${id}"`);
+    }
+  });
+
+  it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const effectStart = source.indexOf("const hasBackControlRef");
+    const effectEnd = source.indexOf(
+      "  useEffect(() => {",
+      source.indexOf("  }, []);", effectStart) + 1,
+    );
+    const scrollLifecycle = source.slice(effectStart, effectEnd);
+
+    expect(scrollLifecycle).toContain("[data-app-shell-root=\"true\"]");
+    expect(scrollLifecycle).toContain("nextScrollRoot");
+    expect(scrollLifecycle).toContain("attach();");
+    expect(scrollLifecycle).toContain("  }, []);");
+    expect(scrollLifecycle).not.toContain("}, [model.mode, pathname]);");
   });
 
   it("does not duplicate Location tabs inside the route body", () => {
@@ -134,19 +175,35 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("import { navigateTopShellBack }");
     expect(source).toContain("const handleTopShellBack");
-    expect(source).toContain("onClick={handleTopShellBack}");
+    expect(source).toContain("onBack={handleTopShellBack}");
+    expect(read("components/app-ui/native-shell-back.tsx")).toContain("onClick={onBack}");
     expect(back).toContain("resolveTopShellBreadcrumb");
-    expect(back).toContain(
-      'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
-    );
+    // In-place closes are exercised in top-shell-back.test.ts. Keep both
+    // callers delegated to that owner without copying its branch conditions.
+    expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
-    expect(source).toContain("replace: action.mode === \"replace\"");
+    expect(source).toContain('replace: action.mode === "replace"');
     expect(source).toContain('source: "tap"');
-    expect(source).toContain('transitionMode: "full"');
+    // The resolver owns whether back is a screen change or an in-place close.
+    // Both call sites pass its answer through; neither hardcodes a mode.
+    expect(back).toContain('? "contextual"');
+    expect(source).toContain("transitionMode: action.transitionMode");
     expect(edgeBack).toContain("requestInternalAppNavigation({");
     expect(edgeBack).toContain('source: "native_back"');
-    expect(edgeBack).toContain('transitionMode: "full"');
+    expect(edgeBack).toContain("transitionMode: action.transitionMode");
     expect(source).not.toContain("router.back();");
+  });
+
+  it("never clips the back button's circle at the header's left edge", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    // The entire target stays inside the authored content frame. Collapse
+    // clips vertically only, preserving focus/pressed paint at its edge.
+    expect(read("components/app-ui/native-shell-back.tsx")).not.toContain("-ml-3.5");
+    const headerStart = source.indexOf('data-testid="top-app-bar-header"');
+    const headerOpen = source.slice(headerStart, source.indexOf(">", source.indexOf("}}", headerStart)));
+    expect(headerOpen).toContain('overflowX: "visible"');
+    expect(headerOpen).toContain('overflowY: "clip"');
   });
 
   it("preserves the reserved back slot without duplicating agent navigation", () => {
@@ -172,23 +229,30 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("<DebateTaskCenter");
   });
 
-  it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
+  it("keeps Search in the shared bottom navigation instead of the top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
+    expect(source).not.toContain('aria-label="Search"');
+    expect(source).not.toContain("Search 🔍");
+  });
+
+  it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const profileAction = read("components/app-ui/open-profile-action.tsx");
+
     expect(source).not.toContain("WorkspaceTopTabs");
-    expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain("requestInternalAppNavigation({");
-    // The avatar opens Profile origin-aware (tags the current route as `?from`)
-    // so the shared back control returns to where the user came from instead of
-    // always dropping them on the One dashboard.
-    expect(source).toContain("href: profileOpenHref");
-    expect(source).toContain("const profileOpenHref");
-    expect(source).toContain('source: "tap"');
-    expect(source).toContain('transitionMode: "full"');
+    expect(source).toContain("<OpenProfileAction");
+    expect(profileAction).toContain('aria-label="Open Profile"');
+    expect(profileAction).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
+    // The avatar opens the shared right-side pane. The dedicated Profile route
+    // remains available for deep links and nested settings, but shell entry is
+    // an in-place presentation so the owner can return with the same gesture.
+    expect(source).not.toContain("href: profileOpenHref");
+    expect(source).not.toContain("const profileOpenHref");
     expect(source).not.toContain("onClick={() => router.push(ROUTES.PROFILE)}");
 
-    expect(source).toContain("<AvatarImage");
-    expect(source).toContain("<AvatarFallback");
+    expect(profileAction).toContain("<AvatarImage");
+    expect(profileAction).toContain("<AvatarFallback");
     expect(source).not.toContain('aria-label="Open Connect"');
   });
 
@@ -203,16 +267,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain(
       "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
     );
-    expect(source).toContain(
-      "'[data-testid=\"app-top-shell-layout\"]'",
-    );
+    expect(source).toContain("'[data-testid=\"app-top-shell-layout\"]'");
     expect(source).toContain("shell?.getBoundingClientRect().height");
     expect(source).not.toContain(
       'getPropertyValue("--top-shell-reserved-height");\n  const value = Number.parseFloat(raw);',
     );
     expect(source).toContain("new MutationObserver(scheduleHeaderRefresh)");
     expect(source).toContain("getScrolledRouteTitle(pathname)");
-    expect(source).toContain('label: "Agents"');
+    expect(source).toContain('label: "One"');
     expect(source).not.toContain('label: "Location", icon: MapPin');
     expect(source).toContain("const tabsOnlyChrome");
     expect(source).toContain("topChromeFullyCollapsed");
@@ -221,25 +283,85 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain(
       'model.mode === "bar-with-tabs" && primaryHeaderOutOfView;',
     );
-    expect(source).toContain('data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}');
+    expect(source).toContain(
+      "data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}",
+    );
     expect(source).toContain('"calc(var(--top-inset) + var(--top-tabs-h))"');
-    expect(source).toContain('paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"');
+    expect(source).toContain(
+      'paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"',
+    );
+  });
+
+  it("never swaps a nested route's trail for the scroll-collapsed chip", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const scrolledTitles = source.slice(
+      source.indexOf("function getScrolledRouteTitle"),
+      source.indexOf("function routeForPersona"),
+    );
+
+    // The trail decides first; the chip only fills a bar without one.
+    expect(source).toContain("resolveTopShellTitleSlot(");
+    expect(source).toContain('const hasBreadcrumbTrail = titleSlot.kind === "trail";');
+    expect(source).not.toContain(
+      "const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;",
+    );
+    // Memory's folder chip and Mail's envelope chip are gone for good.
+    for (const route of [
+      "ROUTES.PKM",
+      "ROUTES.GMAIL",
+      "ROUTES.CONNECTED_SYSTEMS",
+      "ROUTES.CONSENTS",
+      "ROUTES.ONE_KYC",
+    ]) {
+      expect(scrolledTitles).not.toContain(`pathname === ${route}`);
+    }
+    expect(scrolledTitles).not.toContain("FolderSearch");
+  });
+
+  it("keeps Memory's accessible heading and Mail's shared-shell workspace title", () => {
+    expect(read("app/one/pkm/page.tsx")).toContain(
+      '<PkmSettingsShell title="Memory" titleRole="agent" titleVisuallyHidden shellWidth="agent">',
+    );
+    expect(read("app/one/pkm/recent/page.tsx")).toMatch(
+      /<PkmSettingsShell\s+title="Recently learned"\s+titleVisuallyHidden/,
+    );
+    expect(read("components/profile/pkm-settings-shell.tsx")).toContain(
+      "titleVisuallyHidden={titleVisuallyHidden}",
+    );
+    expect(read("components/profile/pkm-settings-shell.tsx")).toContain(
+      "titleRole={titleRole}",
+    );
+    const gmailSource = read("components/gmail/gmail-receipts-page.tsx");
+    expect(gmailSource).toContain(
+      'titleRole={journeyVariant === "workspace" ? "agent" : "page"}',
+    );
+    expect(gmailSource).toContain(
+      'titleVisuallyHidden={journeyVariant === "workspace"}',
+    );
+    for (const file of ["app/one/gmail/page.tsx", "app/one/gmail/gmail-page-client.tsx"]) {
+      expect(read(file)).toContain("<GmailWorkspaceSkeleton titleVisuallyHidden />");
+    }
   });
 
   it("keeps background activity visible and adds locked-vault unlock action", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("showVaultUnlockAction");
-    expect(source).toContain("VaultService.checkVault(user.uid)");
+    expect(source).toContain("VaultService.checkVault(userId)");
     expect(source).toContain('aria-label="Unlock vault"');
-    expect(source).toContain("<KeyRound");
+    expect(source).toContain("<AccentedKeyIcon");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",
     );
   });
 
+
   it("keeps onboarding chrome canonical and shell-sized", () => {
-    const source = read("components/app-ui/top-app-bar.tsx");
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const source = topBar + "\n" + read("components/onboarding/onboarding-route-actions.tsx");
+    expect(topBar).toContain('import { OnboardingRouteActions }');
+    expect(topBar).toContain("<OnboardingRouteActions");
+    expect(topBar).not.toContain("function OnboardingRouteActions()");
     const signOutItemStart = source.indexOf(
       "onClick={() => void handleSignOut()}",
     );
@@ -261,14 +383,10 @@ describe("Top app bar responsive contract", () => {
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
     expect(source).toContain('variant="destructive"');
-    expect(source).toContain(
-      'className="overflow-hidden rounded-[14px] p-1"',
-    );
+    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
     expect(signOutItemSource).toContain("cursor-pointer");
     expect(signOutItemSource).toContain("rounded-[10px]");
-    expect(signOutItemSource).toContain(
-      "hover:!bg-[color:var(--app-accent)]",
-    );
+    expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");
     expect(signOutItemSource).toContain(
       "hover:!text-[color:var(--app-accent-fg)]",
     );
@@ -277,18 +395,24 @@ describe("Top app bar responsive contract", () => {
     );
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
-    expect(deleteItemSource).toContain("hover:!bg-red-600");
-    expect(deleteItemSource).toContain("hover:!text-white");
-    expect(deleteItemSource).toContain("hover:[&_svg]:!stroke-white");
-    expect(deleteItemSource).toContain("hover:[&_svg]:!text-white");
+    expect(deleteItemSource).toContain(
+      "hover:!bg-[color:var(--app-destructive-tint)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:!text-destructive",
+    );
+    expect(deleteItemSource).not.toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
+    );
+    expect(deleteItemSource).not.toContain(
+      "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
+    );
     expect(deleteItemSource).not.toContain(
       "data-[variant=destructive]:focus:bg-popover",
     );
     expect(signOutItemSource).toContain("focus-visible:ring-inset");
     expect(deleteItemSource).toContain("focus-visible:ring-inset");
-    expect(source).not.toContain(
-      'className="text-red-600 focus:text-red-600"',
-    );
+    expect(source).not.toContain('className="text-red-600 focus:text-red-600"');
     expect(source).not.toContain(
       'return { label: "Get started", interactive: false as const };',
     );
@@ -297,11 +421,25 @@ describe("Top app bar responsive contract", () => {
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
+    const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
+    // The per-route Back resolution (including Location's no-action breadcrumb
+    // below) lives in the declarative graph top-shell-breadcrumbs.ts walks,
+    // not in top-shell-breadcrumbs.ts itself.
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
+    // The bar trims the trail through the title-slot resolver, which is the
+    // one place that decides between trail and scroll chip.
+    expect(source).toContain("resolveTopShellTitleSlot(");
+    expect(breadcrumbs).toContain(
+      "visibleTopShellBreadcrumbItems(breadcrumb?.items ?? [])",
+    );
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
+    expect(backGraph).toContain(
+      'items: [{ label: "Location" }],',
+    );
     expect(source).not.toContain("history.back()");
   });
 
@@ -328,7 +466,7 @@ describe("Top app bar responsive contract", () => {
   it("uses shared mobile-width chrome for top-shell dropdowns", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
     const shellActionSurface = read(
-      "components/app-ui/shell-action-surface.tsx",
+      "components/app-ui/shell-action-surface-base.tsx",
     );
 
     expect(chrome).toContain("export function TopShellDropdownContent");
@@ -346,14 +484,16 @@ describe("Top app bar responsive contract", () => {
     expect(chrome).toContain("TOP_SHELL_DROPDOWN_COLLISION_PADDING = 12");
     // Lean header treatment: icon controls have no background chip and carry
     // the muted eyebrow tone on the stroke; only the pill variant keeps the
-    // translucent track. The blue ripple stays shared across both.
+    // translucent track. The blue ripple stays shared across both, glass by
+    // default; a solid-fill control (Send) opts into the fill tint.
     expect(shellActionSurface).toContain(
       "text-muted-foreground hover:text-foreground",
     );
     expect(shellActionSurface).toContain("bg-black/[0.05]");
-    expect(shellActionSurface).toContain(
-      '<MaterialRipple variant="blue" effect="glass"',
+    expect(shellActionSurface).toMatch(
+      /<MaterialRipple\s+variant="blue"\s+effect=\{rippleEffect\}/,
     );
+    expect(shellActionSurface).toContain('rippleEffect = "glass"');
   });
 
   it("clears every selection-driving consent detail param when the panel closes", () => {
@@ -364,5 +504,102 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("requestId: null");
     expect(source).toContain("selected: null");
     expect(source).toContain("notificationAction: null");
+  });
+
+  // The shared top bar watches the whole app scroll root for DOM mutations so
+  // it can find a late-mounting or swapped primary page header. That watcher
+  // sits on the critical path of every animating surface: One Location keeps a
+  // live map whose marker glide and Google's own tile updates mutate the DOM
+  // every frame. When the watcher re-measured on each of those mutations, the
+  // main thread stayed saturated with forced reflows and a tap on the back
+  // arrow could not be serviced promptly.
+  describe("mutation watcher stays off the animation hot path", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const watcher = source.slice(
+      source.indexOf("const scheduleHeaderRefresh"),
+      source.indexOf("const retryFindHeader"),
+    );
+
+    it("re-queries only when the known header actually went away", () => {
+      // A still-connected header cannot have been swapped, so the steady state
+      // must not pay for a document-wide lookup.
+      expect(watcher).toContain("if (!header?.isConnected)");
+    });
+
+    it("never runs the full measure-and-write pass straight off a mutation", () => {
+      // `refreshHeader()` re-queries AND calls updateHeaderVisibility(), which
+      // forces layout and writes custom properties on <html>. It belongs to the
+      // scroll/attach paths, never to the per-mutation path.
+      expect(watcher).not.toContain("refreshHeader()");
+    });
+
+    it("rate-limits re-measurement when the header did not change", () => {
+      // Content can still reflow the header out of view with no scroll, so this
+      // must keep tracking — just never once per animation frame.
+      expect(source).toContain("const MUTATION_RECHECK_MS = 250;");
+      expect(watcher).toContain("const previous = header;");
+      expect(watcher).toContain(
+        "if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS)",
+      );
+      expect(watcher).toContain("lastMutationCheckAt = now;");
+    });
+
+    it("keeps re-querying unbounded so a closing flow restores header tracking", () => {
+      // TaskFlowHeader does not mark itself primary, so `header` is null for the
+      // whole life of a `?action=` flow. Giving up on a retry budget here would
+      // strand the hub with stale tracking when the flow closes.
+      expect(watcher).not.toContain("MAX_HEADER_RETRIES");
+      expect(watcher).not.toContain("disconnect()");
+    });
+  });
+
+  // `--top-chrome-collapse-px` feeds `--top-shell-live-height` and
+  // `--top-shell-mask-solid-height`, which route content consumes for layout.
+  // Writing it invalidates layout for the whole document, so an unchanged value
+  // must not be rewritten — this runs on every scroll frame.
+  it("writes the top-chrome custom properties only when they change", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const update = source.slice(
+      source.indexOf("const updateHeaderVisibility"),
+      source.indexOf("const detachListeners"),
+    );
+
+    // Measured on a 393px viewport: past ~0.75 progress the back control is no
+    // longer the element under its own coordinates, and at full collapse the
+    // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
+    // back is this arrow must therefore not collapse at all.
+    expect(update).toContain("hasBackControlRef.current ||");
+    expect(update).toContain("topChromeProgress = 0;");
+
+    expect(update).toContain(
+      "if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx)",
+    );
+    // The bar row is measured on every call; re-querying it each time is a
+    // document-wide lookup for a node that almost never changes.
+    expect(update).toContain("if (!barRow?.isConnected)");
+    expect(update).toContain("barRow?.getBoundingClientRect().height");
+    // Reads before writes: the header check reads a rect, so it runs before
+    // any custom-property write or a scroll event forces a layout of its own.
+    expect(update.indexOf("isPrimaryHeaderOutOfView(header)")).toBeLessThan(
+      update.indexOf("writeCollapse(element"),
+    );
+    // Per-frame writes land on the consumers, never on <html>; the root gets
+    // the settled value once the scroll is quiet.
+    expect(update).not.toContain("document.documentElement");
+    expect(update).toContain("scheduleRootWrite()");
+  });
+
+  it("re-resolves the derived top-shell heights on the collapse consumers", () => {
+    const css = read("app/globals.css").replace(/\r\n/g, "\n");
+    const rule = css.slice(
+      css.indexOf('[data-testid="app-top-shell-layout"],\n.ambient-chrome-mask--top,\n[data-top-chrome-collapse-consumer] {'),
+    );
+    expect(rule).toContain("--top-shell-live-height: calc(");
+    expect(rule).toContain("--top-shell-mask-solid-height: calc(");
+    expect(rule).toContain("--top-shell-mask-visible-height: calc(");
+    // The Connect sticky headers pin to --top-shell-mask-solid-height and
+    // must register, or they would follow the settled root value only.
+    const connect = read("app/connect/page-client.tsx");
+    expect(connect.split("data-top-chrome-collapse-consumer").length - 1).toBe(2);
   });
 });

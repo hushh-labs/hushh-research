@@ -1,34 +1,308 @@
-/**
- * Unified FCM Service
- * ====================
- * 
- * Single FCM implementation that works on BOTH web and native platforms.
- * Replaces the hybrid SSE+FCM approach with FCM-only architecture.
- * 
- * Features:
- * - Platform detection (web vs native)
- * - Token management (get, register, delete)
- * - Message listeners (foreground + background)
- * - Unified event dispatching
- */
+import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/notifications/preview-keys";
+/** Unified registration and foreground/background delivery for web and native. */
 
 import { Capacitor } from "@capacitor/core";
+import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
+import { calendarFollowupNotificationTapTarget } from "@/lib/calendar/calendar-followup-notification";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
-import { resolveOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
+import { feedAttentionTapTarget } from "@/lib/agent/feed-attention";
+import {
+  buildConsentCenterHref,
+  resolveConsentNavigationTarget,
+} from "@/lib/consent/consent-sheet-route";
+import {
+  documentRequestSetupHref,
+  isDocumentRequestSetupStep,
+  type DocumentRequestSetupStep,
+} from "@/lib/consent/document-request-setup";
+import {
+  documentShareNotificationCopy,
+  documentShareNotificationRequestId,
+  documentShareNotificationSelection,
+  isDocumentShareNotificationCandidate,
+  isDocumentShareNotificationType,
+} from "@/lib/consent/document-share-consent";
 import {
   assignWindowLocation,
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import {
+  buildOneLocationWorkflowHref,
+  resolveOneLocationNotificationHref,
+} from "@/lib/one-location/notifications";
+import { smsAlarmAcknowledgements } from "@/lib/notifications/sms-alarm-acknowledgements";
 
-// Event name for FCM messages (both web and native dispatch this)
+// The app bridge resolves only after native Firebase has removed its cached
+// token. A subsequent account must wait before retrieving that installation's token.
+let nativeTokenDeletion: Promise<void> = Promise.resolve();
+async function nativeTokenAfterDeletion(messaging: { getToken(): Promise<{ token: string }> }) {
+  await nativeTokenDeletion;
+  return messaging.getToken();
+}
+
 export const FCM_MESSAGE_EVENT = "fcm-message";
 const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
 const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
 const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
-const CONNECTION_REQUEST_NOTIFICATION_FALLBACK =
-  `${ROUTES.CONSENTS}?tab=connections`;
+const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
+const IOS_DEFAULT_NOTIFICATION_ACTION =
+  "com.apple.UNNotificationDefaultActionIdentifier";
+
+/**
+ * Generic fallback copy. Reviewed types use documentShareNotificationCopy;
+ * never render a file name, recipient, request purpose, or provider copy.
+ */
+export const DOCUMENT_SHARE_NOTIFICATION_COPY = {
+  title: "Document request",
+  body: "Open One for next steps.",
+} as const;
+
+function normalizedDocumentShareType(
+  data: Record<string, unknown> | undefined,
+): string {
+  return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
+}
+
+/**
+ * The owner's unmet setup step on a document request push. Only this closed
+ * value, on this one type with an exact request UUID, can choose a setup
+ * screen; any other value is dropped and the tap keeps the review route.
+ */
+function documentShareNotificationSetup(
+  data: Record<string, unknown> | undefined,
+): DocumentRequestSetupStep | null {
+  if (normalizedDocumentShareType(data) !== "document_share_request") return null;
+  if (!documentShareNotificationRequestId(data)) return null;
+  const setup = data?.setup;
+  return isDocumentRequestSetupStep(setup) ? setup : null;
+}
+
+/**
+ * A Drive-sharing transport payload is deliberately reduced before it crosses
+ * the FCM boundary. The route is derived from the reviewed UUID alone; all
+ * provider URLs and content fields are discarded.
+ */
+function sanitizeDocumentShareNotificationData(
+  data: Record<string, unknown> | undefined,
+): Record<string, string> | null {
+  // Even an unknown `document_share_*` payload must not reach logs or UI
+  // unchanged. It remains unacknowledged by the Consent provider below, but
+  // the transport boundary still reduces it to the non-sensitive type.
+  if (!isDocumentShareNotificationCandidate(data)) return null;
+
+  const safe: Record<string, string> = {
+    type: normalizedDocumentShareType(data),
+  };
+  if (!isDocumentShareNotificationType(data)) return safe;
+  const requestId = documentShareNotificationRequestId(data);
+  if (requestId) safe.request_id = requestId;
+  const setup = documentShareNotificationSetup(data);
+  if (setup) safe.setup = setup;
+
+  // Retain only the addressed identity for the existing signed-in-user fence.
+  // It is never rendered, logged here, or used to construct a URL.
+  const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
+  if (userId && userId.length <= 128) safe.user_id = userId;
+  return safe;
+}
+
+function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return detail;
+  }
+  const record = detail as Record<string, unknown>;
+  const data =
+    record.data &&
+    typeof record.data === "object" &&
+    !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : record.notification &&
+          typeof record.notification === "object" &&
+          !Array.isArray(record.notification) &&
+          (record.notification as Record<string, unknown>).data &&
+          typeof (record.notification as Record<string, unknown>).data ===
+            "object" &&
+          !Array.isArray((record.notification as Record<string, unknown>).data)
+        ? ((record.notification as Record<string, unknown>).data as Record<
+            string,
+            unknown
+          >)
+        : undefined;
+  const safeData = sanitizeDocumentShareNotificationData(data);
+  if (!safeData) return detail;
+
+  const notification =
+    record.notification &&
+    typeof record.notification === "object" &&
+    !Array.isArray(record.notification)
+      ? {
+          ...(record.notification as Record<string, unknown>),
+          data: safeData,
+          ...documentShareNotificationCopy(safeData),
+        }
+      : record.notification;
+  return {
+    ...record,
+    data: safeData,
+    ...(notification ? { notification } : {}),
+  } as T;
+}
+
+/**
+ * Builds the only Drive-sharing click target. This intentionally does not
+ * inspect request_url, deep_link, url, file names, or any provider payload.
+ * Keep aligned with notificationTapTarget in public/firebase-messaging-sw.js.
+ */
+export function documentShareNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = normalizedDocumentShareType(data);
+  if ((type === "document_share_payment_ready" || type === "document_share_payment_confirmed" ||
+      type === "document_share_payment_refunded") &&
+      documentShareNotificationRequestId(data)) return ROUTES.ONE_FEED;
+  // An owner who must set something up first goes straight to that screen.
+  const setup = documentShareNotificationSetup(data);
+  if (setup) return documentRequestSetupHref(setup);
+  const selection = documentShareNotificationSelection(data);
+  if (!selection) return null;
+  return buildConsentCenterHref("pending", { requestId: selection });
+}
+
+function incomingLocationShareTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  // These alerts are sent only to the person receiving location access.
+  // Open the list using current authorization, not stale grant/request intent.
+  // Keep this allowlist aligned with notificationTapTarget in the web worker.
+  if (
+    type === "location_share_created" ||
+    type === "location_access_approved"
+  ) {
+    return buildOneLocationWorkflowHref({ section: "shared" });
+  }
+  return null;
+}
+
+/**
+ * "One replied" is a bare wake-up: type plus an opaque conversation id. The
+ * tap opens that conversation at `/`; the chat loads it only after unlock and
+ * only if it is in the owner's own history. `deep_link` is never trusted.
+ * The server sends this type to native devices only, so the web worker's
+ * `notificationTapTarget` deliberately has no case for it.
+ */
+export function oneReplyNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  if (type !== "one_reply") return null;
+  const conversationId = String(data?.conversation_id || "").trim();
+  if (!isAgentConversationId(conversationId)) return ROUTES.HOME;
+  return `${ROUTES.HOME}?${new URLSearchParams({ conversation: conversationId }).toString()}`;
+}
+
+const INFORMATION_REQUEST_BUNDLE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * "Your information request has an answer" is a bare wake-up for the person
+ * who asked. It carries the request bundle id only; the app finds the
+ * conversation that asked in the person's own sealed history after unlock and
+ * continues it there. `deep_link` is never trusted.
+ */
+export function informationRequestAnswerTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
+  if (type !== "information_request_updated") return null;
+  const bundleId = String(data?.bundle_id || "").trim();
+  if (!INFORMATION_REQUEST_BUNDLE_ID.test(bundleId)) return ROUTES.HOME;
+  return `${ROUTES.HOME}?${new URLSearchParams({ informationRequest: bundleId }).toString()}`;
+}
+
+/** A direct-message push carries opaque ids only; the authenticated inbox reloads the body. */
+export function directMessageNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "").trim().toLowerCase();
+  if (type !== "direct_message") return null;
+  const routeToken = String(data?.route_token || "");
+  if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
+  return ROUTES.ONE_MESSAGES;
+}
+
+export function buildNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string {
+  const followupTarget = calendarFollowupNotificationTapTarget(data);
+  if (followupTarget) return followupTarget;
+  const circleTarget = circleChatNotificationTarget(data);
+  if (circleTarget) return circleTarget;
+  const directMessageTarget = directMessageNotificationTapTarget(data);
+  if (directMessageTarget) return directMessageTarget;
+  const oneReplyTarget = oneReplyNotificationTapTarget(data);
+  if (oneReplyTarget) return oneReplyTarget;
+  const answerTarget = informationRequestAnswerTapTarget(data);
+  if (answerTarget) return answerTarget;
+  // "One has something for you": native only, like one_reply, so the web
+  // worker's `notificationTapTarget` deliberately has no case for it.
+  const feedAttentionTarget = feedAttentionTapTarget(data);
+  if (feedAttentionTarget) return feedAttentionTarget;
+  const locationTarget = incomingLocationShareTarget(data);
+  if (locationTarget) return locationTarget;
+  const documentShareTarget = documentShareNotificationTapTarget(data);
+  if (documentShareTarget) return documentShareTarget;
+  if (
+    String(data?.type || "")
+      .trim()
+      .toLowerCase() !== "consent_request"
+  ) {
+    return ROUTES.ONE_FEED;
+  }
+  const params = new URLSearchParams();
+  const requestId = String(data?.request_id || "").trim();
+  const bundleId = String(data?.bundle_id || "").trim();
+  if (requestId) params.set("notificationRequestId", requestId);
+  if (bundleId) params.set("notificationBundleId", bundleId);
+  const search = params.toString();
+  return search ? `${ROUTES.ONE_FEED}?${search}` : ROUTES.ONE_FEED;
+}
+
+function resolveNotificationClickTarget(
+  value: unknown,
+  data: Record<string, unknown> | undefined,
+): string {
+  const followupTarget = calendarFollowupNotificationTapTarget(data);
+  if (followupTarget) return followupTarget;
+  const circleTarget = circleChatNotificationTarget(data);
+  if (circleTarget) return circleTarget;
+  // Older workers send a Feed URL but retain the original typed payload.
+  // Only this known event family may bypass the existing Feed URL boundary.
+  const directMessageTarget = directMessageNotificationTapTarget(data);
+  if (directMessageTarget) return directMessageTarget;
+  const locationTarget = incomingLocationShareTarget(data);
+  if (locationTarget) return locationTarget;
+  const documentShareTarget = documentShareNotificationTapTarget(data);
+  if (documentShareTarget) return documentShareTarget;
+  const href = typeof value === "string" ? value.trim() : "";
+  if (!href || /[\r\n]/.test(href)) return ROUTES.ONE_FEED;
+  try {
+    const parsed = new URL(href, "https://hushh.local");
+    if (parsed.pathname !== ROUTES.ONE_FEED) return ROUTES.ONE_FEED;
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return ROUTES.ONE_FEED;
+  }
+}
 
 export type FCMInitStatus =
   | "push_active"
@@ -44,26 +318,44 @@ export interface FCMInitResult {
 
 export type FCMInitOptions = {
   requestPermission?: boolean;
+  /** AuthProvider owns native identity; the web Firebase observer may be empty. */
+  getIdToken?: () => Promise<string>;
 };
 
-export function resolveNativeConnectionRequestNotificationHref(
-  data: Record<string, unknown> | undefined,
-): string {
-  const explicitHref =
-    (typeof data?.request_url === "string" && data.request_url) ||
-    (typeof data?.deep_link === "string" && data.deep_link) ||
-    CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
-  const target = resolveConsentNavigationTarget(explicitHref, "pending");
-  return target.kind === "internal"
-    ? target.href
-    : CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
+async function registrationIsAccepted(response: Response): Promise<boolean> {
+  if (!response.ok) return false;
+  const payload = await response.clone().json().catch(() => null) as {
+    degraded?: boolean; registered?: boolean; success?: boolean; chatReady?: boolean;
+  } | null;
+  return !payload?.degraded && payload?.registered !== false && payload?.success !== false && payload?.chatReady !== false;
 }
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
-let lastKnownSession: { userId: string; idToken: string } | null = null;
+let lastKnownSession: { userId: string; firebaseUid: string; idToken: string; getIdToken?: () => Promise<string> } | null = null;
+let notificationSessionGeneration = 0;
+const pushCleanupControllers = new Set<AbortController>();
+let pendingChatTaps: Array<Record<string, unknown>> = [];
+async function routeChatTap(data: Record<string, unknown>) {
+  const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
+  const key = activeNotificationKeyId(lastKnownSession?.userId);
+  if (!lastKnownSession || data.recipient_key_id && !key) {
+    pendingChatTaps = [...pendingChatTaps.slice(-4), data];
+    return;
+  }
+  if (data.recipient_key_id && data.recipient_key_id !== key || data.user_id && data.user_id !== lastKnownSession.userId) return;
+  if (Number(data.chat_expires_at || 0) && Number(data.chat_expires_at) < Date.now() / 1000) return;
+  dispatchFeedStateChanged("action");
+  requestInternalAppNavigation({ href: buildNotificationTapTarget(data), scroll: false });
+}
+async function flushChatTaps() {
+  if (!pendingChatTaps.length) return;
+  const taps = pendingChatTaps;
+  pendingChatTaps = [];
+  for (const data of taps) await routeChatTap(data);
+}
 const FIREBASE_WEB_PUSH_DATABASES = [
   "firebase-messaging-database",
   "firebase-installations-database",
@@ -83,9 +375,7 @@ function hasValidWebMessagingConfig(app: {
   };
 }): boolean {
   return Boolean(
-    app.options?.appId &&
-      app.options?.apiKey &&
-      app.options?.messagingSenderId
+    app.options?.appId && app.options?.apiKey && app.options?.messagingSenderId,
   );
 }
 
@@ -132,7 +422,7 @@ function generateBrowserFid(): string {
 
 function browserFetch(
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: RequestInit,
 ): Promise<Response> {
   return window.fetch(input, init);
 }
@@ -153,7 +443,7 @@ function formatManualRegistrationErrorBody(body: unknown): string {
 
 async function ensureBrowserPushSubscription(
   registration: ServiceWorkerRegistration,
-  publicKey: string
+  publicKey: string,
 ): Promise<PushSubscription> {
   const existingSubscription = await registration.pushManager.getSubscription();
   if (existingSubscription) {
@@ -200,13 +490,13 @@ async function createInstallationsAuthToken(app: {
         authVersion: "FIS_v2",
         sdkVersion: "w:0.6.19",
       }),
-    }
+    },
   );
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.authToken?.token) {
     throw new Error(
-      `installations_create_failed:${response.status}:${payload?.error?.message ?? "unknown"}`
+      `installations_create_failed:${response.status}:${payload?.error?.message ?? "unknown"}`,
     );
   }
 
@@ -226,14 +516,17 @@ async function registerWebPushTokenManually(
   },
   registration: ServiceWorkerRegistration,
   publicKey: string,
-  usesDefaultWebPushKey: boolean
+  usesDefaultWebPushKey: boolean,
 ): Promise<string> {
   console.info("[FCM] Starting manual web push registration.", {
     usesDefaultWebPushKey,
     projectId: app.options?.projectId,
     projectNumber: app.options?.messagingSenderId,
   });
-  const subscription = await ensureBrowserPushSubscription(registration, publicKey);
+  const subscription = await ensureBrowserPushSubscription(
+    registration,
+    publicKey,
+  );
   const auth = await createInstallationsAuthToken(app);
   const projectId = app.options?.projectId;
   const projectNumber = app.options?.messagingSenderId;
@@ -248,9 +541,7 @@ async function registerWebPushTokenManually(
       endpoint: subscription.endpoint,
       auth: arrayBufferToBase64Url(subscription.getKey("auth")),
       p256dh: arrayBufferToBase64Url(subscription.getKey("p256dh")),
-      ...(usesDefaultWebPushKey
-        ? {}
-        : { applicationPubKey: publicKey }),
+      ...(usesDefaultWebPushKey ? {} : { applicationPubKey: publicKey }),
     },
   };
 
@@ -298,10 +589,11 @@ async function registerWebPushTokenManually(
 
     const errorMessage =
       body && typeof body === "object" && "error" in body
-        ? typeof (body as { error?: { message?: unknown } }).error?.message === "string"
+        ? typeof (body as { error?: { message?: unknown } }).error?.message ===
+          "string"
           ? String((body as { error?: { message?: unknown } }).error?.message)
           : formatManualRegistrationErrorBody(
-              (body as { error?: unknown }).error ?? body
+              (body as { error?: unknown }).error ?? body,
             )
         : formatManualRegistrationErrorBody(body);
 
@@ -333,37 +625,21 @@ async function clearFirebaseWebPushDatabases(): Promise<void> {
           } catch {
             resolve();
           }
-        })
-    )
+        }),
+    ),
   );
 
   console.log("[FCM] Cleared cached Firebase web push state.");
 }
 
-async function resolveFirebaseMessagingRegistration(): Promise<ServiceWorkerRegistration | null> {
-  if (!("serviceWorker" in navigator)) {
-    return null;
-  }
-
-  try {
-    const existing = await navigator.serviceWorker.getRegistration(
-      FIREBASE_MESSAGING_SW_PATH
-    );
-    if (existing) {
-      return existing;
-    }
-    return await navigator.serviceWorker.register(FIREBASE_MESSAGING_SW_PATH);
-  } catch (error) {
-    console.warn("[FCM] Failed to resolve Firebase messaging service worker:", error);
-    return null;
-  }
-}
-
 async function clearFirebaseWebPushState(
-  registration: ServiceWorkerRegistration
+  registration: ServiceWorkerRegistration,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   try {
     const subscription = await registration.pushManager.getSubscription();
+    if (signal?.aborted) return;
     if (subscription) {
       const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
@@ -373,12 +649,12 @@ async function clearFirebaseWebPushState(
     console.warn("[FCM] Failed to clear existing push subscription:", error);
   }
 
-  await clearFirebaseWebPushDatabases();
+  if (!signal?.aborted) await clearFirebaseWebPushDatabases();
 }
 
 /**
  * Initialize FCM for current platform (web or native)
- * 
+ *
  * @param userId - User ID for backend registration
  * @param idToken - Firebase ID token for authentication
  */
@@ -388,7 +664,12 @@ export async function initializeFCM(
   options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
-  lastKnownSession = { userId, idToken };
+  for (const cleanup of pushCleanupControllers) cleanup.abort();
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const firebaseUid = principal?.ownerId === userId ? principal.firebaseUid : userId;
+  lastKnownSession = { userId, firebaseUid, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
+  smsAlarmAcknowledgements.flush(lastKnownSession?.userId);
+  notificationSessionGeneration++;
 
   if (isNative) {
     return initializeNativeFCM(userId, idToken, options);
@@ -421,24 +702,77 @@ function setupWebServiceWorkerBridge(): void {
           title?: string;
           body?: string;
           delivery_id?: string;
+          click_id?: string;
+          url?: string;
           data?: Record<string, string>;
         }
       | undefined;
+    if (message?.type === "hushh:fcm_feed_changed") {
+      // Hidden peer tabs defer work. Their shared Feed hook refreshes the
+      // moment they become visible, avoiding one push fan-out becoming a
+      // separate Feed/count/actionables request burst in every open tab.
+      if (document.visibilityState === "visible") {
+        dispatchFeedStateChanged("action");
+      }
+      return;
+    }
+    if (message?.type === "hushh:fcm_notification_clicked") {
+      smsAlarmAcknowledgements.acknowledge(message.data, lastKnownSession?.userId);
+      dispatchFeedStateChanged("action");
+      requestInternalAppNavigation({
+        href: resolveNotificationClickTarget(message.url, message.data),
+        scroll: false,
+      });
+      if (message.click_id) {
+        const source = event.source as {
+          postMessage?: (value: unknown) => void;
+        } | null;
+        source?.postMessage?.({
+          type: "hushh:fcm_notification_click_ack",
+          click_id: message.click_id,
+        });
+      }
+      return;
+    }
     if (message?.type !== "hushh:fcm_push_received") return;
-    window.dispatchEvent(
-      new CustomEvent(FCM_MESSAGE_EVENT, {
-        detail: {
-          data: message.data || {},
-          notification: {
-            title: message.title || "Notification",
-            body: message.body || "",
-          },
-          source: "service_worker",
-        },
-      }),
+
+    // Visibility can change after the service worker chooses an owner. A tab
+    // that became hidden must not consume the acknowledgement and suppress the
+    // system notification that now owns presentation.
+    if (document.visibilityState !== "visible") {
+      dispatchFeedStateChanged("action");
+      return;
+    }
+    const safeDocumentData = sanitizeDocumentShareNotificationData(
+      message.data,
     );
-    if (message.delivery_id) {
-      const source = event.source as { postMessage?: (value: unknown) => void } | null;
+    const data = safeDocumentData ?? message.data ?? {};
+    const detail = {
+      data,
+      notification: {
+        title: safeDocumentData
+          ? documentShareNotificationCopy(safeDocumentData).title
+          : message.title || "Notification",
+        body: safeDocumentData
+          ? documentShareNotificationCopy(safeDocumentData).body
+          : message.body || "",
+      },
+      source: "service_worker",
+      // The authenticated notification consumer flips this synchronously only
+      // after it accepts the payload for the active identity. Merely having a
+      // visible tab is not enough to suppress the worker's system fallback.
+      accepted: false,
+    };
+    window.dispatchEvent(new CustomEvent(FCM_MESSAGE_EVENT, { detail }));
+    // A push IS the server telling us there is new activity. Until this line
+    // the Feed learned about it only from its own 45s timer, so an event that
+    // had already lit up the phone's notification tray could still be missing
+    // from the list the person opened to look at it.
+    dispatchFeedStateChanged("arrived");
+    if (message.delivery_id && detail.accepted) {
+      const source = event.source as {
+        postMessage?: (value: unknown) => void;
+      } | null;
       source?.postMessage?.({
         type: "hushh:fcm_push_ack",
         delivery_id: message.delivery_id,
@@ -456,6 +790,8 @@ async function initializeNativeFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const generation = notificationSessionGeneration;
+  const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession?.userId === userId;
   try {
     if (
       typeof window !== "undefined" &&
@@ -474,6 +810,7 @@ async function initializeNativeFCM(
     // Configure listeners before permission/token/backend work so a foreground
     // notification or tap cannot be lost during native startup.
     await setupNativeListeners();
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
 
     // Permission prompts are product actions. Normal authentication and app
     // startup may re-register an already-granted token, but only an explicit
@@ -500,8 +837,17 @@ async function initializeNativeFCM(
       };
     }
 
+    if (options.requestPermission === true && Capacitor.getPlatform() === "ios") {
+      try {
+        const { HushhNotifications } = await import("@/lib/capacitor");
+        await HushhNotifications.requestEmergencySmsAlarmPermission();
+      } catch { /* Earlier installed wrappers retain their ordinary notification path. */ }
+    }
+
     // Step 2: Get FCM token
-    const { token } = await FirebaseMessaging.getToken();
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
+    const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
     console.log("[FCM] Got push token");
 
     // Step 3: Register token with backend
@@ -510,20 +856,34 @@ async function initializeNativeFCM(
       userId,
       token,
       platform,
-      idToken
+      idToken,
+      isCurrent,
     );
 
+    if (isCurrent()) await flushChatTaps();
     if (response.ok) {
-      const payload = await response.clone().json().catch(() => null) as {
+      const payload = (await response
+        .clone()
+        .json()
+        .catch(() => null)) as {
         degraded?: unknown;
         registered?: unknown;
+        chatReady?: boolean;
       } | null;
       if (payload?.degraded || payload?.registered === false) {
-        console.warn("[FCM] Web push token was not registered because notifications backend is unavailable.");
+        console.warn(
+          "[FCM] Web push token was not registered because notifications backend is unavailable.",
+        );
         return {
           status: "push_failed",
           detail: "backend_register_degraded",
         };
+      }
+      if (payload?.chatReady === false) {
+        // Generic push registration can succeed while native preview custody
+        // fails. Do not advertise working chat delivery; the existing retry
+        // schedule repairs preparation without weakening recipient fences.
+        return { status: "push_failed", detail: "native_chat_key_unavailable" };
       }
       console.log("[FCM] ✅ Token registered with backend");
     } else {
@@ -536,8 +896,22 @@ async function initializeNativeFCM(
       };
     }
 
+    // Firebase treats provisional iOS authorization and Android <33 as granted.
+    // Preserve registration, but expose OS settings that can make alerts quiet.
+    let detail: string | undefined;
+    try {
+      const { HushhNotifications } = await import("@/lib/capacitor");
+      const settings = await HushhNotifications.getNotificationSettings();
+      if (!settings.alertsEnabled) detail = "native_alerts_disabled";
+      else if (settings.chatAlertsEnabled === false) detail = "native_chat_alerts_disabled";
+      else if (settings.chatSoundsEnabled === false) detail = "native_chat_sound_disabled";
+      else if (!settings.soundsEnabled) detail = "native_sound_disabled";
+      else if (!settings.emergencySoundEnabled) detail = "native_emergency_sound_disabled";
+      else if (settings.emergencyAlarmSupported && !settings.emergencyAlarmAuthorized) detail = "native_emergency_alarm_not_authorized";
+    } catch { /* Earlier installed wrappers retain registration and their existing settings action. */ }
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
     console.log("[FCM] ✅ Native initialization complete");
-    return { status: "push_active" };
+    return { status: "push_active", ...(detail ? { detail } : {}) };
   } catch (error) {
     console.error("[FCM] ❌ Native initialization failed:", error);
     return {
@@ -555,6 +929,8 @@ async function initializeWebFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const generation = notificationSessionGeneration;
+  const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession?.userId === userId;
   try {
     console.log("[FCM] Initializing for web platform...");
 
@@ -591,9 +967,8 @@ async function initializeWebFCM(
     }
 
     // Get FCM token
-    const { getMessaging, getToken, onMessage } = await import(
-      "firebase/messaging"
-    );
+    const { getMessaging, getToken, onMessage } =
+      await import("firebase/messaging");
     const { app } = await import("@/lib/firebase/config");
     console.log("[FCM] Firebase messaging modules loaded.");
 
@@ -601,7 +976,7 @@ async function initializeWebFCM(
     // The Firebase Web SDK requires appId for the Installations service (used by getToken)
     if (!hasValidWebMessagingConfig(app)) {
       console.warn(
-        "[FCM] Missing required Firebase Messaging config (appId/apiKey/messagingSenderId). Skipping web FCM init."
+        "[FCM] Missing required Firebase Messaging config (appId/apiKey/messagingSenderId). Skipping web FCM init.",
       );
       return {
         status: "push_failed",
@@ -615,14 +990,11 @@ async function initializeWebFCM(
     }
 
     const registration = await navigator.serviceWorker.register(
-      FIREBASE_MESSAGING_SW_PATH
+      FIREBASE_MESSAGING_SW_PATH,
     );
     console.log("[FCM] Service worker registered:", registration.scope);
     await navigator.serviceWorker.ready;
-    console.log(
-      "[FCM] Service worker ready:",
-      registration.scope
-    );
+    console.log("[FCM] Service worker ready:", registration.scope);
 
     const messaging = getMessaging(app);
     const resolveWebToken = async (useCustomVapid: boolean) => {
@@ -646,7 +1018,9 @@ async function initializeWebFCM(
       token = await resolveWebToken(true);
     } catch (primaryError) {
       const primaryErrorCode =
-        typeof primaryError === "object" && primaryError && "code" in primaryError
+        typeof primaryError === "object" &&
+        primaryError &&
+        "code" in primaryError
           ? String((primaryError as { code?: unknown }).code ?? "")
           : "";
       if (primaryErrorCode !== "messaging/token-subscribe-failed") {
@@ -655,7 +1029,7 @@ async function initializeWebFCM(
 
       console.warn(
         "[FCM] Custom VAPID subscribe failed. Retrying with the project's default web push configuration.",
-        primaryError
+        primaryError,
       );
 
       try {
@@ -665,56 +1039,62 @@ async function initializeWebFCM(
         try {
           token = await resolveWebToken(true);
           console.log(
-            "[FCM] Custom VAPID subscribe succeeded after clearing stale browser push state."
+            "[FCM] Custom VAPID subscribe succeeded after clearing stale browser push state.",
           );
         } catch (retryCustomError) {
           console.warn(
             "[FCM] Custom VAPID retry still failed after clearing browser push state. Falling back to the project's default web push configuration.",
-            retryCustomError
+            retryCustomError,
           );
           await clearFirebaseWebPushState(registration);
-          console.log("[FCM] Attempting token with default project web push configuration.");
+          console.log(
+            "[FCM] Attempting token with default project web push configuration.",
+          );
           token = await resolveWebToken(false);
           usedDefaultVapidFallback = true;
           console.log(
-            "[FCM] Default web push configuration succeeded after clearing stale browser push state."
+            "[FCM] Default web push configuration succeeded after clearing stale browser push state.",
           );
         }
       } catch (fallbackError) {
         console.warn(
           "[FCM] Default web push configuration also failed. Attempting manual FCM registration against the current project.",
-          fallbackError
+          fallbackError,
         );
 
         try {
-          console.log("[FCM] Attempting manual registration with configured VAPID key.");
+          console.log(
+            "[FCM] Attempting manual registration with configured VAPID key.",
+          );
           token = await registerWebPushTokenManually(
             app,
             registration,
             vapidKey,
-            false
+            false,
           );
           recoveredStalePushState = true;
           console.log(
-            "[FCM] Manual web push registration succeeded after SDK subscribe failures using the configured VAPID key."
+            "[FCM] Manual web push registration succeeded after SDK subscribe failures using the configured VAPID key.",
           );
         } catch (manualCustomError) {
           console.warn(
             "[FCM] Manual registration with the configured VAPID key failed. Retrying with the project's default web push configuration.",
-            manualCustomError
+            manualCustomError,
           );
           try {
-            console.log("[FCM] Attempting manual registration with default project web push configuration.");
+            console.log(
+              "[FCM] Attempting manual registration with default project web push configuration.",
+            );
             token = await registerWebPushTokenManually(
               app,
               registration,
               FIREBASE_DEFAULT_WEB_PUSH_PUBLIC_KEY,
-              true
+              true,
             );
             usedDefaultVapidFallback = true;
             recoveredStalePushState = true;
             console.log(
-              "[FCM] Manual web push registration succeeded with the project's default web push configuration."
+              "[FCM] Manual web push registration succeeded with the project's default web push configuration.",
             );
           } catch (manualDefaultError) {
             const detail =
@@ -723,7 +1103,7 @@ async function initializeWebFCM(
                 : "manual_registration_failed";
             console.warn(
               "[FCM] Manual web push registration also failed. Check Firebase Console > Project Settings > Cloud Messaging > Web configuration for this project.",
-              manualDefaultError
+              manualDefaultError,
             );
             return {
               status: "push_failed",
@@ -747,29 +1127,40 @@ async function initializeWebFCM(
       userId,
       token,
       "web",
-      idToken
+      idToken,
+      isCurrent,
     );
 
-    if (response.ok) {
+    if (await registrationIsAccepted(response)) {
       console.log("[FCM] ✅ Token registered with backend");
     } else {
       const detail = await response.text().catch(() => "");
-      console.error("[FCM] ❌ Failed to register token:", response.status, detail);
+      console.error(
+        "[FCM] ❌ Failed to register token:",
+        response.status,
+        detail,
+      );
       return {
         status: "push_failed",
-        detail: `backend_register_${response.status}`,
+        detail: response.ok ? "backend_register_degraded" : `backend_register_${response.status}`,
       };
     }
 
     // Set up foreground message listener
     if (!webListenerConfigured) {
       onMessage(messaging, (payload) => {
-        console.log("[FCM] 📬 Foreground message received:", payload);
+        const safePayload = sanitizeDocumentShareNotificationDetail(payload);
+        if (safePayload !== payload) {
+          console.log("[FCM] 📬 Document request notification received");
+        } else {
+          console.log("[FCM] Foreground notification received");
+        }
         window.dispatchEvent(
           new CustomEvent(FCM_MESSAGE_EVENT, {
-            detail: payload,
-          })
+            detail: safePayload,
+          }),
         );
+        dispatchFeedStateChanged("arrived");
       });
       webListenerConfigured = true;
     }
@@ -789,10 +1180,14 @@ async function initializeWebFCM(
         ? String((error as { code?: unknown }).code ?? "")
         : "";
     const errorMessage =
-      error instanceof Error ? error.message : typeof error === "string" ? error : "";
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "";
     if (errorCode === "installations/request-failed") {
       console.warn(
-        "[FCM] Web push init skipped: Firebase Installations rejected config. Check Firebase web app keys, API key referrer restrictions, and VAPID key for this domain."
+        "[FCM] Web push init skipped: Firebase Installations rejected config. Check Firebase web app keys, API key referrer restrictions, and VAPID key for this domain.",
       );
       return {
         status: "push_failed",
@@ -802,7 +1197,7 @@ async function initializeWebFCM(
     if (errorCode === "messaging/token-subscribe-failed") {
       console.warn(
         "[FCM] Web push subscribe failed. Check FCM Registration API, API key restrictions, and VAPID/project alignment.",
-        errorMessage
+        errorMessage,
       );
       return {
         status: "push_failed",
@@ -822,7 +1217,7 @@ async function initializeWebFCM(
     if (isExpectedPushDenial) {
       console.warn(
         "[FCM] Web push unavailable (permission denied / unsupported). Continuing without push notifications.",
-        errorMessage || errorName
+        errorMessage || errorName,
       );
       return {
         status: "push_blocked",
@@ -847,109 +1242,136 @@ function setupNativeListeners(): Promise<void> {
   const request = (async () => {
     const listeners: Array<{ remove: () => Promise<void> }> = [];
     try {
-      const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
+      const { FirebaseMessaging } =
+        await import("@capacitor-firebase/messaging");
 
       listeners.push(
-        await FirebaseMessaging.addListener("notificationReceived", (notification) => {
-          console.log("[FCM] Foreground message received:", notification);
+        await FirebaseMessaging.addListener(
+          "notificationReceived",
+          (notification) => {
+            const safeNotification =
+              sanitizeDocumentShareNotificationDetail(notification);
+            if (safeNotification !== notification) {
+              console.log("[FCM] Document request notification received");
+            } else {
+              console.log("[FCM] Foreground notification received");
+            }
 
-          window.dispatchEvent(
-            new CustomEvent(FCM_MESSAGE_EVENT, {
-              detail: notification,
-            })
-          );
-        }),
+            window.dispatchEvent(
+              new CustomEvent(FCM_MESSAGE_EVENT, {
+                detail: safeNotification,
+              }),
+            );
+            dispatchFeedStateChanged("arrived");
+          },
+        ),
       );
 
       listeners.push(
         await FirebaseMessaging.addListener(
           "notificationActionPerformed",
           (action) => {
-          console.log("[FCM] Notification tapped:", action);
+            const receivedData = action.notification.data as
+              Record<string, unknown> | undefined;
+            const safeDocumentData =
+              sanitizeDocumentShareNotificationData(receivedData);
+            const data = safeDocumentData ?? receivedData;
+            if (safeDocumentData) {
+              console.log("[FCM] Document request notification tapped");
+            } else {
+              console.log("[FCM] Notification tapped");
+            }
+            const actionId = String(action.actionId || "tap").trim();
 
-          const data = action.notification.data as
-            | Record<string, unknown>
-            | undefined;
-          const actionId = String(action.actionId || "tap").trim();
-
-          if (
-            data &&
-            typeof data.type === "string" &&
-            data.type === "consent_request"
-          ) {
             if (actionId === "dismiss") {
               return;
             }
-            const target = buildNativeConsentActionTarget(data, actionId);
-            if (target.kind === "internal") {
+            smsAlarmAcknowledgements.acknowledge(data, lastKnownSession?.userId);
+
+            if ((data?.recipient_key_id || data?.user_id) && ["direct_message", "location_circle_message"].includes(String(data?.type))) {
+              void routeChatTap(data).catch(() => { /* Wait for a later initialization if key storage is unavailable. */ });
+              return;
+            }
+
+            // Incoming share alerts open Shared with me; other body taps enter Feed.
+            // Explicit consent action buttons retain their confirmation route.
+            if (
+              actionId === "tap" ||
+              actionId === IOS_DEFAULT_NOTIFICATION_ACTION ||
+              actionId === ""
+            ) {
+              dispatchFeedStateChanged("action");
               requestInternalAppNavigation({
-                href: target.href,
+                href: buildNotificationTapTarget(data),
                 scroll: false,
               });
-            } else {
-              assignWindowLocation(target.href || buildConsentTargetPath(data));
-            }
-          } else if (
-            data &&
-            typeof data.type === "string" &&
-            data.type === "connection_request"
-          ) {
-            if (actionId === "dismiss") {
               return;
             }
-            requestInternalAppNavigation({
-              href: resolveNativeConnectionRequestNotificationHref(data),
-              scroll: false,
-            });
-          } else if (
-            data &&
-            typeof data.type === "string" &&
-            data.type === "kai_analysis_complete"
-          ) {
-            requestInternalAppNavigation({
-              href: ROUTES.KAI_DASHBOARD,
-              scroll: false,
-            });
-          } else if (
-            data &&
-            ((typeof data.type === "string" &&
-              data.type.startsWith("location_")) ||
-              (typeof data.notification_category === "string" &&
-                data.notification_category === "ONE_LOCATION"))
-          ) {
-            // One Location pushes (share/access-request/approval/etc). The
-            // backend puts the full in-app deep-link (with section / requestId /
-            // grantId / submissionId query params) in `request_url`; the
-            // redesign hub reads those params to open the correct tab
-            // (inbox / links / people). Fall back to `deep_link` or the hub
-            // root so a tap always lands on One Location, never Home.
-            requestInternalAppNavigation({
-              href: resolveOneLocationNotificationHref(data),
-              scroll: false,
-            });
-          } else {
-            requestInternalAppNavigation({
-              href: ROUTES.HOME,
-              scroll: false,
-            });
-          }
 
+            // The explicit safety action is intentionally more direct than a
+            // routine body tap: it opens the validated live-location surface.
+            if (actionId === ONE_LOCATION_SMS_OPEN_ACTION) {
+              dispatchFeedStateChanged("action");
+              requestInternalAppNavigation({
+                href: resolveOneLocationNotificationHref(data),
+                scroll: false,
+              });
+              return;
+            }
+
+            if (
+              data &&
+              typeof data.type === "string" &&
+              data.type === "consent_request"
+            ) {
+              const target = buildNativeConsentActionTarget(data, actionId);
+              if (target.kind === "internal") {
+                requestInternalAppNavigation({
+                  href: target.href,
+                  scroll: false,
+                });
+              } else {
+                assignWindowLocation(
+                  target.href || buildConsentTargetPath(data),
+                );
+              }
+            } else {
+              dispatchFeedStateChanged("action");
+              requestInternalAppNavigation({
+                href: ROUTES.ONE_FEED,
+                scroll: false,
+              });
+            }
           },
         ),
       );
 
       listeners.push(
-        await FirebaseMessaging.addListener("tokenReceived", async (event) => {
+        await FirebaseMessaging.addListener("tokenReceived", async () => {
           console.log("[FCM] Push token refreshed");
           const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
           try {
-            if (lastKnownSession) {
-              await ApiService.registerPushToken(
-                lastKnownSession.userId,
-                event.token,
+            const session = lastKnownSession;
+            const generation = notificationSessionGeneration;
+            if (session) {
+              const auth = session.getIdToken ? null : (await import("@/lib/firebase/config")).auth;
+              const user = auth?.currentUser;
+              if (!session.getIdToken && (!user || user.uid !== session.firebaseUid)) return;
+              // A refresh callback can contain a token being deleted for the
+              // previous owner. Resolve the provider's current token only once
+              // the native deletion barrier has completed.
+              const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
+              const freshToken = await (session.getIdToken ? session.getIdToken() : user!.getIdToken());
+              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && Boolean(session.getIdToken || auth?.currentUser?.uid === session.firebaseUid);
+              if (!isCurrent()) return;
+              const response = await ApiService.registerPushToken(
+                session.userId,
+                token,
                 platform,
-                lastKnownSession.idToken
+                freshToken,
+                isCurrent,
               );
+              if (!await registrationIsAccepted(response)) throw new Error("Notification registration unavailable");
               console.log("[FCM] Refreshed token re-registered with backend");
             }
           } catch (err) {
@@ -976,7 +1398,7 @@ function setupNativeListeners(): Promise<void> {
 
 function buildNativeConsentActionTarget(
   data: Record<string, unknown> | undefined,
-  actionId: string
+  actionId: string,
 ) {
   const requestId =
     data && typeof data.request_id === "string" ? data.request_id : undefined;
@@ -990,7 +1412,7 @@ function buildNativeConsentActionTarget(
     {
       requestId,
       bundleId,
-    }
+    },
   );
   if (baseTarget.kind !== "internal") {
     return baseTarget;
@@ -1004,7 +1426,10 @@ function buildNativeConsentActionTarget(
     nextUrl.searchParams.set("notificationAction", "approve");
   } else if (actionId === CONSENT_NOTIFICATION_ACTION_DENY) {
     nextUrl.searchParams.set("notificationAction", "deny");
-  } else if (actionId === CONSENT_NOTIFICATION_ACTION_REVIEW || actionId === "tap") {
+  } else if (
+    actionId === CONSENT_NOTIFICATION_ACTION_REVIEW ||
+    actionId === "tap"
+  ) {
     nextUrl.searchParams.set("notificationAction", "review");
   }
 
@@ -1016,7 +1441,7 @@ function buildNativeConsentActionTarget(
 }
 
 function buildConsentTargetPath(
-  data: Record<string, unknown> | undefined
+  data: Record<string, unknown> | undefined,
 ): string {
   const requestId =
     data && typeof data.request_id === "string" ? data.request_id : undefined;
@@ -1036,10 +1461,9 @@ export async function getFCMToken(): Promise<string | null> {
 
   try {
     if (isNative) {
-      const { FirebaseMessaging } = await import(
-        "@capacitor-firebase/messaging"
-      );
-      const { token } = await FirebaseMessaging.getToken();
+      const { FirebaseMessaging } =
+        await import("@capacitor-firebase/messaging");
+      const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
       return token;
     } else {
       const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
@@ -1048,13 +1472,15 @@ export async function getFCMToken(): Promise<string | null> {
       const { getMessaging, getToken } = await import("firebase/messaging");
       const { app } = await import("@/lib/firebase/config");
       if (!hasValidWebMessagingConfig(app)) {
-        console.warn("[FCM] Missing Firebase Messaging config. Skipping token retrieval.");
+        console.warn(
+          "[FCM] Missing Firebase Messaging config. Skipping token retrieval.",
+        );
         return null;
       }
 
       const messaging = getMessaging(app);
       const registration = await navigator.serviceWorker.register(
-        FIREBASE_MESSAGING_SW_PATH
+        FIREBASE_MESSAGING_SW_PATH,
       );
       const token = await getToken(messaging, {
         vapidKey,
@@ -1107,55 +1533,116 @@ export async function clearDeliveredConsentNotifications(options: {
       count: matches.length,
     });
   } catch (error) {
-    console.warn("[FCM] Failed to clear delivered consent notifications:", error);
+    console.warn(
+      "[FCM] Failed to clear delivered consent notifications:",
+      error,
+    );
   }
 }
 
 /**
  * Delete FCM token (for logout).
- * 
+ *
  * Removes the token from Firebase and also calls the backend to unregister
  * so no further pushes are attempted for this device.
  */
+/**
+ * The current session's owner when the caller names it by its owner or, once that
+ * owner was withdrawn, by its Firebase UID; null when it names another session.
+ */
+function departingSessionOwner(userId?: string): string | undefined | null {
+  if (!userId || !lastKnownSession) return userId ?? lastKnownSession?.userId;
+  return lastKnownSession.userId === userId || lastKnownSession.firebaseUid === userId
+    ? lastKnownSession.userId
+    : null;
+}
+
+/**
+ * Local preview privacy is independent of Firebase/network token cleanup.
+ * Returns the owner it cleared (null for another session), because clearing ends
+ * the session record that later push cleanup would resolve that owner from.
+ */
+export async function clearLocalChatNotificationState(userId?: string): Promise<string | undefined | null> {
+  const departingOwner = departingSessionOwner(userId);
+  if (departingOwner === null) return null;
+  lastKnownSession = null;
+  smsAlarmAcknowledgements.clear();
+  notificationSessionGeneration++;
+  pendingChatTaps = [];
+  await clearCurrentNotificationDevice(departingOwner);
+  return departingOwner;
+}
+
 export async function deleteFCMToken(
   userId?: string,
-  idToken?: string
+  idToken?: string,
+  options?: { signal?: AbortSignal },
 ): Promise<void> {
+  // The backend keyed the push token by the owner, so unregister under it.
+  const departingOwner = departingSessionOwner(userId);
+  if (departingOwner === null) return;
+  const controller = new AbortController();
+  const outerSignal = options?.signal;
+  const abort = () => controller.abort();
+  outerSignal?.addEventListener("abort", abort, { once: true });
+  if (outerSignal?.aborted) controller.abort();
+  const signal = controller.signal;
+  pushCleanupControllers.add(controller);
+  try {
+  // Fence refresh callbacks before awaiting any network or imports.
+  const localPrivacy = clearLocalChatNotificationState(userId);
+  if (signal?.aborted) { await localPrivacy; return; }
   const isNative = Capacitor.isNativePlatform();
 
-  try {
-    // Step 1: Tell the backend to delete our push token
-    if (userId && idToken) {
-      try {
-        await ApiService.unregisterPushToken(userId, idToken);
-      } catch (backendErr) {
-        console.warn("[FCM] Backend unregister failed (non-critical):", backendErr);
-      }
-    }
-
-    // Step 2: Clear the token/subscription from the current platform
+  // A stalled backend must not prevent removal of the device's push state.
+  // Both operations start within the caller's budget, independently.
+  if (signal?.aborted) return;
+  const deviceId = await notificationDeviceId();
+  if (signal.aborted) return;
+  const unregister = userId && departingOwner && idToken
+    ? ApiService.unregisterPushToken(departingOwner, idToken, undefined, signal, deviceId)
+    : Promise.resolve();
+  const clearLocalPushState = async () => {
+    if (signal?.aborted) return;
     if (isNative) {
-      const { FirebaseMessaging } = await import(
-        "@capacitor-firebase/messaging"
-      );
-      await FirebaseMessaging.deleteToken();
+      const deletion = nativeTokenDeletion.catch(() => undefined).then(async () => {
+        if (signal.aborted) return;
+        const { HushhNotifications } = await import("@/lib/capacitor");
+        if (signal.aborted) return;
+        await HushhNotifications.deletePushToken();
+      });
+      nativeTokenDeletion = deletion.catch(() => undefined);
+      await deletion;
     } else {
       const { app } = await import("@/lib/firebase/config");
+      if (signal?.aborted) return;
       if (!hasValidWebMessagingConfig(app)) {
-        console.warn("[FCM] Missing Firebase Messaging config. Skipping token deletion.");
+        console.warn(
+          "[FCM] Missing Firebase Messaging config. Skipping token deletion.",
+        );
         return;
       }
 
-      const registration = await resolveFirebaseMessagingRegistration();
+      // Logout only removes existing push state. Registering a worker here
+      // could block teardown on a download and creates state we are removing.
+      const registration = "serviceWorker" in navigator
+        ? await navigator.serviceWorker.getRegistration(FIREBASE_MESSAGING_SW_PATH)
+        : undefined;
+      if (signal?.aborted) return;
       if (registration) {
-        await clearFirebaseWebPushState(registration);
+        await clearFirebaseWebPushState(registration, signal);
       } else {
         await clearFirebaseWebPushDatabases();
       }
     }
 
-    console.log("[FCM] Token deleted (backend + local push state)");
-  } catch (error) {
-    console.error("[FCM] Failed to delete token:", error);
+  };
+  const results = await Promise.allSettled([unregister, clearLocalPushState(), localPrivacy]);
+  if (results.some((result) => result.status === "rejected")) {
+    console.warn("[FCM] Push cleanup did not fully complete.");
+  }
+  } finally {
+    pushCleanupControllers.delete(controller);
+    outerSignal?.removeEventListener("abort", abort);
   }
 }

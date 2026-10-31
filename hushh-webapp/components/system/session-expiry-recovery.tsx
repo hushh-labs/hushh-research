@@ -1,6 +1,6 @@
 "use client";
 
-import { LogIn, ShieldAlert } from "lucide-react";
+import { LogIn, ShieldAlert } from "@/components/icons";
 import Link from "next/link";
 
 import { Button } from "@/lib/morphy-ux/button";

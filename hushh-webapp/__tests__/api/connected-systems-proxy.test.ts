@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/app/api/_utils/backend", () => ({
@@ -19,11 +19,16 @@ beforeEach(async () => {
   route = await import("../../app/api/connected-systems/[...path]/route");
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("/api/connected-systems/[...path] proxy", () => {
   it("forwards owner-confirmed local unlink without a request body", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ status: "disconnected" }),
-    );
+    vi.stubEnv("NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED", "true");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ status: "disconnected" }));
     const request = new NextRequest(
       "http://localhost:3000/api/connected-systems/customer-crm/record-binding?objectType=Contact",
       {

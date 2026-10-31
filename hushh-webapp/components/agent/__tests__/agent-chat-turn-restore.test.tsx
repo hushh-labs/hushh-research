@@ -1,0 +1,500 @@
+import { act, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const shell = vi.hoisted(() => ({ pathname: "/", push: vi.fn(), replace: vi.fn(), toast: vi.fn() }));
+
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  usePathname: () => shell.pathname,
+  useRouter: () => ({ push: shell.push, replace: shell.replace }),
+}));
+vi.mock("sonner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>();
+  return { ...actual, toast: Object.assign(shell.toast, actual.toast) };
+});
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-1" }, userId: "owner-1" }) }));
+vi.mock("@/lib/vault/vault-context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/vault/vault-context")>()),
+  // Locked: the notice must still work and must reveal nothing.
+  useVault: () => ({ vaultKey: null, getVaultOwnerToken: () => null }),
+}));
+
+import {
+  AGENT_PARTIAL_ANSWER_LOST_NOTICE,
+  AgentBubble,
+  ChatAgentSubtitle,
+  chatHeaderSubtitle,
+  labelRestoredConnectorSteps,
+  planLostTurnRetry,
+  retireRetriedResponsePresentation,
+  replaceAssistantResponse,
+  restoredMessageTime,
+  settleAssistantMessageError,
+  settleMcpReviewActivity,
+  storedMessagesToAgentMessages,
+} from "@/components/agent/agent-chat-workspace";
+import type { AgentVisibleStreamEvent } from "@/components/agent/agent-turn-stream-panel";
+import { ApiService } from "@/lib/services/api-service";
+import { RECEIPT_ANSWER_REDACTED_TEXT, RECEIPT_ANSWER_UNFINISHED_TEXT, redactReceiptAnswer } from "@/lib/agent/receipt-answer-redaction";
+import { receiptSetupExperience } from "@/lib/agent/mail-chat-experiences";
+import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
+import {
+  AGENT_CHAT_STREAM_LOST_ERROR,
+  AgentChatStreamLostError,
+  parseRestoredTurnActivity,
+  type AgentChatMessage,
+} from "@/lib/services/agent-chat-client";
+import { AgentChatTurnNotifier } from "@/components/agent/agent-chat-turn-notifier";
+import {
+  decideAgentTurnNotice,
+  settleWatchedAgentTurn,
+  watchDetachedAgentTurn,
+} from "@/lib/agent/agent-chat-turn-watch";
+import { rememberInAppChat } from "@/lib/agent/in-app-chat-selection";
+
+// Leaving a chat and coming back must restore the same turn the owner saw:
+// the Activity rows and the connect card, not only the answer text. The
+// history descriptor carries enums and ids only; labels come from the app.
+const connectAnswer: AgentChatMessage = {
+  id: "answer-event",
+  conversation_id: "thread",
+  role: "assistant",
+  status: "complete",
+  content: "We are not connected to Google Calendar yet. Use the Connect card above.",
+  created_at: null,
+  completed_at: null,
+  metadata: {
+    kind: "structured_experience",
+    structuredExperiences: [{
+      id: "tool-event:call-calendar",
+      activityType: "one.workspace_connector_setup.v1",
+      content: { provider: "calendar", status: "connect_required" },
+    }],
+    turnActivity: {
+      activityType: "one.turn_activity.v1",
+      content: {
+        steps: [
+          { id: "call-calendar", tool: "discover_workspace_tools", status: "done", provider: "calendar" },
+          { id: "call-mcp", tool: `mcp_${"a".repeat(40)}`, status: "done", review: "read_only", connectorId: "custom_0123" },
+          { id: "call-review", tool: `mcp_${"b".repeat(40)}`, status: "waiting", review: "required" },
+          { id: "call-public", tool: `mcp_${"c".repeat(40)}`, status: "done", review: "no_credential" },
+        ],
+      },
+    },
+  },
+};
+
+describe("restoring a turn from history", () => {
+  it("shows a completed answer when the background tab cannot run animation frames", () => {
+    const frames = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+    try {
+      const message = {
+        id: "background-answer",
+        role: "assistant" as const,
+        text: "",
+        timestamp: "",
+        status: "streaming" as const,
+      };
+      const { rerender, unmount } = render(<AgentBubble message={message} />);
+      rerender(<AgentBubble message={{ ...message, text: "A complete private answer." }} />);
+      expect(screen.queryByText("A complete private answer.")).not.toBeInTheDocument();
+      rerender(<AgentBubble message={{ ...message, text: "A complete private answer.", status: "done" }} />);
+      expect(screen.getByText("A complete private answer.")).toBeInTheDocument();
+      unmount();
+    } finally {
+      frames.mockRestore();
+    }
+  });
+
+  it("keeps the current-action icon and label together during rapid tool changes", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender, container, unmount } = render(<ChatAgentSubtitle text="Checking Gmail…" working brand="gmail" />);
+      rerender(<ChatAgentSubtitle text="Reading Drive…" working brand="drive" />);
+      expect(screen.getByText("Checking Gmail…")).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="gmail"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="drive"]')).not.toBeInTheDocument();
+      rerender(<ChatAgentSubtitle text="Reading memory…" working icon="memory" />);
+      act(() => vi.advanceTimersByTime(90));
+      expect(screen.getByText("Reading memory…")).toBeInTheDocument();
+      expect(container.querySelector('[data-agent-activity-icon="memory"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="gmail"]')).not.toBeInTheDocument();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rehydrates the Activity rows and the connect card with the answer", () => {
+    const [restored] = storedMessagesToAgentMessages([connectAnswer]);
+    expect(restored?.text).toContain("Connect card above");
+    expect(restored?.structuredExperiences?.map((entry) => entry.experience)).toEqual([
+      { type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" },
+    ]);
+    expect(restored?.streamEvents).toEqual([
+      // Routine: the panel keeps it out of Activity, exactly as on the live turn.
+      expect.objectContaining({ id: "call-calendar", label: "Google Calendar", message: "Connector access checked.", status: "done", brand: "calendar", routine: true }),
+      expect.objectContaining({ id: "call-mcp", label: "Connected tool", status: "done", tag: "Read", connectorId: "custom_0123" }),
+      expect.objectContaining({ id: "call-review", status: "waiting", tag: "Needs review" }),
+      expect.objectContaining({ id: "call-public", status: "done", tag: "Public" }),
+    ]);
+  });
+
+  it("drops unknown tools, statuses and smuggled fields instead of rendering them", () => {
+    const steps = parseRestoredTurnActivity({
+      activityType: "one.turn_activity.v1",
+      content: {
+        steps: [
+          { id: "x", tool: "transfer_to_agent", status: "done" },
+          { id: "y", tool: "discover_workspace_tools", status: "exploded" },
+          { id: "z", tool: "discover_workspace_tools", status: "done", provider: "https://evil.test", label: "Injected", message: "Injected text" },
+          { id: "w", tool: `mcp_${"d".repeat(40)}`, status: "done", connectorId: "../../etc" },
+        ],
+      },
+    });
+    expect(steps.map((step) => step.id)).toEqual(["z", "w"]);
+    expect(steps[0]).toMatchObject({ label: "Connector access", message: "Connector access checked." });
+    expect(steps[0].provider).toBeUndefined();
+    expect(JSON.stringify(steps)).not.toContain("Injected");
+    expect(steps[1].connectorId).toBeUndefined();
+    expect(parseRestoredTurnActivity({ activityType: "one.other.v1", content: { steps: [] } })).toEqual([]);
+  });
+
+  it("marks a step that never returned as unfinished, never as a success", () => {
+    const [step] = parseRestoredTurnActivity({
+      activityType: "one.turn_activity.v1",
+      content: { steps: [{ id: "cut", tool: "read_workspace_tool", status: "interrupted" }] },
+    });
+    expect(step).toMatchObject({ status: "blocked", message: "This step did not finish." });
+  });
+
+  it("parses only a provider enum and status for a restored connect card", () => {
+    expect(parseAgentActivityExperience("one.workspace_connector_setup.v1", {
+      provider: "calendar", status: "connect_required", grant: "secret", account: "owner@example.test",
+    })).toEqual({ type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" });
+    expect(parseAgentActivityExperience("one.workspace_connector_setup.v1", { provider: "outlook", status: "connect_required" })).toBeNull();
+    expect(parseAgentActivityExperience("one.workspace_connector_setup.v1", { provider: "drive", status: "granted" })).toBeNull();
+    expect(parseAgentActivityExperience("one.workspace_connector_setup.v1", {
+      provider: "custom", status: "manage_available",
+      saved: [{ id: `custom_${"e".repeat(32)}`, name: "Synthetic app", status: "saved" }],
+    })).toEqual({
+      type: "one.workspace_connector_setup.v1", provider: "custom", status: "manage_available",
+      saved: [{ id: `custom_${"e".repeat(32)}`, name: "Synthetic app", status: "saved" }],
+    });
+  });
+});
+
+describe("the chat header during a turn", () => {
+  it("names the running call, newest first, then clears One's idle subtitle", () => {
+    const gmail = { id: "a", label: "Gmail", activity: "Checking Gmail" };
+    const drive = { id: "b", label: "Google Drive", activity: "Searching Drive" };
+    const header = (activeToolCalls: typeof gmail[], statusText: string | null = "Thinking") =>
+      chatHeaderSubtitle({ isPuppySurface: false, activeToolCalls, statusText });
+    expect(header([gmail])).toBe("Checking Gmail…");
+    expect(header([gmail, drive])).toBe("Searching Drive…");
+    expect(header([])).toBe("Thinking");
+    expect(header([], null)).toBe("");
+    // Puppy One's header never narrates One's calls.
+    expect(chatHeaderSubtitle({ isPuppySurface: true, activeToolCalls: [gmail], statusText: null }))
+      .toBe("");
+  });
+});
+
+describe("restored turn details", () => {
+  it("restores a roster step with the live label and mark, and the answer's markdown verbatim", () => {
+    const answer = "Here is **tomorrow**:\n\n1. [Standup](https://example.test)\n2. Run `sync`";
+    const [restored] = storedMessagesToAgentMessages([{
+      ...connectAnswer,
+      content: answer,
+      metadata: { turnActivity: { activityType: "one.turn_activity.v1", content: {
+        steps: [{ id: "call-events", tool: "calendar_events", status: "done" }],
+      } } },
+    }]);
+    expect(restored?.text).toBe(answer);
+    expect(restored?.streamEvents).toEqual([expect.objectContaining({
+      label: "Google Calendar", message: "Reading your calendar events.", status: "done", brand: "calendar",
+    })]);
+  });
+
+
+  it("reads epoch-second history timestamps as seconds, not 1970 milliseconds", () => {
+    const seconds = 1_790_000_000.25;
+    expect(restoredMessageTime(seconds)?.getTime()).toBe(seconds * 1000);
+    expect(restoredMessageTime(String(seconds))?.getTime()).toBe(seconds * 1000);
+    expect(restoredMessageTime("2026-09-26T07:46:00Z")?.toISOString()).toBe("2026-09-26T07:46:00.000Z");
+    expect(restoredMessageTime(1_790_000_000_250)?.getTime()).toBe(1_790_000_000_250);
+    expect(restoredMessageTime(null)).toBeNull();
+    expect(restoredMessageTime("not a time")).toBeNull();
+  });
+
+  it("labels restored connector rows with the owner's vault name only", () => {
+    const [restored] = storedMessagesToAgentMessages([connectAnswer]);
+    const labeled = labelRestoredConnectorSteps([restored!], new Map([["custom_0123", "Hussh Wiki"]]));
+    expect(labeled[0].streamEvents?.find((event) => event.id === "call-mcp")?.label).toBe("Hussh Wiki");
+    expect(labeled[0].streamEvents?.find((event) => event.id === "call-review")?.label).toBe("Connected tool");
+    const unchanged = [restored!];
+    expect(labelRestoredConnectorSteps(unchanged, new Map())).toBe(unchanged);
+  });
+});
+
+// Leaving a chat mid-answer: the turn keeps running server-side, and when it
+// settles the app says so only if the person is not already looking at it.
+describe("a turn that settles after the person left the chat", () => {
+  const conversationId = "0b1f6c1e-3d4a-4c8b-9a51-6f2e7d8c9b0a";
+  const settle = () => act(() => {
+    watchDetachedAgentTurn({ ownerId: "owner-1", conversationId, startedAtMs: Date.now() });
+    settleWatchedAgentTurn("owner-1", conversationId, true);
+  });
+
+  beforeEach(() => {
+    shell.toast.mockClear();
+    shell.pathname = "/";
+    rememberInAppChat("owner-1", conversationId);
+  });
+
+  it("stays quiet while that chat is on screen", () => {
+    render(<AgentChatTurnNotifier />);
+    settle();
+    expect(shell.toast).not.toHaveBeenCalled();
+  });
+
+  it("says One replied with an Open action, and no answer text, from elsewhere", () => {
+    shell.pathname = "/one/feed";
+    render(<AgentChatTurnNotifier />);
+    settle();
+    expect(shell.toast).toHaveBeenCalledTimes(1);
+    const [title, options] = shell.toast.mock.calls[0];
+    expect(title).toBe("One replied");
+    expect(options).toMatchObject({ description: "Your answer is ready.", action: { label: "Open" } });
+    // The notice is built from fixed copy and an id only; nothing from the turn.
+    expect(Object.keys(options).sort()).toEqual(["action", "description", "id"]);
+  });
+
+  it("leaves the notice to the push when the native app was in the background", () => {
+    expect(decideAgentTurnNotice({ viewingConversation: false, pageVisible: true, pushOwnsNotice: true })).toBe("none");
+    expect(decideAgentTurnNotice({ viewingConversation: false, pageVisible: false, pushOwnsNotice: false })).toBe("defer");
+    expect(decideAgentTurnNotice({ viewingConversation: true, pageVisible: true, pushOwnsNotice: false })).toBe("none");
+  });
+});
+
+// A stream can die after part of an answer arrived, while the server keeps
+// running the turn and saves it. The person must see why the answer stopped,
+// and Retry must never run a turn the server already finished.
+describe("a settled answer in the chat column", () => {
+  const answer = {
+    id: "assistant-2", role: "assistant" as const, text: "Your week has two free evenings.",
+    timestamp: "10:00", status: "done" as const,
+  };
+
+  it("sits in the answer bubble with its controls beside it and a touch row below", () => {
+    render(<AgentBubble message={answer} onRate={() => undefined} />);
+    const bubble = screen.getByText("Your week has two free evenings.").closest("[data-message-role]")!;
+    const hover = bubble.querySelector('[data-agent-response-actions="hover"]');
+    const inline = screen.getByTestId("agent-message-response-actions");
+    // The hover copy lives inside the bubble frame so it can sit at its edge;
+    // the always-on row is marked as its touch twin (CSS shows exactly one).
+    expect(hover?.parentElement?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+    expect(inline).toHaveAttribute("data-hover-twin", "true");
+    expect(hover?.querySelector('[aria-label="Copy response"]')).not.toBeNull();
+    expect(inline.querySelector('[aria-label="Copy response"]')).not.toBeNull();
+  });
+
+  it("gives a tool-using answer the same bubble, not bare text", () => {
+    const [restored] = storedMessagesToAgentMessages([{ ...connectAnswer, content: "Nothing new today." }]);
+    render(<AgentBubble message={restored!} />);
+    const bubble = screen.getByText("Nothing new today.").closest("[data-agent-response-bubble]");
+    expect(bubble).not.toBeNull();
+    expect(bubble?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+  });
+
+  it("keeps an error's Try again in plain sight rather than on hover", () => {
+    render(<AgentBubble message={{ ...answer, status: "error" }} onRetry={() => undefined} />);
+    expect(document.querySelector('[data-agent-response-actions="hover"]')).toBeNull();
+    expect(screen.getByTestId("agent-message-response-actions")).not.toHaveAttribute("data-hover-twin");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("carries a restored row's real send time and never invents one", () => {
+    const [timed] = storedMessagesToAgentMessages([
+      { ...connectAnswer, content: "Timed.", created_at: "2026-09-26T07:46:00Z" },
+    ]);
+    const [untimed] = storedMessagesToAgentMessages([{ ...connectAnswer, content: "Untimed." }]);
+    expect(timed?.sentAtMs).toBe(Date.parse("2026-09-26T07:46:00Z"));
+    expect(untimed).not.toHaveProperty("sentAtMs");
+  });
+});
+
+describe("settling an unavailable connector review", () => {
+  const waitingActivity: AgentVisibleStreamEvent[] = [
+    {
+      id: "original-call",
+      label: "Connected tool",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_000,
+    },
+    {
+      id: "confirmation-call",
+      label: "Your review",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_100,
+    },
+    {
+      id: "different-call",
+      label: "Connected tool",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_200,
+    },
+  ];
+
+  it("settles only the card's waiting Activity rows when no receipt was issued", () => {
+    const settled = settleMcpReviewActivity(
+      waitingActivity,
+      ["original-call", "confirmation-call"],
+      "unavailable",
+    )!;
+    expect(settled[0]).toMatchObject({
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    });
+    expect(settled[1]).toMatchObject({
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    });
+    expect(settled[2]).toBe(waitingActivity[2]);
+  });
+
+  it("never claims no change when a receipt may already have been resumed", () => {
+    const settled = settleMcpReviewActivity(
+      waitingActivity,
+      ["original-call", "confirmation-call"],
+      "unknown",
+    )!;
+    expect(settled[0]).toMatchObject({
+      status: "error",
+      tag: "Check status",
+      message: "Connector outcome could not be verified. Check the connector before trying again.",
+    });
+    expect(settled[0]!.message).not.toContain("No change was sent.");
+    expect(settled[2]).toBe(waitingActivity[2]);
+  });
+});
+
+describe("a turn whose stream was lost", () => {
+  const conversationId = "7c2e1f0a-5b3d-4e8a-9f61-2d4c8b7a6e5f";
+  const streaming = {
+    id: "assistant-1", role: "assistant" as const, text: "Here are the first two steps",
+    timestamp: "10:00", status: "streaming" as const,
+  };
+
+  it("retires only the retried response's idle cards and never hides an in-flight operation", () => {
+    const retireSpecialist = vi.fn();
+    const retireEmailDraft = vi.fn();
+    const input = {
+      messageId: "answer-1", busy: false, specialistMessageId: "answer-1",
+      emailDraftMessageId: "answer-1", retireSpecialist, retireEmailDraft,
+    };
+    expect(retireRetriedResponsePresentation({ ...input, busy: true })).toBe(false);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: input.messageId, status: "outcome_unknown" }] })).toBe(false);
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: "other-answer", status: "sending" }] })).toBe(false);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, specialistMessageId: "other-answer", emailDraftMessageId: null })).toBe(true);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: "other-answer", status: "outcome_unknown" }] })).toBe(true);
+    expect(retireSpecialist).toHaveBeenCalledOnce();
+    expect(retireEmailDraft).toHaveBeenCalledOnce();
+
+    const user = { ...streaming, id: "question", role: "user" as const };
+    const old = { ...streaming, id: "answer-1", structuredExperience: {
+      type: "one.workspace_connector_setup.v1" as const, provider: "calendar" as const, status: "connect_required" as const,
+    } };
+    const receipt = { ...streaming, id: "independent-receipt", text: "Request sent" };
+    const next = replaceAssistantResponse([user, old, receipt], old.id, streaming);
+    expect(next).toEqual([user, streaming, receipt]);
+    expect(next[0]).toBe(user);
+    expect(next[2]).toBe(receipt);
+    expect(next.filter(message => message.role === "user")).toHaveLength(1);
+    expect(next.some(message => message.structuredExperience)).toBe(false);
+  });
+
+  it("keeps the partial answer and says the connection was lost below it", () => {
+    const lost = new AgentChatStreamLostError(conversationId, 1_000);
+    const settled = settleAssistantMessageError(
+      settleAssistantMessageError(streaming, AGENT_CHAT_STREAM_LOST_ERROR), lost.message, lost,
+    );
+    expect(settled).toMatchObject({
+      text: "Here are the first two steps", status: "error",
+      errorNotice: AGENT_PARTIAL_ANSWER_LOST_NOTICE, lostTurn: { conversationId, startedAtMs: 1_000 },
+    });
+    render(<AgentBubble message={settled} onRetry={() => undefined} />);
+    expect(screen.getByText("Here are the first two steps")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-message-error-notice"))
+      .toHaveTextContent("Connection lost before One finished.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+
+    // With nothing streamed the reason is the message itself, not a second notice.
+    const empty = settleAssistantMessageError({ ...streaming, text: "" }, AGENT_CHAT_STREAM_LOST_ERROR);
+    const again = settleAssistantMessageError(empty, AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(again.text).toBe(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(again).not.toHaveProperty("errorNotice");
+  });
+
+  it("keeps a failed receipt turn failed when its private answer is retired", () => {
+    const receiptPrivate = { ownerId: "owner-1", vaultEpoch: 1, conversationId, expiresAt: 1 };
+    const failed = settleAssistantMessageError({ ...streaming, text: "", receiptPrivate }, "One couldn't complete that response.");
+    // Negative control (UAT 2026-10-29): a failed spending turn was relabelled as a shown answer.
+    expect(redactReceiptAnswer(failed)).toMatchObject({ status: "error", text: "One couldn't complete that response.", receiptRedacted: true });
+    const partial = redactReceiptAnswer(settleAssistantMessageError({ ...streaming, text: "Private 7.00", receiptPrivate }, AGENT_CHAT_STREAM_LOST_ERROR));
+    expect(partial).toMatchObject({ status: "error", text: AGENT_PARTIAL_ANSWER_LOST_NOTICE, streamEvents: [] });
+    expect(JSON.stringify(partial)).not.toContain("7.00");
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, receiptPrivate }).text).toBe(RECEIPT_ANSWER_REDACTED_TEXT);
+    // A turn still running when its vault session moved neither finishes nor claims it was shown; a stop stays a stop.
+    expect(redactReceiptAnswer({ ...streaming, text: "Private 7.00", receiptPrivate })).toMatchObject({ status: "streaming", text: RECEIPT_ANSWER_UNFINISHED_TEXT });
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, text: "Stopped.", receiptPrivate }).text).toBe("Stopped.");
+    const setup = { id: "assistant-1:receipt-setup", experience: receiptSetupExperience("sync_required") };
+    expect(redactReceiptAnswer({ ...streaming, status: "done" as const, structuredExperiences: [setup], receiptPrivate }))
+      .toMatchObject({ text: RECEIPT_ANSWER_UNFINISHED_TEXT, structuredExperiences: [setup] });
+  });
+
+  it("shows the saved answer or waits for the running turn instead of sending it again", async () => {
+    const history = vi.spyOn(ApiService, "getAgentChatHistory");
+    const input = {
+      lostTurn: { conversationId, startedAtMs: 1_000 }, retryText: "Plan my week",
+      vaultOwnerToken: "owner-token", vaultKey: "a".repeat(64),
+    };
+    const reply = (body: unknown, status = 200) =>
+      history.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
+
+    reply({ messages: [{ role: "user", content: "Plan my week" }, { role: "assistant", content: "Done" }],
+      turn: { pending: false } });
+    expect(await planLostTurnRetry(input)).toBe("restore");
+    expect(history).toHaveBeenLastCalledWith(expect.objectContaining({ conversationId, limit: 2 }));
+
+    reply({ messages: [{ role: "user", content: "Plan my week" }], turn: { pending: true } });
+    expect(await planLostTurnRetry(input)).toBe("reattach");
+
+    // The newest answer belongs to an earlier question: this turn never finished.
+    reply({ messages: [{ role: "user", content: "Earlier question" }, { role: "assistant", content: "Old" }],
+      turn: { pending: false } });
+    expect(await planLostTurnRetry(input)).toBe("rerun");
+    reply({ detail: "Conversation not found." }, 404);
+    expect(await planLostTurnRetry(input)).toBe("rerun");
+
+    // A turn the server ended with its own error was not lost: resend without asking.
+    history.mockClear();
+    expect(await planLostTurnRetry({ ...input, lostTurn: undefined })).toBe("rerun");
+    expect(history).not.toHaveBeenCalled();
+    history.mockRestore();
+  });
+});

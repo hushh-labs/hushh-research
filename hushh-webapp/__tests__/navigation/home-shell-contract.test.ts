@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
-  resolveAppRouteLayout,
-  shouldSuppressPersistentChromeForRouteState,
-} from "@/lib/navigation/app-route-layout";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("home shell contract", () => {
+  it("keeps the canonical root Chat command surface available", () => {
+    expect(getKaiChromeState(ROUTES.HOME).hideCommandBar).toBe(false);
+    expect(resolveAppRouteLayout(ROUTES.HOME).mode).toBe("standard");
+  });
+
   it("treats the signed-in One dashboard as a standard shell route", () => {
     expect(resolveAppRouteLayout(ROUTES.ONE_HOME).mode).toBe("standard");
     expect(resolveTopShellMetrics(ROUTES.ONE_HOME).shellVisible).toBe(true);
@@ -21,31 +23,38 @@ describe("home shell contract", () => {
     expect(getKaiChromeState(ROUTES.CONNECT).hideCommandBar).toBe(false);
   });
 
-  it("keeps contextual Finance and Location tabs inside the shared top shell", () => {
-    expect(resolveTopShellMetrics(ROUTES.ONE_LOCATION).hasTabs).toBe(true);
-    expect(resolveTopShellMetrics(ROUTES.KAI_HOME).hasTabs).toBe(true);
-    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(true);
+  it("keeps contextual Finance and Location tabs inside their module headers", () => {
+    // Location and Finance own their canonical tab registries inside their
+    // module headers, rather than duplicating those tabs in the global top
+    // shell.
+    expect(resolveTopShellMetrics(ROUTES.ONE_LOCATION).hasTabs).toBe(false);
+    expect(resolveTopShellMetrics(ROUTES.KAI_HOME).hasTabs).toBe(false);
+    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics("/one/location?action=share").hasTabs).toBe(
       false,
     );
-    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(true);
+    // RIA renders its route selector inside the module, like Location.
+    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.PROFILE).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);
   });
 
-  it("suppresses persistent chrome only for immersive SMS safety surfaces", () => {
-    expect(
-      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "sos"),
-    ).toBe(true);
-    expect(
-      shouldSuppressPersistentChromeForRouteState(
-        ROUTES.ONE_LOCATION,
-        "sms-contacts",
-      ),
-    ).toBe(true);
-    expect(
-      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "share"),
-    ).toBe(false);
+  it("keeps the persistent chrome on every Location task flow", () => {
+    // SOS and SMS contacts used to hide the top and bottom chrome, which took
+    // the back control, the "Location › …" trail and the profile avatar off
+    // exactly two screens and forced each to draw a private back button.
+    // Chrome visibility is a property of the ROUTE, so `?action=` never
+    // changes it — a route that needs a bare canvas says so in the layout
+    // contract instead.
+    for (const action of ["sos", "sms-contacts", "share", "settings", null]) {
+      const query = action ? `?action=${action}` : "";
+      expect(
+        resolveTopShellMetrics(`${ROUTES.ONE_LOCATION}${query}`).shellVisible,
+      ).toBe(true);
+    }
+    expect(resolveAppRouteLayout(ROUTES.ONE_LOCATION).persistentChrome).not.toBe(
+      "none",
+    );
   });
 
   it("keeps auth-only routes out of the shared command surface", () => {

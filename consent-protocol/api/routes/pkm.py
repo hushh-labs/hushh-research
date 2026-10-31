@@ -5,8 +5,11 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
+import hashlib
 import logging
 import os
+import time
+from copy import deepcopy
 from typing import Literal
 
 from fastapi import (
@@ -41,6 +44,7 @@ from api.routes.pkm_routes_shared import (
     UpdateUpgradeRunRequest,
     UpdateUpgradeStepRequest,
     UserScopesResponse,
+    _UserId,
     _validated_segment_ids,
 )
 from api.routes.pkm_routes_shared import (
@@ -102,10 +106,17 @@ from api.routes.pkm_routes_shared import (
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
 from hushh_mcp.services.domain_contracts import validate_dynamic_top_level_domain
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
+)
+from hushh_mcp.services.pkm_preparation_contracts import (
+    MEMORY_PROPOSAL_OUTCOME_LOG,
+    PKMAgentLabStructureRequest,
+    PKMAgentLabStructureResponse,
+    memory_proposal_outcome_args,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,38 +150,6 @@ async def require_pkm_metadata_access(
     return {"user_id": firebase_uid, "auth_type": "firebase"}
 
 
-class PKMAgentLabStructureRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=12000)
-    current_domains: list[str] = Field(default_factory=list, max_length=256)
-    current_manifests: list[dict] = Field(default_factory=list, max_length=256)
-    simulated_state: dict | None = None
-
-
-class PKMAgentLabStructureResponse(BaseModel):
-    agent_id: str
-    agent_name: str
-    model: str
-    used_fallback: bool
-    intent_used_fallback: bool = False
-    structure_used_fallback: bool = False
-    error: str | None = None
-    routing_decision: str = "non_financial_or_ephemeral"
-    intent_frame: dict = Field(default_factory=dict)
-    merge_decision: dict = Field(default_factory=dict)
-    candidate_payload: dict
-    structure_decision: dict
-    write_mode: str = "confirm_first"
-    primary_json_path: str | None = None
-    target_entity_scope: str | None = None
-    validation_hints: list[str] = Field(default_factory=list)
-    manifest_draft: dict | None = None
-    preview_cards: list[dict] = Field(default_factory=list)
-    preview_summary: dict = Field(default_factory=dict)
-    performance: dict = Field(default_factory=dict)
-    context_plan: dict = Field(default_factory=dict)
-
-
 class PKMMutationSharingImpactResponse(BaseModel):
     active_recipient_count: int = Field(ge=0)
     recipient_labels: list[str] = Field(default_factory=list, max_length=100)
@@ -182,6 +161,25 @@ class PKMMutationSharingImpactResponse(BaseModel):
     affected_export_ids: list[str] = Field(
         default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
     )
+
+
+class PKMCommitLookupEntry(BaseModel):
+    domain: str = Field(min_length=1, max_length=64)
+    plan_id: str = Field(min_length=16, max_length=140, pattern=r"^pkm_[A-Za-z0-9_-]{12,128}$")
+
+
+class PKMCommitLookupRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    commits: list[PKMCommitLookupEntry] = Field(min_length=1, max_length=64)
+
+
+class PKMCommitLookupResult(BaseModel):
+    exists: bool
+    data_version: int | None = None
+
+
+class PKMCommitLookupResponse(BaseModel):
+    commits: list[PKMCommitLookupResult]
 
 
 @router.post("/store-domain", response_model=StoreDomainResponse)
@@ -225,6 +223,30 @@ async def get_domain_manifest(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_manifest(user_id, domain, token_data)
+
+
+@router.post("/commits/lookup", response_model=PKMCommitLookupResponse)
+async def lookup_pkm_commits(
+    request: PKMCommitLookupRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Whether the owner's own writes already committed, in request order.
+
+    A device that sent a write and lost the connection before the answer
+    arrived asks here instead of guessing. Owner-scoped: the commit id is
+    derived from the token's user, so no other owner's write can be named.
+    The answer is existence and the committed revision, nothing else.
+    """
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    results = await get_pkm_service().find_mutation_commits(
+        user_id=request.user_id,
+        commits=[(entry.domain, entry.plan_id) for entry in request.commits],
+    )
+    return PKMCommitLookupResponse(commits=[PKMCommitLookupResult(**result) for result in results])
 
 
 @router.get(
@@ -306,7 +328,7 @@ async def get_device_sync_events(
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
 async def reconcile_pkm_index(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _reconcile_pkm_index(user_id, token_data)
@@ -314,7 +336,7 @@ async def reconcile_pkm_index(
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_pkm_metadata_access),
 ):
     return await _get_metadata(user_id, token_data)
@@ -322,7 +344,7 @@ async def get_metadata(
 
 @router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
 async def get_upgrade_status(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_upgrade_status(user_id, token_data)
@@ -382,7 +404,7 @@ async def get_domain_registry(
 
 @router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_user_scopes(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_user_scopes(user_id, token_data)
@@ -391,7 +413,7 @@ async def get_user_scopes(
 @router.post("/get-context", response_model=StockContextResponse)
 async def get_stock_context(
     request: StockContextRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     return await _get_stock_context(request, token_data)
 
@@ -399,23 +421,62 @@ async def get_stock_context(
 async def _generate_pkm_memory_proposals(
     request: PKMAgentLabStructureRequest,
     token_data: dict,
+    *,
+    ingestion_id: str | None = None,
+    chunk_index: int | None = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token user_id does not match request user_id",
         )
-    service = get_pkm_agent_lab_service()
-    payload = await service.generate_structure_preview(
-        user_id=request.user_id,
-        message=request.message,
-        current_domains=request.current_domains,
-        current_manifests=request.current_manifests,
-        simulated_state=request.simulated_state,
+    safe_ingestion_id = (
+        "".join(
+            character
+            for character in str(ingestion_id or "")
+            if character.isalnum() or character in "-_"
+        )[:96]
+        or "none"
     )
+    started_at = time.perf_counter()
+    logger.info(
+        "pkm.memory_proposal.started ingestion_id=%s chunk_index=%s message_chars=%s",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+    )
+    service = get_pkm_agent_lab_service()
+    try:
+        payload = await service.generate_structure_preview(
+            user_id=request.user_id,
+            message=request.message,
+            current_domains=request.current_domains,
+            current_manifests=request.current_manifests,
+            simulated_state=request.simulated_state,
+            memory_profile=request.memory_profile,
+            allow_identifier_processing=request.allow_identifier_processing,
+            # Opaque binding only: no raw token enters the preview cache. A
+            # new vault-owner credential cannot resume an earlier credential's
+            # preparation; authorization and sharing impact still run afresh.
+            continuation_scope=hashlib.sha256(token_data["token"].encode()).hexdigest()
+            if isinstance(token_data.get("token"), str) and token_data["token"]
+            else None,
+        )
+    except Exception:
+        logger.exception(
+            "pkm.memory_proposal.failed ingestion_id=%s chunk_index=%s message_chars=%s error_code=proposal_generation_failed",
+            safe_ingestion_id,
+            chunk_index or 0,
+            len(request.message),
+        )
+        raise
     pkm_service = get_pkm_service()
     preview_cards = payload.get("preview_cards") or []
     total_active_recipients = 0
+    sharing_impact_cache: dict[tuple[str, str], dict] = {}
+    sharing_impact_cache_hits = 0
+    sharing_impact_started_at = time.perf_counter()
+    sharing_impact_calls = 0
     for card in preview_cards:
         if not isinstance(card, dict) or card.get("write_mode") == "do_not_save":
             continue
@@ -445,21 +506,29 @@ async def _generate_pkm_memory_proposals(
                     "message": "The PKM structure agent did not produce a reviewable target.",
                 },
             )
-        try:
-            sharing_impact = await pkm_service.get_mutation_sharing_impact(
-                user_id=request.user_id,
-                domain=target_domain,
-                scope_path=target_scope,
-            )
-        except Exception as exc:
-            logger.warning("PKM sharing-impact lookup failed: %s", exc)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
-                    "message": "Current recipients could not be verified. Try the preview again.",
-                },
-            ) from exc
+        impact_key = (target_domain.casefold(), target_scope.casefold())
+        cached_impact = sharing_impact_cache.get(impact_key)
+        if cached_impact is not None:
+            sharing_impact = deepcopy(cached_impact)
+            sharing_impact_cache_hits += 1
+        else:
+            try:
+                sharing_impact = await pkm_service.get_mutation_sharing_impact(
+                    user_id=request.user_id,
+                    domain=target_domain,
+                    scope_path=target_scope,
+                )
+            except Exception as exc:
+                logger.warning("PKM sharing-impact lookup failed: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
+                        "message": "Current recipients could not be verified. Try the preview again.",
+                    },
+                ) from exc
+            sharing_impact_cache[impact_key] = deepcopy(sharing_impact)
+            sharing_impact_calls += 1
         card["sharing_impact"] = sharing_impact
         if (
             card.get("write_mode") == "can_save"
@@ -474,22 +543,89 @@ async def _generate_pkm_memory_proposals(
         **(payload.get("preview_summary") or {}),
         "active_recipient_count": total_active_recipients,
     }
+    performance = payload.get("performance")
+    if not isinstance(performance, dict):
+        performance = {}
+    stage_latencies = performance.get("stage_latencies_ms")
+    if not isinstance(stage_latencies, dict):
+        stage_latencies = {}
+    stage_latencies["sharing_impact_total"] = round(
+        (time.perf_counter() - sharing_impact_started_at) * 1000,
+        2,
+    )
+    performance["stage_latencies_ms"] = stage_latencies
+    performance["sharing_impact_calls"] = sharing_impact_calls
+    performance["sharing_impact_cache_hits"] = sharing_impact_cache_hits
+    payload["performance"] = performance
+    logger.info(
+        "pkm.memory_proposal.completed ingestion_id=%s chunk_index=%s message_chars=%s card_count=%s duration_ms=%.2f",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+        len(preview_cards),
+        (time.perf_counter() - started_at) * 1000,
+    )
     return PKMAgentLabStructureResponse(**payload)
 
 
 @router.post("/memory/proposals", response_model=PKMAgentLabStructureResponse)
 async def propose_pkm_memory(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
+    x_pkm_ingestion_id: str | None = Header(default=None, alias="X-PKM-Ingestion-Id"),
+    x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
     """Product-safe alias over the existing review-before-save proposal pipeline."""
-    return await _generate_pkm_memory_proposals(request, token_data)
+    started_at = time.perf_counter()
+    status_code, error_code, proposal = 0, None, None
+    try:
+        proposal = await _generate_pkm_memory_proposals(
+            request,
+            token_data,
+            ingestion_id=x_pkm_ingestion_id,
+            chunk_index=x_pkm_chunk_index,
+        )
+        # An explicit failed-stage signal is not a semantic "nothing to save" decision. Keep the
+        # developer-lab diagnostic contract; product consumers get a retryable failure, not 200.
+        if not proposal.preview_cards and "preview_generation_failed" in (
+            proposal.validation_hints or []
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "PKM_PROPOSAL_UNAVAILABLE",
+                    "message": "That note could not be prepared. Nothing was saved. Please try again.",
+                },
+            )
+        status_code = 200
+        return proposal
+    except HTTPException as exc:
+        status_code = exc.status_code
+        error_code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
+        raise
+    except Exception:
+        status_code = 500
+        raise
+    finally:
+        # One content-free line per attempt, after this route's own 503 decision.
+        logger.info(
+            MEMORY_PROPOSAL_OUTCOME_LOG,
+            *memory_proposal_outcome_args(
+                route="hub",
+                request=request,
+                status_code=status_code,
+                response=proposal,
+                error_code=error_code,
+                chunk_index=x_pkm_chunk_index,
+                started_at=started_at,
+            ),
+        )
 
 
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)
 async def preview_pkm_structure(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Local developer-lab compatibility route; product callers use memory/proposals."""
     environment = (

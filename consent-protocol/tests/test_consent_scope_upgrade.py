@@ -1,66 +1,22 @@
 from __future__ import annotations
 
-import base64
-import time
 from types import SimpleNamespace
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import consent
 from hushh_mcp.consent.export_envelope import (
-    ConsentExportAadV2,
-    ConsentExportEnvelopeSubmissionV2,
-    canonical_aad_bytes,
-    ciphertext_digest_from_base64,
     connector_key_fingerprint,
-    digest_bytes,
 )
-
-_CONNECTOR_PUBLIC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
-_SCOPE_HANDLE = "s_scope_demo_123"
-
-
-def _developer_export_payload(*, request_id: str, scope: str) -> dict:
-    encrypted_data = base64.b64encode(b"ciphertext").decode()
-    aad = ConsentExportAadV2(
-        app_id="app_demo_123",
-        grant_id=request_id,
-        export_id="123e4567-e89b-12d3-a456-426614174000",
-        revision=1,
-        machine_scope=scope,
-        scope_handle=_SCOPE_HANDLE,
-        recipient_key_fingerprint=connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
-        expires_at_ms=int(time.time() * 1000) + 24 * 60 * 60 * 1000,
-    )
-    ciphertext_sha256, ciphertext_bytes = ciphertext_digest_from_base64(encrypted_data)
-    envelope = ConsentExportEnvelopeSubmissionV2(
-        export_id=aad.export_id,
-        aad=aad,
-        aad_sha256=digest_bytes(canonical_aad_bytes(aad)),
-        ciphertext_sha256=ciphertext_sha256,
-        ciphertext_bytes=ciphertext_bytes,
-    )
-    return {
-        "encryptedData": encrypted_data,
-        "encryptedIv": "iv",
-        "encryptedTag": "tag",
-        "wrappedExportKey": "wrapped_key",
-        "wrappedKeyIv": "wrapped_iv",
-        "wrappedKeyTag": "wrapped_tag",
-        "senderPublicKey": "sender_public",
-        "connectorPublicKey": _CONNECTOR_PUBLIC_KEY,
-        "connectorKeyId": "connector_demo",
-        "wrappingAlg": "X25519-AES256-GCM",
-        "exportEnvelope": envelope.model_dump(mode="json"),
-    }
-
-
-def _build_app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(consent.router)
-    app.dependency_overrides[consent.require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    return app
+from tests.consent_scope_upgrade_fixtures import (
+    _CONNECTOR_PUBLIC_KEY,
+    _SCOPE_HANDLE,
+    _build_app,
+    _developer_export_payload,
+)
+from tests.consent_scope_upgrade_fixtures import (
+    free_commerce_schema_is_absent as free_commerce_schema_is_absent,
+)
 
 
 def test_approve_consent_rejects_oversized_ids_before_service(monkeypatch):
@@ -229,6 +185,93 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to store encrypted consent export"
+
+
+def test_person_request_approval_uses_strict_envelope_without_developer_token(monkeypatch):
+    request_id = "one_person_request_demo"
+    person_principal = "one_person:22222222-2222-4222-8222-222222222222"
+    scope = "attr.identity.legal_name"
+    scope_handle = "s_person_scope_demo_123"
+    stored_exports: list[dict] = []
+    events: list[dict] = []
+    issued: list[dict] = []
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, requested_id: str, **_kwargs):
+            assert user_id == "user_123"
+            assert requested_id == request_id
+            return {
+                "request_id": request_id,
+                "developer": person_principal,
+                "scope": scope,
+                "metadata": {
+                    "request_source": "one_person_profile",
+                    "requester_actor_type": "person",
+                    "requester_entity_id": "22222222-2222-4222-8222-222222222222",
+                    "requester_label": "Requester",
+                    "developer_app_id": "agent_one",
+                    "scope_handle": scope_handle,
+                    "scope_contract_version": 2,
+                    "expiry_hours": 168,
+                    "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+                    "connector_key_id": "connector_demo",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "recipient_key_fingerprint": connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+        async def store_consent_export(self, **kwargs):
+            stored_exports.append(kwargs)
+            return True
+
+        async def insert_event(self, **kwargs):
+            events.append(kwargs)
+            return len(events)
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+    def _issue_token(**kwargs):
+        issued.append(kwargs)
+        return SimpleNamespace(
+            token="person_grant_token",  # noqa: S106
+            expires_at=kwargs["expires_at_ms"],
+        )
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(consent, "issue_token", _issue_token)
+
+    response = TestClient(_build_app()).post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": request_id,
+            "durationHours": 168,
+            **_developer_export_payload(
+                request_id=request_id,
+                scope=scope,
+                app_id="agent_one",
+                scope_handle=scope_handle,
+                expiry_hours=168,
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["consent_token"] == "person_grant_token"
+    assert issued[0]["agent_id"] == person_principal
+    assert issued[0]["scope"] == scope
+    assert stored_exports[0]["app_id"] == "agent_one"
+    assert stored_exports[0]["grant_id"] == request_id
+    assert stored_exports[0]["scope_handle"] == scope_handle
+    assert stored_exports[0]["recipient_key_fingerprint"] == connector_key_fingerprint(
+        _CONNECTOR_PUBLIC_KEY
+    )
+    assert events[0]["agent_id"] == person_principal
+    assert events[0]["metadata"]["requester_actor_type"] == "person"
 
 
 def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):

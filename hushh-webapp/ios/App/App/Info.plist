@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Hussh One</string>
+	<string>Agent One</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -16,6 +16,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>Hussh One</string>
+	<key>CFBundleSpokenName</key>
+	<string>Agent One</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -55,19 +57,21 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hussh One uses the microphone only when you start a voice command.</string>
+	<string>Hussh One uses the microphone when you record a voice message or talk to One.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Hussh One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<string>Hussh One uses your location when you share it with people you choose, and your approximate area to answer questions about places near you.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Hussh One uses contacts only when you choose to find people already on Hussh.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Hussh One uses your photo library only when you choose a picture for your profile.</string>
+	<string>Hussh One uses your photo library when you choose a profile picture or a card photo to scan on your device.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Hussh One uses the camera only when you take a picture for your profile.</string>
+	<string>Hussh One uses the camera when you take a profile picture or scan a card on your device.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Allow SMS safety alerts to ring on your Lock Screen until you dismiss the alarm.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
@@ -79,9 +83,28 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -96,5 +119,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NotificationKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.hussh.app.chatnotifications</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 </dict>
 </plist>

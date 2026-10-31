@@ -16,6 +16,7 @@ Security:
 - All connections use Cloud SQL session pooler (DB_*); SSL required
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -25,9 +26,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
+from hushh_mcp.services.support_email_service import AccountNoticeKind, get_support_email_service
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,34 @@ MIN_VAULT_WRITE_CLIENT_VERSION = os.getenv("MIN_VAULT_WRITE_CLIENT_VERSION", "2.
 ENFORCE_VAULT_WRITE_CLIENT_VERSION = os.getenv(
     "ENFORCE_VAULT_WRITE_CLIENT_VERSION", "true"
 ).strip().lower() not in {"0", "false", "no"}
+# The phone shadow is advisory metadata on the vault bootstrap response. It
+# must not hold the authenticated setup/vault admission path while its separate
+# async database pool cold-starts through Cloud SQL.
+VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS = 2.0
+
+
+def _require_matching_vault_owner(vault_owner_token: dict, user_id: str) -> None:
+    if str(vault_owner_token.get("user_id") or "") != user_id:
+        raise HTTPException(
+            status_code=403, detail="VAULT_OWNER token userId does not match requested userId"
+        )
+
+
+def _is_passkey_method(method: str) -> bool:
+    return method in {"generated_default_web_prf", "generated_default_native_passkey_prf"}
+
+
+async def _send_vault_change_notice(user_id: str, kind: AccountNoticeKind) -> None:
+    """Compatibility facade for the shared verified-channel gate."""
+    from hushh_mcp.services.support_email_service import send_verified_account_notice
+
+    await send_verified_account_notice(
+        user_id,
+        kind,
+        app_factory=get_firebase_auth_app,
+        sender_factory=get_support_email_service,
+        identity_lookup=firebase_uid_for_owner_read,
+    )
 
 
 def _mask_user_id(user_id: str) -> str:
@@ -163,7 +195,21 @@ class VaultBootstrapStateRequest(BaseModel):
     userId: str | None = None
 
 
+class OneChatOnboardingState(BaseModel):
+    """Bounded chat-onboarding progress. Deliberately has no free-form field."""
+
+    version: Literal[1] = 1
+    status: Literal["in_progress", "completed"]
+    answered: list[Literal["name", "focus", "tone"]] = Field(default_factory=list, max_length=3)
+    skipped: list[Literal["name", "focus", "tone"]] = Field(default_factory=list, max_length=3)
+    completedOn: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    tipDismissedOn: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class VaultBootstrapStateResponse(BaseModel):
+    initialContactsSource: Literal["google", "device", "none"] | None = None
+    initialContactsWelcomeAcknowledged: bool | None = None
+    initialContactsCircleId: str | None = None
     userId: str
     hasVault: bool
     vaultStatus: str
@@ -179,7 +225,14 @@ class VaultBootstrapStateResponse(BaseModel):
     # non-capability prerequisites such as the explicit Connections choice.
     # Empty means no setup marker has settled yet.
     setupCapabilityIds: list[str] = []
+    # Capabilities the person explicitly declined (e.g. dismissed a connect
+    # prompt). Never includes "connections" -- that prerequisite is mandatory.
+    # Distinct from setupCapabilityIds, which only ever records completions.
+    setupCapabilityDeclinedIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
+    # One's chat onboarding progress: question ids answered/skipped and two
+    # calendar dates. Never an answer value; those live in encrypted memory.
+    oneChatOnboarding: OneChatOnboardingState | None = None
     setupStateUpdatedAt: int | None = None
     # A strict, non-secret Connections preference. BYOK remains pending until
     # the person finishes setup and stores the actual key in their vault.
@@ -204,6 +257,8 @@ class VaultBootstrapStateResponse(BaseModel):
 
 
 class VaultPreStateUpdateRequest(BaseModel):
+    initialContactsSource: Literal["google", "device", "none"] | None = None
+    initialContactsWelcomeAcknowledged: Literal[True] | None = None
     userId: str | None = None
     setupCompleted: bool | None = None
     setupSkipped: bool | None = None
@@ -212,6 +267,10 @@ class VaultPreStateUpdateRequest(BaseModel):
     navSetupSkippedAt: int | None = None
     # Replace the stored setup capability set. None leaves it unchanged.
     setupCapabilityIds: list[str] | None = None
+    # Replace the stored declined-capability set. None leaves it unchanged.
+    setupCapabilityDeclinedIds: list[str] | None = None
+    # Replace the chat onboarding progress record. None leaves it unchanged.
+    oneChatOnboarding: OneChatOnboardingState | None = None
     oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
     onboardingPhase: str | None = Field(default=None, max_length=32)
@@ -374,9 +433,18 @@ async def vault_bootstrap_state(
         # identity read instead of being wrongly treated as unverified.
         phone_verified: bool | None = None
         try:
-            identity = (await ActorIdentityService().get_many([user_id])).get(user_id)
+            identities = await asyncio.wait_for(
+                ActorIdentityService().get_many([user_id]),
+                timeout=VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS,
+            )
+            identity = identities.get(user_id)
             if identity is not None:
                 phone_verified = identity.get("phone_verified") is True
+        except TimeoutError:
+            logger.warning(
+                "vault/bootstrap-state phone-shadow lookup timed out user=%s",
+                _mask_user_id(user_id),
+            )
         except Exception as identity_error:
             logger.warning(
                 "vault/bootstrap-state phone-shadow lookup failed user=%s error=%s",
@@ -397,6 +465,11 @@ async def vault_bootstrap_state(
             navSetupCompletedAt=state.get("navSetupCompletedAt"),
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
+            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
+            oneChatOnboarding=state.get("oneChatOnboarding"),
+            initialContactsSource=state.get("initialContactsSource"),
+            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
+            initialContactsCircleId=state.get("initialContactsCircleId"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
@@ -447,6 +520,12 @@ async def vault_pre_vault_state(
             nav_setup_completed_at=request.navSetupCompletedAt,
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
+            setup_capability_declined_ids=request.setupCapabilityDeclinedIds,
+            one_chat_onboarding=(
+                request.oneChatOnboarding.model_dump()
+                if request.oneChatOnboarding is not None
+                else None
+            ),
             one_runtime_setup_choice=request.oneRuntimeSetupChoice,
             onboarding_journey_version=request.onboardingJourneyVersion,
             onboarding_phase=request.onboardingPhase,
@@ -456,6 +535,8 @@ async def vault_pre_vault_state(
             onboarding_callback_attempt_id=request.onboardingCallbackAttemptId,
             expected_onboarding_journey_updated_at=request.expectedOnboardingJourneyUpdatedAt,
             expected_onboarding_callback_attempt_id=request.expectedOnboardingCallbackAttemptId,
+            initial_contacts_source=request.initialContactsSource,
+            initial_contacts_welcome_acknowledged=request.initialContactsWelcomeAcknowledged,
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
@@ -472,6 +553,11 @@ async def vault_pre_vault_state(
             navSetupCompletedAt=state.get("navSetupCompletedAt"),
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
+            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
+            oneChatOnboarding=state.get("oneChatOnboarding"),
+            initialContactsSource=state.get("initialContactsSource"),
+            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
+            initialContactsCircleId=state.get("initialContactsCircleId"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
@@ -615,9 +701,11 @@ async def vault_wrapper_upsert(
     http_request: Request,
     request: VaultWrapperUpsertRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
 ):
     """Add or update a single vault wrapper for an enrolled method."""
     verify_user_id_match(firebase_uid, request.userId)
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/wrapper/upsert request user=%s method=%s",
@@ -627,6 +715,16 @@ async def vault_wrapper_upsert(
 
     try:
         service = VaultKeysService()
+        prior_state = await service.get_vault_state(request.userId)
+        previous_wrapper = next(
+            (
+                wrapper
+                for wrapper in (prior_state or {}).get("wrappers", [])
+                if wrapper.get("method") == request.method
+                and (wrapper.get("wrapperId") or "default") == (request.wrapperId or "default")
+            ),
+            None,
+        )
         await service.upsert_wrapper(
             user_id=request.userId,
             vault_key_hash=request.vaultKeyHash,
@@ -642,6 +740,21 @@ async def vault_wrapper_upsert(
             passkey_device_label=request.passkeyDeviceLabel,
             passkey_last_used_at=request.passkeyLastUsedAt,
         )
+        if _is_passkey_method(request.method) and previous_wrapper is None:
+            await _send_vault_change_notice(request.userId, "passkey_added")
+        elif (
+            request.method == "passphrase"
+            and previous_wrapper is not None
+            and any(
+                previous_wrapper.get(field) != value
+                for field, value in (
+                    ("encryptedVaultKey", request.encryptedVaultKey),
+                    ("salt", request.salt),
+                    ("iv", request.iv),
+                )
+            )
+        ):
+            await _send_vault_change_notice(request.userId, "passphrase_changed")
         return SuccessResponse(success=True)
 
     except ValueError as e:
@@ -676,17 +789,7 @@ async def vault_wrapper_delete(
 ):
     """Remove an enrolled non-passphrase vault wrapper."""
     verify_user_id_match(firebase_uid, request.userId)
-    token_user_id = str(vault_owner_token.get("user_id") or "")
-    if token_user_id != request.userId:
-        logger.warning(
-            "vault/wrapper/delete token mismatch token=%s request=%s",
-            _mask_user_id(token_user_id),
-            _mask_user_id(request.userId),
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="VAULT_OWNER token userId does not match requested userId",
-        )
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/wrapper/delete request user=%s method=%s",
@@ -704,6 +807,8 @@ async def vault_wrapper_delete(
             fallback_primary_method=request.fallbackPrimaryMethod,
             fallback_primary_wrapper_id=request.fallbackPrimaryWrapperId,
         )
+        if _is_passkey_method(request.method):
+            await _send_vault_change_notice(request.userId, "passkey_removed")
         return SuccessResponse(success=True)
 
     except ValueError as e:
@@ -733,9 +838,11 @@ async def vault_primary_set(
     http_request: Request,
     request: VaultPrimaryMethodSetRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
 ):
     """Set default vault unlock method among already enrolled wrappers."""
     verify_user_id_match(firebase_uid, request.userId)
+    _require_matching_vault_owner(vault_owner_token, request.userId)
     _check_client_version_or_raise(http_request)
     logger.info(
         "vault/primary/set request user=%s primary=%s",

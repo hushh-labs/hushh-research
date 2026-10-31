@@ -18,200 +18,104 @@
   <a href="https://discord.gg/fd38enfsH5"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
----
+**Hussh is your personal agent for the digital world—trusted by design, consent-first by default, and accountable only to you.**
 
-## 30-Second Overview
+“An agent should work for the person whose life it touches.” The approved
+[Personal Data Agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
+guides product decisions: duty of care, discretion, consent and your information
+as your private capital. Hussh is the platform; One is your private agent.
 
-**Hussh** is a consent-first platform for **private agents**. Core thesis: *"An agent should work for the person whose life it touches."*
+This monorepo contains the web and native apps, agent runtime, consent protocol,
+and deployment tooling. People can use the Shared runtime or connect a private
+agent in their own Google Cloud or Microsoft Azure environment.
 
-Hussh enables individuals to own their private information through client-side encryption (BYOK), explicit capability tokens (PCHP), and zero-knowledge memory storage.
-
-The monorepo structure is modular and contributor-friendly:
-
-- [hushh-webapp/](hushh-webapp/): Next.js 16 + React + Capacitor experience client (Web, iOS, Android)
-- [consent-protocol/](consent-protocol/): FastAPI backend, consent protocol, Personal Knowledge Model (PKM), ADK agents, and MCP surfaces
-- [docs/](docs/): Architecture, guides, operations, vision, and roadmap references
-
----
-
-## Meet the Private Agent Ecosystem
-
-```mermaid
-flowchart TD
-  one["One<br/>Top Private Agent & Relationship Layer"]
-  kai["Kai<br/>Finance Specialist"]
-  nav["Nav<br/>Privacy & Consent Guardian"]
-  kyc["KYC<br/>Identity Workflow Specialist"]
-
-  one -->|"summons for finance"| kai
-  one -->|"summons for privacy & scope"| nav
-  one -->|"summons for verification"| kyc
-```
-
-- **One (The Private Agent)**: The primary relationship layer. Holds your preferences, context, decisions, and trusted connections. Operates in four core motions: *Listens*, *Remembers*, *Decides*, and *Acts*.
-- **Kai (Finance Specialist)**: Summoned by One for market intelligence, portfolio analytics, investment research, and receipts-backed execution.
-- **Nav (Privacy Guardian)**: Summoned by One for scope review, vault management, deletion, and consent transparency.
-- **KYC (Identity Specialist)**: Handles requirement collection and approval-gated document verification.
-
----
-
-## Core Guarantees & Security Invariants
-
-1. 🔐 **Client-Side Cryptography (BYOK):** Vault keys are derived and unlocked on-device. The backend stores ciphertext and metadata, never plaintext user context.
-2. 📜 **Consent-First & Scoped Access (PCHP):** Signed-in is not consent. Every operation requires a valid, scoped, and revocable capability token (`VAULT_OWNER` / PCHP).
-3. 👁️ **Zero-Knowledge Memory:** The backend holds zero unencrypted personal information or memory cards.
-4. 📱 **Tri-Flow Parity:** Unified contract alignment across Web, iOS, and Android.
-
----
+Start with the [Founder/CTO readiness decision](docs/reference/quality/adk-orchestration-docs-audit.md)
+for verified journeys, serving evidence, and release prerequisites. Capability
+availability depends on hosting, consent, provider access, and the installed release.
 
 ## Visual Map
 
 ```mermaid
 flowchart TB
-  subgraph layers["Seven-Layer Platform Stack"]
-    l7["7. Channels: Kai, RIA, MCP, Developer API"]
-    l6["6. Experience: Web, iOS, Android, Voice, Search"]
-    l5["5. Intelligence: One, Kai, ADK, Delegations"]
-    l4["4. Knowledge: PKM, Workflow State, Caches, Provenance"]
-    l3["3. Trust: Identity, Vault Unlock, Capability Tokens, Consent"]
-    l2["2. Services: Consent Protocol Routes & Domain Services"]
-    l1["1. Infrastructure: Profiles, Deployment, Secrets, CI/CD"]
-  end
+  accTitle: One platform and owner-cloud boundaries
+  accDescr: The app uses the hub for coordination and admitted direct routes for a private agent. Shared is a separate selected runtime.
+  app["One app<br/>Web · iOS · Android"]
+  hub["Hussh control plane<br/>Identity · consent · placement · releases"]
+  shared["Shared runtime<br/>Managed AI and consented foreground tools"]
+  pod["Owner's private agent<br/>Google Cloud or Microsoft Azure"]
+  ai["Owner-selected AI connection"]
+  storage["Owner-cloud encrypted storage<br/>Recovery · Files"]
+  puppy["Puppy on a trusted computer<br/>BYOC grant and signed binding"]
 
-  l7 --> l6 --> l5 --> l4 --> l3 --> l2 --> l1
+  app -->|Coordination| hub
+  app -->|Explicit Shared selection| shared
+  app <-->|Admitted direct connection| pod
+  hub -->|Signed coordination| pod
+  pod --> ai
+  pod <--> storage
+  pod <-->|Private relay| puppy
 ```
 
----
+See the [architecture index](docs/reference/architecture/README.md) for detailed
+system, runtime, flow, deployment, and information-boundary views.
 
-## Quick Start
+## Product boundaries
 
-### 1. Clone & Bootstrap
+- **One** coordinates specialists through the existing ADK, consent, and action contracts.
+- **Files** has a dedicated explorer and specialist. Shared Files uses browser-side
+  encryption and remains subject to its pilot gates; private Files requires a supported pod.
+- **Puppy** uses a trusted device and owner-approved private relay on BYOC.
+- **Updates** are managed for Shared. Private-pod installation requires approval for
+  the exact release, followed by recovery and installed-version verification.
+- **Computer Use** shares the owner pod and remains gated by exact cloud, image,
+  model and lifecycle qualification. Chromium’s internal sandbox is enabled on
+  GCP and explicitly disabled in Azure’s reviewed configuration; the whole owner
+  container is the compromise boundary. A configured pod alone is not acceptance.
+
+The [private-agent north star](docs/reference/architecture/private-agent-north-star.md)
+owns custody, processing consent, recovery, revocation, and erasure requirements.
+The readiness decision records their implementation and live verification separately.
+
+## Repository
+
+| Home | Responsibility |
+| --- | --- |
+| [hushh-webapp](hushh-webapp/) | Next.js, React, and Capacitor experience for Web, iOS, and Android |
+| [consent-protocol](consent-protocol/) | FastAPI, PKM, consent, ADK agents, and MCP |
+| [packages](packages/) | Shared packages and developer integrations |
+| [docs](docs/) | Current contracts, guides, operations, vision, and explicit future designs |
+| [.agents](.agents/README.md) | Authored development instructions, skills, workflows, and engineering lanes |
+
+## Quick start
+
 ```bash
 git clone https://github.com/hushh-labs/hushh-research.git
 cd hushh-research
 ./bin/hushh bootstrap
+./bin/hushh doctor --mode local
 ```
 
-### 2. Start Local Servers
-Run three separate integrated terminals for full telemetry and hot-reloading:
+For local development, run each component in its own terminal:
 
 ```bash
-# Terminal 1: Cloud SQL Proxy
 ./bin/hushh proxy --mode local
-
-# Terminal 2: FastAPI Backend
 ./bin/hushh backend --mode local --reload
-
-# Terminal 3: Next.js Frontend
 ./bin/hushh web --mode local
 ```
 
-*Note: `./bin/hushh web` defaults to local. Use `./bin/hushh web --mode uat` for the hosted UAT backend shortcut.*
+See [Getting started](docs/guides/getting-started.md) for prerequisites and
+[environment profiles](docs/guides/environment-model.md) for backend selection.
+The protocol package also supports its [standalone workflow](consent-protocol/README.md).
 
----
+## Read next
 
-## Choose Your Contributor Lane
+| Audience | Start here |
+| --- | --- |
+| Founder / CTO | [Readiness decision](docs/reference/quality/adk-orchestration-docs-audit.md) · [architecture](docs/reference/architecture/README.md) · [vision](docs/vision/README.md) |
+| Contributors | [Contributor guide](contributing.md) · [project map](docs/project_context_map.md) · [testing](TESTING.md) |
+| Operators | [Operations index](docs/reference/operations/README.md) · [CI](docs/reference/operations/ci.md) |
+| Coding agents | [AGENTS.md](AGENTS.md) · [development system](.agents/README.md) |
 
-- **App Contributor:** `./bin/hushh bootstrap` then `./bin/hushh web`
-- **Backend / Protocol Contributor:** `./bin/hushh bootstrap` then `./bin/hushh terminal backend --mode local --reload`
-- **Standalone `consent-protocol` Subtree:** See [consent-protocol/README.md](consent-protocol/README.md)
-- **Operator / Maintainer:** See [docs/reference/operations/README.md](docs/reference/operations/README.md)
-
----
-
-## Canonical Contributor Commands
-
-All repository operations flow through the canonical `./bin/hushh` CLI:
-
-```bash
-./bin/hushh bootstrap
-./bin/hushh doctor --mode local
-./bin/hushh codex onboard
-./bin/hushh codex ci-status --watch
-./bin/hushh codex route-task repo-orientation
-./bin/hushh web
-./bin/hushh native ios --mode uat
-./bin/hushh native android --mode uat
-```
-
----
-
-## Platform Roadmap & Evolution
-
-```mermaid
-timeline
-  title Hussh Platform Evolution
-  section Phase 1: Trust Core
-    Client-side Vault (BYOK) : PCHP Capability Tokens : Zero-Knowledge Backend
-    FastAPI & Python 3.13 : Google ADK & A2A : MCP Developer Surface
-  section Phase 2: Private Agents
-    One Voice Conversational Surface : Kai Financial Intelligence : One Location & Wallet Pass
-    Consent Center & Granular Scopes : RIA & Investor Workflows
-  section Phase 3: Enterprise Relays
-    MuleSoft Omni Gateway & Salesforce : DocuSign & Agreement Execution : PKM Slice Marketplace
-  section Phase 4: On-Device & Hardware
-    BYOA & Local MLX Inference : Local Agent Adapters : Ambient Wearable Contracts (Meta Glasses)
-```
-
-### 🟢 Phase 1: Trust Infrastructure & Protocol (Shipped / Current)
-- **Vault Encryption & BYOK:** On-device key derivation (PBKDF2 / WebAuthn PRF). Ciphertext-only storage.
-- **Capability Tokens (PCHP):** `VAULT_OWNER` & PCHP scoped consent handshake for agents and APIs.
-- **Protocol Foundation:** FastAPI + Python 3.13 backend, Google ADK runtime, A2A delegation, and MCP developer surface.
-
-### 🟢 Phase 2: Private Agents & Specialist Roster (Shipped / Active)
-- **One Voice:** Direct conversational voice surface for private actions and intent execution.
-- **Kai Financial Specialist:** Real-time market intelligence, portfolio analytics, and receipts-backed decisions.
-- **One Location & Wallet:** Consented location sharing and Apple Wallet Pass integration.
-- **Consent Center:** Granular scope management, revocation worker, and audit provenance.
-
-### 🟡 Phase 3: Enterprise & Partner Relays (Active Rollout)
-- **MuleSoft & Salesforce Secure Relay:** Partner-authorized secure relay for enterprise CRM workflows.
-- **DocuSign & Agreement Workflows:** Vendor-neutral agreement execution under Nav and One.
-- **PKM Slice Marketplace:** User-priced, consent-backed information slice subscriptions.
-
-### 🔵 Phase 4: On-Device Compute & Hardware Horizons (Future / R&D)
-- **BYOA & Local Inference:** MLX / on-device execution for zero-network privacy.
-- **Local Agent Adapters:** Owner-controlled local information sources and on-device execution.
-- **Ambient Intelligence & Wearables:** Ambient wearable agent contracts (Meta Glasses, App Intents).
-
----
-
-## Workspace Directory Map
-
-- [hushh-webapp/](hushh-webapp/): Next.js 16 + React + Capacitor experience client
-- [consent-protocol/](consent-protocol/): FastAPI backend, consent protocol, PKM, ADK agents, and MCP surfaces
-- [contracts/](contracts/): Generated schemas, action gateways, and cross-surface contracts
-- [docs/](docs/): Canonical architecture, guides, vision, and operational references
-- [.codex/](.codex/): Reusable skill fleet, workflows, and governance agents
-
----
-
-## Documentation Index
-
-- [Getting Started Guide](docs/guides/getting-started.md)
-- [Environment Model](docs/guides/environment-model.md)
-- [Project Context Map](docs/project_context_map.md)
-- [Architecture Reference](docs/reference/architecture/architecture.md)
-- [Brand & Compatibility Contract](docs/reference/operations/brand-and-compatibility-contract.md)
-- [Founder Language Matrix](docs/reference/architecture/founder-language-matrix.md)
-- [Vision & Thesis](docs/vision/README.md)
-- [Future Roadmap Home](docs/future/README.md)
-- [CLI Reference](docs/reference/operations/cli.md)
-- [Contributing Guide](contributing.md)
-
----
-
-## Community & Contributing
-
-We welcome community contributions! Please ensure:
-
-- **License:** Apache-2.0 for first-party code.
-- **Commit Signoff:** All commits must include DCO signoff (`git commit -s`).
-- **Code of Conduct:** Read our [Code of Conduct](code_of_conduct.md).
-- **Discord:** Join the conversation on [Discord](https://discord.gg/fd38enfsH5).
-
----
-
-<p align="center">
-  <em>Hussh exists to make consented, scoped, zero-knowledge AI straightforward to build and reason about.</em>
-</p>
+First-party code is Apache-2.0. Sign commits with `git commit -s` and follow the
+existing verification and release gates. Main, UAT, and production promotion retain
+separate authority.

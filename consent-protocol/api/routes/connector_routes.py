@@ -1,0 +1,46 @@
+"""Compose connector sharing and its isolated financial/workflow adapters."""
+
+from fastapi import FastAPI
+
+from api.routes import (
+    document_delivery,
+    document_delivery_background,
+    drive_groups,
+    drive_packet_previews,
+    drive_packet_public_summary,
+    drive_request_payments,
+    drive_request_requester,
+    drive_searches,
+    drive_shared_files,
+    drive_sharing,
+    drive_work_drain,
+    external_connectors,
+    profile_discovery_work_drain,
+    scope_commerce,
+    scope_commerce_work,
+)
+
+
+def register_connector_routes(app: FastAPI) -> None:
+    """Retain canonical router order, authority, prefixes and separate webhooks."""
+    for router in (
+        external_connectors.router,
+        drive_sharing.router,
+        document_delivery.router,
+        document_delivery_background.router,
+        drive_packet_previews.router,
+        drive_packet_public_summary.router,
+        drive_packet_public_summary.people_router,
+        drive_request_requester.router,
+        drive_request_payments.router,
+        drive_request_payments.webhook_router,
+        scope_commerce.router,
+        scope_commerce.webhook_router,
+        scope_commerce_work.router,
+        drive_searches.router,
+        drive_groups.router,
+        drive_shared_files.router,
+        drive_work_drain.router,
+        profile_discovery_work_drain.router,
+    ):
+        app.include_router(router)

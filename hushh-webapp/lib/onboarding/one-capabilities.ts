@@ -1,20 +1,24 @@
+import { MessageCircle, type LucideIcon } from "@/components/icons";
 
 import {
-  BookMarked,
-  CalendarDays,
-  ContactRound,
-  FileCheck2,
-  KeyRound,
-  Landmark,
-  Mail,
-  MapPin,
-  Store,
-  UsersRound,
-  type LucideIcon,
-} from "lucide-react";
+  FinanceAgentIcon,
+  WalletAgentIcon,
+  LocationAgentIcon,
+  RiaAgentIcon,
+  GmailAgentIcon,
+  CalendarAgentIcon,
+  KycAgentIcon,
+  MemoryAgentIcon,
+  ConsentAgentIcon,
+  MarketplaceAgentIcon,
+  CrmAgentIcon,
+  FolderRowIcon,
+} from "@/components/icons/agents";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveAppEnvironment } from "@/lib/app-env";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
@@ -50,16 +54,30 @@ export type OneCapabilityTone =
   | "location"
   | "pkm"
   | "consent"
-  | "connected";
+  | "connected"
+  | "messages";
 
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
+export type OneCapabilityCustomIconComponent = React.ComponentType<{
+  size?: number | string;
+  className?: string;
+  color?: string;
+}>;
+
 export type OneCapabilityIcon =
   | { kind: "lucide"; icon: LucideIcon }
-  | { kind: "image"; src: string; alt: string };
+  | { kind: "image"; src: string; alt: string }
+  | { kind: "custom"; component: OneCapabilityCustomIconComponent };
 
 export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
   return { kind: "lucide", icon };
+}
+
+export function customCapabilityIcon(
+  component: OneCapabilityCustomIconComponent,
+): OneCapabilityIcon {
+  return { kind: "custom", component };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -79,7 +97,7 @@ export interface OneCapability {
    * marketplace preview).
    *
    * This is a CONTRACT, not a comment: ids must exist in the backend
-   * SPECIALIST_A2A_SCOPE_MAP and are enforced by
+   * authored product manifests and are enforced by
    * consent-protocol/scripts/verify_agent_hierarchy_contract.py.
    */
   agentId: string | null;
@@ -98,7 +116,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
-  availability?: "enabled" | "paused";
+  availability?: "enabled" | "paused" | "local-only" | "development-only";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -127,6 +145,17 @@ export interface OneCapability {
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
+    id: "messages",
+    agentId: null,
+    title: "Messages",
+    description: "Message your connections in one place.",
+    href: ROUTES.ONE_MESSAGES,
+    icon: lucideCapabilityIcon(MessageCircle),
+    tone: "messages",
+    group: "workflow",
+  },
+
+  {
     id: "finance",
     setupActionId: "setup.open_finance",
     setupControlId: "one_setup_tile_finance",
@@ -135,11 +164,43 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // pass). Kai remains the internal finance runtime naming: id, routes,
     // contracts, and code identifiers unchanged.
     title: "Finance",
-    description: "Market, portfolio, analysis, and RIA handoff.",
+    description: "Market, portfolio, analysis, and Advisor handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: lucideCapabilityIcon(Landmark),
+    icon: customCapabilityIcon(FinanceAgentIcon),
     tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "wallet",
+    agentId: "agent_wallet",
+    title: "Wallet",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: customCapabilityIcon(WalletAgentIcon),
+    tone: "pkm",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    // Second, deliberately. Location was row 6 of 10 and below the fold on a
+    // phone; 391 people reached this screen in 30 days and 18 opened Location,
+    // while the feature converts at 76% once found. Unlike Finance and Consent
+    // it has no inbound entry point -- no push, no toast, no feed row reaches
+    // someone who does not already have a share -- so its only discovery path
+    // is this list.
+    id: "location",
+    setupActionId: "setup.open_location",
+    setupControlId: "one_setup_tile_location",
+    agentId: "agent_location",
+    title: "Location",
+    description: "Share where you are with people you trust.",
+    previewLabel: "Live location & Alerts",
+    href: ROUTES.ONE_LOCATION,
+    icon: customCapabilityIcon(LocationAgentIcon),
+    tone: "location",
     group: "workflow",
     requiresVault: true,
   },
@@ -150,11 +211,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // RIA setup is an account/persona workflow owned by the existing RIA
     // onboarding route. It is not a separate product-agent delegation lane.
     agentId: null,
-    title: "RIA",
+    title: "Advisor",
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: lucideCapabilityIcon(UsersRound),
+    icon: customCapabilityIcon(RiaAgentIcon),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -163,12 +224,14 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     id: "gmail",
     setupActionId: "setup.open_gmail",
     setupControlId: "one_setup_tile_gmail",
-    agentId: "agent_gmail",
-    title: "Gmail",
+    // Gmail remains a setup/product surface; its conversational reads now
+    // belong to the unified Email specialist.
+    agentId: "agent_email",
+    title: "Mail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: lucideCapabilityIcon(Mail),
+    icon: customCapabilityIcon(GmailAgentIcon),
     tone: "gmail",
     group: "memory",
     requiresVault: true,
@@ -182,7 +245,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Calendar summaries, availability, and confirmed scheduling.",
     previewLabel: "Availability & scheduling",
     href: ROUTES.CALENDAR,
-    icon: lucideCapabilityIcon(CalendarDays),
+    icon: customCapabilityIcon(CalendarAgentIcon),
     tone: "calendar",
     group: "workflow",
     requiresVault: true,
@@ -194,23 +257,13 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     agentId: "agent_kyc",
     title: "KYC",
     description: "Review information requests and approve each response.",
+    // Personal Gmail owns the current KYC experience. Keep this legacy
+    // compatibility route/runtime available without presenting it as a
+    // second standalone agent in One's roster or agent switcher.
+    isVisibleOnRoster: false,
     href: ROUTES.ONE_KYC,
-    icon: lucideCapabilityIcon(FileCheck2),
+    icon: customCapabilityIcon(KycAgentIcon),
     tone: "email",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "location",
-    setupActionId: "setup.open_location",
-    setupControlId: "one_setup_tile_location",
-    agentId: "agent_location",
-    title: "Location",
-    description: "Live location & Alerts",
-    previewLabel: "Live location & Alerts",
-    href: ROUTES.ONE_LOCATION,
-    icon: lucideCapabilityIcon(MapPin),
-    tone: "location",
     group: "workflow",
     requiresVault: true,
   },
@@ -221,7 +274,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: lucideCapabilityIcon(BookMarked),
+    icon: customCapabilityIcon(MemoryAgentIcon),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -234,10 +287,24 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: lucideCapabilityIcon(KeyRound),
+    icon: customCapabilityIcon(ConsentAgentIcon),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
+  },
+  {
+    id: "files",
+    agentId: "agent_files",
+    title: "Files",
+    description: "Store and organize your encrypted files.",
+    href: ROUTES.ONE_FILES,
+    icon: customCapabilityIcon(FolderRowIcon),
+    tone: "pkm",
+    group: "memory",
+    requiresVault: true,
+    // Match the specialist's authored rollout; workspace admission still
+    // verifies placement, unlocked ownership, installed capability and analysis consent.
+    availability: "development-only",
   },
   {
     id: "marketplace",
@@ -248,7 +315,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
       "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
-    icon: lucideCapabilityIcon(Store),
+    icon: customCapabilityIcon(MarketplaceAgentIcon),
     tone: "pkm",
     group: "access",
     isExploreOnly: true,
@@ -262,10 +329,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "CRM",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: lucideCapabilityIcon(ContactRound),
+    icon: customCapabilityIcon(CrmAgentIcon),
     tone: "connected",
     group: "workflow",
     requiresVault: true,
+    availability: "local-only",
   },
 ] as const;
 
@@ -324,12 +392,20 @@ export function getOneCapability(id: string): OneCapability | undefined {
 // Tailwind's static content scanner can find and generate each utility.
 export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
 
-export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
+export function isOneCapabilityEnabled(
+  capability: OneCapability | string | undefined | null,
+): boolean {
   const resolved =
     typeof capability === "string" ? getOneCapability(capability) : capability;
-  return Boolean(
-    resolved &&
-      resolved.id !== "marketplace" &&
-      resolved.availability !== "paused",
-  );
+  if (
+    !resolved ||
+    resolved.id === "marketplace" ||
+    resolved.availability === "paused"
+  ) {
+    return false;
+  }
+  if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  if (resolved.availability === "development-only")
+    return resolveAppEnvironment() === "development";
+  return true;
 }

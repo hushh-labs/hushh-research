@@ -6,12 +6,13 @@ const repoRoot = path.resolve(process.cwd(), "..");
 const tmpDir = path.join(repoRoot, "tmp");
 const jsonPath = path.join(tmpDir, "observability-sandbox-audit.latest.json");
 const markdownPath = path.join(tmpDir, "observability-sandbox-audit.latest.md");
+const vitestCli = path.join(process.cwd(), "node_modules", "vitest", "vitest.mjs");
 
 mkdirSync(tmpDir, { recursive: true });
 
 const vitest = spawnSync(
-  process.platform === "win32" ? "npx.cmd" : "npx",
-  ["vitest", "run", "__tests__/services/observability-sandbox-audit.test.ts"],
+  process.execPath,
+  [vitestCli, "run", "__tests__/services/observability-sandbox-audit.test.ts"],
   {
     cwd: process.cwd(),
     stdio: "inherit",

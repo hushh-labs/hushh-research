@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
@@ -15,9 +16,11 @@ import {
   clearPlaidOAuthResumeSession,
   loadPlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
-import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
-import { VaultService } from "@/lib/services/vault-service";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
+import { completeVaultOAuthReturn } from "@/lib/kai/plaid-vault/vault-sync";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -27,7 +30,7 @@ function formatErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
-  return "Plaid OAuth could not be completed.";
+  return "The bank connection could not be finished.";
 }
 
 async function settleOnboardingPlaidAttempt(params: {
@@ -36,9 +39,13 @@ async function settleOnboardingPlaidAttempt(params: {
   outcome: "succeeded" | "cancelled" | "failed";
 }): Promise<boolean> {
   if (!params.attemptId) return false;
-  const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
-    force: true,
-  }).catch(() => null);
+  const journey = await runKaiStepWithTimeout(
+    "Checking Plaid setup state",
+    PreVaultUserStateService.bootstrapState(params.userId, {
+      force: true,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  ).catch(() => null);
   const matches = Boolean(
     journey &&
       !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -48,39 +55,35 @@ async function settleOnboardingPlaidAttempt(params: {
       journey.onboardingCallbackAttemptId === params.attemptId,
   );
   if (!matches || !journey) return false;
-  await PreVaultUserStateService.syncOnboardingJourney({
-    userId: params.userId,
-    phase: params.outcome === "succeeded" ? "capability_setup" : "external_connector",
-    activeCapability: "finance",
-    callbackState: params.outcome,
-    expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-    expectedCallbackAttemptId: params.attemptId,
-  });
+  await runKaiStepWithTimeout(
+    "Updating Plaid setup state",
+    PreVaultUserStateService.syncOnboardingJourney({
+      userId: params.userId,
+      phase:
+        params.outcome === "succeeded" ? "capability_setup" : "external_connector",
+      activeCapability: "finance",
+      callbackState: params.outcome,
+      expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+      expectedCallbackAttemptId: params.attemptId,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  );
   return true;
 }
 
 export default function KaiPlaidOauthReturnPage() {
   const router = useRouter();
   const startedRef = useRef(false);
-  const { user, loading } = useAuth();
-  const { vaultKey, unlockVault } = useVault();
+  const { user, userId: ownerId, loading } = useAuth();
+  // This route sits behind the vault unlock screen (OneAuthGate), so by the
+  // time it renders the person has unlocked again after the bank's page.
+  const { vaultKey, vaultOwnerToken } = useVault();
   const [stage, setStage] = useState<ResumeStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnPath, setReturnPath] = useState<string>(ROUTES.KAI_DASHBOARD);
 
   useEffect(() => {
     if (loading || startedRef.current) return;
-
-    const session = loadPlaidOAuthResumeSession();
-    if (!session) {
-      setStage("error");
-      setError("No active Plaid OAuth session was found. Start the connection again from Kai.");
-      return;
-    }
-
-    setReturnPath(session.returnPath || ROUTES.KAI_DASHBOARD);
-    const flowKind = session.flowKind === "funding" ? "funding" : "investments";
-
     if (!user?.uid) {
       const redirectTarget =
         typeof window !== "undefined"
@@ -89,121 +92,48 @@ export default function KaiPlaidOauthReturnPage() {
       router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
       return;
     }
+    if (!ownerId || !vaultKey || !vaultOwnerToken) return;
 
-    if (session.userId !== user.uid) {
-      clearPlaidOAuthResumeSession();
+    const session = loadPlaidOAuthResumeSession();
+    if (!session) {
       setStage("error");
-      setError("This Plaid OAuth session belongs to a different signed-in user.");
+      setError("This bank login has expired or was already used. Start the connection again from Finance.");
       return;
     }
+    setReturnPath(session.returnPath || ROUTES.KAI_DASHBOARD);
 
     startedRef.current = true;
+    const userId = ownerId;
     void (async () => {
       try {
-        setStage("loading");
-        const issued = await VaultService.getOrIssueVaultOwnerToken(user.uid);
-        if (vaultKey) {
-          unlockVault(vaultKey, issued.token, issued.expiresAt);
-        }
-
-        const resume = await PlaidPortfolioService.resumeOAuth({
-          userId: user.uid,
-          resumeSessionId: session.resumeSessionId,
-          vaultOwnerToken: issued.token,
-        });
-        const linkTokenValue = resume.link_token;
-        if (!resume.configured || !linkTokenValue) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-
-        const Plaid = await loadPlaidLink();
         setStage("resuming");
-
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          const finish = (callback: () => void) => {
-            if (settled) return;
-            settled = true;
-            callback();
-          };
-
-          const handler = Plaid.create({
-            token: linkTokenValue,
-            receivedRedirectUri: window.location.href,
-            onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
-              void (
-                flowKind === "funding"
-                  ? PlaidPortfolioService.exchangeFundingPublicToken({
-                      userId: user.uid,
-                      publicToken,
-                      vaultOwnerToken: issued.token,
-                      metadata,
-                      resumeSessionId: session.resumeSessionId,
-                      consentTimestamp: new Date().toISOString(),
-                    })
-                  : PlaidPortfolioService.exchangePublicToken({
-                      userId: user.uid,
-                      publicToken,
-                      vaultOwnerToken: issued.token,
-                      metadata,
-                      resumeSessionId: session.resumeSessionId,
-                    })
-              )
-                .then(async () => {
-                  await settleOnboardingPlaidAttempt({
-                    userId: user.uid,
-                    attemptId: session.onboardingAttemptId,
-                    outcome: "succeeded",
-                  });
-                  clearPlaidOAuthResumeSession();
-                  finish(resolve);
-                })
-                .catch((resumeError) => {
-                  finish(() =>
-                    reject(
-                      resumeError instanceof Error
-                        ? resumeError
-                        : new Error("Plaid exchange failed.")
-                    )
-                  );
-                })
-                .finally(() => {
-                  handler.destroy?.();
-                });
-            },
-          onExit: (exitError: Record<string, unknown> | null) => {
-            handler.destroy?.();
-            void settleOnboardingPlaidAttempt({
-              userId: user.uid,
-              attemptId: session.onboardingAttemptId,
-              outcome:
-                exitError && typeof exitError === "object" ? "failed" : "cancelled",
-            })
-              .catch(() => undefined)
-              .finally(() => {
-                clearPlaidOAuthResumeSession();
-                if (exitError && typeof exitError === "object") {
-                  const detail =
-                    typeof exitError.error_message === "string"
-                      ? exitError.error_message
-                      : "Plaid Link closed with an error.";
-                  finish(() => reject(new Error(detail)));
-                  return;
-                }
-                finish(resolve);
-              });
-            },
-          });
-
-          handler.open();
+        const { kind, result } = await completeVaultOAuthReturn({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          session,
+          currentUrl: window.location.href,
         });
-
+        if (result.status === "blocked") throw new Error(result.reason);
+        if (kind === "connect") {
+          await settleOnboardingPlaidAttempt({
+            userId,
+            attemptId: session.onboardingAttemptId,
+            outcome: result.status === "connected" ? "succeeded" : "cancelled",
+          }).catch(() => undefined);
+        }
+        if (result.status === "connected") {
+          toast.success(
+            result.institutionName ? `${result.institutionName} connected.` : "Bank connected with Plaid.",
+          );
+        } else if (result.status === "repaired") {
+          toast.success("Plaid connection updated.");
+        }
         setStage("redirecting");
         router.replace(session.returnPath || ROUTES.KAI_DASHBOARD);
       } catch (resumeError) {
-        clearPlaidOAuthResumeSession();
         await settleOnboardingPlaidAttempt({
-          userId: user.uid,
+          userId,
           attemptId: session.onboardingAttemptId,
           outcome: "failed",
         }).catch(() => undefined);
@@ -211,7 +141,7 @@ export default function KaiPlaidOauthReturnPage() {
         setError(formatErrorMessage(resumeError));
       }
     })();
-  }, [loading, router, unlockVault, user?.uid, vaultKey]);
+  }, [loading, router, user?.uid, ownerId, vaultKey, vaultOwnerToken]);
 
   if (stage !== "error") {
     return (
@@ -232,7 +162,7 @@ export default function KaiPlaidOauthReturnPage() {
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning to Kai..."
+                ? "Returning to Finance..."
                 : "Resuming your Plaid connection..."
             }
           />
@@ -261,7 +191,7 @@ export default function KaiPlaidOauthReturnPage() {
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
             <Button onClick={() => router.replace(returnPath)} className="w-full">
-              Back to Kai
+              Back to Finance
             </Button>
             <Button
               variant="none"
@@ -272,7 +202,7 @@ export default function KaiPlaidOauthReturnPage() {
               }}
               className="w-full"
             >
-              Reset Plaid Resume
+              Start over
             </Button>
           </div>
         </div>

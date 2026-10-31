@@ -4,46 +4,67 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { JsonLd } from "@/components/seo/json-ld";
-import { buildFaqGraph } from "@/lib/seo/structured-data";
-import { HOME_FAQ } from "@/lib/seo/faq-data";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
-import { ROUTES } from "@/lib/navigation/routes";
-import { resolveAppEnvironment } from "@/lib/app-env";
+import { INVITE_TO_ONE_PATH, ROUTES } from "@/lib/navigation/routes";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthService } from "@/lib/services/auth-service";
-import { Button } from "@/lib/morphy-ux/button";
-
-type HomeStep = "intro";
+import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
+import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
+import { useVault } from "@/lib/vault/vault-context";
 
 function HomeContent() {
   const router = useRouter();
+  const { replace } = router;
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || "";
-  const loginUrl = redirectPath
-    ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
+  const inviteMarkers = searchParams.getAll("invite");
+  const isOneInvitation =
+    inviteMarkers.length === 1 && inviteMarkers[0] === "one" && !redirectPath;
+  const loginReturnTo =
+    redirectPath || (isOneInvitation ? INVITE_TO_ONE_PATH : "");
+  const loginUrl = loginReturnTo
+    ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(loginReturnTo)}`
     : ROUTES.LOGIN;
 
-  const { user, loading, phoneNumber } = useAuth();
-  const [step, setStep] = useState<HomeStep | null>(null);
-  const [routingError, setRoutingError] = useState<string | null>(null);
+  const {
+    user,
+    userId: ownerId,
+    loading,
+    phoneNumber,
+    sessionVerificationRequired,
+    retrySessionVerification,
+    signOut,
+  } = useAuth();
+  const { isVaultUnlocked } = useVault();
+  const [routingError, setRoutingError] = useState(false);
   const [routingAttempt, setRoutingAttempt] = useState(0);
+  const [authenticatedRootReady, setAuthenticatedRootReady] = useState(false);
   const activeResolutionRef = useRef<string | null>(null);
+  const hasExplicitRedirect = Boolean(
+    redirectPath && redirectPath !== ROUTES.HOME,
+  );
+  // The admission read remains authoritative and continues in the background,
+  // but an already-unlocked owner does not need to stare at a full-screen
+  // loader while that read settles. VaultLockGuard and PhoneMandateGuard still
+  // wrap the workspace below, so this is only a paint fast path—not an access
+  // bypass. Explicit deep links keep the blocking route-resolution behavior.
+  const canRenderAuthenticatedChatImmediately = Boolean(
+    user && isVaultUnlocked && !hasExplicitRedirect,
+  );
 
-  const forceOnboardingInDev = resolveAppEnvironment() === "development";
-  // Debug helper (browser console): resets Steps 1-2 visibility flag.
+  // Debug helper opens the public introduction with the One invitation context.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (typeof window === "undefined") return;
 
     (window as any).resetOnboardingMarketing = async () => {
       await OnboardingLocalService.clearMarketingSeen();
-      setStep("intro");
-      router.replace("/");
+      router.replace(INVITE_TO_ONE_PATH);
     };
 
     return () => {
@@ -52,33 +73,31 @@ function HomeContent() {
   }, [router]);
 
   useEffect(() => {
-    if (loading) return;
-
-    if (user) return;
-
-    // The marketing carousel is disabled for now: every signed-out visitor
-    // lands on the single welcome (intro) screen, which leads to sign-in. The
-    // dev-only force-intro flag is consumed so it does not persist.
-    void OnboardingLocalService.consumeForceIntroOnce();
-    setStep("intro");
-  }, [forceOnboardingInDev, loading, user, router]);
-
-  useEffect(() => {
-    if (loading || !user?.uid) {
-      if (!user?.uid) activeResolutionRef.current = null;
+    if (loading || sessionVerificationRequired || !ownerId) {
+      if (!ownerId) activeResolutionRef.current = null;
       return;
     }
 
-    const userId = user.uid;
-    const resolutionKey = `${userId}:${phoneNumber ?? ""}:${routingAttempt}`;
+    const userId = ownerId;
+    const resolutionKey = JSON.stringify([
+      userId,
+      phoneNumber,
+      redirectPath,
+      routingAttempt,
+    ]);
     if (activeResolutionRef.current === resolutionKey) return;
     activeResolutionRef.current = resolutionKey;
-    setStep(null);
-    setRoutingError(null);
+    setAuthenticatedRootReady(false);
+    setRoutingError(false);
     let cancelled = false;
+    let settled = false;
 
     void (async () => {
-      const idToken = await AuthService.getIdToken();
+      // A Firebase session can still be restoring a few frames after a fresh
+      // sign-in or a referral redirect. A single null read here used to fail
+      // this whole resolution hard ("Unable to verify setup progress"); wait
+      // briefly and retry once before treating it as a genuine sign-out.
+      const idToken = await AuthService.getIdTokenWithRetry();
       if (!idToken) {
         throw new Error("Native session did not provide an ID token.");
       }
@@ -90,70 +109,110 @@ function HomeContent() {
         enableFirstRunSetupGate: true,
       });
       if (cancelled || activeResolutionRef.current !== resolutionKey) return;
-      router.replace(nextPath);
+      settled = true;
+      if (nextPath === ROUTES.HOME) {
+        setAuthenticatedRootReady(true);
+        return;
+      }
+      replace(nextPath);
     })().catch((error) => {
       if (cancelled || activeResolutionRef.current !== resolutionKey) return;
+      settled = true;
       console.warn("[Home] Failed to resolve authenticated entry:", error);
-      setRoutingError("Unable to verify setup progress. Please retry.");
+      setRoutingError(true);
     });
 
     return () => {
       cancelled = true;
+      // An interrupted attempt must be restartable, including StrictMode's
+      // setup/cleanup replay. Only a settled resolution may be deduplicated.
+      if (!settled && activeResolutionRef.current === resolutionKey) {
+        activeResolutionRef.current = null;
+      }
     };
-  }, [loading, phoneNumber, redirectPath, router, routingAttempt, user?.uid]);
+  }, [
+    loading,
+    phoneNumber,
+    redirectPath,
+    replace,
+    routingAttempt,
+    sessionVerificationRequired,
+    ownerId,
+  ]);
 
-  if (loading || (!user && step === null)) {
-    return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
+  if (loading) {
+    return (
+      <HushhLoader
+        stage="session"
+        label="Preparing welcome…"
+      />
+    );
+  }
+
+  if (sessionVerificationRequired) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={retrySessionVerification}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
+    );
   }
 
   if (user) {
     if (routingError) {
       return (
-        <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
-          <p className="text-sm text-muted-foreground">{routingError}</p>
-          <Button
-            variant="muted"
-            onClick={() => {
-              activeResolutionRef.current = null;
-              setRoutingAttempt((attempt) => attempt + 1);
-            }}
-          >
-            Retry
-          </Button>
-        </div>
+        <SessionVerificationRecovery
+          onRetry={() => {
+            activeResolutionRef.current = null;
+            setRoutingAttempt((attempt) => attempt + 1);
+          }}
+          onSignOut={() => void signOut({ skipFcmCleanup: true })}
+        />
       );
     }
-    return <HushhLoader variant="fullscreen" label="Opening One…" />;
-  }
-
-  if (step === "intro") {
+    if (!authenticatedRootReady && !canRenderAuthenticatedChatImmediately) {
+      return <HushhLoader stage="workspace" label="Opening chat…" />;
+    }
     return (
       <>
         <NativeTestBeacon
           routeId="/"
           marker="native-route-home"
-          authState={user ? "authenticated" : "anonymous"}
+          authState="authenticated"
           dataState="loaded"
         />
-        <IntroStep onLogin={() => router.push(loginUrl)} />
+        <VaultLockGuard>
+          <PhoneMandateGuard>
+            <Suspense
+              fallback={
+                <HushhLoader stage="workspace" label="Loading chat…" />
+              }
+            >
+              <AgentChatWorkspace />
+            </Suspense>
+          </PhoneMandateGuard>
+        </VaultLockGuard>
       </>
     );
   }
 
-  return null;
+  return (
+      <>
+        <NativeTestBeacon
+          routeId="/"
+          marker="native-route-home"
+          authState="anonymous"
+          dataState="loaded"
+        />
+        <IntroStep onLogin={() => router.push(loginUrl)} />
+      </>
+  );
 }
 
 export default function Home() {
   return (
     <>
-      <JsonLd data={buildFaqGraph(HOME_FAQ)} />
-      <NativeRouteMarker
-        routeId="/"
-        marker="native-route-home"
-        authState="anonymous"
-        dataState="loaded"
-      />
-      <Suspense fallback={null}>
+      <Suspense fallback={<HushhLoader stage="session" label="Preparing welcome…" />}>
         <HomeContent />
       </Suspense>
     </>

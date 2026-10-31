@@ -1,9 +1,24 @@
+import { Capacitor } from "@capacitor/core";
+
 import { HushhLocation } from "@/lib/capacitor";
 import {
-  ApiError,
-  apiErrorCode,
-  apiJson,
-} from "@/lib/services/api-client";
+  normalizeNearbyPlaceResponse,
+  type NearbyPlacesResponse,
+  type OneLocationNearbyPlacesRequest,
+  type OneLocationNearbyPlacesResult,
+} from "./nearby-places";
+import {
+  LocationBus,
+  type LocationSnapshot,
+} from "@/lib/one-location/location-bus";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
+import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
+import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerContentIsPrivate, privateAgentSpecialistTurn } from "@/lib/services/private-agent-specialist-chat";
+import { trackNearbyCheckOutCompleted } from "@/lib/observability/location-events";
+import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -11,21 +26,31 @@ import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
+  OneLocationAutoApprovePreference,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
+  OneLocationCircleEligibleConnection,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
+  OneLocationCircleMember,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationStoredEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
-  OneLocationNearbyPlaceCategory,
+  OneLocationNearbyCheckInPreference,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
+  OneLocationPlaceRating,
+  OneLocationPlaceRatingSummary,
+  OneLocationRateableVisit,
+  OneLocationSosVoicePreference,
   OneLocationGrant,
   OneLocationMapPreferences,
   OneLocationMapState,
@@ -33,15 +58,115 @@ import type {
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
   OneLocationRecipient,
+  OneLocationRecipientPage,
   OneLocationReferral,
+  OneLocationShareDurationMode,
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
   RouteEta,
 } from "@/lib/one-location/types";
 
+type OneLocationCircleEligibleConnectionApiRow = Omit<
+  OneLocationCircleEligibleConnection,
+  "isRia"
+> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationCircleEligibleConnectionsApiResponse = {
+  eligibleConnections?: OneLocationCircleEligibleConnectionApiRow[];
+  connections?: OneLocationCircleEligibleConnectionApiRow[];
+  pendingInvites?: OneLocationCircleMemberInvite[];
+  remainingCapacity?: number;
+};
+
+type OneLocationRecipientApiRow = Omit<OneLocationRecipient, "isRia"> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationCircleMemberApiRow = Omit<OneLocationCircleMember, "isRia"> & {
+  isRia?: boolean | null;
+};
+
+type OneLocationStateApiResponse = Omit<OneLocationState, "recipients"> & {
+  recipients?: OneLocationRecipientApiRow[];
+};
+
+type OneLocationRecipientPageApiResponse = Omit<
+  OneLocationRecipientPage,
+  "items"
+> & {
+  items?: OneLocationRecipientApiRow[];
+};
+
+type OneLocationCircleDetailApiResponse = Omit<
+  OneLocationCircleDetail,
+  "members"
+> & {
+  members?: OneLocationCircleMemberApiRow[];
+};
+
+type OneLocationCircleMemberPageApiResponse = Omit<
+  OneLocationCircleMemberPage,
+  "items"
+> & {
+  items?: OneLocationCircleMemberApiRow[];
+};
+
+function normalizeEligibleConnection(
+  connection: OneLocationCircleEligibleConnectionApiRow,
+): OneLocationCircleEligibleConnection {
+  return {
+    ...connection,
+    isRia: Boolean(connection.isRia),
+  };
+}
+
+function normalizeRecipient(
+  recipient: OneLocationRecipientApiRow,
+): OneLocationRecipient {
+  return {
+    ...recipient,
+    isRia: Boolean(recipient.isRia),
+  };
+}
+
+function normalizeCircleMember(
+  member: OneLocationCircleMemberApiRow,
+): OneLocationCircleMember {
+  return {
+    ...member,
+    isRia: Boolean(member.isRia),
+  };
+}
+
+function normalizeCircleDetail(
+  circle: OneLocationCircleDetailApiResponse,
+): OneLocationCircleDetail {
+  return {
+    ...circle,
+    members: (circle.members ?? []).map(normalizeCircleMember),
+  };
+}
+
+function normalizeCircleMaybeDetail(
+  circle: OneLocationCircleDetailApiResponse | OneLocationCircleOverview,
+): OneLocationCircleDetail | OneLocationCircleOverview {
+  return "members" in circle ? normalizeCircleDetail(circle) : circle;
+}
+
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
   return { Authorization: `Bearer ${vaultOwnerToken}` };
+}
+
+/**
+ * Origin prefix for a route served by the Next.js app rather than the Python
+ * backend. Empty on web (relative is correct); the web origin on native, where
+ * a relative path would otherwise resolve against the backend.
+ */
+function nextRouteOrigin(): string {
+  return Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
 }
 
 function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -49,6 +174,19 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
     ...authHeaders(vaultOwnerToken),
     "Content-Type": "application/json",
   };
+}
+
+let locationMutationSequence = 0;
+
+function newLocationMutationOperationId(prefix: string): string {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return `${prefix}_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  locationMutationSequence += 1;
+  return `${prefix}_${Date.now().toString(36)}_${locationMutationSequence.toString(36)}`;
 }
 
 function wait(ms: number): Promise<void> {
@@ -86,13 +224,143 @@ async function apiJsonWithRetry<T>(
   }
 }
 
+/**
+ * How long a captured fix stays reusable. Deliberately well under the 60s the
+ * backend allows between capture and confirmation, so a reused point still
+ * passes the server's freshness check and still describes where the user
+ * actually is.
+ */
+export const CAPTURE_DEFAULT_MAX_AGE_MS = 20_000;
+
+/**
+ * The window for a caller that needs a fix describing where the user is *now*
+ * — dropping a pin, saving a place, anchoring a check-in.
+ *
+ * Deliberately a few seconds rather than zero. `maxAgeMs: 0` forces a full
+ * device acquisition on every press, and on a laptop with no GPS that is well
+ * over a second of dead time before any UI appears. But a fix taken five
+ * seconds ago is not meaningfully different: at walking pace that is about
+ * seven metres, comfortably inside the 10-35m accuracy the device reports
+ * anyway. So the "fresh" reading and the reused one describe the same place,
+ * and one of them is free.
+ *
+ * Zero is still correct for the live-share publisher — nobody is waiting on it,
+ * and a recipient watching someone move must see the newest fix there is.
+ */
+export const CAPTURE_FRESH_MAX_AGE_MS = 5_000;
+
+/**
+ * How old a fix may be and still be served after the device failed to produce
+ * a new one.
+ *
+ * A different question from the caller's `maxAgeMs`, which asks "may I skip
+ * the GPS?" — five or twenty seconds is right for that, and using it here
+ * would make this fallback fire essentially never, which is the bug. This asks
+ * "the device just failed and I am holding a position: is it still an honest
+ * answer to where you are?" Ten minutes is the budget this codebase already
+ * chose for exactly that question, in the nearby check-in sheet.
+ */
+export const CAPTURE_STALE_FALLBACK_MAX_AGE_MS = 10 * 60 * 1_000;
+
+function resolveSourcePlatform(): PlainLocationPoint["sourcePlatform"] {
+  const platform = Capacitor.getPlatform();
+  if (platform === "ios" || platform === "android") return platform;
+  return "web";
+}
+
+/**
+ * A bus snapshot as the point every caller here expects.
+ *
+ * `sourcePlatform` falls back to the running platform only when the snapshot
+ * does not carry one — a floor, not a guess that overrides the truth. The
+ * field is sealed into the envelope and rendered to the recipient, so it must
+ * never be absent.
+ */
+function toPlainPoint(snapshot: LocationSnapshot): PlainLocationPoint {
+  return {
+    latitude: snapshot.latitude,
+    longitude: snapshot.longitude,
+    accuracyM: snapshot.accuracyM ?? null,
+    capturedAt: snapshot.capturedAt,
+    sourcePlatform: snapshot.sourcePlatform ?? resolveSourcePlatform(),
+  };
+}
+
+function withinAge(capturedAt: string, maxAgeMs: number): boolean {
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return false;
+  const age = Date.now() - capturedMs;
+  return age >= 0 && age <= maxAgeMs;
+}
+
+/** Live bus-backed watches, keyed by the id handed to the caller. */
+const busWatches = new Map<string, () => void>();
+let busWatchSeq = 0;
+
+function captureFailure(state: { error: string | null }): Error {
+  const original = LocationBus.getLastCaptureError();
+  if (original instanceof Error) return original;
+  return new Error(state.error ?? "Could not get your location.");
+}
+
+/**
+ * Read a paged payload's list HERE, at the boundary, rather than leaving it to
+ * the caller.
+ *
+ * Every caller hands the list straight to a React state updater --
+ * `setPagedRecipientsByUserId((current) => { for (const row of result.items)
+ * ... })`. React invokes those updaters AFTER the awaited call has returned,
+ * which is outside the caller's own `try`/`catch` and outside any `.catch()` on
+ * the promise. So a payload with no list never reaches the handler written for
+ * exactly that case: it escapes as an unhandled render error and takes the
+ * whole page down. `/one/location` died this way on `result.items is not
+ * iterable` when a backend answered 200 with the unpaged `{ recipients: [...] }`
+ * shape that this same route also returns.
+ *
+ * It throws rather than coercing to an empty page -- unlike the
+ * `eligibleConnections ?? []` read further down -- and the difference is
+ * deliberate. Every caller's catch keeps the LAST GOOD page; an empty array
+ * would replace it. On a screen whose only job is choosing people, "no one" is
+ * a worse answer than "that read failed", because it looks like data.
+ */
+function pagedItems<T>(payload: { items?: T[] } | null, endpoint: string): T[] {
+  if (!Array.isArray(payload?.items)) {
+    throw new ApiError(
+      `Malformed paged response from ${endpoint}: expected an "items" array.`,
+      200,
+      payload,
+    );
+  }
+  return payload.items;
+}
+
+/**
+ * Tell every Feed surface that this device just wrote something worth showing.
+ *
+ * The Feed learns about OTHER people's activity from a push, and about its own
+ * from nothing at all -- so the row for an action you just took waited out the
+ * 45s poll on the very screen you opened to check it had worked. These calls
+ * are the only writes that produce a Feed row, so announcing here covers every
+ * caller (hub, agent, voice, deep link) instead of each one remembering to.
+ *
+ * Fire-and-forget and side-effect free: the Feed re-fetches, and a surface that
+ * is not mounted hears nothing.
+ */
+function announceFeedActivity(): void {
+  dispatchFeedStateChanged("arrived");
+}
+
 export class OneLocationService {
   static async getPermissionState() {
     return HushhLocation.getPermissionState();
   }
 
   static async requestLocationPermission() {
-    return HushhLocation.requestLocationPermission();
+    const permission = await HushhLocation.requestLocationPermission();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hushh:location-permission-observed", { detail: permission }));
+    }
+    return permission;
   }
 
   static async requestAlwaysAuthorization() {
@@ -107,11 +375,88 @@ export class OneLocationService {
     return HushhLocation.openLocationSettings();
   }
 
-  static async captureCurrentPosition(): Promise<PlainLocationPoint> {
-    return HushhLocation.getCurrentPosition({
-      enableHighAccuracy: true,
-      timeoutMs: 15_000,
-    });
+  /**
+   * The account's current position, from the one store that holds it.
+   *
+   * This used to keep its own cache — a fix and an in-flight promise, twenty
+   * seconds of reuse — parallel to and unaware of `LocationBus`. Two stores
+   * for one question, and the whole One Location surface was on this one,
+   * which had none of the bus's resilience: no memory across a reload, and no
+   * answer at all when the device declined to produce a fix. Every caller here
+   * inherited that. The heartbeat published the result once every twenty
+   * seconds: "Could not get your location", while a movement watch two effects
+   * away was delivering fixes the entire time.
+   *
+   * Delegating gets all of it at once — coalescing, the restored fix from the
+   * previous session, and the distinction between a device that refused and a
+   * device that merely did not answer this time.
+   *
+   * `maxAgeMs` is forwarded rather than left to the bus's own default: the bus
+   * allows two minutes, and the backend rejects a point older than sixty
+   * seconds between capture and confirmation, so a share built on the bus
+   * default would fail for a reason the owner cannot see.
+   */
+  static async captureCurrentPosition(options?: {
+    maxAgeMs?: number;
+    /** Reject a held/restored fix when an action needs a current measurement. */
+    requireMeasurement?: boolean;
+    /**
+     * "I need a fix that describes where the user is right now" — dropping a
+     * pin, saving a place, anchoring a check-in.
+     *
+     * Prefer this over `maxAgeMs: 0` at a call site. It says what the caller
+     * needs rather than a number, and it keeps the freshness policy in one
+     * place. It is also deliberately not importable state: a caller that had to
+     * import a constant from this module would break the moment a test mocked
+     * the module without re-exporting it.
+     */
+    fresh?: boolean;
+  }): Promise<PlainLocationPoint> {
+    const maxAgeMs =
+      options?.maxAgeMs ??
+      (options?.fresh || options?.requireMeasurement ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
+
+    const snapshot = await LocationBus.ensure({ maxAgeMs, ...(options?.requireMeasurement ? { requireMeasurement: true } : {}) });
+    // Read the state AFTER the await, never a copy taken before it: a watch
+    // fix can land while this call is in flight, and the newer answer is the
+    // right one to serve.
+    const state = LocationBus.getState();
+
+    const latestSnapshot = state.status === "ready" ? state.snapshot ?? snapshot : snapshot;
+    if (latestSnapshot && state.status === "ready" &&
+        (!options?.requireMeasurement || withinAge(latestSnapshot.capturedAt, 30_000))) return toPlainPoint(latestSnapshot);
+
+    // The device failed and we are holding a position. A failed refresh is not
+    // a location we do not have, and until now the two were indistinguishable
+    // to every caller on this surface — which is what put "turn on location"
+    // in front of people whose location was perfectly well known.
+    if (
+      !options?.requireMeasurement && snapshot &&
+      withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)
+    ) {
+      return toPlainPoint(snapshot);
+    }
+
+    // Two things still throw, and both are dead ends the owner has to see: a
+    // platform that refused (the bus returns null on a denial even while
+    // holding a fix, so this is reached), and having no position at all.
+    throw captureFailure(state);
+  }
+
+  /**
+   * Declare the held fix untrustworthy. Call when the device may have moved
+   * without us — a permission change, or the app returning from background.
+   *
+   * The position stays on screen; only its right to satisfy the next call
+   * without re-reading the device is revoked.
+   */
+  static invalidateCapturedPosition(): void {
+    LocationBus.invalidate();
+  }
+
+  /** Test seam. Never call from app code. */
+  static __resetCaptureCacheForTests(): void {
+    LocationBus.__resetForTests();
   }
 
   /**
@@ -119,24 +464,55 @@ export class OneLocationService {
    * time the device reports a new fix (as the user moves), powering true live
    * location instead of a fixed-interval re-fetch. Returns a watch id; pass it
    * to `clearLocationWatch` to stop. Foreground-only.
+   *
+   * Backed by the bus's refcounted watch rather than a device subscription of
+   * its own. The Location page starts two of these — one to publish movement,
+   * one to draw the owner's own marker — and each used to open a separate OS
+   * watch. On iOS that matters beyond battery: the plugin holds exactly one
+   * pending location call, and a second request rejects the first with "A
+   * newer location request replaced this request", which arrived in the
+   * publisher's catch as a location failure.
+   *
+   * Adapting here rather than at the two call sites means any other caller
+   * that appears also feeds the shared store instead of competing with it.
    */
   static async watchCurrentPosition(
     onPoint: (point: PlainLocationPoint) => void,
     onError?: (error: { message: string; code?: number }) => void,
   ): Promise<string> {
-    return HushhLocation.watchPosition(
-      { enableHighAccuracy: true, timeoutMs: 20_000 },
-      (point, error) => {
-        if (point) {
-          onPoint(point);
-          return;
-        }
-        if (error && onError) onError(error);
-      },
-    );
+    const stop = await LocationBus.watch();
+    const id = `bus:${++busWatchSeq}`;
+    let lastSeenAt: string | null = null;
+
+    const unsubscribe = LocationBus.subscribe((state) => {
+      if (state.snapshot && state.snapshotOrigin === "fresh") {
+        // subscribe() fires on every emit, including a permission-only one.
+        // Without this the same coordinate would be re-delivered as movement.
+        if (state.snapshot.capturedAt === lastSeenAt) return;
+        lastSeenAt = state.snapshot.capturedAt;
+        onPoint(toPlainPoint(state.snapshot));
+        return;
+      }
+      if (state.status === "denied" && onError) {
+        onError({ message: state.error ?? "Location is off.", code: 1 });
+      }
+    });
+
+    busWatches.set(id, () => {
+      unsubscribe();
+      stop();
+    });
+    return id;
   }
 
   static async clearLocationWatch(id: string): Promise<void> {
+    const release = busWatches.get(id);
+    if (release) {
+      busWatches.delete(id);
+      release();
+      return;
+    }
+    // A raw plugin id from a watch started before this adapter existed.
     if (!id) return;
     return HushhLocation.clearWatch({ id });
   }
@@ -151,7 +527,6 @@ export class OneLocationService {
     return HushhLocation.stopBackgroundShare();
   }
 
-
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
     keyId: string;
@@ -159,7 +534,7 @@ export class OneLocationService {
     algorithm: string;
     encryptedPrivateKeyJwk?: OneLocationEncryptedPrivateKey | null;
   }): Promise<OneLocationRecipient> {
-    const response = await apiJson<{ recipientKey: OneLocationRecipient }>(
+    const response = await apiJson<{ recipientKey: OneLocationRecipientApiRow }>(
       "/api/one/location/recipient-keys",
       {
         method: "POST",
@@ -174,13 +549,102 @@ export class OneLocationService {
         }),
       },
     );
-    return response.recipientKey;
+    return normalizeRecipient(response.recipientKey);
   }
 
   static async getState(vaultOwnerToken: string): Promise<OneLocationState> {
-    return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
+    const state = await apiJsonWithRetry<OneLocationStateApiResponse>(
+      "/api/one/location/state",
+      {
+        headers: jsonAuthHeaders(vaultOwnerToken),
+      },
+    );
+    return {
+      ...state,
+      recipients: (state.recipients ?? []).map(normalizeRecipient),
+    };
+  }
+
+  static async updateAutoApprovePreference(params: {
+    vaultOwnerToken: string;
+    enabled: boolean;
+    scope?: AutoApproveScope | null;
+  }): Promise<OneLocationAutoApprovePreference> {
+    const response = await apiJson<{
+      preference: OneLocationAutoApprovePreference;
+    }>("/api/one/location/auto-approve-preference", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        enabled: params.enabled,
+        scopeKind: params.enabled ? params.scope?.kind : undefined,
+        circleId:
+          params.enabled && params.scope?.kind === "circle"
+            ? params.scope.circleId
+            : undefined,
+        circleIds:
+          params.enabled && params.scope?.kind === "circles"
+            ? params.scope.circleIds
+            : undefined,
+      }),
+    });
+    return response.preference;
+  }
+
+  static async getNearbyCheckInPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+    return response.preferences;
+  }
+
+  static async updateNearbyCheckInPreferences(params: {
+    vaultOwnerToken: string;
+    visible: boolean;
+    allowConnectionRequests: boolean;
+  }): Promise<OneLocationNearbyCheckInPreference> {
+    const response = await apiJson<{
+      preferences: OneLocationNearbyCheckInPreference;
+    }>("/api/one/location/nearby-check-in-preferences", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        visible: params.visible,
+        allowConnectionRequests: params.allowConnectionRequests,
+      }),
+    });
+    return response.preferences;
+  }
+
+  static async getSosVoicePreference(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+    return response.preference;
+  }
+
+  static async updateSosVoicePreference(params: {
+    vaultOwnerToken: string;
+    defaultAction: OneLocationSosVoicePreference["defaultAction"];
+  }): Promise<OneLocationSosVoicePreference> {
+    const response = await apiJson<{
+      preference: OneLocationSosVoicePreference;
+    }>("/api/one/location/sos-voice-preference", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        defaultAction: params.defaultAction,
+      }),
+    });
+    return response.preference;
   }
 
   /**
@@ -194,46 +658,218 @@ export class OneLocationService {
   static async listRecipients(
     vaultOwnerToken: string,
   ): Promise<OneLocationRecipient[]> {
-    const response = await apiJson<{ recipients: OneLocationRecipient[] }>(
+    const response = await apiJson<{ recipients?: OneLocationRecipientApiRow[] }>(
       "/api/one/location/recipients",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.recipients ?? [];
+    return (response.recipients ?? []).map(normalizeRecipient);
+  }
+
+  static async listRecipientsPage(params: {
+    vaultOwnerToken: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationRecipientPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    const endpoint = `/api/one/location/recipients?${search.toString()}`;
+    const payload = await apiJson<Partial<OneLocationRecipientPageApiResponse>>(
+      endpoint,
+      {
+        headers: authHeaders(params.vaultOwnerToken),
+      },
+    );
+    const items = pagedItems(
+      payload,
+      "/api/one/location/recipients",
+    ).map(normalizeRecipient);
+    return {
+      items,
+      page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(0, Number(payload.totalCount ?? items.length)),
+    };
   }
 
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {
-    const response = await apiJson<{ circles: OneLocationCircleSummary[] }>(
+    return (await this.listCircleWorkspace(vaultOwnerToken)).circles;
+  }
+
+  static async listCircleWorkspace(vaultOwnerToken: string): Promise<{
+    circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
+  }> {
+    const response = await apiJson<{ circles: OneLocationCircleSummary[]; customTypePolicy?: { version: number; maxTypes: number } }>(
       "/api/one/location/circles",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.circles ?? [];
+    return { ...response, circles: response.circles ?? [] };
+  }
+
+  static async deleteCircleType(params: { vaultOwnerToken: string; customTypeLabel: string }): Promise<{ updatedCircleCount: number }> {
+    return apiJson("/api/one/location/circle-types", {
+      method: "DELETE", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ customTypeLabel: params.customTypeLabel }),
+    });
   }
 
   static async getCircle(params: {
     vaultOwnerToken: string;
     circleId: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
+    return normalizeCircleDetail(response.circle);
+  }
+
+  static async getCircleOverview(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/overview`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
     return response.circle;
+  }
+
+  static async listCircleMembersPage(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleMemberPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    const route = `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members`;
+    const payload = await apiJson<Partial<OneLocationCircleMemberPageApiResponse>>(
+      `${route}?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    const items = pagedItems(payload, route).map(normalizeCircleMember);
+    return {
+      items,
+      page: Math.max(1, Number(payload.page ?? params.page ?? 1)),
+      hasMore: Boolean(payload.hasMore),
+      totalCount: Math.max(0, Number(payload.totalCount ?? items.length)),
+    };
+  }
+
+  /**
+   * Find-or-create the SMS/Emergency Circle and migrate legacy contacts in.
+   *
+   * Safe to call on every bootstrap: the second and every later call return the
+   * same Circle, and a contact the owner has since removed is not re-added.
+   */
+  static async ensureSmsSystemCircle(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationCircleDetail> {
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
+      "/api/one/location/circles/sms-system",
+      { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return normalizeCircleDetail(response.circle);
+  }
+
+  /**
+   * Find or create the built-in Trusted Circle container.
+   *
+   * This provisions an empty, manually curated Circle only. It never reads
+   * Connections or changes a member roster.
+   */
+  static async ensureTrustedSystemCircle(params: {
+    vaultOwnerToken: string;
+    summaryOnly?: boolean;
+  }): Promise<OneLocationCircleDetail | OneLocationCircleOverview> {
+    const response = await apiJson<{
+      circle: OneLocationCircleDetailApiResponse | OneLocationCircleOverview;
+    }>(
+      `/api/one/location/circles/trusted${params.summaryOnly ? "?summaryOnly=true" : ""}`,
+      { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return normalizeCircleMaybeDetail(response.circle);
   }
 
   static async createNamedCircle(params: {
     vaultOwnerToken: string;
     name: string;
     kind: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ name: params.name, kind: params.kind }),
+        body: JSON.stringify({ name: params.name, kind: params.kind, ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}) }),
       },
+    );
+    return normalizeCircleDetail(response.circle);
+  }
+
+  /**
+   * Find-or-create the caller's first Circle and return its live code.
+   *
+   * Takes a Firebase ID token rather than a vault owner token, because
+   * onboarding runs before the vault exists — the vault is only introduced once
+   * the /one/setup wizard finishes. Every other Circle call here stays
+   * vault-gated; this is the single pre-vault entry point, and it can only ever
+   * act on a Circle the caller owns.
+   */
+  static async bootstrapOnboardingCircle(params: {
+    idToken: string;
+    name: string;
+    purpose?: "signup_contacts_v1";
+  }): Promise<{ circleId: string; circleName: string; code: string }> {
+    const response = await apiJson<{
+      invite: { circleId: string; circleName: string; code: string };
+    }>("/api/one/location/circles/bootstrap", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.idToken),
+      body: JSON.stringify({ name: params.name, ...(params.purpose ? { purpose: params.purpose } : {}) }),
+    });
+    return response.invite;
+  }
+
+  /**
+   * Show what a circle code points at, before joining it.
+   *
+   * Firebase-authenticated like the bootstrap call, because someone who was
+   * handed a code meets it mid-setup, before any vault exists -- which is
+   * precisely the person the vault-gated resolve route would turn away.
+   */
+  static async previewOnboardingCircleCode(params: {
+    idToken: string;
+    code: string;
+  }): Promise<OneLocationCircleInvitePreview> {
+    const response = await apiJson<{ circle: OneLocationCircleInvitePreview }>(
+      "/api/one/location/circle-codes/preview",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.idToken),
+        body: JSON.stringify({ code: params.code }),
+      },
+    );
+    return response.circle;
+  }
+
+  /** Anonymous metadata only; this does not resolve membership or join. */
+  static async previewPublicCircleCode(code: string): Promise<{ name: string; ownerDisplayName: string }> {
+    const response = await apiJson<{ circle: { name: string; ownerDisplayName: string } }>(
+      "/api/one/location/circle-codes/public-preview",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) },
     );
     return response.circle;
   }
@@ -243,8 +879,9 @@ export class OneLocationService {
     circleId: string;
     name?: string;
     kind?: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
       {
         method: "PATCH",
@@ -252,10 +889,51 @@ export class OneLocationService {
         body: JSON.stringify({
           ...(params.name ? { name: params.name } : {}),
           ...(params.kind ? { kind: params.kind } : {}),
+          ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}),
         }),
       },
     );
+    return normalizeCircleDetail(response.circle);
+  }
+
+  static async updateNamedCirclePhoto(params: {
+    vaultOwnerToken: string; circleId: string; photoUrl: string | null;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/circles/${encodeURIComponent(params.circleId)}/photo`, {
+        method: "PUT", headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ photoUrl: params.photoUrl }), cache: "no-store",
+      });
+    if (!response.circle || response.circle.id !== params.circleId || response.circle.photoUrl !== params.photoUrl) {
+      throw new Error("Circle photo wasn't saved. Try again.");
+    }
     return response.circle;
+  }
+
+  /** Command adapter for the same owning mutation endpoints used by taps.
+   * No automatic retries: a lost response is reconciled by its operation ID. */
+  static async executeCircleManagementCommand(params: {
+    vaultOwnerToken:string;operationId:string;binding:CircleManagementBinding;
+  }):Promise<CircleManagementReceipt> {
+    const {binding}=params;
+    const circle=`/api/one/location/circles/${encodeURIComponent(binding.circleId)}`;
+    const invite=`/api/one/location/circle-member-invites/${encodeURIComponent(binding.inviteId || "")}`;
+    const target:Record<CircleManagementBinding["action"],{path:string;method:string}>={
+      "location.rename_circle":{path:circle,method:"PATCH"},
+      "location.delete_circle":{path:circle,method:"DELETE"},
+      "location.leave_circle":{path:`${circle}/members/me`,method:"DELETE"},
+      "location.remove_from_circle":{path:`${circle}/members/${encodeURIComponent(binding.memberId || "")}`,method:"DELETE"},
+      "location.accept_circle_invite":{path:`${invite}/accept`,method:"POST"},
+      "location.decline_circle_invite":{path:`${invite}/decline`,method:"POST"},
+    };
+    const endpoint=target[binding.action];
+    const response=await apiJson<{operationReceipt:CircleManagementReceipt}>(endpoint.path,{
+      method:endpoint.method,headers:jsonAuthHeaders(params.vaultOwnerToken),
+      body:JSON.stringify({commandOperationId:params.operationId,commandBinding:binding,
+        ...(binding.action==="location.rename_circle" ? {name:binding.newName} : {})}),
+    });
+    announceFeedActivity();
+    return response.operationReceipt;
   }
 
   static async deleteNamedCircle(params: {
@@ -320,11 +998,18 @@ export class OneLocationService {
     vaultOwnerToken: string;
     code: string;
   }): Promise<{ circle: OneLocationCircleDetail; joined: boolean }> {
-    return apiJson("/api/one/location/circle-codes/join", {
+    const response = await apiJson<{
+      circle: OneLocationCircleDetailApiResponse;
+      joined: boolean;
+    }>("/api/one/location/circle-codes/join", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({ code: params.code }),
     });
+    return {
+      circle: normalizeCircleDetail(response.circle),
+      joined: response.joined,
+    };
   }
 
   static async leaveNamedCircle(params: {
@@ -358,45 +1043,114 @@ export class OneLocationService {
     vaultOwnerToken: string;
     circleId: string;
   }): Promise<OneLocationCircleEligibleConnections> {
-    const response = await apiJson<{
-      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
-      pendingInvites?: OneLocationCircleMemberInvite[];
-      remainingCapacity?: number;
-    }>(
+    const response = await apiJson<OneLocationCircleEligibleConnectionsApiResponse>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections`,
       { headers: authHeaders(params.vaultOwnerToken) },
     );
+    const eligibleConnections = (
+      response.eligibleConnections ??
+      response.connections ??
+      []
+    ).map(normalizeEligibleConnection);
     return {
-      eligibleConnections:
-        response.eligibleConnections ?? response.connections ?? [],
+      eligibleConnections,
       pendingInvites: response.pendingInvites ?? [],
       remainingCapacity: Math.max(
         0,
         Number.isFinite(response.remainingCapacity)
           ? Number(response.remainingCapacity)
-          : (response.eligibleConnections ?? response.connections ?? []).length,
+          : eligibleConnections.length,
       ),
     };
   }
 
-  static async createNamedCircleMemberInvites(params: {
+  static async listNamedCircleEligibleConnectionsPage(params: {
     vaultOwnerToken: string;
     circleId: string;
-    inviteeUserIds: string[];
-  }): Promise<OneLocationCircleMemberInvite[]> {
-    const response = await apiJson<{
-      invites?: OneLocationCircleMemberInvite[];
-      invite?: OneLocationCircleMemberInvite;
-    }>("/api/one/location/circle-member-invites", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        circleId: params.circleId,
-        inviteeUserIds: params.inviteeUserIds,
-      }),
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleEligibleConnectionsPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
     });
-    return response.invites ?? (response.invite ? [response.invite] : []);
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    const response = await apiJson<
+      OneLocationCircleEligibleConnectionsApiResponse & {
+      page?: number;
+      hasMore?: boolean;
+      totalCount?: number;
+      }
+    >(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    const eligibleConnections = (
+      response.eligibleConnections ??
+      response.connections ??
+      []
+    ).map(normalizeEligibleConnection);
+    return {
+      eligibleConnections,
+      pendingInvites: response.pendingInvites ?? [],
+      remainingCapacity: Math.max(0, Number(response.remainingCapacity ?? 0)),
+      page: Math.max(1, Number(response.page ?? params.page ?? 1)),
+      hasMore: Boolean(response.hasMore),
+      totalCount: Math.max(
+        0,
+        Number(response.totalCount ?? eligibleConnections.length),
+      ),
+    };
+  }
+
+  /**
+   * Add people to a Circle, and say who actually went in.
+   *
+   * The name is history: this once created pending invitations, and the server
+   * still answers on a route called `circle-member-invites`. It adds outright
+   * now -- `create_member_invites` writes the memberships and marks any open
+   * invitation `accepted` with `resolvedBy: "direct_add"` -- and it returns
+   * `invites: []` unconditionally alongside an `added` array of user ids.
+   *
+   * This read only `invites`, so it returned an empty array from a call that
+   * had just added several people. Nothing broke, because the one caller
+   * ignores the result; the next caller would have believed it.
+   *
+   * Returns the user ids that went in. `invites` is still read as a fallback
+   * so a build talking to a server that predates `added` keeps working.
+   */
+  static async createNamedCircleMemberInvites(params: {
+    vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
+  }): Promise<string[]> {
+    const result = await this.addNamedCircleMembers(params);
+    // Compatibility callers historically receive invited IDs too. Command
+    // callers use the detailed result and never confuse a pending invitation
+    // with an active membership.
+    return [...result.added, ...result.invited];
+  }
+
+  static async addNamedCircleMembers(params: {
+    vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
+    operationId?: string; batchIndex?: number; batchCount?: number;
+    commandDirectiveId?: string;
+    context?: "signup";
+  }): Promise<{
+    added: string[]; skipped: string[]; skippedReasons: Record<string, string>; invited: string[];
+  }> {
+    const response = await apiJson<{
+      added?: string[]; skipped?: string[]; skippedReasons?: Record<string, string>;
+      invites?: OneLocationCircleMemberInvite[]; invite?: OneLocationCircleMemberInvite;
+    }>("/api/one/location/circle-member-invites", {
+      method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ circleId: params.circleId, inviteeUserIds: params.inviteeUserIds,
+        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount, context: params.context }),
+    });
+    const ids = (items: string[] | undefined) => Array.from(new Set((items || []).map((id) => String(id || "").trim()).filter(Boolean)));
+    return {
+      added: ids(response.added), skipped: ids(response.skipped), skippedReasons: response.skippedReasons || {},
+      invited: Array.isArray(response.added) ? [] : ids((response.invites || (response.invite ? [response.invite] : [])).map((invite) => invite.inviteeUserId)),
+    };
   }
 
   static async listNamedCircleMemberInvites(params: {
@@ -420,14 +1174,14 @@ export class OneLocationService {
     vaultOwnerToken: string;
     inviteId: string;
   }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+    const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circle-member-invites/${encodeURIComponent(params.inviteId)}/accept`,
       {
         method: "POST",
         headers: authHeaders(params.vaultOwnerToken),
       },
     );
-    return response.circle;
+    return normalizeCircleDetail(response.circle);
   }
 
   static async declineNamedCircleMemberInvite(params: {
@@ -459,37 +1213,89 @@ export class OneLocationService {
   static async addSmsContact(params: {
     vaultOwnerToken: string;
     recipientUserId: string;
+    commandOperationId?: string;
   }): Promise<string[]> {
     const response = await apiJson<{ smsContactUserIds: string[] }>(
       "/api/one/location/sms-contacts",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ recipientUserId: params.recipientUserId }),
+        body: JSON.stringify({ recipientUserId: params.recipientUserId, commandOperationId: params.commandOperationId }),
       },
     );
-    return response.smsContactUserIds ?? [];
+    if (!Array.isArray(response.smsContactUserIds) || response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    return response.smsContactUserIds;
   }
 
   static async removeSmsContact(params: {
     vaultOwnerToken: string;
     recipientUserId: string;
+    commandOperationId?: string;
   }): Promise<string[]> {
     const response = await apiJson<{ smsContactUserIds: string[] }>(
       `/api/one/location/sms-contacts/${encodeURIComponent(params.recipientUserId)}`,
       {
         method: "DELETE",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? { body: JSON.stringify({ commandOperationId: params.commandOperationId }) } : {}),
       },
     );
-    return response.smsContactUserIds ?? [];
+    if (!Array.isArray(response.smsContactUserIds) || response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    return response.smsContactUserIds;
+  }
+
+  static async getSmsContacts(vaultOwnerToken: string): Promise<string[]> {
+    const response = await apiJson<{ smsContactUserIds: string[] }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
+    if (!Array.isArray(response.smsContactUserIds)) throw new Error("Emergency contacts could not be verified.");
+    return response.smsContactUserIds;
+  }
+
+  /** Fresh, roster-scoped identities; never truncate SMS to the directory page. */
+  static async getSmsRecipientRoster(vaultOwnerToken: string): Promise<{
+    smsContactUserIds: string[];
+    recipients: OneLocationRecipient[];
+  }> {
+    const response = await apiJson<{
+      smsContactUserIds: string[];
+      recipients?: OneLocationRecipientApiRow[];
+    }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
+    if (!Array.isArray(response.smsContactUserIds) ||
+        response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    // Rolling deployments can still return the older IDs-only response.
+    const recipients = response.recipients
+      ? response.recipients.map(normalizeRecipient)
+      : await OneLocationService.listRecipients(vaultOwnerToken);
+    const ids = new Set(response.smsContactUserIds);
+    return {
+      smsContactUserIds: [...ids],
+      recipients: recipients.filter((recipient) => ids.has(recipient.userId)),
+    };
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
-  static async getMapState(vaultOwnerToken: string): Promise<OneLocationMapState> {
+  static async getMapState(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapState> {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });
+  }
+
+  /** The viewer's own map presence preference, without the marker payload. */
+  static async getMapPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapPreferences> {
+    const response = await apiJson<{ preferences: OneLocationMapPreferences }>(
+      "/api/one/location/map-preferences",
+      { headers: authHeaders(vaultOwnerToken) },
+    );
+    return response.preferences;
   }
 
   static async updateMapPreferences(params: {
@@ -515,14 +1321,18 @@ export class OneLocationService {
 
   static async chat(params: {
     vaultOwnerToken: string;
+    /** Unlocked vault key; only its derived chat key is sent (history is sealed with it). */
+    vaultKey: string | null | undefined;
     message?: string;
     conversationId?: string | null;
     actionResult?: ActionResult;
     selectionResult?: SelectionResult;
   }): Promise<LocationChatResponse> {
+    // A private agent answers its own owner; the question never reaches the hub.
+    if (await ownerContentIsPrivate()) return privateAgentSpecialistTurn({ focus: "location", ...params });
     return apiJson<LocationChatResponse>("/api/one/location/chat", {
       method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      headers: { ...jsonAuthHeaders(params.vaultOwnerToken), ...(await oneChatKeyHeaders(params.vaultKey)) },
       body: JSON.stringify({
         message: params.message ?? null,
         conversationId: params.conversationId ?? null,
@@ -549,10 +1359,21 @@ export class OneLocationService {
     vaultOwnerToken: string;
     durationHours: number;
     locationSnapshot: PlainLocationPoint;
+    commandOperationId?: string;
+    commandBinding?: Record<string, unknown>;
   }): Promise<{
     invite: OneLocationPublicInvite;
     publicToken: string;
     publicUrl: string;
+    /**
+     * True when the server handed back the link that was already live rather
+     * than minting a second one. Its window is restarted for the duration that
+     * was just asked for, so the link is honestly "live for an hour" either
+     * way -- but it is the SAME URL, and anyone already holding it keeps
+     * watching. Worth saying out loud rather than reporting "link created".
+     */
+    reused?: boolean;
+    operationReceipt?: import("@/lib/one-location/types").PublicLinkOperationReceipt;
   }> {
     return apiJsonWithRetry(
       "/api/one/location/public-invites",
@@ -562,20 +1383,49 @@ export class OneLocationService {
         body: JSON.stringify({
           durationHours: params.durationHours,
           locationSnapshot: params.locationSnapshot,
+          ...(params.commandOperationId ? {commandOperationId:params.commandOperationId,commandBinding:params.commandBinding} : {}),
         }),
       },
-      1,
+      params.commandOperationId ? 0 : 1,
     );
   }
 
   static async resolvePublicInvite(publicToken: string): Promise<{
     invite: OneLocationPublicInvite;
     publicLocation?: PlainLocationPoint | null;
+    expiresInSeconds?: number;
   }> {
     return apiJsonWithRetry(
       `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,
       {},
       1,
+    );
+  }
+
+  /**
+   * Move the pin on the caller's own live public link to where they are now.
+   *
+   * The snapshot used to be written once, at create time, and never again, so
+   * a link shared as a live location showed one frozen point for its whole
+   * window. The owner's foreground heartbeat calls this while a public link is
+   * live.
+   *
+   * Writes the position and nothing else: the server refuses to touch
+   * `expiresAt` here, so a heartbeat can never extend a window past what the
+   * owner agreed to share.
+   */
+  static async refreshPublicInviteLocation(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+    locationSnapshot: PlainLocationPoint;
+  }): Promise<{ invite: OneLocationPublicInvite }> {
+    return apiJson(
+      `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}/location`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ locationSnapshot: params.locationSnapshot }),
+      },
     );
   }
 
@@ -607,12 +1457,15 @@ export class OneLocationService {
   static async revokePublicInvite(params: {
     vaultOwnerToken: string;
     inviteId: string;
+    commandOperationId?: string;
+    commandBinding?: Record<string, unknown>;
   }): Promise<OneLocationPublicInvite> {
     const response = await apiJson<{ invite: OneLocationPublicInvite }>(
       `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}`,
       {
         method: "DELETE",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? {body:JSON.stringify({commandOperationId:params.commandOperationId,commandBinding:params.commandBinding})} : {}),
       },
     );
     return response.invite;
@@ -688,7 +1541,8 @@ export class OneLocationService {
     vaultOwnerToken: string;
     recipientUserId: string;
     recipientKeyId: string;
-    durationHours: number;
+    durationHours?: number | null;
+    durationMode?: OneLocationShareDurationMode;
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string;
@@ -701,7 +1555,10 @@ export class OneLocationService {
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
           recipientKeyId: params.recipientKeyId,
-          durationHours: params.durationHours,
+          ...(typeof params.durationHours === "number"
+            ? { durationHours: params.durationHours }
+            : {}),
+          ...(params.durationMode ? { durationMode: params.durationMode } : {}),
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
           ...(params.sourceCircleId
@@ -710,7 +1567,95 @@ export class OneLocationService {
         }),
       },
     );
+    announceFeedActivity();
     return response.grant;
+  }
+
+  /**
+   * Second channel for a Save my Soul alert: email the contacts of the grants
+   * this alert just created.
+   *
+   * The push notification is the first channel and it reaches nobody when a
+   * contact has notifications off or has uninstalled — an email survives both.
+   *
+   * The coordinates travel in this request because the server cannot read them
+   * anywhere else: location envelopes keep coordinates inside the ciphertext,
+   * so only this device holds the plaintext. They are used for one send and
+   * are not stored server-side.
+   *
+   * Resolves rather than throws on failure. It is called after the alert has
+   * already gone out, so a mail problem must never surface as a failed SOS.
+   */
+  static async sendSosEmails(params: {
+    vaultOwnerToken: string;
+    grantIds: string[];
+    latitude: number;
+    longitude: number;
+    accuracyM?: number | null;
+    /**
+     * When the position was measured. Save my Soul sends the last known
+     * position rather than nothing when the device will not produce a new one,
+     * so the email has to be able to say how old it is — an unstamped
+     * twenty-minute-old coordinate presented as "now" sends help confidently
+     * to the wrong place.
+     */
+    capturedAt?: string | null;
+    note?: string | null;
+    emergencyNumber?: string | null;
+  }): Promise<{
+    emailed: number;
+    attempted: number;
+    configured: boolean;
+    /** Contacts on this alert with no email on file, by display name. */
+    withoutEmail: string[];
+  }> {
+    const fallback = {
+      emailed: 0,
+      attempted: 0,
+      configured: false,
+      withoutEmail: [] as string[],
+    };
+    if (!params.grantIds.length) return fallback;
+    try {
+      const response = await apiJson<{
+        emailed?: number;
+        attempted?: number;
+        configured?: boolean;
+        withoutEmail?: string[];
+        // Unlike every other call in this file, this one does NOT go to the
+        // Python backend — it is a Next.js route (only the webapp lane holds
+        // MAIL_API_KEY). On native, a relative path resolves against the
+        // backend, where this path does not exist, so the alert's email leg
+        // would 404 on iOS and Android — the two platforms an SOS is most
+        // likely to be sent from. Use the Next.js origin for this route.
+      }>(`${nextRouteOrigin()}/api/one/location/sos-email`, {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          grantIds: params.grantIds,
+          latitude: params.latitude,
+          longitude: params.longitude,
+          ...(typeof params.accuracyM === "number"
+            ? { accuracyM: params.accuracyM }
+            : {}),
+          ...(params.capturedAt ? { capturedAt: params.capturedAt } : {}),
+          ...(params.note ? { note: params.note } : {}),
+          ...(params.emergencyNumber
+            ? { emergencyNumber: params.emergencyNumber }
+            : {}),
+        }),
+      });
+      return {
+        emailed: Number(response?.emailed ?? 0),
+        attempted: Number(response?.attempted ?? 0),
+        configured: response?.configured === true,
+        withoutEmail: Array.isArray(response?.withoutEmail)
+          ? response.withoutEmail.map(String).filter(Boolean)
+          : [],
+      };
+    } catch {
+      return fallback;
+    }
   }
 
   /**
@@ -718,21 +1663,29 @@ export class OneLocationService {
    * idempotent backend mutation. Safe to retry with the same operation id.
    */
   static async createGrantWithEnvelope(params: {
+    commandDirectiveId?: string;
     vaultOwnerToken: string;
     recipientUserId: string;
     recipientKeyId: string;
-    durationHours: number;
+    durationHours?: number | null;
+    durationMode?: OneLocationShareDurationMode;
+    commandOperationId?: string;
     clientOperationId: string;
     confirmedAt: string;
     envelope: OneLocationEncryptedEnvelope;
     reason?: string;
     shareKind?: string;
+    sourceCircleId?: string | null;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
     idempotentReplay: boolean;
   }> {
-    return apiJsonWithRetry(
+    const created = await apiJsonWithRetry<{
+      grant: OneLocationGrant;
+      envelope: OneLocationEncryptedEnvelope;
+      idempotentReplay: boolean;
+    }>(
       "/api/one/location/grants/with-envelope",
       {
         method: "POST",
@@ -740,16 +1693,24 @@ export class OneLocationService {
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
           recipientKeyId: params.recipientKeyId,
-          durationHours: params.durationHours,
+          ...(typeof params.durationHours === "number"
+            ? { durationHours: params.durationHours }
+            : {}),
+          ...(params.durationMode ? { durationMode: params.durationMode } : {}),
           clientOperationId: params.clientOperationId,
+          commandOperationId: params.commandOperationId,
+          commandDirectiveId: params.commandDirectiveId,
           confirmedAt: params.confirmedAt,
           envelope: params.envelope,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          ...(params.sourceCircleId ? { sourceCircleId: params.sourceCircleId } : {}),
         }),
       },
       1,
     );
+    announceFeedActivity();
+    return created;
   }
 
   static async storeEnvelope(params: {
@@ -780,15 +1741,29 @@ export class OneLocationService {
     };
   }
 
+  /**
+   * Latest ciphertext for a share we receive.
+   *
+   * `allow_empty=1` asks the backend to answer "the share is live but the owner
+   * hasn't published a point yet" with `200 { envelope: null }` instead of a
+   * `404 LOCATION_ENVELOPE_MISSING`. That state is a normal step on the happy
+   * path — the recipient almost always opens One before the owner's first GPS
+   * fix lands — and a 404 makes the browser log a failed request every poll for
+   * something that was never an error. The flag is opt-in per request so
+   * already-shipped native bundles keep the legacy contract they branch on.
+   */
   static async viewEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
   }): Promise<{
     grant: OneLocationGrant;
-    envelope: OneLocationEncryptedEnvelope;
+    envelope: OneLocationEncryptedEnvelope | null;
+    status?: "published" | "awaiting_first_publish" | string;
   }> {
     return apiJson(
-      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelope`,
+      `/api/one/location/grants/${encodeURIComponent(
+        params.grantId,
+      )}/envelope?allow_empty=1`,
       {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
@@ -903,15 +1878,8 @@ export class OneLocationService {
     return response.suggestions ?? [];
   }
 
-  static async nearbyPlaces(params: {
-    vaultOwnerToken: string;
-    lat: number;
-    lng: number;
-    category?: OneLocationNearbyPlaceCategory;
-  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
-    const response = await apiJson<{
-      suggestions: OneLocationNearbyPlaceSuggestion[];
-    }>("/api/one/location/maps/nearby-places", {
+  static async nearbyPlaces(params: OneLocationNearbyPlacesRequest): Promise<OneLocationNearbyPlacesResult> {
+    const response = await apiJson<NearbyPlacesResponse>("/api/one/location/maps/nearby-places", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({
@@ -920,7 +1888,7 @@ export class OneLocationService {
         category: params.category ?? "all",
       }),
     });
-    return response.suggestions ?? [];
+    return normalizeNearbyPlaceResponse(response);
   }
 
   static async getNearbyPresence(params: {
@@ -942,6 +1910,8 @@ export class OneLocationService {
     durationMinutes: 30 | 60 | 120;
     consentAccepted: boolean;
     allowConnectionRequests: boolean;
+    commandOperationId?: string;
+    consentVersion?: string;
   }): Promise<OneLocationNearbyPresenceState> {
     return apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence/check-in",
@@ -957,19 +1927,140 @@ export class OneLocationService {
           durationMinutes: params.durationMinutes,
           consentAccepted: params.consentAccepted,
           allowConnectionRequests: params.allowConnectionRequests,
+          commandOperationId: params.commandOperationId,
+          consentVersion: params.consentVersion,
         }),
       },
     );
   }
 
+  /**
+   * Save the caller's own star rating for a place they were recorded at.
+   *
+   * The note is deliberately not a parameter. It goes to the owner's vault,
+   * client-side encrypted, and never reaches a server -- a plaintext note
+   * beside a venue and a timestamp is a movement log with commentary.
+   *
+   * `consentVersion` travels with the write and is checked server-side rather
+   * than stamped there. A build still showing last version's words must not be
+   * able to save a permanent record under them.
+   */
+  static async ratePlace(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+    rating: number;
+    consentVersion: string;
+  }): Promise<OneLocationPlaceRating> {
+    const response = await apiJson<{ rating: OneLocationPlaceRating }>(
+      "/api/one/location/place-ratings",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          placeId: params.placeId,
+          rating: params.rating,
+          consentVersion: params.consentVersion,
+          consentAccepted: true,
+        }),
+      },
+    );
+    return response.rating;
+  }
+
+  static async listPlaceRatings(
+    vaultOwnerToken: string,
+    limit = 25,
+  ): Promise<OneLocationPlaceRating[]> {
+    const response = await apiJson<{ ratings: OneLocationPlaceRating[] }>(
+      `/api/one/location/place-ratings?limit=${encodeURIComponent(String(limit))}`,
+      { headers: jsonAuthHeaders(vaultOwnerToken) },
+    );
+    return response.ratings ?? [];
+  }
+
+  /** Anonymous averages for a list of places, in one call.
+   *
+   *  A place that has not cleared the publication threshold simply does not
+   *  come back, so the caller keys by `placeId` and shows nothing where there
+   *  is nothing to show. */
+  static async listPlaceRatingSummaries(params: {
+    vaultOwnerToken: string;
+    placeIds: string[];
+  }): Promise<OneLocationPlaceRatingSummary[]> {
+    const placeIds = Array.from(new Set(params.placeIds.filter(Boolean))).slice(
+      0,
+      25,
+    );
+    if (!placeIds.length) return [];
+    const response = await apiJson<{
+      summaries: OneLocationPlaceRatingSummary[];
+    }>("/api/one/location/place-ratings/summaries", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ placeIds }),
+    });
+    return response.summaries ?? [];
+  }
+
+  static async listRateableVisits(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationRateableVisit[]> {
+    const response = await apiJson<{ pendingRatings: OneLocationRateableVisit[] }>(
+      "/api/one/location/place-ratings/pending",
+      { headers: jsonAuthHeaders(vaultOwnerToken) },
+    );
+    return response.pendingRatings ?? [];
+  }
+
+  static async deletePlaceRating(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+  }): Promise<void> {
+    await apiJson<{ deleted: boolean }>("/api/one/location/place-ratings", {
+      method: "DELETE",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ placeId: params.placeId }),
+    });
+  }
+
   static async checkoutNearby(params: {
     vaultOwnerToken: string;
+    commandOperationId?: string;
+    presenceId?: string | null;
+    presenceVersion?: number;
+  }): Promise<OneLocationNearbyPresenceState> {
+    const result = await apiJson<OneLocationNearbyPresenceState>(
+      "/api/one/location/nearby-presence",
+      {
+        method: "DELETE",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? { body: JSON.stringify({
+          commandOperationId: params.commandOperationId,
+          presenceId: params.presenceId,
+          presenceVersion: params.presenceVersion,
+        }) } : {}),
+      },
+    );
+    // All checkout entry points (drawer, Location pause, reconciliation) use
+    // this service. A successful idempotent DELETE is not necessarily an end.
+    if (result.checkoutTransitioned === true) {
+      trackNearbyCheckOutCompleted();
+    }
+    return result;
+  }
+
+  static async extendNearbyPresence(params: {
+    vaultOwnerToken: string;
+    incrementMinutes: 30 | 60;
   }): Promise<OneLocationNearbyPresenceState> {
     return apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence",
       {
-        method: "DELETE",
-        headers: authHeaders(params.vaultOwnerToken),
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          incrementMinutes: params.incrementMinutes,
+        }),
       },
     );
   }
@@ -1060,16 +2151,105 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+    announceFeedActivity();
+    return response.grant;
+  }
+
+  /**
+   * Bring a grant's expiry earlier. Either the owner or the recipient may
+   * call this -- shortening only ever reduces exposure, so it needs no
+   * fresh consent from the other side. The backend rejects any duration
+   * that would move the expiry later; extending access is the owner's
+   * consent to give again, via `requestAccess`, not something either side
+   * can grant themselves through this call.
+   */
+  static async shortenGrant(params: {
+    vaultOwnerToken: string;
+    grantId: string;
+    durationHours: number;
+    clientOperationId?: string;
+  }): Promise<OneLocationGrant> {
+    const clientOperationId =
+      params.clientOperationId || newLocationMutationOperationId("loc_shorten");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/shorten`,
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          clientOperationId,
+        }),
+      },
+    );
+    announceFeedActivity();
+    return response.grant;
+  }
+
+  /**
+   * Ask an owner for location access, for a specific amount of time.
+   *
+   * `requestedDurationHours` is what the person actually picked. It used to be
+   * collected by the Ask screen and dropped at this boundary, so the owner was
+   * asked an unquantified question and approved whatever their own control
+   * happened to say. It is a REQUEST, never an authorization — the grant is
+   * still written only when the owner approves.
+   *
+   * `extendsGrantId` marks this as extra time on a share already running. The
+   * backend verifies it against the real grant between the two people and
+   * detects the extension itself if it is omitted, so passing it is a hint that
+   * sharpens the copy, never something a caller can use to claim time.
+   */
+
+  /**
+   * Set a new end time on a share you own, longer or shorter.
+   *
+   * `shortenGrant` above is the recipient's control and stays shorten-only.
+   * This one is the owner's, and it is allowed to add time because the owner
+   * is the person whose location is being shown -- there is no second party
+   * whose consent would be missing. The server enforces that by matching on
+   * the owner alone.
+   *
+   * `durationHours` is null when `durationMode` is "until_stopped".
+   */
+  static async setGrantDuration(params: {
+    vaultOwnerToken: string;
+    grantId: string;
+    durationHours: number | null;
+    durationMode: OneLocationShareDurationMode;
+    clientOperationId?: string;
+  }): Promise<OneLocationGrant> {
+    const clientOperationId =
+      params.clientOperationId ||
+      newLocationMutationOperationId("loc_duration");
+    const response = await apiJsonWithRetry<{ grant: OneLocationGrant }>(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/duration`,
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          durationMode: params.durationMode,
+          clientOperationId,
+        }),
+      },
+    );
+    announceFeedActivity();
     return response.grant;
   }
 
   static async requestAccess(params: {
+    commandDirectiveId?: string;
     vaultOwnerToken: string;
     ownerUserId: string;
     message?: string;
-    /** Advisory only -- the owner still picks their own duration on approve. */
-    durationHours?: number;
+    requestedDurationHours?: number | null;
+    requestedDurationMode?: string | null;
+    extendsGrantId?: string | null;
+    commandOperationId?: string;
+    clientOperationId?: string;
   }): Promise<OneLocationAccessRequest> {
+    const durationHours = Number(params.requestedDurationHours);
     const response = await apiJsonWithRetry<{
       request: OneLocationAccessRequest;
     }>(
@@ -1079,28 +2259,72 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
+          clientOperationId: params.clientOperationId,
+          commandOperationId: params.commandOperationId,
+          commandDirectiveId: params.commandDirectiveId,
           message: params.message,
-          durationHours: params.durationHours,
+          requestedDurationHours:
+            Number.isFinite(durationHours) && durationHours > 0
+              ? durationHours
+              : undefined,
+          requestedDurationMode: params.requestedDurationMode || undefined,
+          extendsGrantId: params.extendsGrantId || undefined,
         }),
       },
-      1,
+      params.clientOperationId ? 0 : 1,
     );
+    announceFeedActivity();
     return response.request;
   }
 
+  /**
+   * Approve a pending request. Omitting `durationHours` grants exactly what was
+   * asked for — the owner pressed a button that named the amount, so re-deriving
+   * a different one from a control they never touched is how an approval used to
+   * hand an hour to someone who had asked for four.
+   */
   static async approveRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
-    durationHours: number;
-  }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
-    return apiJson(
+    approvalMode: "manual" | "automatic";
+    durationHours?: number | null;
+    durationMode?: string | null;
+    /** Current server-owned standing-rule version. Omit for manual approval. */
+    autoApproveRuleVersion?: number | null;
+    /** Exact request version reviewed by the command confirmation card. */
+    expectedRequestRevision?: number;
+  }): Promise<{
+    request: OneLocationAccessRequest;
+    grant: OneLocationGrant;
+    recipient?: OneLocationRecipient;
+  }> {
+    const durationHours = Number(params.durationHours);
+    const approved = await apiJson<{
+      request: OneLocationAccessRequest;
+      grant: OneLocationGrant;
+      recipient?: OneLocationRecipient;
+    }>(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          approvalMode: params.approvalMode,
+          durationHours:
+            Number.isFinite(durationHours) && durationHours > 0
+              ? durationHours
+              : undefined,
+          durationMode: params.durationMode || undefined,
+          // Preserve 0 so the backend rejects a malformed/stale automatic
+          // context. Omitting it would downgrade the same call to an explicit
+          // manual approval and bypass standing-rule validation.
+          autoApproveRuleVersion: params.autoApproveRuleVersion ?? undefined,
+          expectedRequestRevision: params.expectedRequestRevision,
+        }),
       },
     );
+    announceFeedActivity();
+    return approved;
   }
 
   static async denyRequest(params: {
@@ -1114,6 +2338,29 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+    announceFeedActivity();
+    return response.request;
+  }
+
+  /**
+   * Take back a pending request you sent.
+   *
+   * Not the same call as `denyRequest`, which is the OWNER refusing an ask
+   * made of them. The backend keys this one on the requester, so it can only
+   * ever end a request the caller themselves sent.
+   */
+  static async withdrawRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<OneLocationAccessRequest> {
+    const response = await apiJson<{ request: OneLocationAccessRequest }>(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/withdraw`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    announceFeedActivity();
     return response.request;
   }
 

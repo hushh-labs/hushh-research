@@ -1,0 +1,453 @@
+"""Admission tests for the internal, OIDC-only Drive work drain route."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from api.routes import drive_work_drain as routes
+from tests.services.test_drive_work_drain import _drain, _worker
+
+PROJECT = "hushh-pda-uat"
+SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
+AUDIENCE = "https://api.uat.hushh.ai"
+PRODUCTION_PROJECT = "hushh-pda"
+PRODUCTION_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
+PRODUCTION_AUDIENCE = "https://api.hushh.ai"
+PATH = "/api/internal/drive-work/drain"
+
+
+@pytest.fixture
+def client(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PROJECT)
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", SERVICE_ACCOUNT)
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", AUDIENCE)
+    app = FastAPI()
+    app.include_router(routes.router)
+    return TestClient(app)
+
+
+def _claims(**changes):
+    return {
+        "email": SERVICE_ACCOUNT,
+        "email_verified": True,
+        "iss": "https://accounts.google.com",
+        "aud": AUDIENCE,
+        **changes,
+    }
+
+
+def _authorized_headers():
+    return {"Authorization": "Bearer scheduler-oidc-token"}
+
+
+@pytest.mark.asyncio
+async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
+    workers = [_worker({"outcomes": {"review_ready": 1}}) for _ in range(4)]
+
+    search = _worker({"outcomes": {"completed": 1}})
+    periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
+    result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
+    periods.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=90)
+    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
+
+    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175)
+    for index in (0, 2, 3):
+        workers[index].run.assert_not_awaited()
+    assert result["workers"] == {
+        "groups": {"deferred": 1},
+        "documents": {"deferred": 1},
+        "suggestions": {"review_ready": 1},
+        "searches": {"completed": 1},
+        "permissions": {"deferred": 1},
+        "bulk_shares": {"deferred": 1},
+        "bulk_removals": {"deferred": 1},
+        "checkouts": {"deferred": 1},
+        "notifications": {"deferred": 1},
+        "refunds": {"deferred": 1},
+        "owner_payouts": {"deferred": 1},
+        "packet_orders": {"deferred": 1},
+        "period_packets": {"queued": 1},
+        "document_deliveries": {"deferred": 1},
+    }
+
+
+def test_route_is_default_off_and_never_attempts_oidc_when_disabled(client, monkeypatch):
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", "false")
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_DISABLED"
+    assert "no-store" in response.headers["Cache-Control"]
+    verifier.assert_not_called()
+
+
+def test_main_api_without_worker_mode_cannot_drain(client, monkeypatch):
+    monkeypatch.delenv("DRIVE_WORKER_MODE")
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+
+    response = client.post(PATH, headers=_authorized_headers())
+
+    assert response.status_code == 404
+    verifier.assert_not_called()
+
+
+def test_route_refuses_missing_or_non_oidc_credentials(client, monkeypatch):
+    verifier = Mock(return_value=_claims())
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+
+    for headers in ({}, {"Authorization": "Basic not-an-oidc-token"}):
+        response = client.post(PATH, headers=headers)
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAUTHORIZED"
+        assert "no-store" in response.headers["Cache-Control"]
+    verifier.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"iss": "https://attacker.example.invalid"},
+        {"email": "drive-work-drain-sched@other-project.iam.gserviceaccount.com"},
+        {"email_verified": False},
+        {"aud": "https://wrong-audience.example.invalid"},
+    ],
+)
+def test_route_refuses_wrong_issuer_project_identity_or_audience(client, monkeypatch, changes):
+    monkeypatch.setattr(
+        routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims(**changes)
+    )
+
+    response = client.post(PATH, headers=_authorized_headers())
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAUTHORIZED"
+    assert "no-store" in response.headers["Cache-Control"]
+    assert SERVICE_ACCOUNT not in response.text
+
+
+def test_route_requires_complete_runtime_configuration(client, monkeypatch):
+    monkeypatch.delenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE")
+    response = client.post(PATH, headers=_authorized_headers())
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"
+    assert "no-store" in response.headers["Cache-Control"]
+
+
+def _production_configuration(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PRODUCTION_PROJECT)
+    monkeypatch.setenv(
+        "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", PRODUCTION_SERVICE_ACCOUNT
+    )
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", PRODUCTION_AUDIENCE)
+
+
+def test_production_worker_remains_default_off(client, monkeypatch):
+    _production_configuration(monkeypatch)
+    monkeypatch.delenv("DRIVE_WORK_DRAIN_ENABLED")
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+    assert response.status_code == 404
+    verifier.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PROJECT),
+        ("DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", SERVICE_ACCOUNT),
+        ("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", AUDIENCE),
+    ],
+)
+def test_production_worker_rejects_uat_scheduler_configuration(client, monkeypatch, name, value):
+    _production_configuration(monkeypatch)
+    monkeypatch.setenv(name, value)
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+    assert response.status_code == 503
+    verifier.assert_not_called()
+
+
+def test_production_worker_accepts_only_exact_prod_identity(client, monkeypatch):
+    _production_configuration(monkeypatch)
+    verifier = Mock(return_value=_claims(email=PRODUCTION_SERVICE_ACCOUNT, aud=PRODUCTION_AUDIENCE))
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type(
+            "Retention",
+            (),
+            {
+                "purge_batch": AsyncMock(
+                    return_value={
+                        "oauth_scrubbed": 0,
+                        "native_picker_scrubbed": 0,
+                        "oauth_deleted": 0,
+                        "native_picker_deleted": 0,
+                        "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
+                    }
+                )
+            },
+        )(),
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "sharing"})
+    assert response.status_code == 200
+    verifier.assert_called_once_with("scheduler-oidc-token", PRODUCTION_AUDIENCE)
+    run.assert_awaited_once()
+
+    verifier.reset_mock(return_value=True)
+    verifier.return_value = _claims()
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "sharing"})
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", "other-uat-project"),
+        (
+            "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL",
+            "other@hushh-pda-uat.iam.gserviceaccount.com",
+        ),
+        ("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", "https://unreviewed.example.invalid"),
+    ],
+)
+def test_route_refuses_scheduler_configuration_substitution(client, monkeypatch, name, value):
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    monkeypatch.setenv(name, value)
+
+    response = client.post(PATH, headers=_authorized_headers())
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"
+    verifier.assert_not_called()
+
+
+def _aggregate_worker_result():
+    return {
+        "schema_version": "drive.work_drain.v1",
+        "workers": {
+            "groups": {"indexed": 1},
+            "documents": {"ready": 1},
+            "suggestions": {"review_ready": 1, "private_request_id": "not-allowed"},
+            "searches": {"superseded": 1, "private_search_id": "not-allowed"},
+            "permissions": {"succeeded": 1},
+            "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
+            "bulk_removals": {"removed": 1, "private_permission_id": "not-allowed"},
+            "checkouts": {"ready": 1, "private_checkout_id": "not-allowed"},
+            "notifications": {"settled": 1},
+            "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+            "owner_payouts": {"transferred": 1, "private_transfer_id": "not-allowed"},
+            "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
+        },
+    }
+
+
+def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
+    client, monkeypatch
+):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock(
+        return_value={
+            "oauth_scrubbed": 2,
+            "native_picker_scrubbed": 1,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 1,
+            "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
+            "private_email": "must-not-leak@example.invalid",
+        }
+    )
+
+    class Retention:
+        def purge_batch(self):
+            return purge()
+
+    monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
+    run = AsyncMock(return_value=_aggregate_worker_result())
+
+    class Drain:
+        def run(self, **kwargs):
+            return run(**kwargs)
+
+    monkeypatch.setattr(routes, "DriveWorkDrain", Drain)
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "retention": {
+            "oauth_scrubbed": 2,
+            "native_picker_scrubbed": 1,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 1,
+            "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
+        },
+        "schema_version": "drive.work_drain.v1",
+        "workers": {
+            "groups": {"indexed": 1},
+            "documents": {"ready": 1},
+            "suggestions": {"review_ready": 1},
+            "searches": {"superseded": 1},
+            "permissions": {"succeeded": 1},
+            "bulk_shares": {"succeeded": 2},
+            "bulk_removals": {"removed": 1},
+            "checkouts": {"ready": 1},
+            "notifications": {"settled": 1},
+            "refunds": {"succeeded": 1},
+            "owner_payouts": {"transferred": 1},
+            "packet_orders": {"refunded": 1},
+            "period_packets": {"unavailable": 1},
+            "document_deliveries": {"unavailable": 1},
+        },
+    }
+    assert "no-store" in response.headers["Cache-Control"]
+    assert "private_order_id" not in response.text
+    assert "private_permission_id" not in response.text
+    assert "private_checkout_id" not in response.text
+    assert "private_transfer_id" not in response.text
+    assert "private_request_id" not in response.text
+    assert "must-not-leak" not in response.text
+    purge.assert_awaited_once_with()
+    run.assert_awaited_once_with(stage="documents", max_jobs_per_worker=20, deadline_seconds=205)
+
+
+@pytest.mark.parametrize("stage", ["documents", "suggestions", "sharing"])
+def test_route_accepts_only_fixed_authorized_stages(client, monkeypatch, stage):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type(
+            "Retention",
+            (),
+            {
+                "purge_batch": AsyncMock(
+                    return_value={
+                        "oauth_scrubbed": 0,
+                        "native_picker_scrubbed": 0,
+                        "oauth_deleted": 0,
+                        "native_picker_deleted": 0,
+                        "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
+                    }
+                )
+            },
+        )(),
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": stage})
+
+    assert response.status_code == 200
+    run.assert_awaited_once_with(stage=stage, max_jobs_per_worker=20, deadline_seconds=205)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"stage": "all"},
+        {"stage": "sharing", "limit": 100},
+        {"stage": 1},
+        {"stage": True},
+        [],
+        "documents",
+        {"stage": "documents", "padding": "x" * 100},
+    ],
+)
+def test_route_rejects_unknown_or_amplifying_stage_body_before_work(client, monkeypatch, payload):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock()
+    run = AsyncMock()
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type("Retention", (), {"purge_batch": purge})(),
+    )
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    response = client.post(PATH, headers=_authorized_headers(), json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_INVALID_STAGE"
+    purge.assert_not_awaited()
+    run.assert_not_awaited()
+
+
+def test_v1_worker_admits_only_v1_stage_before_any_background_work(client, monkeypatch):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock(
+        return_value={
+            "oauth_scrubbed": 0,
+            "native_picker_scrubbed": 0,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 0,
+            "picker_sessions_deleted": 0,
+            "mcp_pending_calls_deleted": 0,
+        }
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type("Retention", (), {"purge_batch": lambda self: purge()})(),
+    )
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    assert client.post(PATH, headers=_authorized_headers(), json={"stage": "v1"}).status_code == 400
+    monkeypatch.setenv("DRIVE_WORKER_V1_ONLY", "true")
+    for payload in ({}, {"stage": "documents"}, {"stage": "suggestions"}, {"stage": "sharing"}):
+        response = client.post(PATH, headers=_authorized_headers(), json=payload)
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_INVALID_STAGE"
+    purge.assert_not_awaited()
+    run.assert_not_awaited()
+
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "v1"})
+    assert response.status_code == 200
+    run.assert_awaited_once_with(stage="v1", max_jobs_per_worker=20, deadline_seconds=205)
+
+
+def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    run = AsyncMock()
+
+    class Retention:
+        async def purge_batch(self):
+            raise RuntimeError("private candidate names and owner identity")
+
+    class Drain:
+        def run(self, **kwargs):
+            return run(**kwargs)
+
+    monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
+    monkeypatch.setattr(routes, "DriveWorkDrain", Drain)
+
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"
+    assert "private candidate" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    run.assert_not_awaited()

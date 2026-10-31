@@ -45,12 +45,14 @@ Operational commands:
   db report-prod-posture [--json]
   compose <subcommand>
   protocol <subcommand>
-  sync <main|check-main>
+  sync <main|verify-merge|check-main>
+  rollback <uat|production> [backend|frontend|all] --reason "<reason>"
 
 Run:
   ./bin/hushh compose --help
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
+  ./bin/hushh rollback --help
   ./bin/hushh codex --help
 EOF
 }
@@ -90,6 +92,7 @@ sync_usage() {
   cat <<'EOF'
 Usage:
   ./bin/hushh sync main
+  ./bin/hushh sync verify-merge
   ./bin/hushh sync check-main
 EOF
 }
@@ -120,7 +123,8 @@ Usage:
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
   ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
-  ./bin/hushh codex data-model-audit [--database-url <postgres-url>] [--json|--text]
+  ./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
+  ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
@@ -401,6 +405,10 @@ run_sync() {
       shift
       exec bash "$REPO_ROOT/scripts/git/sync-main.sh" "$@"
       ;;
+    verify-merge)
+      shift
+      exec bash "$REPO_ROOT/scripts/git/verify-merge.sh" "$@"
+      ;;
     check-main)
       shift
       exec sh "$REPO_ROOT/scripts/git/check-main-sync.sh" "$@"
@@ -412,6 +420,38 @@ run_sync() {
     *)
       sync_usage
       exit 1
+      ;;
+  esac
+}
+
+rollback_usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/hushh rollback <uat|production> [backend|frontend|all] --reason "<reason>" \
+      [--backend-revision <revision>] [--frontend-revision <revision>]
+
+Dispatches .github/workflows/rollback.yml and watches it to completion. Moves
+Cloud Run traffic straight to a known-good revision, without a git revert PR
+first. Blank revision flags fall back to the deployed/<env>-latest tag.
+
+Requires `gh` authenticated as an actor already allowed to dispatch a deploy
+to that environment (config/ci-governance.json manual_dispatch_users) — this
+reuses that allowlist, it does not grant anything new.
+EOF
+}
+
+run_rollback() {
+  [ "$#" -ge 1 ] || {
+    rollback_usage
+    exit 1
+  }
+  case "${1:-}" in
+    -h|--help)
+      rollback_usage
+      exit 0
+      ;;
+    *)
+      exec bash "$REPO_ROOT/scripts/ci/dispatch-rollback.sh" "$@"
       ;;
   esac
 }
@@ -473,14 +513,14 @@ run_codex() {
       [ "${#args[@]}" -ge 1 ] || die "codex scan requires a subcommand"
       case "${args[0]}" in
         summary)
-          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" summary "$format_flag"
+          exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" summary "$format_flag"
           ;;
         section)
           [ "${#args[@]}" -ge 2 ] || die "codex scan section requires <docs|frontend|backend|skills|commands>"
-          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" section "${args[@]:1}" "$format_flag"
+          exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" section "${args[@]:1}" "$format_flag"
           ;;
         validate)
-          exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" validate "$format_flag"
+          exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" validate "$format_flag"
           ;;
         *)
           die "Unknown codex scan subcommand: ${args[0]}"
@@ -489,35 +529,38 @@ run_codex() {
       ;;
     onboard)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag" "${args[@]}"
+        exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag" "${args[@]}"
       fi
-      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" onboard "$format_flag"
       ;;
     list-workflows)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag" "${args[@]}"
+        exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag" "${args[@]}"
       fi
-      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag"
       ;;
     route-task)
       [ "${#args[@]}" -ge 1 ] || die "codex route-task requires <workflow-id>"
-      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" route-task "${args[@]}" "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" route-task "${args[@]}" "$format_flag"
       ;;
     impact)
       [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
-      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
       ;;
     pre-pr)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "${args[@]}" "$format_flag"
+        exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/pre_pr_readiness.py" "${args[@]}" "$format_flag"
       fi
-      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/pre_pr_readiness.py" "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/pre_pr_readiness.py" "$format_flag"
       ;;
     ci-status)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
+        exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
       fi
-      exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      ;;
+    ci-rerun)
+      exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_rerun.py" "${args[@]}" "$format_flag"
       ;;
     data-model-audit)
       if [ "${#args[@]}" -gt 0 ]; then
@@ -527,13 +570,13 @@ run_codex() {
       ;;
     audit)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag" "${args[@]}"
+        exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" audit "$format_flag" "${args[@]}"
       fi
-      exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
+      exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
       ;;
     rca)
       if [ "${#args[@]}" -gt 0 ]; then
-        exec python3 "$REPO_ROOT/.codex/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
+        exec python3 "$REPO_ROOT/.agents/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
       fi
       die "codex rca requires --surface <uat|runtime|ci>"
       ;;
@@ -637,6 +680,7 @@ EOF
         --project hushh-pda-uat \
         --region us-central1 \
         --service consent-protocol \
+        --release-environment uat \
         --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
@@ -668,7 +712,8 @@ EOF
         --project "${DEV_PROJECT_ID:-hushh-pda-dev}" \
         --region us-central1 \
         --service consent-protocol \
-        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
+        --release-environment production \
+        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/dev_minimum_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
       fi
@@ -877,6 +922,9 @@ EOF
     ;;
   sync)
     run_sync "$@"
+    ;;
+  rollback)
+    run_rollback "$@"
     ;;
   *)
     main_usage

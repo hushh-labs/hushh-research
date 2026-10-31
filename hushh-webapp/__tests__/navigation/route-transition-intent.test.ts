@@ -1,12 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+const feedback = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/capacitor/app-haptics", () => ({ appHaptic: feedback }));
 
 describe("route transition intent ownership", () => {
   afterEach(() => {
+    feedback.mockClear();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     delete document.documentElement.dataset.routeTransition;
+  });
+
+  it("emits one authored cue for an accepted commit, not for cancelled, repeated or programmatic changes", () => {
+    vi.useFakeTimers();
+    const previousHref = window.location.href;
+    window.history.replaceState(null, "", "/one");
+    const discarded = vi.fn(); const accepted = vi.fn();
+    beginRouteTransition("/one/memory", discarded, "tap", "full", "selection");
+    beginRouteTransition("/one/profile", accepted, "tap", "full", "light");
+    beginRouteTransition("/one/profile", accepted, "tap", "full", "light");
+    expect(feedback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60);
+    expect(discarded).not.toHaveBeenCalled(); expect(accepted).toHaveBeenCalledOnce();
+    expect(feedback).toHaveBeenCalledExactlyOnceWith("light", expect.any(String));
+    beginRouteTransition("/one", () => undefined, "tap", "contextual", "selection");
+    beginRouteTransition("/one/mail", () => undefined, "programmatic", "contextual", "selection");
+    expect(feedback).toHaveBeenCalledOnce();
+    beginRouteTransition("/one?search=1", () => undefined, "search", "contextual", "selection");
+    expect(feedback).toHaveBeenCalledTimes(2);
+    expect(feedback).toHaveBeenLastCalledWith("selection", expect.any(String));
+    window.history.replaceState(null, "", previousHref);
   });
 
   it("commits only the latest target when taps arrive during the exit beat", () => {
@@ -16,12 +40,12 @@ describe("route transition intent ownership", () => {
     const third = vi.fn();
 
     beginRouteTransition("/one", first, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(40);
     beginRouteTransition("/one/kai", second, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(40);
     beginRouteTransition("/one/profile", third, "tap");
 
-    vi.advanceTimersByTime(299);
+    vi.advanceTimersByTime(59);
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
     expect(third).not.toHaveBeenCalled();
@@ -38,7 +62,7 @@ describe("route transition intent ownership", () => {
 
     beginRouteTransition("/one/kai", navigate, "tap");
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(90);
 
     expect(navigate).toHaveBeenCalledTimes(1);
   });
@@ -48,7 +72,7 @@ describe("route transition intent ownership", () => {
     const navigate = vi.fn();
 
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(90);
     expect(navigate).toHaveBeenCalledTimes(1);
 
     // A route may take longer than the exit beat to resolve. The old surface
@@ -70,6 +94,40 @@ describe("route transition intent ownership", () => {
     );
 
     expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
+
+  it("does not fade out for a target on the current pathname", () => {
+    // Tapping the active bottom-nav tab again used to set `pending`, and
+    // because the pathname never changed nothing fired the enter beat: the
+    // shell sat at opacity 0 until the 9s safety net. Same pathname means
+    // no route switch, so the commit is instantaneous and nothing fades.
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
+
+  it("treats the native export's trailing slash as the same pathname", () => {
+    // The native export is built with `trailingSlash: true`: on the phone the
+    // page sits at `/one/connect/` while the nav's href is `/one/connect`.
+    // Compared byte for byte, the active tab tapped again went `pending`
+    // with nowhere to go and the screen stayed blank (bug log B51).
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one/connect/");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one/connect", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
     expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
 });

@@ -88,6 +88,16 @@ function resolveCandidate(baseFile, token) {
   return path.join(repoRoot, cleaned);
 }
 
+/**
+ * `file.py:1357` and `file.py:478-489` are references to file.py. Stripping the
+ * line suffix before resolving is what lets a doc cite a precise line, which is
+ * the citation style this repo asks for. Without it the gate rejected the most
+ * precise references and quietly rewarded vaguer ones.
+ */
+function stripLineSuffix(token) {
+  return token.replace(/[),.;:]+$/g, "").replace(/:\d+(?:-\d+)?$/, "");
+}
+
 function shouldValidateCodePath(token) {
   if (!token || token.includes(" ")) return false;
   if (token.startsWith("http://") || token.startsWith("https://") || token.startsWith("mailto:")) return false;
@@ -98,7 +108,7 @@ function shouldValidateCodePath(token) {
   if (token.includes("{") || token.includes("}") || token.includes("<") || token.includes(">")) return false;
   if (!token.includes("/")) return false;
 
-  const cleaned = token.replace(/[),.;:]+$/g, "");
+  const cleaned = stripLineSuffix(token);
   if (/^\.env(\.[A-Za-z0-9_-]+)?$/.test(path.basename(cleaned))) return false;
   if (cleaned.includes(".env.local.d/")) return false;
 
@@ -107,7 +117,7 @@ function shouldValidateCodePath(token) {
 }
 
 function resolveCodePath(baseFile, token) {
-  const cleaned = token.replace(/[),.;:]+$/g, "");
+  const cleaned = stripLineSuffix(token);
   const baseDir = path.dirname(path.join(repoRoot, baseFile));
 
   if (cleaned === "./bin/hushh") {

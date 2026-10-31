@@ -1,0 +1,1446 @@
+"""Vault-protected exact-file review, separate from generic/voice confirmation."""
+
+import asyncio
+import json
+import logging
+import os
+import re
+from collections.abc import AsyncGenerator
+from typing import Any, Literal, cast
+from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import APIRoute
+from firebase_admin import auth as firebase_auth
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+
+from api.middleware import require_firebase_auth_read_only
+from api.routes.drive_sharing_owner import ContentOwner as ContentOwner
+from api.routes.drive_sharing_owner import Owner as Owner
+from api.routes.drive_sharing_owner import _content_owner as _content_owner
+from api.routes.drive_sharing_owner import _owner as _owner
+from api.routes.drive_sharing_owner import sharing_error as _error
+from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.drive_content_compilation import (
+    CompilationInputError,
+    DriveContentCompilationService,
+)
+from hushh_mcp.services.drive_live_query_service import DriveLiveQueryService
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingError,
+    ShareRequestPurpose,
+    recipient_from_verified_firebase_claims,
+)
+from hushh_mcp.services.drive_sharing_service import DriveSharingService
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
+
+logger = logging.getLogger(__name__)
+
+NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
+# Streams also forbid transforms so no proxy buffers or rewrites the frames.
+NO_STORE_STREAM = {
+    "Cache-Control": "private, no-store, no-cache, no-transform",
+    "Pragma": "no-cache",
+}
+
+
+class PrivateSharingRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_response(request):
+            try:
+                response = await handler(request)
+            except RequestValidationError:
+                # Validation diagnostics can include the submitted private
+                # purpose or an accidentally pasted credential. Never echo it.
+                response = JSONResponse(
+                    {
+                        "detail": {
+                            "code": "invalid_argument",
+                            "message": "Check the document-sharing request.",
+                        }
+                    },
+                    status_code=422,
+                )
+            except HTTPException as error:
+                error.headers = {**(error.headers or {}), **NO_STORE}
+                raise
+            response.headers.update(
+                NO_STORE_STREAM if isinstance(response, StreamingResponse) else NO_STORE
+            )
+            return response
+
+        return private_response
+
+
+router = APIRouter(
+    prefix="/api/connectors/google_drive/sharing",
+    tags=["drive-sharing"],
+    route_class=PrivateSharingRoute,
+)
+
+
+async def _recipient(
+    owner: Owner = Depends(_owner),
+    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    authorization: str = Header(),
+):
+    if owner.user_id != firebase_uid:
+        raise HTTPException(403, "Owner identity mismatch", headers=NO_STORE)
+
+    def verified_identity():
+        app = get_firebase_auth_app()
+        # The shared dependency already enforces revocation, tombstones and
+        # trusted-device state. Verify the same signed token again for claims;
+        # a decoded JWT or caller-provided email is never identity evidence.
+        claims = firebase_auth.verify_id_token(
+            authorization.removeprefix("Bearer ").strip(), app=app, check_revoked=False
+        )
+        identity_uid = firebase_uid_for_owner_read(owner.user_id)
+        user = firebase_auth.get_user(identity_uid, app=app)
+        providers = [item for item in user.provider_data if item.provider_id == "google.com"]
+        if user.disabled or len(providers) != 1:
+            raise DriveSharingError("verify_google_identity_required")
+        return recipient_from_verified_firebase_claims(
+            claims,
+            owner_user_id=owner.user_id,
+            google_provider=providers[0],
+            firebase_uid=identity_uid,
+        )
+
+    try:
+        async with asyncio.timeout(6):
+            return await asyncio.to_thread(verified_identity)
+    except DriveSharingError as error:
+        raise _error(error) from None
+    except Exception:
+        raise _error(
+            DriveSharingError("identity_verification_unavailable", retryable=True)
+        ) from None
+
+
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateRequest(StrictRequest):
+    ownerUserId: str | None = Field(default=None, min_length=1, max_length=128)
+    ownerPersonRef: UUID | None = None
+    clientRequestId: UUID
+    purpose: ShareRequestPurpose
+    # The content dates live in purpose; this optional Viewer term belongs to V1 requests.
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
+    requesterActorType: Literal["person", "ria"] = "person"
+    reason: str = Field(default="", max_length=500)
+    timeZone: str | None = Field(default=None, min_length=1, max_length=64)
+    expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
+    oneCopyRequested: StrictBool = False
+    activityAccepted: StrictBool = False
+    activityDisclosureVersion: Literal["one-document-activity-v1"] | None = None
+
+    @model_validator(mode="after")
+    def one_owner_target(self):
+        if (self.ownerUserId is None) == (self.ownerPersonRef is None):
+            raise ValueError("Specify one owner target.")
+        if self.oneCopyRequested and (
+            not self.activityAccepted
+            or self.activityDisclosureVersion != "one-document-activity-v1"
+        ):
+            raise ValueError("Explicit activity disclosure acceptance required.")
+        if self.requesterActorType == "ria" and not self.reason.strip():
+            raise ValueError("A verified RIA must give a reason.")
+        return self
+
+
+class DecisionRequest(StrictRequest):
+    revision: int = Field(ge=0, strict=True)
+
+
+class PacketListingRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    decision: Literal["allow", "deny"]
+    priceCents: int = Field(ge=50, le=50000, strict=True)
+    expectedRevision: int = Field(ge=0, strict=True)
+    disclosure: Literal["drive-packet-listing-connections-v1"]
+
+
+class PacketPurchaseRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    clientRequestId: UUID
+
+
+class OwnerPricingRequest(StrictRequest):
+    enabled: StrictBool
+    amountCents: int = Field(strict=True, ge=50, le=50000)
+    expectedVersion: int = Field(strict=True, ge=0)
+
+
+class QueryCreateRequest(StrictRequest):
+    ownerUserId: str | None = Field(default=None, min_length=1, max_length=128)
+    ownerPersonRef: UUID | None = None
+    clientRequestId: UUID
+    query: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def one_owner_target(self):
+        if (self.ownerUserId is None) == (self.ownerPersonRef is None):
+            raise ValueError("Specify one owner target.")
+        return self
+
+
+class QueryAllowRequest(DecisionRequest):
+    # The owner's IANA zone, so "24th september" means the owner's day.
+    timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+
+class OwnerShareCreateRequest(StrictRequest):
+    # Exactly one audience: one connected person, or the owner's Trusted circle.
+    recipientPersonRef: UUID | None = None
+    audience: Literal["person", "trusted_circle"] = "person"
+    clientRequestId: UUID
+    query: str = Field(min_length=1, max_length=2000)
+    # The owner's IANA zone, so "yesterday" means the owner's day.
+    timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+    @model_validator(mode="after")
+    def one_audience(self):
+        if (self.audience == "person") != (self.recipientPersonRef is not None):
+            raise ValueError("Choose one person or the Trusted circle.")
+        return self
+
+
+class QueryShareRequest(StrictRequest):
+    fileRefs: list[str] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def known_refs(self):
+        if len(set(self.fileRefs)) != len(self.fileRefs) or any(
+            not re.fullmatch(r"f[1-8]", ref) for ref in self.fileRefs
+        ):
+            raise ValueError("Choose files from the answer.")
+        return self
+
+
+class BulkShareCreateRequest(StrictRequest):
+    searchJobId: UUID
+    clientRequestId: UUID
+    audience: Literal["trusted_circle"]
+
+
+class AllowRequest(DecisionRequest):
+    oneCopyAccepted: StrictBool = False
+    packageRevision: int | None = Field(default=None, strict=True, ge=1)
+    packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    # Whole US dollars as cents. Required only for a paid request; the store
+    # checks that against the request it locks.
+    amountCents: int | None = Field(default=None, strict=True, ge=50, le=50000)
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
+class RequestPrice(AllowRequest):
+    amountCents: int = Field(strict=True, ge=50, le=50000)
+
+
+class BulkShareApprovalRequest(StrictRequest):
+    revision: int = Field(ge=1, strict=True)
+    reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
+class BulkShareStopRequest(StrictRequest):
+    pass
+
+
+class RequestSearchStart(StrictRequest):
+    timeZone: str = Field(default="UTC", min_length=1, max_length=64)
+
+
+class RequestBulkPrepare(StrictRequest):
+    excludedPositions: list[int] = Field(default_factory=list, max_length=10000)
+    positions: list[int] | None = Field(default=None, min_length=1, max_length=25)
+
+
+class ApprovalRequest(DecisionRequest):
+    reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    documentIds: list[UUID] = Field(min_length=1, max_length=25)
+    confirmed: StrictBool
+    trustFutureRequests: StrictBool = False
+    trustScope: str | None = Field(default=None, max_length=80)
+    trustDisclosureVersion: str | None = Field(default=None, max_length=80)
+    calendarOccurrenceConfirmed: StrictBool = False
+
+
+class CalendarFileSearch(StrictRequest):
+    query: str = Field(min_length=3, max_length=80)
+
+
+class CalendarFilePrepare(StrictRequest):
+    candidateToken: dict
+    fileIds: list[str] = Field(min_length=1, max_length=8)
+    occurrenceConfirmed: StrictBool
+
+
+class RuleRevocationRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    confirmed: StrictBool
+
+
+class RevocationRequest(DecisionRequest):
+    directiveId: str = Field(min_length=1, max_length=128)
+    reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    grantIds: list[UUID] = Field(default_factory=list, max_length=25)
+    confirmed: StrictBool
+
+
+def _service():
+    return DriveSharingService()
+
+
+def _calendar_service(owner: Owner):
+    from hushh_mcp.services.calendar_meeting_request_service import CalendarMeetingRequestService
+
+    return CalendarMeetingRequestService(
+        sharing=DriveSharingService(require_owner=owner.require_current)
+    )
+
+
+async def _calendar_call(method: str, *, owner: Owner, **kwargs):
+    try:
+        await owner.require_current()
+        result = await getattr(_calendar_service(owner), method)(user_id=owner.user_id, **kwargs)
+        await owner.require_current()
+        return result
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise _error(error) from None
+
+
+def _query_service():
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    return DriveLiveQueryService(
+        sharing=lambda require_owner: DriveSharingService(require_owner=require_owner),
+        suggestions=lambda require_owner: DriveSuggestionService(require_owner=require_owner),
+    )
+
+
+async def _call(method, *, owner, factory=None, **kwargs):
+    try:
+        await owner.require_current()
+        service = (factory or _service)()
+        service.require_owner = owner.require_current
+        if method != "create":
+            kwargs["user_id"] = owner.user_id
+        result = await getattr(service, method)(**kwargs)
+        await owner.require_current()
+        return result
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **NO_STORE}
+        raise
+    except Exception as error:
+        raise _error(error) from None
+
+
+async def _owner_target(owner: Owner, body: CreateRequest | QueryCreateRequest) -> str:
+    if body.ownerPersonRef is None:
+        return cast(str, body.ownerUserId)
+    return await _person_target(owner, body.ownerPersonRef)
+
+
+async def _person_target(owner: Owner, person_ref: UUID) -> str:
+    """A connected person's user id from their public profile reference.
+
+    The domain store separately rechecks the active A/B relationship under
+    locks; a public profile reference is never sharing authority.
+    """
+    await owner.require_current()
+    try:
+        async with asyncio.timeout(6):
+            target_user_id, _ = await asyncio.to_thread(
+                PersonProfileService().get_relationship_target,
+                viewer_user_id=owner.user_id,
+                public_person_ref=str(person_ref),
+            )
+    except PersonProfileNotFoundError:
+        raise _error(DriveSharingError("request_unavailable")) from None
+    except Exception:
+        raise _error(DriveSharingError("identity_verification_unavailable")) from None
+    return str(target_user_id)
+
+
+def _packet_service():
+    from hushh_mcp.services.drive_packet_catalog_service import DrivePacketCatalogService
+
+    return DrivePacketCatalogService()
+
+
+async def _require_packet_commerce(owner: Owner, packet_id: UUID, version: int):
+    if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true":
+        return
+    if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() != "true":
+        raise _error(DriveSharingError("packet_unavailable"))
+    await _call(
+        "require_period_packet",
+        owner=owner,
+        factory=_packet_service,
+        packet_id=str(packet_id),
+        version=version,
+    )
+
+
+@router.get("/packets")
+async def list_packets(
+    ownerPersonRef: UUID | None = None,
+    cursor: str | None = Query(default=None, min_length=1, max_length=256),
+    owner: Owner = Depends(_owner),
+):
+    target = await _person_target(owner, ownerPersonRef) if ownerPersonRef else None
+    return await _call(
+        "list_packets",
+        owner=owner,
+        factory=_packet_service,
+        owner_user_id=target,
+        cursor=cursor,
+    )
+
+
+@router.post("/packets/{packet_id}/listing")
+async def set_packet_listing(
+    packet_id: UUID, body: PacketListingRequest, owner: Owner = Depends(_owner)
+):
+    # Existing listings can still be withdrawn while new packet commerce is off.
+    if body.decision == "allow":
+        await _require_packet_commerce(owner, packet_id, body.version)
+    return await _call(
+        "set_listing",
+        owner=owner,
+        factory=_packet_service,
+        packet_id=str(packet_id),
+        version=body.version,
+        decision=body.decision,
+        price_cents=body.priceCents,
+        expected_revision=body.expectedRevision,
+        disclosure=body.disclosure,
+    )
+
+
+@router.post("/packets/{packet_id}/requests", status_code=202)
+async def request_packet(
+    packet_id: UUID,
+    body: PacketPurchaseRequest,
+    recipient=Depends(_recipient),
+    owner: Owner = Depends(_owner),
+):
+    await _require_packet_commerce(owner, packet_id, body.version)
+    return await _call(
+        "request_packet",
+        owner=owner,
+        factory=_packet_service,
+        recipient=recipient,
+        packet_id=str(packet_id),
+        version=body.version,
+        client_request_id=str(body.clientRequestId),
+    )
+
+
+@router.post("/requests", status_code=202)
+async def create_request(
+    body: CreateRequest, recipient=Depends(_recipient), owner: Owner = Depends(_owner)
+):
+    if body.timeZone is not None:
+        try:
+            ZoneInfo(body.timeZone)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise _error(DriveSharingError("invalid_argument")) from None
+    owner_user_id = await _owner_target(owner, body)
+    requester_profile = None
+    if body.requesterActorType == "ria":
+        ria_service = RIAIAMService()
+        try:
+            await ria_service.require_ria_verified(owner.user_id)
+            ria = await ria_service.get_ria_onboarding_status(owner.user_id)
+        except IAMSchemaNotReadyError as exc:
+            raise HTTPException(status_code=503, detail="RIA verification unavailable") from exc
+        except RIAIAMPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if not ria.get("exists"):
+            raise HTTPException(status_code=403, detail="RIA verification required")
+        requester_profile = {
+            "type": "ria",
+            "displayName": ria.get("display_name"),
+            "legalName": ria.get("individual_legal_name") or ria.get("legal_name"),
+            "crd": ria.get("individual_crd") or ria.get("finra_crd"),
+            "firmName": ria.get("advisory_firm_legal_name"),
+        }
+    return await _call(
+        "create",
+        owner=owner,
+        recipient=recipient,
+        owner_user_id=owner_user_id,
+        client_request_id=str(body.clientRequestId),
+        purpose=body.purpose,
+        access_days=body.accessDays,
+        requester_profile=requester_profile,
+        reason=body.reason.strip(),
+        request_time_zone=body.timeZone,
+        expected_quote_version=body.expectedQuoteVersion,
+        **(
+            {
+                "one_copy_requested": True,
+                "activity_accepted": True,
+                "activity_disclosure": body.activityDisclosureVersion,
+            }
+            if body.oneCopyRequested
+            else {}
+        ),
+    )
+
+
+@router.get("/pricing")
+async def owner_pricing(owner: Owner = Depends(_owner)):
+    return await _call("owner_pricing", owner=owner)
+
+
+@router.put("/pricing")
+async def update_owner_pricing(body: OwnerPricingRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "update_owner_pricing",
+        owner=owner,
+        enabled=body.enabled,
+        amount_cents=body.amountCents,
+        expected_version=body.expectedVersion,
+    )
+
+
+@router.get("/quote")
+async def request_quote(ownerPersonRef: UUID, owner: Owner = Depends(_owner)):
+    owner_user_id = await _person_target(owner, ownerPersonRef)
+    return await _call("request_quote", owner=owner, owner_user_id=owner_user_id)
+
+
+@router.get("/requests")
+async def list_requests(
+    direction: Literal["incoming", "outgoing"] = "incoming",
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=10000),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "list_requests", owner=owner, direction=direction, limit=limit, offset=offset
+    )
+
+
+@router.get("/requests/{request_id}")
+async def request_status(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("status", owner=owner, request_id=str(request_id))
+
+
+@router.get("/requests/by-client/{client_request_id}")
+async def lookup_client_request(client_request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("lookup_client", owner=owner, client_request_id=str(client_request_id))
+
+
+@router.get("/requests/{request_id}/review")
+async def owner_review(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    review = await _call("review", owner=owner, request_id=str(request_id))
+    if review.get("durableAvailable"):
+        review.update(
+            await _call(
+                "review_context",
+                owner=owner,
+                factory=_request_bulk_service,
+                request_id=str(request_id),
+            )
+        )
+    return review
+
+
+@router.get("/calendar-requests/{request_id}")
+async def calendar_request_preview(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _calendar_call("owner_preview", owner=owner, request_id=str(request_id))
+
+
+@router.post("/calendar-requests/{request_id}/files")
+async def calendar_request_files(
+    request_id: UUID, body: CalendarFileSearch, owner: Owner = Depends(_content_owner)
+):
+    return await _calendar_call(
+        "search_owner_files", owner=owner, request_id=str(request_id), query=body.query
+    )
+
+
+@router.get("/calendar-requests/{request_id}/linked-files")
+async def calendar_request_linked_files(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _calendar_call("exact_owner_files", owner=owner, request_id=str(request_id))
+
+
+@router.post("/calendar-requests/{request_id}/review", status_code=202)
+async def calendar_prepare_review(
+    request_id: UUID, body: CalendarFilePrepare, owner: Owner = Depends(_content_owner)
+):
+    return await _calendar_call(
+        "prepare_owner_review",
+        owner=owner,
+        request_id=str(request_id),
+        candidate_token=body.candidateToken,
+        file_ids=body.fileIds,
+        occurrence_confirmed=body.occurrenceConfirmed,
+    )
+
+
+@router.get("/requests/{request_id}/context")
+async def requester_context(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("requester_context", owner=owner, request_id=str(request_id))
+
+
+def _request_bulk_service():
+    from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+
+    return DriveRequestBulkService()
+
+
+@router.post("/requests/{request_id}/search")
+async def start_request_search(
+    request_id: UUID, body: RequestSearchStart, owner: Owner = Depends(_content_owner)
+):
+    try:
+        ZoneInfo(body.timeZone)
+    except (ValueError, ZoneInfoNotFoundError):
+        raise _error(DriveSharingError("invalid_argument")) from None
+    return await _call(
+        "start_search",
+        owner=owner,
+        factory=_request_bulk_service,
+        request_id=str(request_id),
+        timezone=body.timeZone,
+    )
+
+
+@router.get("/requests/{request_id}/search")
+async def request_search_status(request_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _call(
+        "search_status", owner=owner, factory=_request_bulk_service, request_id=str(request_id)
+    )
+
+
+@router.get("/requests/{request_id}/search/files")
+async def request_search_files(
+    request_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_content_owner),
+):
+    return await _call(
+        "search_files",
+        owner=owner,
+        factory=_request_bulk_service,
+        request_id=str(request_id),
+        cursor=cursor,
+    )
+
+
+@router.post("/requests/{request_id}/bulk")
+async def prepare_request_bulk(
+    request_id: UUID, body: RequestBulkPrepare, owner: Owner = Depends(_content_owner)
+):
+    return await _call(
+        "prepare",
+        owner=owner,
+        factory=_request_bulk_service,
+        request_id=str(request_id),
+        excluded_positions=body.excludedPositions,
+        positions=body.positions,
+    )
+
+
+@router.get("/requests/{request_id}/delivery")
+async def delivery(request_id: UUID, owner: Owner = Depends(_owner)):
+    # views: the requester's price and recovery, or the owner's review notice.
+    return await _call("delivery", owner=owner, request_id=str(request_id), views=True)
+
+
+@router.get("/requests/{request_id}/delivery/files")
+async def delivery_files(
+    request_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_owner),
+):
+    return await _call("delivery_files", owner=owner, request_id=str(request_id), cursor=cursor)
+
+
+@router.post("/requests/{request_id}/prepare")
+async def prepare_request(
+    request_id: UUID, body: StrictRequest, owner: Owner = Depends(_content_owner)
+):
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    try:
+        await owner.require_current()
+        result = await DriveSuggestionService(require_owner=owner.require_current).run_one(
+            user_id=owner.user_id, request_id=str(request_id)
+        )
+        await owner.require_current()
+        return {"status": result}
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **NO_STORE}
+        raise
+    except Exception as error:
+        raise _error(error) from None
+
+
+PREPARE_STREAM_HEARTBEAT_SECONDS = 15.0
+# Above the 160 s preparation budget plus its owner and lease fences. Heartbeats
+# would otherwise keep every client and proxy timeout alive for a stuck task.
+PREPARE_STREAM_DEADLINE_SECONDS = 190.0
+PREPARE_STREAM_MAX_PENDING = 32
+# Strong references: a preparation outlives a disconnected stream (see below).
+_PREPARE_STREAM_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
+    body = json.dumps({"event": event, **payload}, separators=(",", ":"))
+    return f"event: {event}\ndata: {body}\n\n".encode()
+
+
+def _prepare_task_done(task: asyncio.Task[None]) -> None:
+    _PREPARE_STREAM_TASKS.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.warning("drive_sharing.prepare_stream_task_failed type=%s", type(error).__name__)
+
+
+async def _prepare_stream(
+    *, request: Request, owner: Owner, request_id: str
+) -> AsyncGenerator[bytes, None]:
+    """Stage names and a terminal status only. Files, ids and coverage stay
+    behind GET /review and the store's source-authority check."""
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    events: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+    reported: list[str] = []
+
+    def on_stage(stage: str) -> None:
+        # Reading and interpreting are both "checking"; send each stage once.
+        if reported[-1:] != [stage]:
+            reported.append(stage)
+            events.put_nowait(("stage", {"stage": stage}))
+
+    async def prepare() -> None:
+        try:
+            result = await DriveSuggestionService(require_owner=owner.require_current).run_one(
+                user_id=owner.user_id,
+                request_id=request_id,
+                on_stage=on_stage,
+            )
+            await owner.require_current()
+        except HTTPException:
+            # Owner authority ended mid-run. End without a terminal frame so the
+            # client's next status read surfaces the real 401/423 through the
+            # session handling a 200 stream cannot trigger.
+            events.put_nowait(None)
+            return
+        except Exception as error:  # noqa: BLE001 - only the public error boundary
+            logger.warning("drive_sharing.prepare_stream_failed type=%s", type(error).__name__)
+            detail = cast(dict, _error(error).detail)
+            events.put_nowait(("error", {"code": detail["code"], "message": detail["message"]}))
+            return
+        events.put_nowait(("complete", {"status": result}))
+
+    task = asyncio.create_task(prepare())
+    _PREPARE_STREAM_TASKS.add(task)
+    task.add_done_callback(_prepare_task_done)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + PREPARE_STREAM_DEADLINE_SECONDS
+    yield _sse_frame("stage", {"stage": "starting"})
+    while True:
+        # Never cancel the preparation: a cancel skips fail_preparation, strands
+        # the lease and could interrupt the review commit. It runs to its own
+        # 160 s budget exactly like an abandoned POST /prepare.
+        if await request.is_disconnected():
+            return
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        try:
+            item = await asyncio.wait_for(
+                events.get(), timeout=min(PREPARE_STREAM_HEARTBEAT_SECONDS, remaining)
+            )
+        except TimeoutError:
+            yield _sse_frame("heartbeat", {})
+            continue
+        if item is None:
+            return
+        event, payload = item
+        yield _sse_frame(event, payload)
+        if event in {"complete", "error"}:
+            return
+
+
+@router.post("/requests/{request_id}/prepare/stream")
+async def prepare_request_stream(
+    request: Request, request_id: UUID, body: StrictRequest, owner: Owner = Depends(_content_owner)
+):
+    try:
+        # Before the 200: a stale owner stays a real HTTP 401/403/423.
+        await owner.require_current()
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **NO_STORE}
+        raise
+    except Exception as error:
+        raise _error(error) from None
+    if len(_PREPARE_STREAM_TASKS) >= PREPARE_STREAM_MAX_PENDING:
+        # Before the 200, as a plain 503: the client falls back to the uncapped
+        # POST /prepare, so a busy process never denies an owner their search.
+        raise _error(DriveSharingError("sharing_unavailable"))
+    return StreamingResponse(
+        _prepare_stream(request=request, owner=owner, request_id=str(request_id)),
+        media_type="text/event-stream",
+        headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+class OwnerCompilationWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
+class OwnerCompilationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    message: str = Field(min_length=1, max_length=2048)
+    window: OwnerCompilationWindow
+
+
+COMPILE_STREAM_HEARTBEAT_SECONDS = 15.0
+COMPILE_STREAM_DEADLINE_SECONDS = 330.0
+COMPILE_STREAM_CHUNK_CHARS = 8192
+COMPILE_STREAM_MAX_ACTIVE = 4
+_COMPILE_STREAM_ACTIVE = 0
+_COMPILE_STREAM_TASKS: set[asyncio.Task[None]] = set()
+
+
+class _CompilationReservation:
+    """Release the stream slot once, including before its body first starts."""
+
+    def __init__(self) -> None:
+        global _COMPILE_STREAM_ACTIVE
+        _COMPILE_STREAM_ACTIVE += 1
+        self.released = False
+
+    def release(self) -> None:
+        global _COMPILE_STREAM_ACTIVE
+        if not self.released:
+            self.released = True
+            _COMPILE_STREAM_ACTIVE -= 1
+
+
+class _CompilationStreamingResponse(StreamingResponse):
+    def __init__(self, *args, reservation: _CompilationReservation, **kwargs) -> None:
+        self._reservation = reservation
+        super().__init__(*args, **kwargs)
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                # Starlette can fail while sending response headers, before
+                # the async generator's own finally block has ever run.
+                await cast(AsyncGenerator[bytes, None], self.body_iterator).aclose()
+            finally:
+                self._reservation.release()
+
+
+async def _current_live_generation(user_id: str) -> int:
+    """Cheap live-grant fence while sending private Markdown frames."""
+    row = (
+        await get_external_connector_oauth_service()
+        .drive()
+        .lifecycle.read(user_id=user_id, connector_id="google_drive")
+    )
+    generation = row.get("connection_generation") if isinstance(row, dict) else None
+    if (
+        not isinstance(row, dict)
+        or row.get("status") != "connected"
+        or row.get("validation_state") != "verified"
+        or row.get("verified_policy_hash") != LIVE_POLICY_HASH
+        or not isinstance(generation, int)
+        or isinstance(generation, bool)
+    ):
+        raise PermissionError("Drive live grant is no longer current")
+    return generation
+
+
+def _compilation_error(error: Exception) -> tuple[str, str]:
+    if isinstance(error, CompilationInputError):
+        return "input_required", str(error)
+    if isinstance(error, (DriveReadError, DriveOAuthError)):
+        code = str(error)
+        if code in {"connect_required", "not_connected"}:
+            return "connect_required", "Connect live Drive access to compile these notes."
+        if code in {"reconnect_required", "needs_reauth", "grant_rejected"}:
+            return "reconnect_required", "Reconnect Drive to compile these notes."
+        if code in {"connection_changed", "source_changed"}:
+            return "connection_changed", "A Drive file or connection changed. Try again."
+        if code == "response_too_large":
+            return "response_too_large", "These notes exceed the download limit. Narrow the period."
+    return "unavailable", "Drive could not complete the compilation right now."
+
+
+async def _compile_stream(
+    *,
+    request: Request,
+    owner: Owner,
+    body: OwnerCompilationRequest,
+    reservation: _CompilationReservation,
+) -> AsyncGenerator[bytes, None]:
+    """Count-only progress, then full owner text only after every source fence."""
+    events: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+    expected_generation: int | None = None
+
+    async def require_compilation_access() -> None:
+        nonlocal expected_generation
+        await owner.require_current()
+        if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
+            raise PermissionError("Drive chat reads are unavailable")
+        generation = await _current_live_generation(owner.user_id)
+        if expected_generation is None:
+            expected_generation = generation
+        elif generation != expected_generation:
+            raise PermissionError("Drive live grant changed")
+
+    def on_stage(phase: str) -> None:
+        if phase in {"searching", "fetching", "finalizing"}:
+            events.put_nowait(("stage", {"phase": phase}))
+
+    def on_progress(completed: int, total: int, failed: int) -> None:
+        if 1 <= completed <= total <= 40 and 0 <= failed <= completed:
+            events.put_nowait(
+                (
+                    "file",
+                    {"phase": "fetching", "completed": completed, "total": total, "failed": failed},
+                )
+            )
+
+    async def run() -> None:
+        try:
+            await require_compilation_access()
+            result = await DriveContentCompilationService().compile(
+                user_id=owner.user_id,
+                message=body.message,
+                timezone=body.window.timezone,
+                window=body.window.model_dump(),
+                require_access=require_compilation_access,
+                on_stage=on_stage,
+                on_progress=on_progress,
+            )
+            await require_compilation_access()
+            for index, offset in enumerate(
+                range(0, len(result.markdown), COMPILE_STREAM_CHUNK_CHARS)
+            ):
+                await events.put(
+                    (
+                        "markdown",
+                        {
+                            "index": index,
+                            "text": result.markdown[offset : offset + COMPILE_STREAM_CHUNK_CHARS],
+                        },
+                    )
+                )
+            events.put_nowait(
+                (
+                    "complete",
+                    {
+                        "status": result.status,
+                        "matched": result.matched,
+                        "included": result.included,
+                        "failed": result.failed,
+                        "truncated": result.truncated,
+                    },
+                )
+            )
+        except (HTTPException, PermissionError):
+            # A stream cannot switch its HTTP status after the first 200.
+            # End without a terminal result; the client treats it as interrupted.
+            events.put_nowait(None)
+        except Exception as error:  # noqa: BLE001 - sanitized stream boundary
+            code, message = _compilation_error(error)
+            logger.warning("drive_compilation.failed code=%s type=%s", code, type(error).__name__)
+            events.put_nowait(("error", {"code": code, "message": message}))
+
+    task = asyncio.create_task(run())
+    _COMPILE_STREAM_TASKS.add(task)
+    task.add_done_callback(_COMPILE_STREAM_TASKS.discard)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + COMPILE_STREAM_DEADLINE_SECONDS
+    try:
+        yield _sse_frame("stage", {"phase": "starting"})
+        while True:
+            if await request.is_disconnected():
+                return
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            try:
+                item = await asyncio.wait_for(
+                    events.get(), timeout=min(COMPILE_STREAM_HEARTBEAT_SECONDS, remaining)
+                )
+            except TimeoutError:
+                yield _sse_frame("heartbeat", {})
+                continue
+            if item is None:
+                return
+            event, payload = item
+            if event in {"markdown", "complete"}:
+                # The producer can queue a large result ahead of a slow client.
+                # Check at actual publication, not only while it is queued.
+                try:
+                    await require_compilation_access()
+                except (HTTPException, PermissionError):
+                    return
+            yield _sse_frame(event, payload)
+            if event in {"complete", "error"}:
+                return
+    finally:
+        # This is a read-only compilation with no durable lease or mutation.
+        # A disconnected caller should release its Google and CPU work.
+        try:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        finally:
+            reservation.release()
+
+
+@router.post("/owner/compile/stream")
+async def compile_owner_notes_stream(
+    request: Request,
+    body: OwnerCompilationRequest,
+    owner: Owner = Depends(_content_owner),
+):
+    await owner.require_current()
+    if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
+        raise HTTPException(403, "Drive chat reads are unavailable", headers=NO_STORE)
+    if _COMPILE_STREAM_ACTIVE >= COMPILE_STREAM_MAX_ACTIVE:
+        raise HTTPException(503, "Drive compilation is busy", headers=NO_STORE)
+    # No await separates admission and reservation, so concurrent HTTP calls
+    # cannot all enter before their streaming generators start.
+    reservation = _CompilationReservation()
+    try:
+        return _CompilationStreamingResponse(
+            _compile_stream(request=request, owner=owner, body=body, reservation=reservation),
+            reservation=reservation,
+            media_type="text/event-stream",
+            headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+    except BaseException:
+        reservation.release()
+        raise
+
+
+@router.post("/requests/{request_id}/approve", status_code=202)
+async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depends(_content_owner)):
+    return await _call(
+        "approve",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        review_digest=body.reviewDigest,
+        document_ids=[str(value) for value in body.documentIds],
+        confirmed=body.confirmed,
+        calendar_occurrence_confirmed=body.calendarOccurrenceConfirmed,
+        trust_future_requests=body.trustFutureRequests,
+        **(
+            {
+                "trust_scope": body.trustScope,
+                "trust_disclosure_version": body.trustDisclosureVersion,
+            }
+            if body.trustScope is not None or body.trustDisclosureVersion is not None
+            else {}
+        ),
+    )
+
+
+@router.get("/rules")
+async def list_document_rules(owner: Owner = Depends(_owner)):
+    return await _call("list_rules", owner=owner)
+
+
+@router.post("/rules/{rule_id}/revoke")
+async def revoke_document_rule(
+    rule_id: UUID, body: RuleRevocationRequest, owner: Owner = Depends(_owner)
+):
+    return await _call(
+        "revoke_rule",
+        owner=owner,
+        rule_id=str(rule_id),
+        version=body.version,
+        confirmed=body.confirmed,
+    )
+
+
+@router.post("/requests/{request_id}/decline")
+async def decline(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "decide",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        decision="declined",
+    )
+
+
+@router.post("/requests/{request_id}/allow", status_code=202)
+async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_owner)):
+    """A allows one request outside the Trusted circle; the automatic search runs next."""
+    return await _call(
+        "allow",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
+        **({"one_copy_accepted": True} if body.oneCopyAccepted else {}),
+        **(
+            {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
+            if body.packageRevision is not None or body.packageDigest is not None
+            else {}
+        ),
+    )
+
+
+@router.post("/requests/{request_id}/price", status_code=202)
+async def set_request_price(request_id: UUID, body: RequestPrice, owner: Owner = Depends(_owner)):
+    return await _call(
+        "set_request_price",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
+    )
+
+
+@router.post("/requests/{request_id}/review/refresh", status_code=202)
+async def refresh_review(
+    request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_content_owner)
+):
+    return await _call(
+        "retry_preparation", owner=owner, request_id=str(request_id), revision=body.revision
+    )
+
+
+@router.post("/requests/{request_id}/cancel")
+async def cancel(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    """The requester withdraws; a paid or already shared request gets 409 request_paid."""
+    from hushh_mcp.services.drive_request_withdrawal_store import retire_withdrawn_checkout
+
+    result = await _call(
+        "decide",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        decision="cancelled",
+    )
+    # After commit and best-effort only: an open Checkout page is expired at
+    # Stripe; a payment that already won the race is reported as refund pending.
+    return await retire_withdrawn_checkout(
+        result, requester_user_id=owner.user_id, request_id=str(request_id)
+    )
+
+
+@router.post("/requests/{request_id}/revocation/prepare")
+async def prepare_revocation(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("prepare_revocation", owner=owner, request_id=str(request_id))
+
+
+@router.post("/requests/{request_id}/revocation/confirm", status_code=202)
+async def confirm_revocation(
+    request_id: UUID, body: RevocationRequest, owner: Owner = Depends(_owner)
+):
+    return await _call(
+        "revoke",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        directive_id=body.directiveId,
+        review_digest=body.reviewDigest,
+        grant_ids=[str(value) for value in body.grantIds],
+        confirmed=body.confirmed,
+    )
+
+
+@router.post("/queries", status_code=202)
+async def create_query(body: QueryCreateRequest, owner: Owner = Depends(_owner)):
+    """B asks a question about A's Drive. Nothing reads Drive until A allows it."""
+    owner_user_id = await _owner_target(owner, body)
+    return await _call(
+        "create",
+        owner=owner,
+        factory=_query_service,
+        requester_user_id=owner.user_id,
+        owner_user_id=owner_user_id,
+        client_request_id=str(body.clientRequestId),
+        query=body.query,
+    )
+
+
+@router.get("/queries")
+async def list_queries(
+    direction: Literal["incoming", "outgoing"] = "incoming",
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=10000),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "list_requests",
+        owner=owner,
+        factory=_query_service,
+        direction=direction,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/queries/{request_id}")
+async def query_status(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("status", owner=owner, factory=_query_service, request_id=str(request_id))
+
+
+@router.post("/queries/{request_id}/allow")
+async def allow_query(
+    request_id: UUID, body: QueryAllowRequest, owner: Owner = Depends(_content_owner)
+):
+    """A allows: the exact stored question runs once, live, under A's authority."""
+    return await _call(
+        "allow",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+        consent_token=owner.token,
+        timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/queries/{request_id}/share", status_code=202)
+async def share_query_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_content_owner)
+):
+    """A shares chosen files from an answered question with the asker, as Viewer."""
+    return await _call(
+        "share",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
+    )
+
+
+@router.post("/owner-shares")
+async def prepare_owner_share(
+    body: OwnerShareCreateRequest, owner: Owner = Depends(_content_owner)
+):
+    """A searches A's own Drive to share with a connection. Nothing is shared yet."""
+    if body.audience == "trusted_circle":
+        return await _call(
+            "prepare_trusted_share",
+            owner=owner,
+            factory=_query_service,
+            client_request_id=str(body.clientRequestId),
+            query=body.query,
+            consent_token=owner.token,
+            timezone=body.timeZone or "UTC",
+        )
+    recipient_user_id = await _person_target(owner, cast(UUID, body.recipientPersonRef))
+    return await _call(
+        "prepare_owner_share",
+        owner=owner,
+        factory=_query_service,
+        recipient_user_id=recipient_user_id,
+        client_request_id=str(body.clientRequestId),
+        query=body.query,
+        consent_token=owner.token,
+        timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/owner-shares/{request_id}/share", status_code=202)
+async def share_owner_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_content_owner)
+):
+    """A shares chosen files from A's own search with the connection, as Viewer."""
+    return await _call(
+        "share_owner_files",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
+    )
+
+
+def _bulk_share_service():
+    from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
+
+    return DriveBulkShareService()
+
+
+@router.post("/bulk")
+async def create_bulk_share(body: BulkShareCreateRequest, owner: Owner = Depends(_content_owner)):
+    """Freeze one complete saved search for a separate exact-set owner review."""
+    return await _call(
+        "prepare",
+        owner=owner,
+        factory=_bulk_share_service,
+        search_job_id=str(body.searchJobId),
+        client_request_id=str(body.clientRequestId),
+    )
+
+
+@router.get("/bulk")
+async def list_bulk_shares(searchJobId: UUID | None = None, owner: Owner = Depends(_content_owner)):
+    return await _call(
+        "list",
+        owner=owner,
+        factory=_bulk_share_service,
+        search_job_id=str(searchJobId) if searchJobId else None,
+    )
+
+
+@router.get("/bulk/received")
+async def received_bulk_shares(owner: Owner = Depends(_owner)):
+    """The recipient's confirmed share collections, including non-Drive users."""
+    return await _call("received", owner=owner, factory=_bulk_share_service)
+
+
+@router.get("/bulk/received/{share_id}/files")
+async def received_bulk_share_files(
+    share_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "received_files",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        cursor=cursor,
+    )
+
+
+@router.get("/bulk/{share_id}")
+async def bulk_share_status(share_id: UUID, owner: Owner = Depends(_content_owner)):
+    return await _call("review", owner=owner, factory=_bulk_share_service, share_id=str(share_id))
+
+
+@router.get("/bulk/{share_id}/files")
+async def bulk_share_files(
+    share_id: UUID,
+    cursor: str | None = Query(default=None, max_length=2048),
+    owner: Owner = Depends(_content_owner),
+):
+    return await _call(
+        "files",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        cursor=cursor,
+    )
+
+
+@router.post("/bulk/{share_id}/approve", status_code=202)
+async def approve_bulk_share(
+    share_id: UUID,
+    body: BulkShareApprovalRequest,
+    owner: Owner = Depends(_content_owner),
+):
+    return await _call(
+        "approve",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        revision=body.revision,
+        review_digest=body.reviewDigest,
+        access_days=body.accessDays,
+    )
+
+
+@router.post("/bulk/{share_id}/retry", status_code=202)
+async def retry_bulk_share(
+    share_id: UUID,
+    body: BulkShareApprovalRequest,
+    owner: Owner = Depends(_content_owner),
+):
+    return await _call(
+        "retry",
+        owner=owner,
+        factory=_bulk_share_service,
+        share_id=str(share_id),
+        revision=body.revision,
+        review_digest=body.reviewDigest,
+    )
+
+
+@router.post("/bulk/{share_id}/stop")
+async def stop_bulk_share(
+    share_id: UUID,
+    body: BulkShareStopRequest,
+    owner: Owner = Depends(_owner),
+):
+    return await _call("stop", owner=owner, factory=_bulk_share_service, share_id=str(share_id))
+
+
+@router.post("/queries/{request_id}/deny")
+async def deny_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "deny",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+    )
+
+
+@router.post("/queries/{request_id}/cancel")
+async def cancel_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    """B withdraws their own question. Never reads Drive; stops a running Allow's answer."""
+    return await _call(
+        "cancel",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+    )

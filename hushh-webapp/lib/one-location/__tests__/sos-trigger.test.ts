@@ -33,6 +33,7 @@ import {
   selectSmsRecipients,
   selectShareReadyRecipients,
   selectSosConnectedRecipients,
+  sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 
@@ -108,6 +109,11 @@ describe("isSosShareReadyRecipient", () => {
     expect(isSosShareReadyRecipient(r)).toBe(false);
   });
 
+  it("accepts a connected receiving-ready contact without a phone claim", () => {
+    const r = makeRecipient("u1", { phoneVerified: false });
+    expect(isSosShareReadyRecipient(r)).toBe(true);
+  });
+
   it("returns false when keyId is null", () => {
     const r = makeRecipient("u1", { keyId: null });
     expect(isSosShareReadyRecipient(r)).toBe(false);
@@ -134,6 +140,32 @@ describe("isSosShareReadyRecipient", () => {
     const r = makeRecipient("u1");
     const { canReceiveLocation: _dropped, ...rest } = r;
     expect(isSosShareReadyRecipient(rest as OneLocationRecipient)).toBe(false);
+  });
+});
+
+describe("sosRecipientReadinessMessage", () => {
+  it("asks for an SMS contact when the list is empty", () => {
+    expect(sosRecipientReadinessMessage([])).toBe(
+      "Add at least one SMS contact before sending an alert.",
+    );
+  });
+
+  it("does not confuse missing receiving keys with phone or account verification", () => {
+    expect(
+      sosRecipientReadinessMessage([
+        makeRecipient("u1", { phoneVerified: false, keyId: null }),
+      ]),
+    ).toBe(
+      "Couldn't reach your SMS Circle. Alert not sent. Try again.",
+    );
+  });
+
+  it("keeps key setup failures separate from phone verification", () => {
+    expect(
+      sosRecipientReadinessMessage([
+        makeRecipient("u1", { canReceiveLocation: false, keyId: null }),
+      ]),
+    ).toBe("Couldn't reach your SMS Circle. Alert not sent. Try again.");
   });
 });
 
@@ -320,10 +352,7 @@ describe("runSosPanic", () => {
       vaultOwnerToken: "tok",
       recipients: [alice, bob],
       point: makePoint(),
-      publish: vi
-        .fn()
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false),
+      publish: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
     });
 
     expect(result.delivery).toEqual([
@@ -409,7 +438,7 @@ describe("runSosPanic", () => {
 
     expect(error).toBeInstanceOf(SosPanicError);
     expect(error).toMatchObject({
-      message: "character limit exceed",
+      message: "Message is too long",
       partialIncident: null,
     });
     expect(createGrantMock).not.toHaveBeenCalled();
@@ -422,9 +451,7 @@ describe("runSosPanic", () => {
     const rB = makeRecipient("userB");
     const grantA = makeGrant("g1", "userA");
     const grantB = makeGrant("g2", "userB");
-    createGrantMock
-      .mockResolvedValueOnce(grantA)
-      .mockResolvedValueOnce(grantB);
+    createGrantMock.mockResolvedValueOnce(grantA).mockResolvedValueOnce(grantB);
     const publish = vi.fn().mockResolvedValue(undefined);
     const point = makePoint();
 
@@ -440,45 +467,55 @@ describe("runSosPanic", () => {
     expect(publish).toHaveBeenNthCalledWith(2, grantB, rB, point);
   });
 
-  it("records grantId BEFORE publish — thrown error is SosPanicError whose partialIncident.grantIds contains BOTH ids if publish throws on 2nd recipient", async () => {
-    const rA = makeRecipient("userA");
-    const rB = makeRecipient("userB");
-    createGrantMock
-      .mockResolvedValueOnce(makeGrant("g1", "userA"))
-      .mockResolvedValueOnce(makeGrant("g2", "userB"));
+  it("does not block the Circle behind one slow contact and bounds delivery fan-out", async () => {
+    const recipients = Array.from({ length: 5 }, (_, i) => makeRecipient(`fast-${i}`));
+    const releases = new Map<string, () => void>();
+    createGrantMock.mockImplementation(async ({ recipientUserId }) => makeGrant(`g-${recipientUserId}`, recipientUserId));
+    const publish = vi.fn((_grant, recipient: ReturnType<typeof makeRecipient>) => new Promise<void>((resolve) => {
+      releases.set(recipient.userId, resolve);
+    }));
+    const result = runSosPanic({ vaultOwnerToken: "tok", recipients, point: makePoint(), publish });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(3));
+    // Contact 0 stays stalled; completing contact 1 admits contact 3 immediately.
+    releases.get("fast-1")!();
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(4));
+    releases.get("fast-2")!();
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(5));
+    for (const release of releases.values()) release();
+    expect((await result).delivery.map((outcome) => outcome.userId)).toEqual(recipients.map((recipient) => recipient.userId));
+  });
 
-    let publishCallCount = 0;
-    const publish = vi.fn().mockImplementation(async () => {
-      publishCallCount += 1;
-      if (publishCallCount === 2) {
-        throw new Error("network error on 2nd publish");
-      }
+  it("attempts all eight contacts after create and publish failures, retaining every created grant for Stop", async () => {
+    const recipients = Array.from({ length: 8 }, (_, i) => makeRecipient(`user${i}`));
+    createGrantMock.mockImplementation(async ({ recipientUserId }) => {
+      if (recipientUserId === "user0") throw new Error("identity unavailable");
+      return makeGrant(`g-${recipientUserId}`, recipientUserId);
     });
-
-    const err = await runSosPanic({
-      vaultOwnerToken: "tok",
-      recipients: [rA, rB],
-      point: makePoint(),
-      publish,
-    }).catch((e: unknown) => e);
-
-    // Must be a SosPanicError, not a generic Error
-    expect(err).toBeInstanceOf(SosPanicError);
-    expect((err as SosPanicError).message).toBe("network error on 2nd publish");
-
-    // The partial incident must contain BOTH grant ids: g1 (published ok) and
-    // g2 (created but publish threw) — both need to be revokable via stop-SOS.
-    const partial = (err as SosPanicError).partialIncident;
-    expect(partial).not.toBeNull();
-    expect(partial!.grantIds).toContain("g1");
-    expect(partial!.grantIds).toContain("g2");
-
-    // saveSosIncident must have been called with BOTH grant ids (best-effort
-    // persistence for the partial incident).
-    expect(saveSosIncidentMock).toHaveBeenCalledTimes(1);
-    const savedIncident = saveSosIncidentMock.mock.calls[0][0];
-    expect(savedIncident.grantIds).toContain("g1");
-    expect(savedIncident.grantIds).toContain("g2");
+    const publish = vi.fn().mockImplementation(async (_grant, recipient) => {
+      if (recipient.userId === "user3") throw new Error("publish failed");
+      return recipient.userId !== "user5";
+    });
+    const result = await runSosPanic({
+      vaultOwnerToken: "tok", ownerUserId: "owner-1", recipients,
+      point: makePoint(), publish,
+    }).catch((error: SosPanicError) => {
+      expect(error).toBeInstanceOf(SosPanicError);
+      expect(error.partialIncident).not.toBeNull();
+      return { ...error.partialIncident!, delivery: error.delivery };
+    });
+    expect(createGrantMock).toHaveBeenCalledTimes(8);
+    expect(publish).toHaveBeenCalledTimes(7);
+    expect(result.grantIds).toHaveLength(7);
+    expect(result.grantIds).toContain("g-user3");
+    expect(result.ownerUserId).toBe("owner-1");
+    expect(result.delivery).toHaveLength(8);
+    expect(result.delivery.filter((item) => item.failed).map((item) => item.userId)).toEqual(["user0", "user3"]);
+    expect(result.delivery.filter((item) => item.alerted === true)).toHaveLength(5);
+    expect(result.delivery.at(-1)).toMatchObject({ userId: "user7", alerted: true });
+    expect(saveSosIncidentMock.mock.calls.at(-1)?.[0]).toEqual({
+      grantIds: result.grantIds, startedAt: result.startedAt, ownerUserId: "owner-1",
+    });
+    expect(saveSosIncidentMock.mock.calls[2][0].grantIds).toContain("g-user3");
   });
 
   it("returns an incident with all grant ids and a startedAt ISO string", async () => {
@@ -499,7 +536,55 @@ describe("runSosPanic", () => {
     expect(new Date(incident.startedAt).toString()).not.toBe("Invalid Date");
   });
 
-  it("on full success calls saveSosIncident exactly once", async () => {
+  it("records ONLY the ids this alert created, never a share that was already live", async () => {
+    // What makes "I'm safe" safe. `handleStopSos` revokes exactly the ids in
+    // the incident, and `revokeGrant` is single-id with no cascade -- so the
+    // stop path was innocent in #5506 all along, and it stays innocent only
+    // for as long as this list contains nothing but grants this alert made.
+    //
+    // Pinned as a property rather than as a value, because the tempting future
+    // "optimisation" is to reuse an existing live share instead of creating a
+    // second grant. That would put a pre-existing grant id in here and
+    // reintroduce the exact bug at stop time: ending the alert would revoke
+    // the ordinary share the owner never meant to end.
+    const rA = makeRecipient("userA");
+    const rB = makeRecipient("userB");
+    createGrantMock
+      .mockResolvedValueOnce(makeGrant("sos-1", "userA"))
+      .mockResolvedValueOnce(makeGrant("sos-2", "userB"));
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    const incident = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [rA, rB],
+      point: makePoint(),
+      publish,
+    });
+
+    // `createGrant` is async, so each recorded result is the promise it
+    // returned. Reading the ids back OUT of those results is the point: the
+    // assertion below compares the incident against what the service actually
+    // handed back, not against the literals the mock was primed with.
+    const created = await Promise.all(
+      createGrantMock.mock.results.map(
+        (result) => result.value as Promise<OneLocationGrant>,
+      ),
+    );
+    const createdIds = created.map((grant) => grant.id);
+    expect(createdIds).toEqual(["sos-1", "sos-2"]);
+    expect(incident.grantIds).toEqual(createdIds);
+    // Every call that produced one of these ids asked for the SOS lane. An id
+    // in here that came from an ordinary `createGrant` would mean "I'm safe"
+    // could revoke an ordinary share.
+    for (const call of createGrantMock.mock.calls) {
+      expect(call[0].shareKind).toBe("sos");
+      expect(call[0].reason).toBe("sos_panic");
+    }
+    const saved = saveSosIncidentMock.mock.calls.at(-1)![0];
+    expect(saved.grantIds).toEqual(createdIds);
+  });
+
+  it("on full success persists a checkpoint after each grant and the complete incident last", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");
     createGrantMock
@@ -514,9 +599,37 @@ describe("runSosPanic", () => {
       publish,
     });
 
-    expect(saveSosIncidentMock).toHaveBeenCalledTimes(1);
-    const saved = saveSosIncidentMock.mock.calls[0][0];
+    // One idempotent overwrite per created grant, then the final record: a
+    // reload between the two creates would still find g1 to stop.
+    expect(saveSosIncidentMock).toHaveBeenCalledTimes(3);
+    expect(saveSosIncidentMock.mock.calls.map((call) => call[0].grantIds)).toEqual([
+      ["g1"],
+      ["g1", "g2"],
+      ["g1", "g2"],
+    ]);
+    const saved = saveSosIncidentMock.mock.calls.at(-1)![0];
     expect(saved.grantIds).toEqual(["g1", "g2"]);
+    // No owner was named, so the record is a legacy, unscoped one.
+    expect(saved.ownerUserId).toBeUndefined();
+  });
+
+  it("stamps the owner on every persisted record when the caller names one", async () => {
+    const rA = makeRecipient("userA");
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    const incident = await runSosPanic({
+      vaultOwnerToken: "tok",
+      ownerUserId: "owner-1",
+      recipients: [rA],
+      point: makePoint(),
+      publish,
+    });
+
+    expect(incident.ownerUserId).toBe("owner-1");
+    for (const call of saveSosIncidentMock.mock.calls) {
+      expect(call[0].ownerUserId).toBe("owner-1");
+    }
   });
 
   it("does not call saveSosIncident when createGrant throws on the first recipient — throws SosPanicError with null partialIncident", async () => {
@@ -552,15 +665,14 @@ describe("runSosPanic", () => {
       if (publishCallCount === 2) throw new Error("fail");
     });
 
-    const err = await runSosPanic({
+    const partial = await runSosPanic({
       vaultOwnerToken: "tok",
       recipients: [rA, rB],
       point: makePoint(),
       publish,
-    }).catch((e: unknown) => e);
+    }).catch((error: SosPanicError) => ({ ...error.partialIncident!, delivery: error.delivery }));
 
-    expect(err).toBeInstanceOf(SosPanicError);
-    const partial = (err as SosPanicError).partialIncident;
+    expect(partial.delivery[1]).toMatchObject({ failed: true, alerted: false });
     // startedAt must be a valid ISO string (not two different clock readings)
     expect(typeof partial!.startedAt).toBe("string");
     expect(new Date(partial!.startedAt).toString()).not.toBe("Invalid Date");

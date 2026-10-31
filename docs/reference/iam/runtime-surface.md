@@ -101,9 +101,7 @@ Consent-manager surface rules:
 4. The canonical page flow is `summary + one paginated list surface + detail panel`.
 5. Normal `/one/consent` tabs use `GET /api/consent/center/summary` and `GET /api/consent/center/list`. `GET /api/consent/center` is reserved for compatibility and the relationships surface until that surface is paginated.
 6. `/one/consent` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
-7. The top-shell shield is the consent inbox:
-   - badge source: `summary.counts.pending`
-   - preview rows: first `5` items from the cached actorless `center/list?surface=pending&page=1&limit=20` payload for the One lane
+7. The mounted top app bar links to the Consent Center; it does not mount a Shield inbox or first-five preview. Consent pending counts remain sourced from the manager summary and notification/resource owners, not a top-bar popup.
 8. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
 9. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
 10. Investor consent reads expand the authenticated Firebase UID to the account-owned identifier set before filtering `consent_audit`: Firebase UID, verified Firebase-auth email/phone, and verified non-revoked email aliases including Apple relay emails.
@@ -152,7 +150,7 @@ Consent-manager surface rules:
 ## Legacy Picks Retirement
 
 1. Migration `129_ria_pick_legacy_retirement.sql` deliberately retires the obsolete `ria_pick_uploads` and `ria_pick_upload_rows` tables. Legacy Picks are not imported into encrypted PKM; owners start with an empty encrypted `ria.advisor_package`.
-2. `ria_pick_legacy_retirements` retains only the retired upload identifier, owner/profile identifiers, aggregate row count, timestamp, and product-authorized reason. It contains no Pick values, package metadata, PKM material, or access authority.
+2. `ria_pick_legacy_retirements` retains only the retired upload identifier, owner/profile identifiers, aggregate row count, timestamp, and product-authorized reason while the RIA persona exists. It contains no Pick values, package metadata, PKM material, or access authority, and is erased before RIA-persona or full-account deletion so its `ON DELETE RESTRICT` audit FK cannot create a retry loop.
 3. The reset revokes every active legacy Picks grant/artifact that lacks explicit proposal lineage before dropping the tables. Historical proposal/share events remain immutable.
 
 ## Relationship Share Integration
@@ -161,7 +159,24 @@ Consent-manager surface rules:
 2. Advisor-authored content flowing back to the investor uses `connection_scope_proposals`, `relationship_share_grants`, and append-only proposal/share event histories.
 3. The reserved capability is `ria_active_picks_feed_v1`; connection acceptance alone never enables it.
 4. Kai only exposes `ria:*` pick sources when the relationship, proposal, grant, and artifact are all active and refer to the same approved capability.
-5. Active encrypted Picks syncs update the entitled artifact without requiring a new request. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
+5. Active PKM-derived Picks syncs update the entitled artifact without requiring a new request. An advisor's bounded investor debate thesis travels only inside that same artifact and is used as attributed context for a selected investor's live Debate; it is not new `attr.*` scope authority, source lineage, event payload, or durable run history. A later revocation blocks new Market, preview, Debate, retry, and refresh reads, while an already-running Debate uses its authorized start-time snapshot.
+
+## Google reauthentication for account deletion
+
+For account deletion on the web, a configured Google sign-in client uses the existing, gesture-bound
+Google Identity Services identity grant with Firebase `reauthenticateWithCredential`.
+The deletion screen preloads that client before the tap. This avoids the hosted
+Firebase popup return-event failure already handled by initial Google sign-in.
+Unconfigured builds retain Firebase popup reauthentication; native Google keeps
+its existing same-user bridge.
+
+The grant requests identity scopes only. Credentials remain in memory and are
+never exchanged through replacement sign-in. The Firebase user and current
+owner session are checked across the grant, credential exchange and fresh-token
+read. Readiness, cancellation, blocked windows and timeouts leave verification
+retryable. Fresh backend authentication, linked-phone verification and the final
+explicit deletion confirmation remain required. Local regression coverage does
+not establish a successful deployed Google exchange or authorize a live deletion.
 
 ## MCP Read-Only Tools
 
@@ -172,3 +187,19 @@ Consent-manager surface rules:
 5. `get_ria_client_access_summary`
 
 These tools remain read-only in V1 and are gated by auth + consent + scope policy checks.
+
+### First-party Calendar Schedule read exception
+
+`POST /api/one/calendar/schedule/today`,
+`POST /api/one/calendar/schedule/availability`,
+`POST /api/one/calendar/invitations`, and
+`POST /api/one/calendar/board/day` use verified Firebase identity
+plus the owner's active, scoped Google Calendar OAuth consent grant instead of
+a VAULT_OWNER token. The server derives the owner from the bearer and verifies
+the selected owner-bound Calendar connection/grant before and after provider reads. Firebase
+alone, a Mail-only grant, or a disconnected Calendar never authorizes a read.
+This exception exposes no vault/PKM, delegated-agent or mutation authority and
+never mints a broad owner token. Vault lock/HCT revocation does not revoke these
+provider reads; Calendar disconnect and Firebase invalidation do. Responses
+are private/no-store and event information remains in component memory. Legacy
+Calendar/chat reads and attendance mutations retain their existing HCT gates.

@@ -1,30 +1,41 @@
-"""In-process A2A handler for the Email (Gmail inbox) specialist.
+"""Typed-chat-only Email hop with exact invocation and live owner authority.
 
-Wraps the EXISTING EmailChatService.handle_turn loop unchanged and adapts its
-dict output into the generic SpecialistTurnResult. The email agent is read-only
-(tools: list_needs_reply, search_inbox), so it emits no client directive.
-
-Consent: EmailChatService reads Gmail via the user's connected gmail.readonly
-OAuth connection; the delegation boundary in the One route additionally validates
-the A2A consent token against AGENT_ONE_ORCHESTRATE before dispatch.
+Uses the nonpersisting metadata lane; legacy direct Mail/receipts and reviewed
+sending remain separate. Invocation grants no mailbox access by itself.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Awaitable, Callable
 
 from hushh_mcp.adk_bridge.contract import (
+    A2ADirective,
     A2ATask,
+    SpecialistReadResult,
     SpecialistTurnResult,
     require_attenuated_authority,
 )
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.email_delegated_read import make_mail_read_offer
+from hushh_mcp.services.email_mail_brief import MailBrief
 
 # The label surfaced to the client for delegated turns (SSE start/complete "model").
 DELEGATED_MODEL = "one+email"
 
 
 class EmailAgentA2A:
-    def __init__(self, service: Any = None) -> None:
+    def __init__(
+        self,
+        service: Any = None,
+        *,
+        require_read: Callable[[A2ATask], Awaitable[None]] | None = None,
+        admit_owner: Callable[[str, str], Awaitable[int]] | None = None,
+    ) -> None:
+        self._require_read = require_read
+        self._admit_owner = admit_owner
         if service is not None:
             self._service = service
         else:
@@ -33,20 +44,81 @@ class EmailAgentA2A:
             self._service = EmailChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        require_attenuated_authority(task, information=True)
-        out: dict = await self._service.handle_turn(
-            user_id=task.user_id,
-            message=task.message,
-            consent_token=task.consent_token,
-            conversation_id=task.conversation_id,
+        manifest = ManifestLoader.load(
+            str(Path(__file__).resolve().parents[1] / "agents" / "email" / "agent.yaml")
         )
+
+        async def require_access() -> None:
+            if (
+                task.execution_surface != "typed_chat"
+                or task.delegate_result is not None
+                or task.planned_action is not None
+                or not task.conversation_id
+                or not manifest.authorities.invocation
+            ):
+                raise PermissionError("Mail read authority is unavailable")
+            for capability in manifest.authorities.invocation:
+                require_attenuated_authority(
+                    task,
+                    required_invocation=capability,
+                    expected_tenant_id=task.expected_tenant_id,
+                    expected_task_id=task.expected_task_id,
+                )
+            if not connector_feature_enabled("gmail_chat_reads", task.user_id):
+                raise PermissionError("Mail reads are unavailable")
+            if self._admit_owner is not None:
+                await self._admit_owner(task.user_id, task.consent_token)
+            elif await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
+                raise PermissionError("Mail owner authority is unavailable")
+            if self._require_read is not None:
+                await self._require_read(task)
+
+        await require_access()
+        out: dict = await self._service.handle_delegated_turn(
+            user_id=task.user_id,
+            message=task.message or "",
+            consent_token=task.consent_token,
+            conversation_id=task.conversation_id or "",
+            require_access=require_access,
+            timezone=task.timezone or "UTC",
+            receipt_memory=task.receipt_memory,
+            receipt_cursor=task.receipt_cursor,
+            read_offer=task.mail_read_offer,
+            require_explicit_latest=True,
+        )
+        await require_access()
+        # A specialist proposal is only a suggestion; One validates it through
+        # the generated gateway before anything runs.
+        proposal = out.get("directive")
+        cursor = out.get("receipt_cursor")
+        structured = SpecialistReadResult.model_validate(out["structured"])
         return SpecialistTurnResult(
-            conversation_id=str(out.get("conversationId") or task.conversation_id or ""),
+            conversation_id=task.conversation_id or "",
             text=str(out.get("response") or ""),
-            directive=None,
+            directive=(
+                A2ADirective(kind="action", payload=proposal)
+                if isinstance(proposal, dict)
+                else None
+            ),
             is_complete=bool(out.get("isComplete", True)),
-            state_changed=bool(out.get("stateChanged", False)),
+            state_changed=False,
             model=DELEGATED_MODEL,
+            structured=structured,
+            continuation=cursor if isinstance(cursor, dict) else None,
+            mail_read_offer=(
+                make_mail_read_offer(
+                    out.get("offer"),
+                    owner_id=task.user_id,
+                    conversation_id=task.conversation_id or "",
+                )
+                if structured.status == "ok"
+                else None
+            ),
+            mail_brief=(
+                MailBrief.model_validate(out["brief"]).model_dump(mode="json")
+                if structured.status == "ok" and isinstance(out.get("brief"), dict)
+                else None
+            ),
         )
 
 

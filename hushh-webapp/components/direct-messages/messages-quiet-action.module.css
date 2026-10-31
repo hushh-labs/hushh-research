@@ -1,0 +1,40 @@
+/* The target stays transparent; its visible 44px pill uses Connect's row action recipe. */
+.action {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  min-width: 88px;
+  min-height: 44px;
+  height: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 15px;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 999px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--app-accent) !important;
+  font-family: var(--font-app-body);
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  line-height: 18px !important;
+  text-decoration: none;
+  transition: opacity 150ms ease, color 150ms ease;
+}
+.action::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: inherit;
+  background: var(--app-card-surface-default-solid);
+  content: "";
+}
+.action:hover::before { border-color: var(--app-accent); }
+.action:focus-visible { outline: 2px solid var(--app-focus-ring); outline-offset: 2px; }
+.action:disabled, .action[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+@media (max-width: 620px) { .action { min-width: 78px; padding-inline: 11px; } }
+@media (max-width: 350px) { .action { min-width: 72px; padding-inline: 9px; } }
+@media (prefers-reduced-motion: reduce) { .action { transition: none; } }

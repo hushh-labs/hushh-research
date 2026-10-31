@@ -12,6 +12,10 @@ export function buildOneLocationRequestMessage(
   const normalizedReason = String(reason ?? "").trim();
   const normalizedMessage = String(message ?? "").trim();
 
+  if (normalizedReason === "Other") {
+    return normalizedMessage || normalizedReason;
+  }
+
   if (normalizedReason && normalizedMessage) {
     return `${normalizedReason} — ${normalizedMessage}`;
   }

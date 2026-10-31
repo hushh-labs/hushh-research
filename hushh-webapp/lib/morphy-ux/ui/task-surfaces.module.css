@@ -1,0 +1,235 @@
+.frame.frame {
+  --task-surface-pad: 16px;
+  --task-surface-width: 512px;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 28px;
+  --foundation-title3-weight: 600;
+  --type-input-value-size: 16px;
+  --type-input-value-line: 22px;
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-line: 20px;
+  --type-compact-button-label-weight: 600;
+  --type-button-label-size: 13px;
+  --type-button-label-line: 20px;
+  --type-button-label-weight: 600;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: var(--app-card-border-standard);
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-label);
+  font-family: var(--font-app-body);
+  text-align: start;
+  isolation: isolate;
+}
+
+.frame[data-task-size="sm"] { --task-surface-width: 400px; }
+.frame[data-task-size="lg"] { --task-surface-width: 720px; }
+.regions { display: contents; }
+
+.sheet[data-sheet-side="bottom"] { border-radius: 24px 24px 0 0; }
+.sheet[data-sheet-side="top"] { border-radius: 0 0 24px 24px; }
+.dialog.dialog { max-height: calc(100dvh - 32px - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px) - var(--app-safe-area-bottom-effective, 0px)); width: calc(100% - 32px); max-width: var(--task-surface-width); border-radius: 24px; }
+.drawer[data-vaul-drawer-direction="bottom"] { border-radius: 24px 24px 0 0; }
+.drawer[data-vaul-drawer-direction="bottom"] > :global([data-slot="drawer-drag-handle"]) {
+  width: 40px;
+  height: 4px;
+  margin: 14px auto 10px;
+  background: var(--app-secondary-label);
+  opacity: .35;
+}
+
+.header,
+.frame :global([data-slot="sheet-header"]),
+.frame :global([data-slot="dialog-header"]),
+.frame :global([data-slot="drawer-header"]),
+.frame :global([data-slot="alert-dialog-header"]) {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  gap: 6px;
+  padding: 20px var(--task-surface-pad) 18px;
+  text-align: start;
+}
+
+.frame:has(> :global([data-slot="sheet-close"]), > :global([data-slot="dialog-close"]), > :global([data-slot="drawer-close"])) :is(.header, :global([data-slot="sheet-header"]), :global([data-slot="dialog-header"]), :global([data-slot="drawer-header"])) {
+  padding-inline-end: calc(var(--task-surface-pad) + 40px);
+}
+
+.frame :is(:global([data-slot="sheet-title"]), :global([data-slot="dialog-title"]), :global([data-slot="drawer-title"]), :global([data-slot="alert-dialog-title"])) {
+  margin: 0;
+  font-size: var(--foundation-title3-size);
+  line-height: var(--foundation-title3-line);
+  font-weight: var(--foundation-title3-weight);
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+  color: var(--app-label);
+}
+
+.frame :is(:global([data-slot="sheet-description"]), :global([data-slot="dialog-description"]), :global([data-slot="drawer-description"]), :global([data-slot="alert-dialog-description"])) {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  color: var(--app-secondary-label);
+}
+
+.toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+  padding: 0 var(--task-surface-pad) 12px;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  padding: 0 var(--task-surface-pad) 12px;
+}
+
+.footer,
+.frame :global([data-slot="sheet-footer"]),
+.frame :global([data-slot="dialog-footer"]),
+.frame :global([data-slot="drawer-footer"]),
+.frame :global([data-slot="alert-dialog-footer"]) {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 12px;
+  margin-top: 0;
+  padding: 16px var(--task-surface-pad) max(16px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--app-card-border-standard);
+  background: var(--app-card-surface-default-solid);
+}
+
+.frame :global([data-slot="alert-dialog-footer"]) { display: flex; flex-direction: row; justify-content: flex-end; }
+.frame :global([data-slot="alert-dialog-footer"]) > button { width: auto; min-height: 44px; }
+
+.frame :is(:global([data-slot="sheet-close"]), :global([data-slot="dialog-close"]), :global([data-slot="drawer-close"])) {
+  top: 10px;
+  inset-inline-end: calc(var(--task-surface-pad) - 6px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  opacity: 1;
+}
+
+.frame :is(:global([data-slot="sheet-close"]), :global([data-slot="dialog-close"]), :global([data-slot="drawer-close"]))::before {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-neutral-fill);
+  content: "";
+  z-index: -1;
+}
+
+/* The 28px disk owns the surface; hovering the 44px target adds no second disk. */
+.frame :is(:global([data-slot="sheet-close"]), :global([data-slot="dialog-close"]), :global([data-slot="drawer-close"])):hover {
+  background: transparent;
+}
+
+.frame :global([data-slot="sheet-drag-handle"]) { position: static; }
+.frame :global([data-slot="sheet-drag-handle"]) > span { width: 40px; height: 4px; }
+.frame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 44px; }
+.frame:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 4px; }
+
+.frame:has(> .regions[data-task-scroll="frame"]) { overflow-y: auto; }
+.regions[data-task-scroll="frame"] .body { flex: 0 0 auto; overflow: visible; }
+.regions[data-task-scroll="frame"] :is(.footer, :global([data-slot="sheet-footer"]), :global([data-slot="dialog-footer"]), :global([data-slot="drawer-footer"]), :global([data-slot="alert-dialog-footer"])) { position: sticky; bottom: 0; z-index: 1; }
+
+@media (min-width: 768px) {
+  .frame.frame { --task-surface-pad: 24px; --type-input-value-size: 14px; }
+  .adaptive.adaptive[data-sheet-side="bottom"] {
+    inset-inline: 0;
+    margin-inline: auto;
+    top: calc(50% - var(--kb-height, 0px) / 2);
+    bottom: auto;
+    width: calc(100% - 48px);
+    max-width: var(--task-surface-width);
+    max-height: max(96px, calc(min(760px, 100dvh - 64px - var(--app-safe-area-top-effective, 0px) - env(safe-area-inset-bottom, 0px)) - var(--kb-height, 0px)));
+    /* Centering survives the shared transform-only sheet enter/exit keyframes. */
+    translate: 0 -50%;
+    --tw-enter-translate-y: 8px;
+    --tw-exit-translate-y: 8px;
+    --tw-enter-opacity: 0;
+    --tw-exit-opacity: 0;
+    border-radius: 24px;
+    border: 1px solid var(--app-card-border-standard);
+  }
+  .adaptive :global([data-slot="sheet-drag-handle"]) { display: none; }
+  .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 24px; }
+  .adaptive:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 16px; }
+  :global(html.native-reserved-chrome:not([data-session-check-active])) .adaptive.adaptive[data-sheet-side="bottom"] {
+    top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
+    bottom: auto;
+    max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 32px);
+  }
+}
+
+@media (min-width: 640px) and (max-width: 767px) {
+  .adaptive :global([data-slot="sheet-drag-handle"]) { display: flex; }
+}
+
+@media (max-height: 440px) {
+  .frame.frame { overflow-y: auto; }
+  .body { flex: 0 0 auto; overflow: visible; }
+  .footer { position: sticky; bottom: 0; z-index: 1; }
+}
+
+/* Anchored side/top presentations retain the primitive's safe-area clearance. */
+.sheet:is([data-sheet-side="left"], [data-sheet-side="right"], [data-sheet-side="top"]) {
+  padding-top: max(var(--app-safe-area-top-effective, 0px), env(safe-area-inset-top, 0px));
+}
+.sheet:is([data-sheet-side="left"], [data-sheet-side="right"], [data-sheet-side="top"]) :global([data-slot="sheet-close"]) {
+  top: calc(10px + max(var(--app-safe-area-top-effective, 0px), env(safe-area-inset-top, 0px)));
+}
+
+/* Preserve the owning FlowActionGroup's control order and callbacks. */
+.actionGroup.actionGroup { width: auto; max-width: 100%; margin-inline-start: auto; }
+.actionGroup.actionGroup > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.actionGroup.actionGroup > div > div { width: auto; margin: 0; padding: 0; }
+.actionGroup.actionGroup button { width: auto; min-height: 44px; }
+.actionGroup.actionGroup > div > div[data-action-priority="secondary"] { order: 0; }
+
+.frame:has(:global([data-slot="task-close"])) :is(.header, :global([data-slot="dialog-header"])) { position: relative; padding-inline-end: calc(var(--task-surface-pad) + 40px); }
+.frame :global([data-slot="task-close"]) { position: absolute; top: 12px; right: calc(var(--task-surface-pad) - 6px); }
+
+.createDetails:not([hidden]) { display: contents; }
+/* The second step owns its existing header and Back action. */
+.createDialog:has([data-circle-create-step="people"]) :global([data-slot="dialog-header"]) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.createDialog:has([data-circle-create-step="people"]) { --task-surface-width: 720px; }
+
+.people.people[data-sheet-side="bottom"] { height: calc(85dvh - var(--kb-height, 0px)); }
+.regions > .body:last-child { padding-bottom: max(16px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px)); }
+.createPeopleFooter > button { order: 2; width: auto; margin-inline-start: auto; }
+@media (min-width: 768px) { .people.people[data-sheet-side="bottom"] { height: min(720px, calc(100dvh - 64px - var(--kb-height, 0px))); } }
+
+/* Confirmations have header + actions only; the complete frame remains
+   reachable when long text or a keyboard exceeds the available seat. */
+.frame[data-task-surface="confirmation"] { overflow-y: auto; }
+.frame[data-task-surface="confirmation"] :global([data-slot="alert-dialog-footer"]) { position: sticky; bottom: 0; z-index: 1; }
+
+.footer button,
+.frame :is(:global([data-slot="sheet-footer"]), :global([data-slot="dialog-footer"]), :global([data-slot="drawer-footer"]), :global([data-slot="alert-dialog-footer"])) > button {
+  height: auto; min-height: 44px; max-width: 100%; padding-block: 10px; white-space: normal;
+}

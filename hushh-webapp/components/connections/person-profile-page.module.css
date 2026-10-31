@@ -1,0 +1,166 @@
+.page {
+  --foundation-title1-size: 28px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-tracking: -0.035em;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 28px;
+  --foundation-title3-weight: 600;
+  --foundation-title3-tracking: -0.025em;
+  --type-button-label-size: 13px;
+  --type-button-label-line: 20px;
+  --type-button-label-weight: 600;
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-line: 20px;
+  --type-compact-button-label-weight: 600;
+  --type-helper-text-size: 12px;
+  --type-helper-text-line: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+  padding-bottom: 32px;
+  overflow-wrap: anywhere;
+}
+
+.hero {
+  --profile-file-question: color-mix(in oklab, var(--app-purple) 55%, var(--app-destructive));
+  --profile-cover-base: #e9eefb;
+  --profile-cover-pink: #f7c5df;
+  --profile-cover-lilac: #c4cefa;
+  --profile-cover-yellow: #ffe289;
+  --profile-cover-mint: #c4e3d8;
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--app-card-surface-default-solid);
+}
+:global(.dark) .hero {
+  --profile-cover-base: #262d43;
+  --profile-cover-pink: #69435b;
+  --profile-cover-lilac: #474c80;
+  --profile-cover-yellow: #8d7846;
+  --profile-cover-mint: #39605c;
+}
+.cover { height: 120px; overflow: hidden; border-radius: 23px 23px 0 0; }
+.cover svg { display: block; width: 100%; height: 100%; }
+.cover .coverPhone { display: none; }
+.coverBase { fill: var(--profile-cover-base); }
+.coverPink { fill: var(--profile-cover-pink); }
+.coverLilac { fill: var(--profile-cover-lilac); }
+.coverYellow { fill: var(--profile-cover-yellow); }
+.coverMint { fill: var(--profile-cover-mint); }
+.heroBody { padding: 0 24px 10px; }
+.identityTop { position: relative; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.avatar { width: 76px; height: 76px; margin-top: -30px; align-self: flex-start; border: 5px solid var(--app-card-surface-default-solid); }
+.avatar .avatarFallback { background: var(--muted); color: var(--foreground); font-size: 24px !important; font-weight: 600 !important; line-height: 1; }
+.identityStatus { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.status { --type-helper-text-size: 11px; --type-helper-text-line: 17px; padding: 4px 9px; }
+.status svg { width: 12px; height: 12px; }
+.connectionMenu { min-height: 44px; height: 44px; padding: 0 12px; font-size: 12px; line-height: 15.6px; font-weight: 500; }
+.nameActions { display: flex; justify-content: space-between; align-items: center; gap: 22px; min-width: 0; margin: 13px 0 22px; }
+.identity { min-width: 0; }
+.name { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+.role { --type-helper-text-size: 13px; --type-helper-text-line: 20px; margin: 5px 0; }
+.contactLines { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
+.contactLines:empty { display: none; }
+.contactLines a { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; font-size: 12px; line-height: 18px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.contactLines a:hover { text-decoration: underline; }
+.contactLines a span { min-width: 0; overflow-wrap: anywhere; }
+.contactLines svg { width: 13px; height: 13px; flex-shrink: 0; }
+.primaryActions { display: flex; gap: 8px; flex-shrink: 0; }
+.primaryActions button { padding: 10px 18px; }
+.primaryActions button > span:first-child { gap: 8px; }
+.primaryActions svg { width: 16px; height: 16px; }
+.share { border: 1px solid var(--border); color: var(--foreground); background: var(--muted); }
+.primaryActions[data-share-only="true"] .share { width: 100%; }
+.actionCards {
+  --type-button-label-size: 12px;
+  --type-button-label-line: 18px;
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.actionCards:empty, .heroFooter:empty { display: none; }
+.actionCards > button { justify-content: flex-start; min-height: 60px; height: auto; min-width: 0; max-width: 100%; padding: 12px 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--app-card-surface-default-solid); color: var(--foreground); text-align: start; }
+.actionCards > button > span:first-child { width: 100%; min-width: 0; }
+.actionCardContent { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; }
+.actionIconWell { display: grid; place-items: center; width: 30px; height: 32px; flex-shrink: 0; border-radius: 9px; color: var(--app-accent); background: var(--app-accent-tint); }
+.actionIconWell .actionIcon { width: 17px; height: 17px; }
+.actionCardContent[data-tone="pink"] .actionIconWell { color: var(--profile-file-question); background: color-mix(in oklab, var(--profile-file-question) 12%, transparent); }
+.actionCardContent[data-tone="lilac"] .actionIconWell { color: var(--app-purple); background: color-mix(in oklab, var(--app-purple) 12%, transparent); }
+.actionCardContent[data-tone="amber"] .actionIconWell { color: var(--app-warning); background: color-mix(in oklab, var(--app-warning) 12%, transparent); }
+/* Task-row labels may wrap; primary text-button labels retain the shared grammar. */
+.actionLabel { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.actionCardContent .actionArrow { width: 12px; height: 12px; margin-inline-start: auto; flex-shrink: 0; color: var(--muted-foreground); }
+.heroFooter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: 14px; }
+.heroFooter button { min-height: 44px; }
+.manage { --type-compact-button-label-size: 12px; --type-compact-button-label-line: 18px; padding: 8px 0; background: transparent; color: var(--muted-foreground); }
+.manage svg { width: 16px; height: 16px; }
+.manage > span:first-child { gap: 6px; }
+.relationship { min-width: 0; }
+.relationship[data-voice-control-id="person-profile-cancel-connection"] { color: var(--foreground); }
+.section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.heading { margin: 0; }
+.empty { --type-helper-text-size: 13px; --type-helper-text-line: 20px; display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 16px; }
+.empty p { margin: 0; }
+.emptyIcon { display: inline-flex; flex-shrink: 0; padding: 8px; border-radius: 11px; background: var(--muted); color: var(--muted-foreground); }
+.emptyIcon svg { width: 18px; height: 18px; }
+.available { --type-row-label-size: 13px; --type-row-label-line: 20px; --type-row-label-compact-size: 13px; --type-row-label-compact-line: 20px; --type-row-description-size: 12px; --type-row-description-line: 18px; --type-row-description-compact-size: 12px; --type-input-value-size: 14px; --type-input-value-line: 22px; scroll-margin-top: calc(var(--top-shell-height, 80px) + 24px); }
+.available input[type="text"] { min-height: 44px; }
+.categoryIcon { width: 24px; height: 24px; color: var(--app-accent); }
+.categoryIcon[data-tone="green"] { color: var(--app-success); }
+.categoryIcon[data-tone="purple"] { color: var(--app-purple); }
+.categoryIcon[data-tone="orange"] { color: var(--app-warning); }
+.history { --type-row-label-size: 13px; --type-row-label-line: 20px; }
+.historyGroup { border: 1px solid var(--border); border-radius: 17px; padding: 16px; }
+.historyRow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 0; }
+.historyRow:first-child { padding-top: 0; }
+.historyRow:last-child { padding-bottom: 0; }
+.historyActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.historyTitle { margin: 0; }
+.historySupporting { margin: 4px 0 0; }
+.pagination { font-size: var(--type-helper-text-size); line-height: var(--type-helper-text-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.review { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.review button { min-height: 44px; max-width: 100%; }
+.review button:disabled { opacity: 1; }
+.signIn { --foundation-title3-size: 20px; --foundation-title3-line: 28px; padding: 28px; text-align: center; }
+.signIn > div { flex-direction: column; }
+.signIn p { margin: 4px 0 0; }
+.signIn button { margin-top: 8px; }
+@media (max-width: 1023px) {
+  .nameActions { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .actionCards { --type-button-label-size: 13px; --type-compact-button-label-size: 13px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actionCards > button { padding: 12px; }
+}
+@media (max-width: 767px) {
+  .page { --foundation-title1-size: 24px; --foundation-title1-line: 32px; --foundation-title3-size: 17px; --foundation-title3-line: 25px; gap: 22px; padding-bottom: 24px; }
+  .hero { border-radius: 20px; }
+  .cover { height: 94px; border-radius: 19px 19px 0 0; }
+  .cover .coverWide { display: none; }
+  .cover .coverPhone { display: block; }
+  .heroBody { padding: 0 16px 6px; }
+  .avatar { width: 64px; height: 64px; margin-top: -24px; border-width: 4px; }
+  .identityStatus { margin-top: 4px; }
+  .avatar .avatarFallback { font-size: 22px !important; }
+  .status { --type-helper-text-size: 10px; padding: 3px 7px; }
+  .nameActions { margin-top: 10px; margin-bottom: 16px; }
+  .primaryActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  .primaryActions button { padding: 10px 12px; }
+  .primaryActions[data-share-only="true"] { grid-template-columns: minmax(0, 1fr); }
+  .contactLines { gap: 4px 12px; }
+  .contactLines a { font-size: 11px; line-height: 17px; }
+  .actionCards { --type-button-label-size: 12px; --type-compact-button-label-size: 12px; gap: 8px; }
+  .actionCards > button { padding: 10px; }
+  .actionCardContent { gap: 8px; }
+  .actionIconWell { width: 28px; height: 30px; }
+  .actionCardContent .actionArrow { display: none; }
+  .section { gap: 10px; }
+  .empty { --type-helper-text-size: 12px; min-height: 62px; padding: 13px; }
+  .available { --type-input-value-size: 16px; }
+  .historyRow { flex-direction: column; align-items: stretch; }
+  .historyActions { align-items: flex-start; }
+}

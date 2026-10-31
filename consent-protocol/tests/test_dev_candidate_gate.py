@@ -1,0 +1,538 @@
+"""Candidate health must prove the candidate, never a redirect to live traffic."""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+from tests.helpers.deployment_cli import (
+    candidate_clock_environment,
+    copy_candidate_tools,
+    dev_migration_environment,
+    run_candidate_gate,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - fixed Git operations in a synthetic repo.
+            ["git", *args], cwd=repository, text=True
+        ).strip()
+
+    git("init", "--quiet", "--initial-branch=main")
+    git("config", "user.name", "Synthetic Fixture")
+    git("config", "user.email", "fixture@example.invalid")
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "main advanced")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "--quiet", "--detach", base)
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "candidate")
+    candidate = git("rev-parse", "HEAD")
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["secret-scan"]["steps"] if step.get("id") == "scan-range"
+    )
+    function = step["run"].split('if [ "${{ github.event_name }}"', 1)[0]
+    function = function.replace("${{ github.event.repository.default_branch }}", "main")
+    function = function.replace("${{ github.sha }}", candidate)
+    result = subprocess.run(  # noqa: S603 - executes the repository-owned workflow in a fixture.
+        ["bash", "-eu", "-c", function + "\nresolve_from_default_branch"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    scan_args = result.stdout.strip().split()
+    assert git("rev-list", *scan_args).splitlines() == [candidate]
+
+
+def test_workflow_candidate_tag_fits_preview_services_and_binds_retry(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    resolve = next(step for step in steps if step["name"] == "Resolve fixed deployment target")
+    probe = next(step for step in steps if step.get("id") == "verify-candidates")
+    cleanup = next(step for step in steps if step["name"] == "Remove this run's candidate tags")
+    tags = []
+    for attempt in ("1", "99999999999999999999"):
+        env_file = tmp_path / ("env-" + attempt)
+        subprocess.run(  # noqa: S603 - repository-owned workflow in an isolated fixture.
+            ["bash", "-eu", "-o", "pipefail", "-c", resolve["run"]],
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "REQUESTED_TARGET": "scope-commerce-sandbox",
+                "BUILD_POD_IMAGE": "false",
+                "GITHUB_ENV": str(env_file),
+                "GITHUB_RUN_ID": "3778850086800000000000000000",
+                "GITHUB_RUN_ATTEMPT": attempt,
+            },
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        values = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+        tag = values["DEV_CANDIDATE_TAG"]
+        assert len(tag) == 13 and tag.startswith("c")
+        assert all(char in "0123456789abcdef" for char in tag[1:])
+        for service in (values["BACKEND_SERVICE"], values["FRONTEND_SERVICE"]):
+            assert len(service) + len(tag) <= 46
+        tags.append(tag)
+    assert tags[0] != tags[1]
+    assert probe["env"]["CANDIDATE_TAG"] == "${{ env.DEV_CANDIDATE_TAG }}"
+    assert '--remove-tags="${{ env.DEV_CANDIDATE_TAG }}"' in cleanup["run"]
+
+
+@pytest.mark.parametrize(
+    "code,ready_at,response_seconds,expected,requests,elapsed",
+    [
+        ("200", 0, 0, 0, 1, 0),
+        ("200", 118, 0, 0, 7, 118),
+        ("200", 241, 0, 1, 14, 240),
+        ("302", 0, 10, 1, 19, 240),
+        ("503", 0, 10, 1, 19, 240),
+        ("000", 0, 0, 1, 14, 240),
+    ],
+)
+def test_candidate_health_observes_cold_start_without_accepting_redirects(
+    tmp_path, code, ready_at, response_seconds, expected, requests, elapsed
+):
+    commands = tmp_path / "commands"
+    env = candidate_clock_environment(tmp_path, code, ready_at, response_seconds)
+    run = run_candidate_gate(ROOT, env)
+    assert run.returncode == expected, run.stderr
+    assert int((tmp_path / "clock").read_text()) == elapsed
+    calls = commands.read_text()
+    assert "--update-tags=dev-candidate-99=revision" in calls
+    assert "--to-" not in calls
+    assert "--location" not in calls and " -L" not in calls
+    assert calls.count("https://candidate.run.app/health") == requests
+    if elapsed == 240:
+        assert "--max-time 6 " in calls.splitlines()[-1]
+
+
+def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promotion():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Build and pin backend image before lifecycle migration") < names.index(
+        "Apply dev DB migrations and predeploy schema gate"
+    )
+    assert names.index("Verify selected candidates before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    gate = next(step for step in steps if step.get("id") == "verify-candidates")
+    assert "continue-on-error" not in gate
+    assert "steps.scope.outputs.deploy_backend" in gate["run"]
+    assert "steps.scope.outputs.deploy_frontend" in gate["run"]
+    assert "/health" in gate["run"] and "/login" in gate["run"]
+    for step in steps:
+        if step.get("id") in {"verify-parity-1", "verify-parity-2"}:
+            assert "--require-voice" in step["run"] and "--require-calendar" in step["run"]
+
+
+def test_dev_observations_use_order_safe_serving_state():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    for step in steps:
+        if step.get("id") in {"predeploy-state", "current-state", "final-state"}:
+            assert "resolve-cloud-run-serving-state.py" in step["run"]
+            assert "status.traffic[0]" not in step["run"]
+            assert 'echo "backend_revision=${backend_revision}"' in step["run"]
+            assert 'echo "frontend_revision=${frontend_revision}"' in step["run"]
+
+
+@pytest.mark.parametrize(
+    ("legacy_interface", "reviewer_layout", "expected_root", "refused"),
+    [
+        (None, None, None, False),
+        ("missing-probe", None, None, True),
+        ("unprotected-retention", None, None, True),
+        (None, "canonical", ".agents", False),
+        (None, "legacy", ".codex", False),
+        (None, "both", ".agents", False),
+        (None, "partial-canonical", None, True),
+        (None, "absent", None, True),
+    ],
+)
+def test_candidate_interfaces_are_checked_before_mutating_steps(
+    tmp_path, legacy_interface, reviewer_layout, expected_root, refused
+):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Validate candidate build capabilities") < names.index(
+        "Sync canonical hosted runtime secrets"
+    )
+    step = next(step for step in steps if step["name"] == "Validate candidate build capabilities")
+    program = step["run"].split("<<'PYBUILD'\n", 1)[1].rsplit("PYBUILD", 1)[0]
+    copy_candidate_tools(ROOT, tmp_path)
+    shutil.copy2(
+        ROOT / "scripts/ci/retention_admission.py", tmp_path / "scripts/ci/retention_admission.py"
+    )
+    if legacy_interface == "missing-probe":
+        (tmp_path / "scripts/ci/verify-dev-candidate.sh").unlink()
+    elif legacy_interface == "unprotected-retention":
+        (tmp_path / "scripts/ci/cloudrun-retention.sh").write_text(
+            "#!/bin/bash\necho 'Usage: retention <service> [region] [keep_count]'\n"
+        )
+    for root, present in (
+        (".agents", reviewer_layout in {"canonical", "both", "partial-canonical"}),
+        (".codex", reviewer_layout in {"legacy", "both", "partial-canonical"}),
+    ):
+        if not present:
+            continue
+        directory = tmp_path / root / "skills/reviewer-app-testing/scripts"
+        directory.mkdir(parents=True)
+        for filename in ("verify-reviewer-byok-navigation.mjs", "reviewer-rehearsal-preflight.mjs"):
+            if (
+                root == ".agents"
+                and reviewer_layout == "partial-canonical"
+                and filename.startswith("reviewer-")
+            ):
+                continue
+            (directory / filename).write_text("// Synthetic candidate file, never executed.\n")
+    output = tmp_path / "capability-outputs"
+    result = subprocess.run(  # noqa: S603 - checked-in workflow program in an isolated fixture.
+        [sys.executable, "-c", program],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "BUILD_POD_IMAGE": "false",
+            "DEPLOY_BACKEND": "true",
+            "RUN_REVIEWER_BYOK": "true" if reviewer_layout else "false",
+            "GITHUB_OUTPUT": str(output),
+        },
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == (1 if refused else 0), result.stderr
+    if legacy_interface:
+        assert "Candidate deployment interface is incompatible" in result.stderr
+    elif refused:
+        assert (
+            "Candidate lacks selected preservation or owner-verification support" in result.stderr
+        )
+    if expected_root:
+        script = f"{expected_root}/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"
+        assert output.read_text() == f"reviewer_byok_script={script}\n"
+        execute = next(step for step in steps if step.get("id") == "verify-reviewer-byok")
+        assert (
+            execute["env"]["REVIEWER_BYOK_SCRIPT"]
+            == "${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}"
+        )
+        assert 'node "$REVIEWER_BYOK_SCRIPT"' in execute["run"]
+    else:
+        assert not output.exists()
+
+
+@pytest.mark.parametrize("target", ["scope-commerce-sandbox", "shared-dev", None])
+def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, target):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    run = next(
+        s["run"]
+        for s in workflow["jobs"]["deploy"]["steps"]
+        if s.get("name") == "Apply dev DB migrations and predeploy schema gate"
+    )
+    start = run.index(
+        'if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then\n  MIGRATOR_DB_USER='
+    )
+    section = run[start:]
+    section = section[: section.index("\nfi") + 3]
+    section = section.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-dev")
+    section = section.replace("${{ env.PROTOCOL_PYTHON }}", str(tmp_path / "python-gate"))
+    section = section.replace("${{ steps.resolve-sha.outputs.sha }}", "a" * 40)
+    section = section.replace(
+        "/tmp/dev-account-deletion-fence-installation.log",  # noqa: S108 - redirect authored log into isolated fixture.
+        str(tmp_path / "fence.log"),
+    )
+    assert "${{" not in section
+    env = dev_migration_environment(tmp_path)
+    env.pop("DEV_TARGET", None)
+    if target is not None:
+        env["DEV_TARGET"] = target
+    result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
+        ["bash", "-eu", "-c", section], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0
+    expected = (
+        [
+            "db/migrate.py --release --migration-mode ledger:"
+            "scope_commerce_sandbox_migrator:synthetic-migration-password",
+            "scripts/deploy/commerce-preview-verify.py --phase database "
+            "--report-path /tmp/dev-preview-postmigration-database.json:"
+            "scope_commerce_sandbox:synthetic-runtime-password",
+        ]
+        if target == "scope-commerce-sandbox"
+        else [
+            "db/migrate.py --release --migration-mode replay:"
+            "scope_commerce_sandbox:synthetic-runtime-password"
+        ]
+    )
+    assert (tmp_path / "calls").read_text().splitlines() == expected
+    if target != "scope-commerce-sandbox":
+        assert (tmp_path / "release-calls").read_text().splitlines() == ["qualified", "fence"]
+        for failure, expected_calls in (
+            ("QUALIFY_EXIT", ["qualified"]),
+            ("FENCE_EXIT", ["qualified", "fence"]),
+        ):
+            (tmp_path / "calls").unlink(missing_ok=True)
+            (tmp_path / "release-calls").unlink()
+            refused = subprocess.run(  # noqa: S603 - same hermetic production step.
+                ["bash", "-eu", "-c", section],
+                cwd=tmp_path,
+                env=env | {failure: "1"},
+                capture_output=True,
+            )
+            assert refused.returncode != 0 and not (tmp_path / "calls").exists()
+            assert (tmp_path / "release-calls").read_text().splitlines() == expected_calls
+        return
+    assert not (tmp_path / "release-calls").exists()
+    (tmp_path / "calls").unlink()
+    result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
+        ["bash", "-eu", "-c", section],
+        cwd=tmp_path,
+        env=env | {"DB_USER": "shared_database_user"},
+        capture_output=True,
+    )
+    assert result.returncode != 0 and not (tmp_path / "calls").exists()
+
+
+@pytest.mark.parametrize(
+    "target,expected", [("shared-dev", 0), ("scope-commerce-sandbox", 0), ("arbitrary-target", 2)]
+)
+def test_main_owned_preview_selection_is_fixed_and_preserves_shared_defaults(
+    tmp_path, target, expected
+):
+    environment = tmp_path / "github-env"
+    result = subprocess.run(  # noqa: S603 - fixed repository selector with isolated output.
+        [
+            sys.executable,
+            str(ROOT / "scripts/deploy/commerce-preview-target.py"),
+            "--target",
+            target,
+            "--github-env",
+            str(environment),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected
+    if expected:
+        assert not environment.exists()
+        return
+    values = dict(row.split("=", 1) for row in environment.read_text().splitlines())
+    if target == "shared-dev":
+        assert values == {
+            "DEV_TARGET": "shared-dev",
+            "DEV_DB_NAME": "postgres",
+            "DEPLOY_SECRET_PREFIX": "",
+        }
+    else:
+        assert values["BACKEND_SERVICE"] == "consent-protocol-commerce-sandbox"
+        assert values["FRONTEND_SERVICE"] == "hushh-webapp-commerce-sandbox"
+        assert values["DEV_DB_NAME"] == "scope_commerce_sandbox"
+        assert values["DEPLOY_SECRET_PREFIX"] == "SCOPE_COMMERCE_SANDBOX_"
+
+
+def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promotion():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    trigger = workflow.get("on", workflow.get(True))
+    assert trigger["workflow_dispatch"]["inputs"]["target"]["default"] == "shared-dev"
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Resolve fixed deployment target") < names.index("Checkout deployment SHA")
+    assert names.index("Validate deployment SHA against requested ref") < names.index(
+        "Checkout deployment SHA"
+    )
+    assert names.index("Checkout deployment SHA") < names.index(
+        "Build fixed preview bootstrap image"
+    )
+    assert names.index("Build fixed preview bootstrap image") < names.index(
+        "Bootstrap fixed private preview services"
+    )
+    assert names.index("Verify isolated preview bindings before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    bootstrap = next(step for step in steps if step.get("id") == "preview-bootstrap")
+    assert "steps.resolve-sha.outputs.sha" in bootstrap["run"]
+    assert "steps.bootstrap-image.outputs.image_reference" in bootstrap["run"]
+    assert "continue-on-error" not in bootstrap
+    assert "scope-commerce-sandbox" in bootstrap["if"]
+
+
+def test_preview_database_gates_use_release_contract_without_shared_dev_fallback(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    contract_dir = tmp_path / "consent-protocol/db/contracts"
+    contract_dir.mkdir(parents=True)
+    for name in ("prod_core_schema", "dev_minimum_schema", "uat_integrated_schema"):
+        (contract_dir / f"{name}.json").write_text("{}")
+    gates = [step["run"] for step in steps if "--contract-file" in step.get("run", "")]
+    assert len(gates) == 2
+    for gate in gates:
+        selection = (
+            "CONTRACT_FILE="
+            + gate.split("CONTRACT_FILE=", 1)[1].split('"${{ env.PROTOCOL_PYTHON }}"', 1)[0]
+        )
+        script = selection + '\nprintf "%s" "$CONTRACT_FILE"\n'
+        for target, contract in (
+            ("scope-commerce-sandbox", "prod_core_schema"),
+            ("shared-dev", "dev_minimum_schema"),
+        ):
+            result = subprocess.run(  # noqa: S603 - repository workflow in isolated fixture
+                ["bash", "-eu", "-c", script],
+                cwd=tmp_path,
+                env={**os.environ, "DEV_TARGET": target},
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0
+            assert result.stdout == f"consent-protocol/db/contracts/{contract}.json"
+        release = contract_dir / "prod_core_schema.json"
+        release.unlink()
+        rejected = subprocess.run(  # noqa: S603 - repository workflow in isolated fixture
+            ["bash", "-eu", "-c", script],
+            cwd=tmp_path,
+            env={**os.environ, "DEV_TARGET": "scope-commerce-sandbox"},
+            capture_output=True,
+        )
+        assert rejected.returncode != 0
+        release.write_text("{}")
+
+
+@pytest.mark.parametrize("token,expected", [("synthetic-identity", 0), ("", 1)])
+def test_private_preview_probe_requires_identity_without_recording_it(tmp_path, token, expected):
+    calls = tmp_path / "calls"
+    for name, body in {
+        "gcloud": 'echo "$*" >> "$CALLS"\n',
+        "curl": """echo "$*" >> "$CALLS"
+body=$(cat)
+[ "$body" = 'header = "X-Serverless-Authorization: Bearer synthetic-identity"' ] && printf 200 || printf 403
+""",
+        "sleep": "exit 0\n",
+        "python-gate": 'if [ "$1" = "-c" ]; then echo https://candidate.run.app; fi\n',
+    }.items():
+        path = tmp_path / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+    result = run_candidate_gate(
+        ROOT,
+        {
+            **os.environ,
+            "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+            "PROTOCOL_PYTHON": str(tmp_path / "python-gate"),
+            "CALLS": str(calls),
+            "DEV_TARGET": "scope-commerce-sandbox",
+            "CANDIDATE_ID_TOKEN": token,
+        },
+        project="hushh-pda-dev",
+        region="us-central1",
+        service="consent-protocol-commerce-sandbox",
+        tag="c123",
+    )
+    assert result.returncode == expected, result.stderr
+    assert "synthetic-identity" not in result.stdout + result.stderr + calls.read_text()
+    if not token:
+        assert "https://candidate.run.app/health" not in calls.read_text()
+
+
+def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    # The retired spelling sends normal owner OAuth returns to a signed-out
+    # origin. Runtime callback generation and release probes use this origin.
+    assert workflow["env"]["APP_FRONTEND_ORIGIN"] == "https://dev.one.hussh.ai"
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Verify selected candidates before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    assert names.index("Promote deployed revisions to dev traffic") < names.index(
+        "Admit verified preview application invocation"
+    )
+    for lane, audience in (
+        ("backend", "PREVIEW_BACKEND_ORIGIN"),
+        ("frontend", "APP_FRONTEND_ORIGIN"),
+    ):
+        auth = next(step for step in steps if step.get("id") == f"preview-{lane}-probe-auth")
+        assert auth["if"] == "env.DEV_TARGET == 'scope-commerce-sandbox'"
+        assert auth["with"]["id_token_audience"] == "${{ env." + audience + " }}"
+        assert auth["with"]["create_credentials_file"] is False
+        assert auth["with"]["export_environment_variables"] is False
+    quarantine = next(step for step in steps if step.get("id") == "quarantine-preview")
+    expression = quarantine["if"].replace("&&", "and").replace("||", "or")
+    expression = expression.replace("env.DEV_TARGET", "target").replace(
+        "steps.classify-dev-release.outputs.release_failed", "classified"
+    )
+    for target, failed, classified, expected in (
+        ("scope-commerce-sandbox", False, "true", True),
+        ("scope-commerce-sandbox", True, "", True),
+        ("scope-commerce-sandbox", False, "false", False),
+        ("shared-dev", True, "true", False),
+    ):
+        # Evaluate the authored admission predicate, including the case where a
+        # continued semantic failure leaves the GitHub job status successful.
+        assert (
+            eval(  # noqa: S307 - repository-owned boolean expression, no builtins
+                expression,
+                {"__builtins__": {}},
+                {
+                    "always": lambda: True,
+                    "failure": lambda failed=failed: failed,
+                    "target": target,
+                    "classified": classified,
+                },
+            )
+            is expected
+        )
+
+
+def test_preview_failure_receipt_never_contains_provider_exception_details(monkeypatch, tmp_path):
+    from urllib.error import HTTPError
+
+    from tests.test_commerce_preview_target import _preview_module
+
+    module = _preview_module("commerce-preview-verify.py")
+    receipt = tmp_path / "safe-receipt.json"
+    monkeypatch.setattr(sys, "argv", ["verify", "--phase", "app", "--report-path", str(receipt)])
+
+    def denied(self, **kwargs):
+        self.stage = "serving_revision"
+        raise HTTPError(
+            "https://provider.invalid/?token=synthetic-private-token",
+            403,
+            "synthetic-private-token",
+            {},
+            None,
+        )
+
+    monkeypatch.setattr(module["PreviewVerifier"], "resources", denied)
+    assert module["main"]() == 1
+    report = json.loads(receipt.read_text())
+    assert report["failure_stage"] == "serving_revision" and report["http_status"] == 403
+    assert "synthetic-private-token" not in receipt.read_text()
+    assert "provider.invalid" not in receipt.read_text()
+
+
+def test_dev_secret_sync_retains_its_own_environment_policy():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    sync = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Sync canonical hosted runtime secrets"
+    )
+    assert '--project "${{ env.GCP_PROJECT_ID }}"' in sync["run"]
+    assert "--environment dev" in sync["run"]
+    assert "--environment uat" not in sync["run"]

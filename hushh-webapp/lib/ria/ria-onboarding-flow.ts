@@ -235,7 +235,7 @@ export function buildRiaOnboardingSteps(
       id: "license_number",
       eyebrow: "Licence",
       title: "Enter your licence",
-      description: "Kai verifies it with your regulator.",
+      description: "One verifies it with your regulator.",
     },
     {
       id: "license_details",
@@ -304,6 +304,24 @@ export function resolveRiaOnboardingStepId(
     return steps[0]?.id || "welcome";
   }
   return findFirstIncompleteRiaOnboardingStepId(draft, options);
+}
+
+export function resolveRestorableRiaOnboardingStepId(
+  draft: RiaOnboardingDraft,
+  persistedStepId?: RiaOnboardingStepId | null,
+  options?: RiaOnboardingFlowOptions,
+): RiaOnboardingStepId {
+  const steps = buildRiaOnboardingSteps(draft, options);
+  const fallbackStepId = findFirstIncompleteRiaOnboardingStepId(draft, options);
+  const normalizedPersistedStepId = normalizeRiaOnboardingStepId(persistedStepId);
+  if (!normalizedPersistedStepId) return fallbackStepId;
+
+  const persistedIndex = steps.findIndex((step) => step.id === normalizedPersistedStepId);
+  const fallbackIndex = steps.findIndex((step) => step.id === fallbackStepId);
+  if (persistedIndex < 0) return fallbackStepId;
+  if (fallbackIndex < 0) return normalizedPersistedStepId;
+
+  return steps[Math.min(persistedIndex, fallbackIndex)]?.id || fallbackStepId;
 }
 
 export function findFirstIncompleteRiaOnboardingStepId(

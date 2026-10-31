@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { RiaAiActionPill, RiaChip } from "@/components/ria/ui/ria-primitives";
+import { RiaChip } from "@/components/ria/ui/ria-primitives";
+
+const DETAIL_ROW_GRID_CLASSNAME =
+  "grid grid-cols-[7.25rem_minmax(0,1fr)] gap-x-4 sm:grid-cols-[8rem_minmax(0,1fr)]";
 
 interface OnboardingStepReviewProps {
   advisorName: string;
@@ -22,7 +25,6 @@ interface OnboardingStepReviewProps {
   fullStreetAddress: string;
   advisoryAccessReady: boolean;
   onEditSection: (section: "license" | "services") => void;
-  onAskKaiUpdateAnything: () => void;
 }
 
 function SectionCard({
@@ -35,9 +37,12 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
+    <section
+      className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
+      data-testid={`ria-review-section-${label.toLowerCase()}`}
+    >
       <div className="flex items-center justify-between gap-3 px-[18px] pb-[11px] pt-[15px]">
-        <span className="ui-text-section-label">
+        <span className="ui-text-section-label min-w-0">
           {label}
         </span>
         <button
@@ -54,7 +59,12 @@ function SectionCard({
           Edit
         </button>
       </div>
-      <div className="px-[18px] pb-2">{children}</div>
+      <div
+        className="px-[18px] pb-2"
+        data-testid={`ria-review-section-${label.toLowerCase()}-rows`}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -68,17 +78,27 @@ function ReviewRow({
 }) {
   const hasValue = Boolean(value?.trim());
   return (
-    <div className="flex min-h-[44px] items-center justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[9px] first:border-t-0">
-      <span className="shrink-0 text-[15px] text-[color:var(--ria-muted)]">
+    <div
+      className={cn(
+        DETAIL_ROW_GRID_CLASSNAME,
+        "min-h-[44px] items-start border-t border-[color:var(--ria-divider-inner)] py-[10px] first:border-t-0",
+      )}
+      data-testid={reviewRowTestId(label)}
+    >
+      <span
+        className="pt-0.5 text-[15px] leading-6 text-[color:var(--ria-muted)]"
+        data-slot="review-label"
+      >
         {label}
       </span>
       <span
         className={cn(
-          "ml-auto min-w-0 max-w-[68%] break-words text-right text-[15px] font-medium leading-6",
+          "block min-w-0 whitespace-normal break-words text-left text-[15px] font-medium leading-6 [overflow-wrap:anywhere]",
           hasValue
             ? "text-[color:var(--ria-ink)]"
             : "text-[color:var(--ria-faint)]",
         )}
+        data-slot="review-value"
       >
         {hasValue ? value : "Not provided"}
       </span>
@@ -86,24 +106,55 @@ function ReviewRow({
   );
 }
 
+function certificationCode(label: string) {
+  return label.match(/\bSeries\s+\d+[A-Z]*\b/i)?.[0] ?? null;
+}
+
+function reviewRowTestId(label: string) {
+  return `ria-review-row-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
 function ChipRow({ label, items }: { label: string; items: string[] }) {
   return (
-    <div className="flex min-h-[44px] items-start justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[10px] first:border-t-0">
-      <span className="shrink-0 pt-0.5 text-[15px] text-[color:var(--ria-muted)]">
+    <div
+      className={cn(
+        DETAIL_ROW_GRID_CLASSNAME,
+        "min-h-[44px] items-start border-t border-[color:var(--ria-divider-inner)] py-[10px] first:border-t-0",
+      )}
+      data-testid={reviewRowTestId(label)}
+    >
+      <span
+        className="pt-0.5 text-[15px] leading-6 text-[color:var(--ria-muted)]"
+        data-slot="review-label"
+      >
         {label}
       </span>
-      <div className="ml-auto min-w-0 max-w-[68%]">
+      <div className="min-w-0" data-slot="review-value">
         {items.length === 0 ? (
-          <span className="text-[15px] text-[color:var(--ria-faint)]">
+          <span className="block text-left text-[15px] leading-6 text-[color:var(--ria-faint)]">
             Not provided
           </span>
         ) : (
-          <div className="flex flex-wrap justify-end gap-1.5">
-            {items.map((item) => (
-              <RiaChip key={item} variant="outline">
-                {item}
-              </RiaChip>
-            ))}
+          <div className="space-y-2">
+            {items.map((item) => {
+              const code = certificationCode(item);
+              // A chip only earns its place when it pulls out something
+              // shorter than the full line above it -- "Series 66" extracted
+              // from itself is the same string twice, not a highlight.
+              const showChip = Boolean(code) && code !== item;
+              return (
+                <div key={item} className="min-w-0 space-y-1.5">
+                  <span className="block whitespace-normal break-words text-left text-[15px] font-medium leading-6 text-[color:var(--ria-ink)] [overflow-wrap:anywhere]">
+                    {item}
+                  </span>
+                  {showChip ? (
+                    <RiaChip variant="outline" className="max-w-full">
+                      {code}
+                    </RiaChip>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -113,17 +164,46 @@ function ChipRow({ label, items }: { label: string; items: string[] }) {
 
 function BioReviewRow({ bio }: { bio: string }) {
   const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const paragraphRef = useRef<HTMLParagraphElement | null>(null);
   const hasValue = Boolean(bio?.trim());
+
+  // The clamp is CSS-only, so whether it actually cut anything off has to be
+  // measured, not assumed -- a short bio never overflows 3 lines, and a
+  // control with nothing to expand is worse than no control at all.
+  useLayoutEffect(() => {
+    if (!hasValue) {
+      setTruncated(false);
+      return;
+    }
+    const node = paragraphRef.current;
+    if (!node) return;
+    setTruncated(node.scrollHeight > node.clientHeight + 1);
+  }, [bio, hasValue]);
+
   return (
-    <div className="flex items-start justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[11px]">
-      <span className="shrink-0 pt-px text-[15px] text-[color:var(--ria-muted)]">
+    <div
+      className={cn(
+        DETAIL_ROW_GRID_CLASSNAME,
+        "items-start border-t border-[color:var(--ria-divider-inner)] py-[11px]",
+      )}
+      data-testid="ria-review-row-bio"
+    >
+      <span
+        className="pt-px text-[15px] leading-6 text-[color:var(--ria-muted)]"
+        data-slot="review-label"
+      >
         Bio
       </span>
-      <div className="ml-auto flex min-w-0 flex-1 flex-col items-end">
+      <div
+        className="flex min-w-0 flex-col items-start"
+        data-slot="review-value"
+      >
         {hasValue ? (
           <p
+            ref={paragraphRef}
             className={cn(
-              "text-right text-[14px] leading-[1.5] text-[color:var(--ria-ink)]",
+              "whitespace-normal break-words text-left text-[14px] leading-[1.5] text-[color:var(--ria-ink)] [overflow-wrap:anywhere]",
               !open && "line-clamp-3",
             )}
           >
@@ -134,7 +214,7 @@ function BioReviewRow({ bio }: { bio: string }) {
             Not provided
           </span>
         )}
-        {hasValue ? (
+        {hasValue && truncated ? (
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
@@ -175,7 +255,6 @@ export function OnboardingStepReview({
   areaLocality,
   fullStreetAddress,
   onEditSection,
-  onAskKaiUpdateAnything,
 }: OnboardingStepReviewProps) {
   return (
     <div className="space-y-[14px]">
@@ -209,28 +288,17 @@ export function OnboardingStepReview({
       {/* Canonical onboarding state: profile goes live as Pending Verification;
           the verified badge is a separate later layer (design shows gold). */}
       <div
-        className="flex items-start gap-3 rounded-[18px] border p-4"
-        style={{
-          background: "rgba(201,139,46,0.08)",
-          borderColor: "rgba(201,139,46,0.3)",
-        }}
+        className="flex items-start gap-3 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 text-[color:var(--app-secondary-label)]"
       >
         <ShieldCheck
-          className="mt-0.5 h-[22px] w-[22px] shrink-0 text-[color:var(--ria-gold)]"
+          className="mt-0.5 h-[22px] w-[22px] shrink-0 text-[color:var(--app-accent)]"
           strokeWidth={1.7}
         />
-        <span
-          className="text-[13.5px] font-medium leading-[1.45]"
-          style={{ color: "var(--ria-amber-note)" }}
-        >
-          Goes live as Pending Verification now. The verified badge unlocks after
-          Phase 2 onboarding.
+        <span className="text-[13.5px] font-medium leading-[1.45]">
+          Goes live as Pending Verification. Verified unlocks after Phase 2.
         </span>
       </div>
 
-      <RiaAiActionPill onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
-      </RiaAiActionPill>
     </div>
   );
 }

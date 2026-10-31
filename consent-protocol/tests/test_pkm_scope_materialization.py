@@ -91,3 +91,44 @@ async def test_static_capability_is_not_subject_to_pkm_materialization() -> None
 
     assert availability.requestable is True
     assert availability.state == "not_applicable"
+
+
+@pytest.mark.asyncio
+async def test_owner_scope_discovery_binds_bundle_handles_and_denies_other_owners(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from api.routes import pkm_routes_shared as routes
+    from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
+
+    entries = [
+        {"scope": "attr.professional.*", "source_kind": "pkm_index", "wildcard": True},
+        {
+            "scope": "attr.professional.role.*",
+            "source_kind": "pkm_manifests.top_level_scope_paths",
+            "wildcard": True,
+            "registry_handle": "scope_role_binding",
+        },
+        {
+            "scope": "attr.internal.*",
+            "source_kind": "pkm_index",
+            "wildcard": True,
+            "internal_only": True,
+        },
+    ]
+    generator = SimpleNamespace(
+        get_available_scopes=AsyncMock(return_value=[item["scope"] for item in entries]),
+        get_available_scope_entries=AsyncMock(return_value=entries),
+    )
+    monkeypatch.setattr(
+        routes, "get_pkm_service", lambda: SimpleNamespace(scope_generator=generator)
+    )
+    with pytest.raises(HTTPException) as denied:
+        await routes.get_user_scopes("owner-1", {"user_id": "other-owner"})
+    assert denied.value.status_code == 403
+    generator.get_available_scope_entries.assert_not_called()
+    result = await routes.get_user_scopes("owner-1", {"user_id": "owner-1"})
+    assert [entry["scope_handle"] for entry in result.scope_entries] == [
+        scope_handle_for_machine_scope("owner-1", "attr.professional.*"),
+        "scope_role_binding",
+    ]

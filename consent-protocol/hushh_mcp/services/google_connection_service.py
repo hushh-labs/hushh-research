@@ -2,28 +2,74 @@
 
 This is deliberately independent from the legacy Gmail receipt tables. New
 services use this normalized account + grant model; Gmail can migrate through a
-compatibility facade after the new flow has baked. Tokens never leave this
-service and are encrypted with authenticated user/provider-bound data.
+compatibility facade after the new flow has baked. Stored credentials remain
+encrypted with authenticated user/provider-bound data. A Calendar photo grant
+may exchange a refresh token for a short-lived, Contacts-only browser bearer.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlencode
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
-
-GoogleService = Literal["gmail", "calendar", "drive", "contacts"]
+from hushh_mcp.services import oauth_redirect_policy
+from hushh_mcp.services.google_calendar_account_status import (
+    calendar_accounts_status as project_calendar_accounts_status,
+)
+from hushh_mcp.services.google_calendar_additional_store import upsert_additional_calendar_account
+from hushh_mcp.services.google_calendar_connection_view import CalendarAccountConnectionView
+from hushh_mcp.services.google_calendar_guest_photo_broker import exchange_guest_photo_token
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_MEET_DRIVE_READ_SCOPE as CALENDAR_MEET_DRIVE_READ_SCOPE,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_MEET_READ_SCOPE as CALENDAR_MEET_READ_SCOPE,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CalendarGrantIdentity,
+    native_allowed_scope_sets,
+    requested_calendar_level,
+    require_existing_calendar_optional_scopes,
+    require_meeting_scopes,
+)
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    read_calendar_grant_identity as resolve_calendar_grant_identity,
+)
+from hushh_mcp.services.google_calendar_profile_photo import CalendarProfilePhotos
+from hushh_mcp.services.google_connection_cached_token import cached_bearer
+from hushh_mcp.services.google_connection_contract import (
+    CALENDAR_GUEST_PHOTO_SCOPE,
+    CALENDAR_LIST_READ_SCOPE,
+    GoogleConnectionError,
+    GoogleService,
+)
+from hushh_mcp.services.google_connection_oauth_attempt_store import (
+    create_oauth_attempt,
+    expire_oauth_attempt,
+)
+from hushh_mcp.services.google_connection_scope_policy import (
+    clear_stale_calendar_photo_grant,
+    require_previous_calendar_scopes,
+    require_previous_google_scopes,
+    selected_grant_scopes,
+)
+from hushh_mcp.services.google_oauth_attempt import (
+    connection_generation,
+    decode_attempt,
+)
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
@@ -45,15 +91,36 @@ _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
             "https://www.googleapis.com/auth/calendar.freebusy",
         ),
     },
-    "drive": {"read": ("https://www.googleapis.com/auth/drive.file",)},
     "contacts": {"read": ("https://www.googleapis.com/auth/contacts.readonly",)},
+    "drive": {"read": ("https://www.googleapis.com/auth/drive.readonly",)},
 }
 
 
-class GoogleConnectionError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int = 400) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+def _scopes_cover(granted: set[str], required: set[str]) -> bool:
+    """Apply Google's documented scope implications without widening consent."""
+    prefix = "https://www.googleapis.com/auth/"
+    calendar = prefix + "calendar"
+    implications = {
+        calendar + ".events.readonly": {
+            calendar + ".events",
+            calendar + ".readonly",
+            calendar,
+        },
+        calendar + ".events": {calendar},
+        calendar + ".freebusy": {
+            calendar + ".events.freebusy",
+            calendar + ".readonly",
+            calendar,
+        },
+        CALENDAR_LIST_READ_SCOPE: {
+            calendar + ".calendarlist",
+            calendar + ".readonly",
+            calendar,
+        },
+    }
+    return all(
+        scope in granted or bool(implications.get(scope, set()) & granted) for scope in required
+    )
 
 
 def _now() -> datetime:
@@ -67,6 +134,11 @@ def _clean(value: object | None) -> str:
 class GoogleConnectionService:
     def __init__(self, db: Any | None = None) -> None:
         self.db = db or get_db()
+        self._calendar_photos = CalendarProfilePhotos(self)
+
+    async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None) -> Any:
+        """Keep legacy synchronous database work off the async request loop."""
+        return await asyncio.to_thread(self.db.execute_raw, sql, params)
 
     @staticmethod
     def _env(primary: str, legacy: str) -> str:
@@ -79,16 +151,12 @@ class GoogleConnectionService:
         return self._env("GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET")
 
     def _configured_redirect(self) -> str:
-        # The generic setting wins. During the Gmail compatibility period,
-        # derive Calendar's distinct callback from the backend-owned origin
-        # rather than incorrectly reusing Gmail's callback secret.
         configured = _clean(os.getenv("GOOGLE_OAUTH_REDIRECT_URI"))
         if configured:
             return configured
         origin = get_app_runtime_settings().app_frontend_origin
-        if origin:
-            return f"{origin}{_RETURN_PATH}"
-        return _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        legacy = _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        return oauth_redirect_policy.google_compatibility_callback(origin, _RETURN_PATH, legacy)
 
     def _signing_key(self) -> bytes:
         try:
@@ -127,9 +195,12 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Google OAuth redirect configuration is invalid", status_code=503
             )
-        if supplied and not hmac.compare_digest(_clean(supplied), configured):
+        requested = _clean(supplied)
+        if requested and requested not in oauth_redirect_policy.allowed_oauth_callback_uris(
+            configured
+        ):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        return configured
+        return requested or configured
 
     @staticmethod
     def scopes(service: GoogleService, access_level: Literal["read", "manage"]) -> tuple[str, ...]:
@@ -156,6 +227,33 @@ class GoogleConnectionService:
                 "Google connection needs reauthorization", status_code=401
             ) from exc
 
+    def refresh_token_for_erasure(self, row: dict[str, Any], *, user_id: str) -> str | None:
+        """Decrypt an erased connection's refresh token for provider revocation only.
+
+        Account deletion snapshots the ciphertext before its rows are removed and
+        calls this after commit. A missing or undecryptable envelope has nothing
+        this service can revoke.
+        """
+        if not _clean(row.get("refresh_token_ciphertext")):
+            return None
+        try:
+            return (
+                self._decrypt(
+                    {
+                        "ciphertext": row.get("refresh_token_ciphertext"),
+                        "iv": row.get("refresh_token_iv"),
+                    },
+                    aad=(
+                        self._calendar_account_aad(user_id, _clean(row["account_id"]))
+                        if row.get("account_id")
+                        else f"google-connection:{user_id}"
+                    ),
+                )
+                or None
+            )
+        except GoogleConnectionError:
+            return None
+
     @staticmethod
     def _pkce_challenge(verifier: str) -> str:
         digest = hashlib.sha256(verifier.encode()).digest()
@@ -174,6 +272,32 @@ class GoogleConnectionService:
             raise GoogleConnectionError("Google OAuth state is invalid", status_code=400)
         return attempt_id
 
+    async def _create_oauth_attempt(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        redirect_uri: str,
+        transport: Literal["web", "native"],
+        include_calendar_list: bool = False,
+        include_meeting_files: bool = False,
+        calendar_additional: bool = False,
+        calendar_account_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await create_oauth_attempt(
+            self,
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            redirect_uri=redirect_uri,
+            transport=transport,
+            include_calendar_list=include_calendar_list,
+            include_meeting_files=include_meeting_files,
+            calendar_additional=calendar_additional,
+            calendar_account_id=calendar_account_id,
+        )
+
     async def start(
         self,
         *,
@@ -182,45 +306,47 @@ class GoogleConnectionService:
         access_level: Literal["read", "manage"],
         redirect_uri: str | None,
         login_hint: str | None,
+        calendar_additional: bool = False,
+        calendar_account_id: str | None = None,
+        include_meeting_files: bool = False,
     ) -> dict[str, Any]:
+        if calendar_additional and service not in {"calendar", "gmail"}:
+            raise GoogleConnectionError("Unsupported additional account service", status_code=422)
+        if calendar_account_id and (not calendar_additional or calendar_account_id == "default"):
+            raise GoogleConnectionError(
+                "Choose a valid additional Calendar account", status_code=422
+            )
+        if (
+            service == "gmail"
+            and calendar_additional
+            and (not calendar_account_id or access_level != "read")
+        ):
+            raise GoogleConnectionError(
+                "Choose an additional Calendar account for Mail reading", status_code=422
+            )
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
         resolved_redirect = self._redirect_uri(redirect_uri)
-        requested_scopes = ("openid", "email", "profile", *self.scopes(service, access_level))
-        attempt_id = secrets.token_urlsafe(32)
-        verifier = secrets.token_urlsafe(48)
-        state = self._signed_state(attempt_id)
-        self.db.execute_raw(
-            """
-            INSERT INTO google_oauth_attempts (
-              attempt_id, user_id, service, redirect_uri, requested_scope_csv,
-              state_digest, verifier_ciphertext, verifier_iv, verifier_tag, expires_at
-            ) VALUES (
-              :attempt_id, :user_id, :service, :redirect_uri, :scope_csv,
-              :state_digest, :ciphertext, :iv, :tag, :expires_at
-            )
-            """,
-            {
-                "attempt_id": attempt_id,
-                "user_id": user_id,
-                "service": service,
-                "redirect_uri": resolved_redirect,
-                "scope_csv": " ".join(requested_scopes),
-                "state_digest": hashlib.sha256(state.encode()).hexdigest(),
-                **self._encrypt(verifier, aad=f"oauth-attempt:{attempt_id}"),
-                "expires_at": _now() + timedelta(minutes=10),
-            },
+        attempt = await self._create_oauth_attempt(
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            redirect_uri=resolved_redirect,
+            transport="web",
+            calendar_additional=calendar_additional,
+            calendar_account_id=calendar_account_id,
+            include_meeting_files=include_meeting_files,
         )
         query = {
             "client_id": self._client_id(),
             "redirect_uri": resolved_redirect,
             "response_type": "code",
-            "scope": " ".join(requested_scopes),
+            "scope": " ".join(attempt["scopes"]),
             "access_type": "offline",
             "include_granted_scopes": "true",
-            "code_challenge": self._pkce_challenge(verifier),
+            "code_challenge": self._pkce_challenge(attempt["verifier"]),
             "code_challenge_method": "S256",
-            "state": state,
+            "state": attempt["state"],
             "prompt": "consent select_account" if not _clean(login_hint) else "consent",
         }
         if _clean(login_hint):
@@ -236,6 +362,17 @@ class GoogleConnectionService:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(url, data=data)
         if response.status_code >= 400:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+            if (
+                isinstance(error_payload, dict)
+                and _clean(error_payload.get("error")) == "invalid_grant"
+            ):
+                raise GoogleConnectionError(
+                    "Google connection needs reauthorization", status_code=401
+                )
             raise GoogleConnectionError("Google authorization request failed", status_code=502)
         payload = response.json()
         return payload if isinstance(payload, dict) else {}
@@ -252,58 +389,227 @@ class GoogleConnectionService:
         payload = response.json()
         return payload if isinstance(payload, dict) else {}
 
-    def _connection(self, user_id: str) -> dict[str, Any] | None:
-        result = self.db.execute_raw(
+    async def _connection(self, user_id: str) -> dict[str, Any] | None:
+        result = await self._execute_raw_async(
             "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google'",
             {"user_id": user_id},
         )
         return result.data[0] if result.data else None
 
-    async def complete(
-        self, *, user_id: str, code: str, state: str, redirect_uri: str | None
+    @staticmethod
+    def _calendar_account_aad(user_id: str, account_id: str) -> str:
+        return f"google-calendar-account:{user_id}:{account_id}"
+
+    async def _calendar_account(self, user_id: str, account_id: str) -> dict[str, Any] | None:
+        result = await self._execute_raw_async(
+            "SELECT * FROM google_calendar_additional_accounts WHERE user_id = :user_id AND account_id = :account_id",
+            {"user_id": user_id, "account_id": account_id},
+        )
+        return result.data[0] if result.data else None
+
+    async def _guest_photo_account(self, user_id: str, account_id: str) -> dict[str, Any] | None:
+        if account_id != "default":
+            return await self._calendar_account(user_id, account_id)
+        result = await self._execute_raw_async(
+            """SELECT c.provider_subject, c.provider_email, c.status,
+                      c.refresh_token_ciphertext, c.refresh_token_iv,
+                      g.status AS grant_status, g.scope_csv, g.guest_photo_access
+               FROM google_provider_connections c
+               JOIN google_service_grants g ON g.user_id = c.user_id AND g.provider = c.provider
+               WHERE c.user_id = :user_id AND c.provider = 'google' AND g.service = 'calendar'""",
+            {"user_id": user_id},
+        )
+        return result.data[0] if result.data else None
+
+    async def calendar_guest_photo_token(
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        expected_generation: str,
+        expected_subject_sha256: str,
     ) -> dict[str, Any]:
-        attempt_id = self._verify_state(state)
-        result = self.db.execute_raw(
-            """UPDATE google_oauth_attempts SET consumed_at = NOW()
-               WHERE attempt_id = :attempt_id AND user_id = :user_id AND consumed_at IS NULL
-                 AND expires_at > NOW() AND state_digest = :state_digest
-               RETURNING *""",
-            {
-                "attempt_id": attempt_id,
-                "user_id": user_id,
-                "state_digest": hashlib.sha256(state.encode()).hexdigest(),
-            },
+        return await exchange_guest_photo_token(
+            self,
+            user_id=user_id,
+            account_id=account_id,
+            expected_generation=expected_generation,
+            expected_subject_sha256=expected_subject_sha256,
+            token_url=_TOKEN_URL,
         )
-        if not result.data:
+
+    async def _calendar_picture(
+        self, *, user_id: str, account_id: str, row: dict[str, Any]
+    ) -> dict[str, str | None] | None:
+        return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
+
+    async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
+        """List only this owner's Calendar identities; never return credentials."""
+        return await project_calendar_accounts_status(
+            self,
+            user_id=user_id,
+            calendar_list_access=lambda value: _scopes_cover(
+                set(_clean(value).split()), {CALENDAR_LIST_READ_SCOPE}
+            ),
+        )
+
+    async def _calendar_completion_status(self, user_id: str, account_id: str) -> dict[str, Any]:
+        # The top-level fields describe the primary grant. The consumed OAuth
+        # attempt identifies which account the callback must verify.
+        status = await self.calendar_accounts_status(user_id=user_id)
+        return {**status, "completed_account_id": account_id}
+
+    async def _primary_completion_status(
+        self, user_id: str, service: GoogleService, calendar_additional: bool
+    ) -> dict[str, Any]:
+        if service == "calendar":
+            return await self._calendar_completion_status(user_id, "default")
+        return await self.status(user_id=user_id, service=service)
+
+    async def _mark_needs_reauth(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        expected_refresh_ciphertext: str | None,
+    ) -> None:
+        """Fail closed after Google rejects a refresh token.
+
+        A refresh-token rejection is durable provider state, not a transient
+        Calendar API failure. Persisting it keeps status and the reconnect UI
+        truthful instead of claiming a dead credential is connected.
+        """
+
+        def mark_failed() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                updated = connection.execute(
+                    text("""
+            UPDATE google_provider_connections
+            SET status = 'needs_reauth',
+                access_token_ciphertext = NULL,
+                access_token_iv = NULL,
+                access_token_tag = NULL,
+                access_token_expires_at = NULL,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND provider = 'google'
+              AND status = 'connected'
+              AND refresh_token_ciphertext = :expected_refresh_ciphertext
+            RETURNING user_id
+            """),
+                    {
+                        "user_id": user_id,
+                        "expected_refresh_ciphertext": expected_refresh_ciphertext,
+                    },
+                )
+                if not updated.first():
+                    return
+                connection.execute(
+                    text("""
+            UPDATE google_service_grants
+            SET status = 'needs_reauth', updated_at = NOW()
+            WHERE user_id = :user_id AND provider = 'google' AND service = :service
+            """),
+                    {"user_id": user_id, "service": service},
+                )
+
+        try:
+            await asyncio.to_thread(mark_failed)
+        except Exception:
             raise GoogleConnectionError(
-                "Google OAuth attempt has expired or was already used", status_code=400
-            )
-        attempt = result.data[0]
-        if redirect_uri and not hmac.compare_digest(
-            _clean(redirect_uri), _clean(attempt["redirect_uri"])
-        ):
-            raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        verifier = self._decrypt(
-            {"ciphertext": attempt["verifier_ciphertext"], "iv": attempt["verifier_iv"]},
-            aad=f"oauth-attempt:{attempt_id}",
-        )
-        token = await self._post_form(
-            _TOKEN_URL,
+                "Google connection status could not be updated.", status_code=503
+            ) from None
+
+    async def _mark_additional_needs_reauth(
+        self, *, user_id: str, account_id: str, expected_refresh_ciphertext: str
+    ) -> None:
+        await self._execute_raw_async(
+            """UPDATE google_calendar_additional_accounts SET status = 'needs_reauth',
+               access_token_ciphertext = NULL, access_token_iv = NULL, access_token_tag = NULL,
+               access_token_expires_at = NULL, updated_at = clock_timestamp()
+               WHERE user_id = :user_id AND account_id = :account_id AND status = 'connected'
+                 AND refresh_token_ciphertext = :expected_refresh""",
             {
-                "code": code,
-                "client_id": self._client_id(),
-                "client_secret": self._client_secret(),
-                "redirect_uri": attempt["redirect_uri"],
-                "grant_type": "authorization_code",
-                "code_verifier": verifier,
+                "user_id": user_id,
+                "account_id": account_id,
+                "expected_refresh": expected_refresh_ciphertext,
             },
         )
+
+    async def _store_authorized_connection(
+        self,
+        *,
+        user_id: str,
+        token: dict[str, Any],
+        service: GoogleService,
+        requested_scopes: tuple[str, ...],
+        oauth_started_at: datetime,
+        attempt_id: str,
+        expected_generation: str,
+        calendar_additional: bool = False,
+        calendar_account_id: str | None = None,
+    ) -> dict[str, Any]:
         access_token = _clean(token.get("access_token"))
         if not access_token:
             raise GoogleConnectionError("Google did not return an access token", status_code=502)
-        existing = self._connection(user_id)
+        profile = await self._userinfo(access_token)
+        subject = _clean(profile.get("sub"))
+        if not subject:
+            raise GoogleConnectionError("Google account could not be verified", status_code=502)
+        existing = await self._connection(user_id)
+        if calendar_additional and service == "gmail":
+            if not calendar_account_id:
+                raise GoogleConnectionError(
+                    "Choose an additional Calendar account", status_code=422
+                )
+            return await self._store_additional_gmail_grant(
+                user_id=user_id,
+                token=token,
+                subject=subject,
+                calendar_account_id=calendar_account_id,
+                oauth_started_at=oauth_started_at,
+                attempt_id=attempt_id,
+                expected_generation=expected_generation,
+            )
+        if (
+            calendar_additional
+            and service == "calendar"
+            and (
+                calendar_account_id
+                or not existing
+                or _clean(existing.get("provider_subject")) != subject
+            )
+        ):
+            return await self._store_additional_calendar_account(
+                user_id=user_id,
+                token=token,
+                profile=profile,
+                subject=subject,
+                requested_scopes=requested_scopes,
+                oauth_started_at=oauth_started_at,
+                attempt_id=attempt_id,
+                calendar_account_id=calendar_account_id,
+            )
+        if connection_generation(existing) != expected_generation:
+            raise GoogleConnectionError(
+                "The Google connection changed. Please reconnect.", status_code=409
+            )
+        # One provider row backs all service grants. A new service must not
+        # silently replace the account used by already-connected services.
+        if existing and existing.get("status") != "disconnected":
+            if _clean(existing.get("provider_subject")) != subject:
+                raise GoogleConnectionError(
+                    "Choose the Google account already connected, or disconnect its services first.",
+                    status_code=409,
+                )
         refresh_token = _clean(token.get("refresh_token"))
-        if not refresh_token and existing:
+        if (
+            not refresh_token
+            and existing
+            and existing.get("status") == "connected"
+            and _clean(existing.get("provider_subject")) == subject
+        ):
             refresh_token = self._decrypt(
                 {
                     "ciphertext": existing.get("refresh_token_ciphertext"),
@@ -316,12 +622,49 @@ class GoogleConnectionService:
                 "Google did not return a refresh token; reconnect and grant consent",
                 status_code=400,
             )
-        profile = await self._userinfo(access_token)
+        scopes, granted_scopes, guest_photo_access = selected_grant_scopes(
+            _clean(token.get("scope")), requested_scopes, service
+        )
+        if existing and existing.get("status") == "connected":
+            # One credential row serves every connected Google service. A new
+            # token that omits an older grant must not leave that service
+            # displayed as connected while its bearer no longer authorizes it.
+            await require_previous_google_scopes(
+                self, user_id=user_id, token_scope=_clean(token.get("scope")), covers=_scopes_cover
+            )
+        level = (
+            "manage"
+            if service == "calendar"
+            and _scopes_cover(set(scopes.split()), set(self.scopes("calendar", "manage")))
+            else "read"
+        )
+        # The stored attempt is the authority requested by this connection.
+        # Do not silently downgrade a management request to read-only access.
+        requested_level = (
+            requested_calendar_level(requested_scopes) if service == "calendar" else "read"
+        )
+        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, requested_level))):
+            raise GoogleConnectionError(
+                "Calendar permission was not granted. Connect again and allow the requested Calendar access."
+                if service == "calendar"
+                else "The requested Google service permission was not granted",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
+        await require_existing_calendar_optional_scopes(
+            self,
+            user_id=user_id,
+            service=service,
+            existing=existing,
+            requested_scopes=requested_scopes,
+            granted_scopes=granted_scopes,
+            token_scope=_clean(token.get("scope")),
+            covers=_scopes_cover,
+        )
         expires_at = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
         refresh = self._encrypt(refresh_token, aad=f"google-connection:{user_id}")
         access = self._encrypt(access_token, aad=f"google-connection:{user_id}")
-        self.db.execute_raw(
-            """INSERT INTO google_provider_connections (
+        connection_sql = """INSERT INTO google_provider_connections (
                  user_id, provider, provider_subject, provider_email, status,
                  refresh_token_ciphertext, refresh_token_iv, refresh_token_tag,
                  access_token_ciphertext, access_token_iv, access_token_tag, access_token_expires_at, connected_at
@@ -335,118 +678,1099 @@ class GoogleConnectionService:
                  refresh_token_iv = EXCLUDED.refresh_token_iv, refresh_token_tag = EXCLUDED.refresh_token_tag,
                  access_token_ciphertext = EXCLUDED.access_token_ciphertext,
                  access_token_iv = EXCLUDED.access_token_iv, access_token_tag = EXCLUDED.access_token_tag,
-                 access_token_expires_at = EXCLUDED.access_token_expires_at, revoked_at = NULL, updated_at = NOW()""",
-            {
-                "user_id": user_id,
-                "subject": _clean(profile.get("sub")) or None,
-                "email": _clean(profile.get("email")).lower() or None,
-                "expires_at": expires_at,
-                "refresh_ciphertext": refresh["ciphertext"],
-                "refresh_iv": refresh["iv"],
-                "refresh_tag": refresh["tag"],
-                "access_ciphertext": access["ciphertext"],
-                "access_iv": access["iv"],
-                "access_tag": access["tag"],
-            },
-        )
-        scopes = _clean(token.get("scope")) or _clean(attempt["requested_scope_csv"])
-        service = _clean(attempt["service"])
-        level = (
-            "manage"
-            if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
-            else "read"
-        )
-        self.db.execute_raw(
-            """INSERT INTO google_service_grants (user_id, provider, service, status, scope_csv, access_level)
-               VALUES (:user_id, 'google', :service, 'connected', :scope_csv, :access_level)
+                 access_token_expires_at = EXCLUDED.access_token_expires_at, revoked_at = NULL, updated_at = NOW()
+               WHERE (google_provider_connections.provider_subject = EXCLUDED.provider_subject
+                      OR google_provider_connections.status = 'disconnected')
+                 AND (google_provider_connections.status <> 'disconnected'
+                  OR google_provider_connections.revoked_at IS NULL
+                  OR google_provider_connections.revoked_at <= :oauth_started_at)
+               RETURNING user_id"""
+        connection_params = {
+            "user_id": user_id,
+            "subject": subject,
+            "email": _clean(profile.get("email")).lower() or None,
+            "expires_at": expires_at,
+            "refresh_ciphertext": refresh["ciphertext"],
+            "refresh_iv": refresh["iv"],
+            "refresh_tag": refresh["tag"],
+            "access_ciphertext": access["ciphertext"],
+            "access_iv": access["iv"],
+            "access_tag": access["tag"],
+            "oauth_started_at": oauth_started_at,
+        }
+        grant_sql = """INSERT INTO google_service_grants (user_id, provider, service, status, scope_csv, access_level, guest_photo_access)
+               SELECT :user_id, 'google', :service, 'connected', :scope_csv, :access_level, :guest_photo_access
+               FROM google_provider_connections
+               WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'
+                 AND provider_subject = :subject AND access_token_ciphertext = :access_ciphertext
                ON CONFLICT (user_id, provider, service) DO UPDATE SET status = 'connected',
                  scope_csv = EXCLUDED.scope_csv, access_level = EXCLUDED.access_level,
-                 disconnected_at = NULL, updated_at = NOW()""",
-            {"user_id": user_id, "service": service, "scope_csv": scopes, "access_level": level},
+                 guest_photo_access = EXCLUDED.guest_photo_access,
+                 disconnected_at = NULL, updated_at = NOW()
+               WHERE google_service_grants.disconnected_at IS NULL
+                  OR google_service_grants.disconnected_at <= :oauth_started_at
+               RETURNING user_id"""
+        grant_params = {
+            "user_id": user_id,
+            "subject": subject,
+            "access_ciphertext": access["ciphertext"],
+            "service": service,
+            "scope_csv": scopes,
+            "access_level": level,
+            "guest_photo_access": guest_photo_access,
+            "oauth_started_at": oauth_started_at,
+        }
+        await asyncio.to_thread(
+            self._publish_authorization,
+            user_id=user_id,
+            service=service,
+            attempt_id=attempt_id,
+            expected_generation=expected_generation,
+            connection_sql=connection_sql,
+            connection_params=connection_params,
+            grant_sql=grant_sql,
+            grant_params=grant_params,
+            photo_scope_preserved=CALENDAR_GUEST_PHOTO_SCOPE in granted_scopes,
         )
-        return self.status(user_id=user_id, service=service)
+        return await self._primary_completion_status(user_id, service, calendar_additional)
 
-    async def access_token(
-        self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
-    ) -> str:
-        row = self._connection(user_id)
-        if not row or row.get("status") != "connected":
-            raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
-        grant = self.db.execute_raw(
-            "SELECT * FROM google_service_grants WHERE user_id = :user_id AND provider = 'google' AND service = :service",
-            {"user_id": user_id, "service": service},
-        ).data
+    async def _store_additional_calendar_account(
+        self,
+        *,
+        user_id: str,
+        token: dict[str, Any],
+        profile: dict[str, Any],
+        subject: str,
+        requested_scopes: tuple[str, ...],
+        oauth_started_at: datetime,
+        attempt_id: str,
+        calendar_account_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish one extra Calendar identity under the owner OAuth lock."""
+        found = await self._execute_raw_async(
+            "SELECT * FROM google_calendar_additional_accounts WHERE user_id = :user_id AND provider_subject = :subject",
+            {"user_id": user_id, "subject": subject},
+        )
+        prior = found.data[0] if found.data else None
+        if calendar_account_id and (not prior or prior["account_id"] != calendar_account_id):
+            raise GoogleConnectionError(
+                "Choose the Google account shown on this Calendar card.", status_code=409
+            )
+        expected = connection_generation(prior)
+        account_id = _clean(prior.get("account_id")) if prior else secrets.token_urlsafe(18)
+        scopes = _clean(token.get("scope"))
+        guest_photo_access = (
+            CALENDAR_GUEST_PHOTO_SCOPE in requested_scopes
+            and CALENDAR_GUEST_PHOTO_SCOPE in set(scopes.split())
+        )
+        required = set(self.scopes("calendar", requested_calendar_level(requested_scopes)))
+        if not scopes or not _scopes_cover(set(scopes.split()), required):
+            raise GoogleConnectionError(
+                "Calendar permission was not granted. Connect again and allow Calendar access.",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
         if (
-            not grant
-            or grant[0].get("status") != "connected"
-            or (access_level == "manage" and grant[0].get("access_level") != "manage")
+            prior
+            and prior.get("status") == "connected"
+            and CALENDAR_LIST_READ_SCOPE in requested_scopes
+            and not _scopes_cover(set(scopes.split()), {CALENDAR_LIST_READ_SCOPE})
         ):
             raise GoogleConnectionError(
-                "Additional Google Calendar permission is required", status_code=403
+                "Calendar list permission was not granted",
+                status_code=403,
+                reason_code="calendar_list_permission_required",
             )
-        expiry = row.get("access_token_expires_at")
-        try:
-            if expiry and datetime.fromisoformat(
-                str(expiry).replace("Z", "+00:00")
-            ) > _now() + timedelta(seconds=90):
-                return self._decrypt(
-                    {
-                        "ciphertext": row.get("access_token_ciphertext"),
-                        "iv": row.get("access_token_iv"),
-                    },
-                    aad=f"google-connection:{user_id}",
+        if prior and prior.get("status") == "connected":
+            require_meeting_scopes(requested_scopes, scopes.split(), GoogleConnectionError)
+        require_previous_calendar_scopes(prior=prior, token_scope=scopes, covers=_scopes_cover)
+        refresh_token = _clean(token.get("refresh_token"))
+        if not refresh_token and prior and prior.get("status") == "connected":
+            refresh_token = self._decrypt(
+                {
+                    "ciphertext": prior.get("refresh_token_ciphertext"),
+                    "iv": prior.get("refresh_token_iv"),
+                },
+                aad=self._calendar_account_aad(user_id, account_id),
+            )
+        if not refresh_token:
+            raise GoogleConnectionError(
+                "Google did not return a refresh token; reconnect and grant consent",
+                status_code=400,
+            )
+        aad = self._calendar_account_aad(user_id, account_id)
+        refresh = self._encrypt(refresh_token, aad=aad)
+        access = self._encrypt(_clean(token["access_token"]), aad=aad)
+        access_level = (
+            "manage"
+            if _scopes_cover(set(scopes.split()), set(self.scopes("calendar", "manage")))
+            else "read"
+        )
+        expires = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
+
+        def publish() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                attempt = connection.execute(
+                    text("""SELECT 1 FROM google_oauth_attempts WHERE attempt_id = :attempt_id
+                    AND user_id = :user_id AND service = 'calendar' AND calendar_additional = TRUE
+                    AND consumed_at IS NOT NULL AND expires_at > clock_timestamp() FOR UPDATE"""),
+                    {"attempt_id": attempt_id, "user_id": user_id},
+                ).first()
+                if not attempt:
+                    raise GoogleConnectionError(
+                        "This Calendar authorization expired. Reconnect.", status_code=409
+                    )
+                current = (
+                    connection.execute(
+                        text("""SELECT * FROM google_calendar_additional_accounts
+                    WHERE user_id = :user_id AND provider_subject = :subject FOR UPDATE"""),
+                        {"user_id": user_id, "subject": subject},
+                    )
+                    .mappings()
+                    .first()
                 )
+                current = dict(current) if current else None
+                if connection_generation(current) != expected:
+                    raise GoogleConnectionError(
+                        "This Calendar account changed. Reconnect.", status_code=409
+                    )
+                if (
+                    current
+                    and current.get("connected_at")
+                    and current["connected_at"] > oauth_started_at
+                ):
+                    raise GoogleConnectionError(
+                        "A newer Calendar authorization was completed. Reconnect.", status_code=409
+                    )
+                if (
+                    current
+                    and current.get("revoked_at")
+                    and current["revoked_at"] > oauth_started_at
+                ):
+                    raise GoogleConnectionError(
+                        "This Calendar connection was cancelled. Reconnect.", status_code=409
+                    )
+                legacy = connection.execute(
+                    text("""SELECT provider_subject FROM google_provider_connections
+                    WHERE user_id = :user_id AND provider = 'google'
+                    AND status <> 'disconnected' FOR UPDATE"""),
+                    {"user_id": user_id},
+                ).first()
+                if legacy and legacy[0] == subject:
+                    raise GoogleConnectionError(
+                        "This Google account already has the primary connection.", status_code=409
+                    )
+                legacy_calendar = connection.execute(
+                    text("""SELECT 1 FROM google_service_grants
+                    WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar'
+                    AND status IN ('connected', 'needs_reauth')"""),
+                    {"user_id": user_id},
+                ).first()
+                count = connection.execute(
+                    text("""SELECT COUNT(*) FROM google_calendar_additional_accounts
+                    WHERE user_id = :user_id AND status IN ('connected', 'needs_reauth')
+                    AND provider_subject <> :subject"""),
+                    {"user_id": user_id, "subject": subject},
+                ).scalar_one()
+                if count + int(bool(legacy and legacy_calendar)) >= 3 and not (
+                    current and current["status"] != "disconnected"
+                ):
+                    raise GoogleConnectionError(
+                        "Calendar supports up to three connected accounts.", status_code=409
+                    )
+                upsert_additional_calendar_account(
+                    connection,
+                    {
+                        "user_id": user_id,
+                        "account_id": account_id,
+                        "subject": subject,
+                        "email": _clean(profile.get("email")).lower(),
+                        "scope_csv": scopes,
+                        "access_level": access_level,
+                        "guest_photo_access": guest_photo_access,
+                        "refresh_ciphertext": refresh["ciphertext"],
+                        "refresh_iv": refresh["iv"],
+                        "refresh_tag": refresh["tag"],
+                        "access_ciphertext": access["ciphertext"],
+                        "access_iv": access["iv"],
+                        "access_tag": access["tag"],
+                        "expires_at": expires,
+                    },
+                )
+                expire_oauth_attempt(connection, attempt_id)
+
+        try:
+            await asyncio.to_thread(publish)
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            raise GoogleConnectionError(
+                "Calendar connection could not be saved. Reconnect.", status_code=503
+            ) from None
+        return await self._calendar_completion_status(user_id, account_id)
+
+    async def _store_additional_gmail_grant(
+        self,
+        *,
+        user_id: str,
+        token: dict[str, Any],
+        subject: str,
+        calendar_account_id: str,
+        oauth_started_at: datetime,
+        attempt_id: str,
+        expected_generation: str,
+    ) -> dict[str, Any]:
+        """Attach an explicit Gmail read grant to the selected Calendar credential."""
+        prior = await self._calendar_account(user_id, calendar_account_id)
+        if (
+            not prior
+            or prior.get("status") != "connected"
+            or _clean(prior.get("provider_subject")) != subject
+            or connection_generation(prior) != expected_generation
+        ):
+            raise GoogleConnectionError(
+                "The selected Google account changed. Reconnect Mail.", status_code=409
+            )
+        granted = set(_clean(token.get("scope")).split())
+        required = set(self.scopes("gmail", "read"))
+        if not _scopes_cover(granted, required):
+            raise GoogleConnectionError(
+                "Mail reading permission was not granted",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
+        require_previous_calendar_scopes(
+            prior=prior, token_scope=" ".join(granted), covers=_scopes_cover
+        )
+        refresh_token = _clean(token.get("refresh_token"))
+        if not refresh_token:
+            refresh_token = self._decrypt(
+                {
+                    "ciphertext": prior.get("refresh_token_ciphertext"),
+                    "iv": prior.get("refresh_token_iv"),
+                },
+                aad=self._calendar_account_aad(user_id, calendar_account_id),
+            )
+        aad = self._calendar_account_aad(user_id, calendar_account_id)
+        refresh = self._encrypt(refresh_token, aad=aad)
+        access = self._encrypt(_clean(token["access_token"]), aad=aad)
+        expires = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
+
+        def publish() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                attempt = connection.execute(
+                    text("""SELECT 1 FROM google_oauth_attempts WHERE attempt_id = :attempt_id
+                    AND user_id = :user_id AND service = 'gmail' AND calendar_additional = TRUE
+                    AND calendar_account_id = :account_id AND consumed_at IS NOT NULL
+                    AND expires_at > clock_timestamp() FOR UPDATE"""),
+                    {
+                        "attempt_id": attempt_id,
+                        "user_id": user_id,
+                        "account_id": calendar_account_id,
+                    },
+                ).first()
+                if not attempt:
+                    raise GoogleConnectionError(
+                        "Mail authorization expired. Reconnect.", status_code=409
+                    )
+                current_row = (
+                    connection.execute(
+                        text("""SELECT * FROM google_calendar_additional_accounts
+                    WHERE user_id = :user_id AND account_id = :account_id FOR UPDATE"""),
+                        {"user_id": user_id, "account_id": calendar_account_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                current = dict(current_row) if current_row else None
+                if (
+                    not current
+                    or current.get("status") != "connected"
+                    or _clean(current.get("provider_subject")) != subject
+                    or connection_generation(current) != expected_generation
+                    or (current.get("connected_at") and current["connected_at"] > oauth_started_at)
+                    or (current.get("revoked_at") and current["revoked_at"] > oauth_started_at)
+                ):
+                    raise GoogleConnectionError(
+                        "The selected Google account changed. Reconnect Mail.", status_code=409
+                    )
+                connection.execute(
+                    text("""UPDATE google_calendar_additional_accounts SET
+                    scope_csv = :scope_csv, refresh_token_ciphertext = :refresh_ciphertext,
+                    refresh_token_iv = :refresh_iv, refresh_token_tag = :refresh_tag,
+                    access_token_ciphertext = :access_ciphertext, access_token_iv = :access_iv,
+                    access_token_tag = :access_tag, access_token_expires_at = :expires_at,
+                    gmail_read_enabled = TRUE, gmail_read_granted_at = clock_timestamp(),
+                    gmail_read_generation = gen_random_uuid(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND account_id = :account_id"""),
+                    {
+                        "user_id": user_id,
+                        "account_id": calendar_account_id,
+                        "scope_csv": " ".join(sorted(granted)),
+                        "refresh_ciphertext": refresh["ciphertext"],
+                        "refresh_iv": refresh["iv"],
+                        "refresh_tag": refresh["tag"],
+                        "access_ciphertext": access["ciphertext"],
+                        "access_iv": access["iv"],
+                        "access_tag": access["tag"],
+                        "expires_at": expires,
+                    },
+                )
+                expire_oauth_attempt(connection, attempt_id)
+
+        try:
+            await asyncio.to_thread(publish)
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            raise GoogleConnectionError(
+                "Mail connection could not be saved. Reconnect.", status_code=503
+            ) from None
+        return {
+            **(await self.status(user_id=user_id, service="gmail", account_id=calendar_account_id)),
+            "completed_account_id": calendar_account_id,
+            "provider_subject_sha256": hashlib.sha256(subject.encode()).hexdigest(),
+        }
+
+    @staticmethod
+    def _lock_google_owner(connection: Any, user_id: str) -> None:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": f"google-connection:{user_id}"},
+        )
+
+    def _publish_authorization(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        attempt_id: str,
+        expected_generation: str,
+        connection_sql: str,
+        connection_params: dict[str, Any],
+        grant_sql: str,
+        grant_params: dict[str, Any],
+        photo_scope_preserved: bool = True,
+    ) -> None:
+        # No Google/network calls inside this transaction. Postgres serializes
+        # publication and disconnect even when this owner has no provider row.
+        try:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                from hushh_mcp.services.google_connector_transition_store import (
+                    require_legacy_publication,  # noqa: PLC0415
+                )
+
+                require_legacy_publication(connection, user_id)
+                row = (
+                    connection.execute(
+                        text(
+                            "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google' FOR UPDATE"
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if connection_generation(dict(row) if row else None) != expected_generation:
+                    raise GoogleConnectionError(
+                        "The Google connection changed. Please reconnect.", status_code=409
+                    )
+                if service == "calendar":
+                    duplicate = connection.execute(
+                        text("""SELECT 1 FROM google_calendar_additional_accounts
+                        WHERE user_id = :user_id AND provider_subject = :subject
+                        AND status IN ('connected', 'needs_reauth')"""),
+                        {"user_id": user_id, "subject": connection_params["subject"]},
+                    ).first()
+                    if duplicate:
+                        raise GoogleConnectionError(
+                            "This Google account is already connected to Calendar.", status_code=409
+                        )
+                    existing_calendar = connection.execute(
+                        text("""SELECT 1 FROM google_service_grants
+                        WHERE user_id = :user_id AND provider = 'google' AND service = 'calendar'
+                        AND status IN ('connected', 'needs_reauth')"""),
+                        {"user_id": user_id},
+                    ).first()
+                    if not (
+                        row and row["status"] in {"connected", "needs_reauth"} and existing_calendar
+                    ):
+                        additional_count = connection.execute(
+                            text("""SELECT COUNT(*) FROM google_calendar_additional_accounts
+                            WHERE user_id = :user_id AND status IN ('connected', 'needs_reauth')"""),
+                            {"user_id": user_id},
+                        ).scalar_one()
+                        if additional_count >= 3:
+                            raise GoogleConnectionError(
+                                "Calendar supports up to three connected accounts.", status_code=409
+                            )
+                attempt = connection.execute(
+                    text(
+                        """SELECT attempt_id FROM google_oauth_attempts
+                       WHERE attempt_id = :attempt_id AND user_id = :user_id AND service = :service
+                         AND consumed_at IS NOT NULL AND expires_at > clock_timestamp() FOR UPDATE"""
+                    ),
+                    {"attempt_id": attempt_id, "user_id": user_id, "service": service},
+                ).first()
+                if not attempt:
+                    raise GoogleConnectionError(
+                        "This Google authorization was cancelled or expired. Please reconnect.",
+                        status_code=409,
+                    )
+                for sql, params in ((connection_sql, connection_params), (grant_sql, grant_params)):
+                    if not connection.execute(text(sql), params).first():
+                        raise GoogleConnectionError(
+                            "This Google authorization was cancelled. Please reconnect.",
+                            status_code=409,
+                        )
+                if service != "calendar" and not photo_scope_preserved:
+                    clear_stale_calendar_photo_grant(connection, user_id)
+                expire_oauth_attempt(connection, attempt_id)
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            # SQLAlchemy exceptions may contain bound credential envelopes.
+            raise GoogleConnectionError(
+                "Google connection could not be saved. Please reconnect.", status_code=503
+            ) from None
+
+    async def _consume_oauth_attempt(
+        self, *, user_id: str, state: str
+    ) -> tuple[str, dict[str, Any]]:
+        attempt_id = self._verify_state(state)
+        result = await self._execute_raw_async(
+            """UPDATE google_oauth_attempts SET consumed_at = NOW()
+               WHERE attempt_id = :attempt_id AND user_id = :user_id AND consumed_at IS NULL
+                 AND expires_at > clock_timestamp() AND state_digest = :state_digest
+               RETURNING *""",
+            {
+                "attempt_id": attempt_id,
+                "user_id": user_id,
+                "state_digest": hashlib.sha256(state.encode()).hexdigest(),
+            },
+        )
+        if not result.data:
+            raise GoogleConnectionError(
+                "Google OAuth attempt has expired or was already used", status_code=400
+            )
+        return attempt_id, result.data[0]
+
+    def _attempt_context(
+        self, attempt_id: str, attempt: dict[str, Any], *, transport: Literal["web", "native"]
+    ) -> dict[str, str]:
+        value = self._decrypt(
+            {"ciphertext": attempt["verifier_ciphertext"], "iv": attempt["verifier_iv"]},
+            aad=f"oauth-attempt:{attempt_id}",
+        )
+        try:
+            return decode_attempt(value, transport=transport)
         except ValueError:
-            pass
+            # Legacy attempts did not bind a generation. Never bless their
+            # current connection at callback time; ask for a fresh start.
+            raise GoogleConnectionError("Restart the Google connection.", status_code=409) from None
+
+    async def complete(
+        self,
+        *,
+        user_id: str,
+        code: str,
+        state: str,
+        redirect_uri: str | None,
+        expected_service: GoogleService | None = None,
+        require_calendar_additional: bool = False,
+        expected_calendar_account_id: str | None = None,
+    ) -> dict[str, Any]:
+        attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
+        raw_service = _clean(attempt["service"])
+        if raw_service not in _SERVICE_SCOPES:
+            raise GoogleConnectionError("Unsupported Google service", status_code=400)
+        service = cast(GoogleService, raw_service)
+        if expected_service is not None and attempt.get("service") != expected_service:
+            raise GoogleConnectionError("Restart the Google connection.", status_code=409)
+        if require_calendar_additional and (
+            not attempt.get("calendar_additional") or not _clean(attempt.get("calendar_account_id"))
+        ):
+            raise GoogleConnectionError("Restart the selected Mail connection.", status_code=409)
+        if expected_calendar_account_id is not None and not hmac.compare_digest(
+            _clean(attempt.get("calendar_account_id")), expected_calendar_account_id
+        ):
+            raise GoogleConnectionError("The selected Google account changed.", status_code=409)
+        if redirect_uri and not hmac.compare_digest(
+            _clean(redirect_uri), _clean(attempt["redirect_uri"])
+        ):
+            raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
+        context = self._attempt_context(attempt_id, attempt, transport="web")
+        token = await self._post_form(
+            _TOKEN_URL,
+            {
+                "code": code,
+                "client_id": self._client_id(),
+                "client_secret": self._client_secret(),
+                "redirect_uri": attempt["redirect_uri"],
+                "grant_type": "authorization_code",
+                "code_verifier": context["verifier"],
+            },
+        )
+        requested_scopes = tuple(_clean(attempt["requested_scope_csv"]).split())
+        oauth_started_at = attempt.get("created_at")
+        if not isinstance(oauth_started_at, datetime):
+            oauth_started_at = _now()
+        status = await self._store_authorized_connection(
+            user_id=user_id,
+            token=token,
+            service=service,
+            requested_scopes=requested_scopes,
+            oauth_started_at=oauth_started_at,
+            attempt_id=attempt_id,
+            expected_generation=context["generation"],
+            calendar_additional=bool(attempt.get("calendar_additional")),
+            calendar_account_id=_clean(attempt.get("calendar_account_id")) or None,
+        )
+        # Browser metadata chooses presentation only. The consumed attempt is
+        # the authority for which service was actually connected.
+        return {**status, "service": service}
+
+    async def start_native(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        include_calendar_list: bool = False,
+        include_meeting_files: bool = False,
+        calendar_additional: bool = False,
+        calendar_account_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the public OAuth client for a platform Google sign-in request."""
+        if not self.is_configured():
+            raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
+        include_calendar_list = include_calendar_list or include_meeting_files
+        attempt = await self._create_oauth_attempt(
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            redirect_uri="",
+            transport="native",
+            calendar_additional=calendar_additional and service == "calendar",
+            calendar_account_id=calendar_account_id,
+            include_meeting_files=include_meeting_files,
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
+        )
+        return {
+            "configured": True,
+            "server_client_id": self._client_id(),
+            "service": service,
+            "access_level": access_level,
+            "state": attempt["state"],
+            **(
+                {"include_guest_photos": True}
+                if CALENDAR_GUEST_PHOTO_SCOPE in attempt["scopes"]
+                else {}
+            ),
+            **(
+                {"include_calendar_list": True}
+                if include_calendar_list and service == "calendar"
+                else {}
+            ),
+            **(
+                {"include_meeting_files": True}
+                if include_meeting_files and service == "calendar"
+                else {}
+            ),
+        }
+
+    async def complete_native(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        server_auth_code: str,
+        state: str,
+    ) -> dict[str, Any]:
+        """Exchange a short-lived native server code without a WebView callback."""
+        if not self.is_configured():
+            raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
+        code = _clean(server_auth_code)
+        if not code:
+            raise GoogleConnectionError("Missing native Google authorization code", status_code=400)
+        attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
+        base_scopes = {"openid", "email", "profile", *self.scopes(service, access_level)}
+        requested_scopes = tuple(_clean(attempt["requested_scope_csv"]).split())
+        allowed_sets = native_allowed_scope_sets(
+            service, base_scopes, CALENDAR_LIST_READ_SCOPE, CALENDAR_GUEST_PHOTO_SCOPE
+        )
+        if attempt["service"] != service or set(requested_scopes) not in allowed_sets:
+            raise GoogleConnectionError(
+                "Google connection permission does not match this attempt", status_code=400
+            )
+        context = self._attempt_context(attempt_id, attempt, transport="native")
+        token = await self._post_form(
+            _TOKEN_URL,
+            {
+                "code": code,
+                "client_id": self._client_id(),
+                "client_secret": self._client_secret(),
+                "redirect_uri": "",
+                "grant_type": "authorization_code",
+            },
+        )
+        return await self._store_authorized_connection(
+            user_id=user_id,
+            token=token,
+            service=service,
+            requested_scopes=requested_scopes,
+            oauth_started_at=attempt["created_at"],
+            attempt_id=attempt_id,
+            expected_generation=context["generation"],
+            calendar_additional=bool(attempt.get("calendar_additional")),
+            calendar_account_id=_clean(attempt.get("calendar_account_id")) or None,
+        )
+
+    async def access_token(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        account_id: str = "default",
+        force_refresh: bool = False,
+    ) -> str:
+        from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+        await admit_hub_content(user_id, "google_access_token")
+        if account_id != "default":
+            if service not in {"calendar", "gmail"} or (
+                service == "gmail" and access_level != "read"
+            ):
+                raise GoogleConnectionError(
+                    "This account does not grant the requested access", status_code=403
+                )
+            return await self._additional_calendar_access_token(
+                user_id=user_id,
+                account_id=account_id,
+                service=service,
+                access_level=access_level,
+                force_refresh=force_refresh,
+            )
+        required_scopes = set(self.scopes(service, access_level))
+        service_name = "Google Calendar" if service == "calendar" else "Google service"
+        # One statement/snapshot prevents pairing account A's cached bearer
+        # with account B's service grant during disconnect/reconnect.
+        snapshot = await self._execute_raw_async(
+            """SELECT c.*, g.status AS service_status, g.access_level AS service_access_level,
+                      g.scope_csv AS service_scope_csv
+               FROM google_provider_connections c
+               LEFT JOIN google_service_grants g
+                 ON g.user_id = c.user_id AND g.provider = c.provider AND g.service = :service
+               WHERE c.user_id = :user_id AND c.provider = 'google'""",
+            {"user_id": user_id, "service": service},
+        )
+        row = snapshot.data[0] if snapshot.data else None
+        if not row or row.get("status") != "connected":
+            reauthorization = bool(row and row.get("status") == "needs_reauth")
+            raise GoogleConnectionError(
+                f"Reconnect {service_name}" if reauthorization else f"Connect {service_name} first",
+                status_code=401 if reauthorization else 403,
+                reason_code="google_reauthorization_required"
+                if reauthorization
+                else "google_not_connected",
+            )
+        if row.get("service_status") != "connected" or (
+            access_level == "manage" and row.get("service_access_level") != "manage"
+        ):
+            raise GoogleConnectionError(
+                f"Additional {service_name} permission is required",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
+        granted_scopes = set(_clean(row.get("service_scope_csv")).split())
+        if not _scopes_cover(granted_scopes, required_scopes):
+            raise GoogleConnectionError(
+                f"Additional {service_name} permission is required",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
+        cached = cached_bearer(
+            row,
+            aad=f"google-connection:{user_id}",
+            force_refresh=force_refresh,
+            decrypt=self._decrypt,
+            now=_now,
+        )
+        if cached is not None:
+            return cached
         refresh_token = self._decrypt(
             {"ciphertext": row.get("refresh_token_ciphertext"), "iv": row.get("refresh_token_iv")},
             aad=f"google-connection:{user_id}",
         )
-        token = await self._post_form(
-            _TOKEN_URL,
-            {
-                "client_id": self._client_id(),
-                "client_secret": self._client_secret(),
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-        )
+        try:
+            token = await self._post_form(
+                _TOKEN_URL,
+                {
+                    "client_id": self._client_id(),
+                    "client_secret": self._client_secret(),
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
+        except GoogleConnectionError as exc:
+            if exc.status_code == 401:
+                await self._mark_needs_reauth(
+                    user_id=user_id,
+                    service=service,
+                    expected_refresh_ciphertext=_clean(row.get("refresh_token_ciphertext")) or None,
+                )
+            raise
         access_token = _clean(token.get("access_token"))
         if not access_token:
             raise GoogleConnectionError("Google connection needs reauthorization", status_code=401)
         envelope = self._encrypt(access_token, aad=f"google-connection:{user_id}")
-        self.db.execute_raw(
+        token_write = await self._execute_raw_async(
             """UPDATE google_provider_connections SET access_token_ciphertext = :ciphertext,
                access_token_iv = :iv, access_token_tag = :tag,
                access_token_expires_at = :expires_at, updated_at = NOW()
-               WHERE user_id = :user_id AND provider = 'google'""",
+               WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'
+                 AND refresh_token_ciphertext = :expected_refresh_ciphertext
+                 AND provider_subject IS NOT DISTINCT FROM :expected_subject
+                 AND EXISTS (
+                   SELECT 1 FROM google_service_grants
+                   WHERE user_id = :user_id AND provider = 'google' AND service = :service
+                     AND status = 'connected' AND scope_csv = :expected_scope_csv
+                 )
+               RETURNING user_id""",
             {
                 **envelope,
                 "expires_at": _now()
                 + timedelta(seconds=max(60, int(token.get("expires_in") or 3600))),
                 "user_id": user_id,
+                "expected_refresh_ciphertext": row.get("refresh_token_ciphertext"),
+                "expected_subject": row.get("provider_subject"),
+                "service": service,
+                "expected_scope_csv": row.get("service_scope_csv"),
             },
         )
+        if not token_write.data:
+            raise GoogleConnectionError("Google connection is no longer active", status_code=409)
         return access_token
 
-    def status(self, *, user_id: str, service: str) -> dict[str, Any]:
-        connection = self._connection(user_id)
-        result = self.db.execute_raw(
+    async def _additional_calendar_access_token(
+        self,
+        *,
+        user_id: str,
+        account_id: str,
+        service: Literal["calendar", "gmail"] = "calendar",
+        access_level: Literal["read", "manage"],
+        force_refresh: bool = False,
+    ) -> str:
+        row = await self._calendar_account(user_id, account_id)
+        if not row or row["status"] != "connected":
+            raise GoogleConnectionError(
+                "Reconnect Google Calendar"
+                if row and row["status"] == "needs_reauth"
+                else "Connect Google Calendar first",
+                status_code=401 if row and row["status"] == "needs_reauth" else 403,
+                reason_code="google_reauthorization_required"
+                if row and row["status"] == "needs_reauth"
+                else "google_not_connected",
+            )
+        granted = set(_clean(row.get("scope_csv")).split())
+        if (
+            (
+                service == "calendar"
+                and access_level == "manage"
+                and row.get("access_level") != "manage"
+            )
+            or (
+                service == "gmail" and (access_level != "read" or not row.get("gmail_read_enabled"))
+            )
+            or not _scopes_cover(granted, set(self.scopes(service, access_level)))
+        ):
+            raise GoogleConnectionError(
+                "Additional Google permission is required",
+                status_code=403,
+                reason_code="google_permission_required",
+            )
+        aad = self._calendar_account_aad(user_id, account_id)
+        cached = cached_bearer(
+            row,
+            aad=aad,
+            force_refresh=force_refresh,
+            decrypt=self._decrypt,
+            now=_now,
+        )
+        if cached is not None:
+            return cached
+        refresh_token = self._decrypt(
+            {"ciphertext": row.get("refresh_token_ciphertext"), "iv": row.get("refresh_token_iv")},
+            aad=aad,
+        )
+        try:
+            token = await self._post_form(
+                _TOKEN_URL,
+                {
+                    "client_id": self._client_id(),
+                    "client_secret": self._client_secret(),
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
+        except GoogleConnectionError as exc:
+            if exc.status_code == 401:
+                await self._mark_additional_needs_reauth(
+                    user_id=user_id,
+                    account_id=account_id,
+                    expected_refresh_ciphertext=row["refresh_token_ciphertext"],
+                )
+            raise
+        access_token = _clean(token.get("access_token"))
+        if not access_token:
+            raise GoogleConnectionError("Google connection needs reauthorization", status_code=401)
+        envelope = self._encrypt(access_token, aad=aad)
+        updated = await self._execute_raw_async(
+            """UPDATE google_calendar_additional_accounts SET
+            access_token_ciphertext = :ciphertext, access_token_iv = :iv, access_token_tag = :tag,
+            access_token_expires_at = :expires_at, updated_at = clock_timestamp()
+            WHERE user_id = :user_id AND account_id = :account_id AND status = 'connected'
+            AND refresh_token_ciphertext = :expected_refresh AND scope_csv = :expected_scope
+            RETURNING account_id""",
+            {
+                **envelope,
+                "expires_at": _now()
+                + timedelta(seconds=max(60, int(token.get("expires_in") or 3600))),
+                "user_id": user_id,
+                "account_id": account_id,
+                "expected_refresh": row["refresh_token_ciphertext"],
+                "expected_scope": row["scope_csv"],
+            },
+        )
+        if not updated.data:
+            raise GoogleConnectionError("Calendar connection changed", status_code=409)
+        return access_token
+
+    async def status(
+        self, *, user_id: str, service: str, account_id: str = "default"
+    ) -> dict[str, Any]:
+        if account_id != "default":
+            if service not in {"calendar", "gmail"}:
+                raise GoogleConnectionError(
+                    "This account does not grant the requested access", status_code=403
+                )
+            row = await self._calendar_account(user_id, account_id)
+            active = bool(
+                row
+                and row["status"] == "connected"
+                and (
+                    service == "calendar"
+                    or (
+                        row.get("gmail_read_enabled")
+                        and _scopes_cover(
+                            set(_clean(row.get("scope_csv")).split()),
+                            set(self.scopes("gmail", "read")),
+                        )
+                    )
+                )
+            )
+            return {
+                "configured": self.is_configured(),
+                "connected": active,
+                "google_email": row.get("provider_email")
+                if row and row["status"] != "disconnected"
+                else None,
+                "status": (
+                    row["status"]
+                    if active or service == "calendar"
+                    else "permission_required"
+                    if row and row["status"] == "connected"
+                    else row["status"]
+                    if row
+                    else "disconnected"
+                ),
+                "access_level": (row.get("access_level") if service == "calendar" else "read")
+                if active
+                else None,
+                "scope_csv": row.get("scope_csv") if active else "",
+                "guest_photo_access": bool(
+                    service == "calendar" and active and row.get("guest_photo_access")
+                ),
+                "calendar_list_access": bool(
+                    service == "calendar"
+                    and active
+                    and _scopes_cover(
+                        set(_clean(row.get("scope_csv")).split()), {CALENDAR_LIST_READ_SCOPE}
+                    )
+                ),
+            }
+        connection = await self._connection(user_id)
+        result = await self._execute_raw_async(
             "SELECT * FROM google_service_grants WHERE user_id = :user_id AND provider = 'google' AND service = :service",
             {"user_id": user_id, "service": service},
         )
         grant = result.data[0] if result.data else None
+        connection_active = bool(connection and connection.get("status") == "connected")
+        grant_status = _clean(grant.get("status")) if grant else "disconnected"
+        status = (
+            grant_status
+            if connection_active
+            else "needs_reauth"
+            if connection and connection.get("status") == "needs_reauth"
+            else "disconnected"
+        )
         return {
             "configured": self.is_configured(),
-            "connected": bool(connection and grant and grant.get("status") == "connected"),
-            "google_email": connection.get("provider_email") if connection else None,
-            "status": grant.get("status") if grant else "disconnected",
-            "access_level": grant.get("access_level") if grant else None,
-            "scope_csv": grant.get("scope_csv") if grant else "",
+            "connected": bool(connection_active and grant_status == "connected"),
+            "google_email": connection.get("provider_email") if connection_active else None,
+            "status": status,
+            "access_level": grant.get("access_level") if connection_active and grant else None,
+            "scope_csv": grant.get("scope_csv") if connection_active and grant else "",
+            "guest_photo_access": bool(
+                service == "calendar"
+                and connection_active
+                and grant_status == "connected"
+                and grant
+                and grant.get("guest_photo_access")
+            ),
+            **(
+                {
+                    "calendar_list_access": bool(
+                        connection_active
+                        and grant_status == "connected"
+                        and _scopes_cover(
+                            set(_clean(grant.get("scope_csv") if grant else "").split()),
+                            {CALENDAR_LIST_READ_SCOPE},
+                        )
+                    )
+                }
+                if service == "calendar"
+                else {}
+            ),
         }
 
-    def disconnect_service(self, *, user_id: str, service: GoogleService) -> dict[str, Any]:
+    async def has_service_scope(
+        self, *, user_id: str, service: GoogleService, scope: str, account_id: str = "default"
+    ) -> bool:
+        """Check one optional capability without revoking older base grants."""
+        if account_id != "default":
+            if service not in {"calendar", "gmail"}:
+                return False
+            row = await self._calendar_account(user_id, account_id)
+            return bool(
+                row
+                and row["status"] == "connected"
+                and (service != "gmail" or row.get("gmail_read_enabled") is True)
+                and _scopes_cover(set(_clean(row.get("scope_csv")).split()), {scope})
+            )
+        result = await self._execute_raw_async(
+            """SELECT c.status AS connection_status, g.status AS grant_status, g.scope_csv
+               FROM google_provider_connections c
+               JOIN google_service_grants g ON g.user_id = c.user_id AND g.provider = c.provider
+               WHERE c.user_id = :user_id AND c.provider = 'google' AND g.service = :service""",
+            {"user_id": user_id, "service": service},
+        )
+        row = result.data[0] if result.data else None
+        return bool(
+            row
+            and row.get("connection_status") == "connected"
+            and row.get("grant_status") == "connected"
+            and _scopes_cover(set(_clean(row.get("scope_csv")).split()), {scope})
+        )
+
+    async def read_grant_binding(
+        self,
+        *,
+        user_id: str,
+        service: Literal["drive", "calendar", "gmail"],
+        account_id: str = "default",
+    ) -> tuple[str, ...] | None:
+        """Observe one exact owner/account/grant generation without returning tokens.
+
+        The authorization generation changes on reconnect, not access-token
+        refresh. The service grant revision still fences revocation or scope changes.
+        """
+        if service not in {"drive", "calendar", "gmail"}:
+            return None
+        if account_id != "default":
+            if service not in {"calendar", "gmail"}:
+                return None
+            row = await self._calendar_account(user_id, account_id)
+            if (
+                not row
+                or row["status"] != "connected"
+                or not row.get("refresh_token_ciphertext")
+                or (
+                    service == "gmail"
+                    and (not row.get("gmail_read_enabled") or not row.get("gmail_read_generation"))
+                )
+                or not _scopes_cover(
+                    set(_clean(row.get("scope_csv")).split()), set(self.scopes(service, "read"))
+                )
+            ):
+                return None
+            return (
+                user_id,
+                service,
+                account_id,
+                str(row["provider_subject"]),
+                str(row["connected_at"]),
+                connection_generation(row),
+                str(row["scope_csv"]),
+                *((str(row.get("gmail_read_generation")),) if service == "gmail" else ()),
+            )
+        result = await self._execute_raw_async(
+            """SELECT c.provider_subject, c.status AS connection_status, c.connected_at,
+                      c.refresh_token_ciphertext, g.status AS grant_status,
+                      g.scope_csv, g.xmin::text AS grant_revision
+               FROM google_provider_connections c
+               JOIN google_service_grants g ON g.user_id = c.user_id AND g.provider = c.provider
+               WHERE c.user_id = :user_id AND c.provider = 'google' AND g.service = :service""",
+            {"user_id": user_id, "service": service},
+        )
+        row = result.data[0] if result.data else None
+        required = set(self.scopes(service, "read"))
+        granted = set(_clean((row or {}).get("scope_csv")).replace(",", " ").split())
+        if (
+            not row
+            or row.get("connection_status") != "connected"
+            or row.get("grant_status") != "connected"
+            or not _scopes_cover(granted, required)
+            or not row.get("provider_subject")
+            or not row.get("connected_at")
+            or not row.get("refresh_token_ciphertext")
+            or not row.get("grant_revision")
+        ):
+            return None
+        return (
+            user_id,
+            service,
+            str(row["provider_subject"]),
+            str(row["connected_at"]),
+            connection_generation(
+                {
+                    "provider_subject": row["provider_subject"],
+                    "refresh_token_ciphertext": row["refresh_token_ciphertext"],
+                    "status": row["connection_status"],
+                }
+            ),
+            str(row["grant_revision"]),
+        )
+
+    async def read_calendar_grant_identity(
+        self, *, user_id: str, account_id: str = "default"
+    ) -> CalendarGrantIdentity | None:
+        return await resolve_calendar_grant_identity(
+            self, user_id=user_id, account_id=account_id, clean=_clean
+        )
+
+    async def disconnect_service(
+        self, *, user_id: str, service: GoogleService, account_id: str = "default"
+    ) -> dict[str, Any]:
         """Stop Hussh access to one Google service without revoking sibling grants.
 
         Google revocation is account/client-wide, so revoking here would also
@@ -454,17 +1778,216 @@ class GoogleConnectionService:
         delete its pending actions; the account-level revoke remains the only
         operation that calls Google's revocation endpoint.
         """
-        self.db.execute_raw(
-            """UPDATE google_service_grants SET status = 'disconnected', disconnected_at = NOW(),
-               updated_at = NOW() WHERE user_id = :user_id AND provider = 'google' AND service = :service""",
-            {"user_id": user_id, "service": service},
-        )
-        if service == "calendar":
-            self.db.execute_raw(
-                "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id AND status IN ('pending', 'executing')",
-                {"user_id": user_id},
+
+        if account_id != "default":
+            if service == "gmail":
+                return await self._disconnect_additional_gmail_read_grant(
+                    user_id=user_id, account_id=account_id
+                )
+            if service != "calendar":
+                raise GoogleConnectionError(
+                    "This account only grants Calendar access", status_code=403
+                )
+            return await self._disconnect_additional_calendar_account(
+                user_id=user_id, account_id=account_id
             )
-        return self.status(user_id=user_id, service=service)
+
+        from hushh_mcp.services.google_connector_transition_store import (  # noqa: PLC0415
+            begin_legacy_revocation,
+            finish_legacy_revocation,
+        )
+
+        def disconnect() -> tuple[str, dict | None]:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = (
+                    connection.execute(
+                        text(
+                            "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google' FOR UPDATE"
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                params = {"user_id": user_id, "service": service}
+                connection.execute(
+                    text("""UPDATE google_service_grants SET status = 'disconnected',
+                    disconnected_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND provider = 'google' AND service = :service"""),
+                    params,
+                )
+                # A claimed callback can be waiting on Google. Expire it too,
+                # not just unconsumed attempts, before allowing publication.
+                connection.execute(
+                    text("""UPDATE google_oauth_attempts
+                    SET consumed_at = COALESCE(consumed_at, clock_timestamp()), expires_at = clock_timestamp()
+                    WHERE user_id = :user_id AND service = :service
+                    AND calendar_additional = FALSE AND expires_at > clock_timestamp()"""),
+                    params,
+                )
+                if service == "calendar":
+                    connection.execute(
+                        text(
+                            "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id AND status IN ('pending', 'executing')"
+                        ),
+                        params,
+                    )
+                    connection.execute(
+                        text("""DELETE FROM calendar_email_followup_monitors
+                        WHERE user_id=:user_id AND account_id='default'"""),
+                        params,
+                    )
+                siblings = connection.execute(
+                    text("""SELECT 1 FROM google_service_grants
+                    WHERE user_id = :user_id AND provider = 'google' AND service <> :service
+                    AND status = 'connected' LIMIT 1"""),
+                    params,
+                ).first()
+                if siblings:
+                    return "", None
+                refresh_token = ""
+                claim = (
+                    begin_legacy_revocation(
+                        connection,
+                        owner=user_id,
+                        family="google_provider_connections",
+                        row=dict(row),
+                    )
+                    if row
+                    else None
+                )
+                if claim and row is not None:
+                    try:
+                        refresh_token = self._decrypt(
+                            {
+                                "ciphertext": row.get("refresh_token_ciphertext"),
+                                "iv": row.get("refresh_token_iv"),
+                            },
+                            aad=f"google-connection:{user_id}",
+                        )
+                    except GoogleConnectionError:
+                        pass  # Local erasure still succeeds for corrupt envelopes.
+                connection.execute(
+                    text("""UPDATE google_provider_connections SET status = 'disconnected',
+                    revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND provider = 'google'"""),
+                    params,
+                )
+                return refresh_token, claim
+
+        try:
+            refresh_token, claim = await asyncio.to_thread(disconnect)
+        except Exception:
+            raise GoogleConnectionError(
+                "Google connection could not be disconnected. Please try again.", status_code=503
+            ) from None
+        from hushh_mcp.services.pod_google_oauth import revoke  # noqa: PLC0415
+
+        confirmed = bool(refresh_token) and await revoke(refresh_token)
+        await asyncio.to_thread(
+            finish_legacy_revocation,
+            self.db,
+            owner=user_id,
+            family="google_provider_connections",
+            claim=claim,
+            confirmed=confirmed,
+        )
+        return (
+            await self.calendar_accounts_status(user_id=user_id)
+            if service == "calendar"
+            else await self.status(user_id=user_id, service=service)
+        )
+
+    async def _disconnect_additional_calendar_account(
+        self, *, user_id: str, account_id: str
+    ) -> dict[str, Any]:
+        def disconnect() -> str:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = (
+                    connection.execute(
+                        text("""SELECT * FROM google_calendar_additional_accounts
+                    WHERE user_id = :user_id AND account_id = :account_id FOR UPDATE"""),
+                        {"user_id": user_id, "account_id": account_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if not row:
+                    raise GoogleConnectionError("Calendar account was not found", status_code=404)
+                refresh = ""
+                if row["status"] == "connected":
+                    try:
+                        refresh = self._decrypt(
+                            {
+                                "ciphertext": row["refresh_token_ciphertext"],
+                                "iv": row["refresh_token_iv"],
+                            },
+                            aad=self._calendar_account_aad(user_id, account_id),
+                        )
+                    except GoogleConnectionError:
+                        pass
+                connection.execute(
+                    text("""UPDATE google_calendar_additional_accounts SET status = 'disconnected',
+                    refresh_token_ciphertext = NULL, refresh_token_iv = NULL, refresh_token_tag = NULL,
+                    access_token_ciphertext = NULL, access_token_iv = NULL, access_token_tag = NULL,
+                    access_token_expires_at = NULL, revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND account_id = :account_id"""),
+                    {"user_id": user_id, "account_id": account_id},
+                )
+                connection.execute(
+                    text("""DELETE FROM calendar_email_followup_monitors
+                    WHERE user_id=:user_id AND account_id=:account_id"""),
+                    {"user_id": user_id, "account_id": account_id},
+                )
+                return refresh
+
+        try:
+            refresh = await asyncio.to_thread(disconnect)
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            raise GoogleConnectionError(
+                "Calendar account could not be disconnected", status_code=503
+            ) from None
+        if refresh:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    await client.post(_REVOKE_URL, data={"token": refresh})
+            except httpx.HTTPError:
+                pass
+        return await self.calendar_accounts_status(user_id=user_id)
+
+    async def _disconnect_additional_gmail_read_grant(
+        self, *, user_id: str, account_id: str
+    ) -> dict[str, Any]:
+        """Withdraw only the selected account's Mail read authority."""
+
+        def disconnect() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = connection.execute(
+                    text("""UPDATE google_calendar_additional_accounts SET
+                    gmail_read_enabled = FALSE, gmail_read_generation = gen_random_uuid(),
+                    updated_at = clock_timestamp()
+                    WHERE user_id=:user_id AND account_id=:account_id
+                    RETURNING account_id"""),
+                    {"user_id": user_id, "account_id": account_id},
+                ).first()
+                if not row:
+                    raise GoogleConnectionError("Calendar account was not found", status_code=404)
+                connection.execute(
+                    text("""DELETE FROM calendar_email_followup_monitors
+                    WHERE user_id=:user_id AND account_id=:account_id"""),
+                    {"user_id": user_id, "account_id": account_id},
+                )
+
+        await asyncio.to_thread(disconnect)
+        return await self.status(user_id=user_id, service="gmail", account_id=account_id)
+
+    def for_calendar_account(self, account_id: str) -> "CalendarAccountConnectionView":
+        return CalendarAccountConnectionView(self, account_id)
 
 
 _singleton: GoogleConnectionService | None = None

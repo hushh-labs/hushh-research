@@ -3,7 +3,34 @@
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 
+import { isNative } from "@/lib/capacitor/platform"
 import { cn } from "@/lib/utils"
+
+/**
+ * Recharts animates every series for 1500ms on mount and again on each data
+ * change: ninety frames of SVG path interpolation per chart, per refresh, and
+ * Kai shows several at once. Inside the native shell the charts stay static;
+ * the web keeps the animation. Pass this to every series' `isAnimationActive`
+ * (Recharts detects children by component type, so a wrapper cannot do it).
+ */
+export const CHART_ANIMATION_ACTIVE = !isNative()
+
+/**
+ * A Recharts axis Tooltip with the default trigger attaches onTouchMove and,
+ * on every touch frame, reads the container's bounding rect (a layout) and
+ * calls setState (a full chart re-render). A finger flicking the page across
+ * a chart pays that on every frame of the flick. There is no hover on a
+ * phone; inside the native shell the tooltip opens on tap instead, and the
+ * chart attaches no touch tracking at all. Pass this to every Tooltip.
+ */
+export const CHART_TOOLTIP_TRIGGER: "click" | "hover" = isNative() ? "click" : "hover"
+
+/**
+ * ResponsiveContainer re-renders the whole chart on every ResizeObserver
+ * tick, including keyboard and visual-viewport resizes and every frame of a
+ * pane swipe. Coalesce those into one render per 100ms.
+ */
+export const CHART_RESIZE_DEBOUNCE_MS = 100
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
@@ -61,7 +88,7 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer>
+        <RechartsPrimitive.ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS}>
           {children}
         </RechartsPrimitive.ResponsiveContainer>
       </div>

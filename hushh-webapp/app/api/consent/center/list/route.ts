@@ -6,7 +6,10 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import {
+  createHotGetJsonCache,
+  requestsRevalidation,
+} from "@/app/api/_utils/hot-get-json-cache";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +23,16 @@ export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
   const authHeader = request.headers.get("authorization") || "";
   const targetUrl = `${getPythonApiUrl()}/api/consent/center/list${request.nextUrl.search}`;
-  const hotCacheKey = authHeader
-    ? `${request.nextUrl.search}:${authHeader}`
-    : null;
+  const sourceRead = request.nextUrl.searchParams.get("source_read") === "true";
+  const hotCacheKey =
+    authHeader && !sourceRead
+      ? `${request.nextUrl.search}:${authHeader}`
+      : null;
+  // Right after the person's own consent change: the hot entry, or a load
+  // already in flight, may still hold the list from before it.
+  const revalidate = sourceRead || requestsRevalidation(request);
 
-  if (hotCacheKey) {
+  if (hotCacheKey && !revalidate) {
     const cached = hotGet.read(hotCacheKey);
     if (cached) {
       return withRequestIdJson(requestId, cached.payload, {
@@ -45,6 +53,7 @@ export async function GET(request: NextRequest) {
     const load = (async () => {
       const response = await fetch(targetUrl, {
         method: "GET",
+        ...(sourceRead ? { cache: "no-store" as const } : {}),
         headers: createUpstreamHeaders(requestId, {
           ...(authHeader ? { Authorization: authHeader } : {}),
         }),
@@ -62,7 +71,7 @@ export async function GET(request: NextRequest) {
     const result = await load;
     if (hotCacheKey && result.status < 500) {
       hotGet.write(hotCacheKey, result);
-    } else if (hotCacheKey && result.status >= 500) {
+    } else if (hotCacheKey && !revalidate && result.status >= 500) {
       const stale = hotGet.read(hotCacheKey, { allowStale: true });
       if (stale) {
         return withRequestIdJson(requestId, stale.payload, {
@@ -72,13 +81,16 @@ export async function GET(request: NextRequest) {
     }
     return withRequestIdJson(requestId, result.payload, {
       status: result.status,
+      ...(sourceRead
+        ? { headers: { "Cache-Control": "private, no-store" } }
+        : {}),
     });
   } catch (error) {
     console.error(
       `[CONSENT API] request_id=${requestId} center_list_proxy_error`,
       error,
     );
-    if (hotCacheKey) {
+    if (hotCacheKey && !revalidate) {
       const stale = hotGet.read(hotCacheKey, { allowStale: true });
       if (stale) {
         return withRequestIdJson(requestId, stale.payload, {

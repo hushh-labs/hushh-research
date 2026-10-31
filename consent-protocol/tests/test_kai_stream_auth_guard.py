@@ -4,17 +4,19 @@ Unit tests for the Kai SSE stream auth guard.
 
 Mirrors test_kai_analyze.py coverage discipline for /api/kai/analyze/stream.
 
-These tests exercise _require_vault_owner_token() which previously used:
+The retired local stream validator previously used:
   - authorization.replace("Bearer ", "") — unsafe, replaced all occurrences
   - validate_token()                      — offline-only, no DB revocation check
   - no WWW-Authenticate header on 401    — missing RFC-7235 requirement
 
-The fixes align the stream guard with the canonical pattern in api/middleware.py.
+Current routes delegate to the canonical lifecycle-aware dependency in api/middleware.py.
 """
 
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 
 class TestStreamAuthMissingToken:
@@ -112,66 +114,99 @@ class TestStreamAuthUserMismatch:
     """A valid token for user A must be rejected when requesting on behalf of user B."""
 
     @pytest.mark.asyncio
-    async def test_user_id_mismatch_returns_403(self, client, vault_owner_token_for_user):
+    async def test_user_id_mismatch_returns_403(self, stream_module):
         """Token issued for user_a cannot act for user_b."""
-        token = vault_owner_token_for_user("user_a")
+        with pytest.raises(HTTPException) as exc_info:
+            stream_module._require_stream_owner_token(
+                user_id="user_b",
+                token_data={"user_id": "user_a", "token": "HCT:owner-token"},
+            )
 
-        response = client.get(
-            "/analyze/stream",
-            params={"user_id": "user_b", "ticker": "AAPL"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-        assert response.status_code == 403, (
-            f"Cross-user token use must return 403, got {response.status_code}"
-        )
-        assert "mismatch" in response.json().get("detail", "").lower()
+        assert exc_info.value.status_code == 403
+        assert "mismatch" in str(exc_info.value.detail).lower()
 
     @pytest.mark.asyncio
-    async def test_valid_token_correct_user_is_not_rejected_by_auth(
-        self, client, vault_owner_token_for_user
-    ):
+    async def test_valid_token_correct_user_is_not_rejected_by_auth(self, stream_module):
         """
         A valid VAULT_OWNER token for the correct user must not be blocked at the
         auth layer, even if the analysis itself fails for other reasons.
 
         This mirrors test_kai_analyze.py::test_analyze_valid_token_succeeds.
         """
-        token = vault_owner_token_for_user("test_user")
-
-        response = client.get(
-            "/analyze/stream",
-            params={"user_id": "test_user", "ticker": "AAPL"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-        # 401 or 403 must NOT be returned when the token is valid and user matches.
-        assert response.status_code not in (401, 403), (
-            f"Valid matching token must not be rejected by the auth guard. "
-            f"Got {response.status_code}: {response.text[:200]}"
+        assert (
+            stream_module._require_stream_owner_token(
+                user_id="test_user",
+                token_data={"user_id": "test_user", "token": "HCT:owner-token"},
+            )
+            == "HCT:owner-token"
         )
 
 
-@pytest.fixture
-def client(vault_owner_token_for_user):
+@pytest.mark.parametrize(
+    ("status_code", "code", "retry_after"),
+    [
+        (401, "AUTH_ACCOUNT_NOT_FOUND", None),
+        (423, "AUTH_ACCOUNT_DELETION_IN_PROGRESS", "2"),
+        (503, "AUTH_ACCOUNT_STATUS_UNAVAILABLE", "3"),
+    ],
+)
+def test_canonical_lifecycle_error_survives_stream_dependency(
+    stream_module,
+    status_code: int,
+    code: str,
+    retry_after: str | None,
+):
+    """SSE admission preserves the canonical lifecycle status and machine code."""
+
+    async def reject_owner_token():
+        headers = {"Cache-Control": "private, no-store"}
+        if retry_after is not None:
+            headers["Retry-After"] = retry_after
+        if status_code == 401:
+            headers["WWW-Authenticate"] = "Bearer"
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": code, "message": "Lifecycle admission failed."},
+            headers=headers,
+        )
+
+    app = FastAPI()
+    app.include_router(stream_module.router)
+    app.dependency_overrides[stream_module.require_vault_owner_token] = reject_owner_token
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get(
+        "/analyze/stream",
+        params={"user_id": "test_user", "ticker": "AAPL"},
+        headers={"Authorization": "Bearer HCT:owner-token"},
+    )
+
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == code
+    assert response.headers.get("Cache-Control") == "private, no-store"
+    assert response.headers.get("Retry-After") == retry_after
+
+
+@pytest.fixture(scope="module")
+def stream_module():
     """Thin FastAPI test client wrapping only the Kai stream router.
 
     Import the stream module directly via importlib to avoid triggering
-    api/routes/kai/__init__.py, which eagerly imports every sibling router
-    (analyze.py → middleware.py → hushh_mcp services → asyncpg).  The
-    stream module itself carries no asyncpg dependency.
+    api/routes/kai/__init__.py, which eagerly imports every sibling router.
     """
     import importlib.util
     from pathlib import Path
-
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
 
     stream_path = Path(__file__).resolve().parents[1] / "api" / "routes" / "kai" / "stream.py"
     spec = importlib.util.spec_from_file_location("api.routes.kai.stream", stream_path)
     stream_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(stream_mod)
-    router = stream_mod.router
+    return stream_mod
+
+
+@pytest.fixture
+def client(stream_module):
+    router = stream_module.router
 
     app = FastAPI()
     app.include_router(router)

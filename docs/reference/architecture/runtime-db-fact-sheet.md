@@ -57,25 +57,37 @@ that file for the full record; this table is the index.
 | --- | --- | --- | --- |
 | `actor_identity_state` | `personal_metadata` | `iam-consent-governance` | 5 tables |
 | `agent_chat_encrypted_memory` | `personal_encrypted` | `backend-agents-operons` | 2 tables |
+| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 3 tables |
+| `direct_message_encrypted_content` | `personal_encrypted` | `iam-consent-governance` | 1 table |
 | `consent_authority_audit` | `audit_regulated` | `iam-consent-governance` | 3 tables |
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `consumer_scope_commerce` | `audit_regulated` | `iam-consent-governance` | `scope_commerce_*` |
 | `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
+| `drive_four_group_index` | `provider_cache` | `backend-runtime-governance` | 2 tables; server-sealed virtual folders and preparation state, default off |
 | `feed_events` | `workflow_state` | `backend-runtime-governance` | 1 table |
-| `funding_trading_audit` | `audit_regulated` | `backend-runtime-governance` | `kai_funding_*` |
+| `hushh_tech_client_identity_state` *(uat_synthetic)* | `personal_metadata` | `iam-consent-governance` | 2 tables |
+| `hushh_tech_client_launch_workflows` *(uat_synthetic)* | `workflow_state` | `iam-consent-governance` | 1 table |
+| `hushh_tech_client_link_audit` *(uat_synthetic)* | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `hushh_tech_client_migration_workflows` *(uat_synthetic)* | `workflow_state` | `backend-runtime-governance` | 1 table |
+| `hushh_tech_client_migration_audit` *(uat_synthetic)* | `audit_regulated` | `backend-runtime-governance` | 1 table |
 | `information_marketplace_delivery` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `information_marketplace_opportunity_signals` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `information_marketplace_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
-| `kai_brokerage_provider_cache` | `provider_cache` | `backend-runtime-governance` | `kai_plaid_*`, `kai_portfolio_source_preferences` |
 | `kai_gmail_receipts_provider_cache` | `provider_cache` | `backend-runtime-governance` | 4 tables |
+| `gmail_owner_approved_delivery` | `workflow_state` | `backend-runtime-governance` | `gmail_owner_send_actions`, `google_email_send_actions` |
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |
 | `one_action_directive_authority` | `workflow_state` | `backend-agents-operons` | 1 table |
+| `one_capability_runtime` | `workflow_state` | `backend-runtime-governance` | 1 table |
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
-| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 13 tables |
+| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 24 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
-| `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
-| `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
-| `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |
-| `pkm_upgrade_workflows` | `workflow_state` | `vault-pkm-governance` | 5 tables |
+| `one_profile_discovery_handoff` | `workflow_state` | `backend-runtime-governance` | 3 tables |
+| `public_profile_evidence_pool` | `reference` | `backend-runtime-governance` | 4 tables |
+| `profile_discovery_daily_usage` | `workflow_state` | `backend-runtime-governance` | 1 table |
+| `pkm_default_available_projection` | `personal_projection` | `security-audit` | 1 table |
+| `pkm_encrypted_memory` | `personal_encrypted` | `security-audit` | 3 tables |
+| `pkm_metadata_and_scope` | `personal_metadata` | `security-audit` | 5 tables |
+| `pkm_upgrade_workflows` | `workflow_state` | `security-audit` | 5 tables |
 | `preference_world_model` | `personal_metadata` | `iam-consent-governance` | 1 table |
 | `public_investor_reference` | `reference` | `backend-api-contracts` | 2 tables |
 | `relay_ticket_replay_guard` | `workflow_state` | `iam-consent-governance` | 1 table |
@@ -86,16 +98,18 @@ that file for the full record; this table is the index.
 | `trusted_connections_graph` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `trusted_device_registry` | `personal_metadata` | `iam-consent-governance` | 1 table |
 | `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `account_phone_transfer_workflow` | `workflow_state` | `iam-consent-governance` | `account_phone_transfers`, `account_phone_recovery_continuations`, `account_device_actions`; hash-only proofs and bounded navigation/action receipts |
+| `account_phone_linked_deletion_workflow` | `workflow_state` | `iam-consent-governance` | `account_phone_linked_deletions`; opaque phone-proven deletion admission with hash-only receipts |
 | `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
-| `vault_key_material` | `personal_encrypted` | `vault-pkm-governance` | 2 tables |
+| `vault_key_material` | `personal_encrypted` | `security-audit` | 2 tables |
 | `connected_system_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `crm_schema_mapping_cache` *(customer0)* | `provider_cache` | `backend-agents-operons` | 2 tables |
-| `domain_reference_registry` *(transitional)* | `reference` | `vault-pkm-governance` | 1 table |
-| `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 2 tables |
+| `domain_reference_registry` *(transitional)* | `reference` | `security-audit` | 1 table |
+| `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 3 tables |
 | `enterprise_crm_registry_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
-| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `vault-pkm-governance` | 10 tables |
+| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `security-audit` | 10 tables |
 
 ## Identity Boundary Rule
 
@@ -122,18 +136,17 @@ These tables exist only for the bounded encrypted-user cutover window. No new pr
 
 ## Required Table Set
 
-The authoritative per-environment table list is not duplicated here. Both UAT and
-production run the same Cloud SQL schema and both contracts use the `exact`
-policy, so one file answers "which tables must exist":
+The authoritative per-environment table list is not duplicated here. Production
+uses the exact base release lane; UAT uses that base plus its explicit overlay:
 
 - `consent-protocol/db/contracts/prod_core_schema.json`
 - `consent-protocol/db/contracts/uat_integrated_schema.json`
 
-They are table-for-table identical by policy; see
+The production contract must exclude UAT-only overlay tables. See
 [migration-governance.md](../operations/migration-governance.md) for the contract
 model and [report_prod_contract_posture.py](../../../scripts/ops/report_prod_contract_posture.py)
-for the parity check (`./bin/hushh db report-prod-posture`, which exits non-zero
-on any delta).
+for the posture check (`./bin/hushh db report-prod-posture`, which exits non-zero
+unless the delta is exactly the declared UAT overlay).
 
 ## Key Column Snapshots
 
@@ -201,6 +214,41 @@ on any delta).
 - `nav_setup_completed_at` (`bigint`)
 - `nav_setup_skipped_at` (`bigint`)
 - `setup_state_updated_at` (`bigint`)
+
+### `conversations` and `direct_message_blocks`
+
+- `conversations`: `id`, canonical `participant_a_user_id` /
+  `participant_b_user_id`, `created_at`, and `last_message_at`.
+- `direct_message_blocks`: directed `blocker_user_id` /
+  `blocked_user_id`, opaque `id`, and `created_at`.
+- `direct_message_reactions`: one participant-scoped emoji per message; a
+  later selection replaces that participant's earlier reaction.
+- Both are relationship metadata. The active canonical `connections` pair and
+  either directed block are checked in a locking database trigger before a new
+  conversation or message write. Circle membership is not queried.
+
+### `messages`
+
+- `id` (`uuid`)
+- `conversation_id` (`uuid`)
+- `sender_user_id` (`text`)
+- `content_ciphertext` (`text`)
+- `content_iv` (`text`)
+- `content_algorithm` (`text`)
+- `created_at` / `delivered_at` / `read_at` / `edited_at` (`timestamp with time zone`)
+- `reply_to_message_id` (`uuid`, same-conversation parent)
+- participant-only and global deletion timestamps
+
+Message text is AES-256-GCM ciphertext under the server-managed direct-message
+key; the ciphertext field includes the authentication tag. Conversation history
+has one receipt authority: nullable `messages.delivered_at` (migration 327).
+Only an authenticated recipient body acknowledgment or a read establishes it;
+the first timestamp cannot be cleared or rewritten. Legacy read timestamps
+still imply delivery. Voice-note WAV bytes use `direct_message_attachments`,
+with duration metadata in the existing encrypted envelope; no new store.
+History remains visible but no new message can be written after disconnect or block.
+The sender can edit or tombstone a sent message for both participants; either
+participant can hide a message only from their own history.
 
 ## Core Application Functions Observed
 

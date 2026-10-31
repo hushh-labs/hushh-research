@@ -9,13 +9,21 @@ managed Gemini uses Vertex workload ADC and never falls back to a hosted key.
 
 from __future__ import annotations
 
+import functools
 import os
 import re
+import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Literal
+from functools import cached_property
+from typing import Any, Iterator, Literal
 
-from google.genai.types import HttpOptionsDict
+from google.auth.credentials import Credentials
+from google.genai.types import HttpOptions, HttpOptionsDict
 
+from .gemini_config import resolve_fleet_model_name
+from .local_credentials import local_cli_credentials
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
 
@@ -25,17 +33,29 @@ DEVELOPER_API_KEY_AUTH_MODE = "developer_api_key"
 VERTEX_LOCATIONS_ENV = "HUSHH_VERTEX_LOCATIONS"
 VERTEX_LOCATION_COOLDOWN_SECONDS_ENV = "HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS"
 _HOSTED_ENVIRONMENTS = {"dev", "uat", "staging", "production", "prod"}
-_PROJECT_ENV_NAMES = (
-    "GOOGLE_CLOUD_PROJECT",
-    "GCP_PROJECT",
-    "GOOGLE_PROJECT",
-    "GCLOUD_PROJECT",
-    "VERTEX_PROJECT_ID",
-)
+
 GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
 _PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_MANAGED_VERTEX_PROJECT: ContextVar[str | None] = ContextVar("managed_vertex_project", default=None)
+
+
+@contextmanager
+def bind_managed_vertex_project(vertex_project: str | None) -> Iterator[None]:
+    """Scope an ADC billing project to one trusted in-process operation.
+
+    The caller must obtain this value from server configuration, never model or
+    client input. Explicit model project arguments still take precedence.
+    """
+    project = str(vertex_project).strip() if vertex_project is not None else None
+    if project is not None and not _PROJECT_RE.fullmatch(project):
+        raise ValueError("Managed Vertex project override is invalid")
+    token = _MANAGED_VERTEX_PROJECT.set(project)
+    try:
+        yield
+    finally:
+        _MANAGED_VERTEX_PROJECT.reset(token)
 
 
 class GeminiByokTransportUnsupportedError(ValueError):
@@ -73,14 +93,31 @@ class ManagedGeminiRuntimeBinding:
     auth_mode: str
 
     @classmethod
-    def from_environment(cls) -> "ManagedGeminiRuntimeBinding":
+    def from_environment(
+        cls, *, vertex_project: str | None = None
+    ) -> "ManagedGeminiRuntimeBinding":
         mode = _managed_genai_auth_mode()
+        from hushh_mcp.runtime_settings import managed_ai_settings
+
+        configured = managed_ai_settings()
+        scoped_project = _MANAGED_VERTEX_PROJECT.get()
+        effective_project = vertex_project if vertex_project is not None else scoped_project
+        if effective_project is not None:
+            project = str(effective_project).strip()
+            if not _PROJECT_RE.fullmatch(project):
+                raise ValueError("Managed Vertex project override is invalid")
+            if _deployment_environment() in _HOSTED_ENVIRONMENTS and project != configured.project:
+                raise ValueError("Managed surface project must match the central configuration")
+            if mode != VERTEX_ADC_AUTH_MODE:
+                raise RuntimeError("Managed Vertex project override requires Vertex ADC")
+        else:
+            project = _vertex_project() if mode == VERTEX_ADC_AUTH_MODE else ""
         if mode == DEVELOPER_API_KEY_AUTH_MODE:
             # Local-only compatibility mode. It remains explicit and cannot be
             # selected in a hosted environment.
             return cls(project="", locations=(), auth_mode=mode)
         return cls(
-            project=_vertex_project(),
+            project=project,
             locations=_vertex_locations(),
             auth_mode=mode,
         )
@@ -114,10 +151,37 @@ class ManagedGeminiRuntimeBinding:
             )
         return locations
 
-    def build_direct_client(self, *, model: str | None = None) -> Any:
+    def build_direct_client(
+        self,
+        *,
+        model: str | None = None,
+        location: str | None = None,
+        http_options: Any | None = None,
+        credentials: Credentials | None = None,
+    ) -> Any:
+        """Build the google-genai client; the one construction seam for the fleet.
+
+        ``location`` pins a single Vertex location (measurement scripts probe one
+        location at a time) and ``http_options`` bounds the request, so a stalled
+        call surfaces as an error instead of hanging a whole run.
+        """
         from google import genai
 
-        if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
+        credentials = credentials or local_cli_credentials()
+        client_factory = (
+            functools.partial(genai.Client, credentials=credentials)
+            if credentials
+            else genai.Client
+        )
+
+        if location is not None:
+            clean_location = str(location).strip()
+            if not _LOCATION_RE.fullmatch(clean_location):
+                raise ValueError("Managed Vertex location is invalid")
+            if not self.project:
+                raise RuntimeError("Managed Vertex binding has no configured project")
+            locations: tuple[str, ...] = (clean_location,)
+        elif self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
                 _clean_env("GEMINI_API_KEY")
                 or _clean_env("GOOGLE_API_KEY")
@@ -126,30 +190,85 @@ class ManagedGeminiRuntimeBinding:
             if not key:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return genai.Client(vertexai=False, api_key=key)
-
-        locations = self.locations_for_model(model) if model else self.locations
+        else:
+            locations = self.locations_for_model(model) if model else self.locations
         if len(locations) == 1:
-            return genai.Client(
-                vertexai=True,
-                project=self.project,
-                location=locations[0],
-            )
+            client_kwargs: dict[str, Any] = {
+                "vertexai": True,
+                "project": self.project,
+                "location": locations[0],
+            }
+            if http_options is not None:
+                client_kwargs["http_options"] = http_options
+            return client_factory(**client_kwargs)
         return VertexRegionalClient(
             project=self.project,
             locations=locations,
-            client_factory=genai.Client,
+            client_factory=client_factory,
             cooldown_seconds=_vertex_location_cooldown_seconds(),
         )
 
-    def build_adk_model(self, model: str, *, location: str | None = None) -> Any:
+    def build_live_client(self, *, model: str, location: str) -> Any:
+        """Build the one ``genai.Client`` that may open a Gemini Live session.
+
+        Vertex ADC only: the developer-key mode is refused outright, because
+        Live must never run on a hosted API-key pool again. The model id must
+        be a registered native-realtime entry (no aliases, no pass-through)
+        and the location must be one of that entry's regional endpoints. There
+        is deliberately no ``VertexRegionalClient`` failover here: Live runs in
+        exactly one pinned region or not at all.
+        """
+        from google import genai
+
+        from .registry import resolve_live_model_entry
+
+        if self.auth_mode != VERTEX_ADC_AUTH_MODE:
+            raise RuntimeError("Gemini Live requires Vertex ADC")
+        clean_location = str(location or "").strip().lower()
+        clean_model = self.validate_model(model, location=clean_location or None)
+        if not clean_location or clean_location in {"global", "us", "eu"}:
+            raise RuntimeError("Gemini Live requires one regional Vertex location")
+        entry = resolve_live_model_entry(clean_model)
+        if clean_location not in entry.supported_vertex_locations:
+            raise RuntimeError(
+                f"Vertex location {clean_location!r} is not supported for Live model "
+                f"{clean_model!r}"
+            )
+        credentials = local_cli_credentials()
+        client_kwargs: dict[str, Any] = {
+            "vertexai": True,
+            "project": self.project,
+            "location": clean_location,
+        }
+        if credentials is not None:
+            client_kwargs["credentials"] = credentials
+        return genai.Client(**client_kwargs)
+
+    def build_adk_model(
+        self,
+        model: str,
+        *,
+        location: str | None = None,
+        http_options: HttpOptions | HttpOptionsDict | None = None,
+        credentials: Credentials | None = None,
+    ) -> Any:
         from google.adk.models import Gemini
 
         clean_location = str(location or "").strip() or (
             self.primary_location if self.auth_mode == VERTEX_ADC_AUTH_MODE else ""
         )
-        clean_model = self.validate_model(
-            model,
-            location=clean_location or None,
+        # Manifests name the fleet alias; Vertex has no model called
+        # ``gemini-default`` and answers it with a 4xx on every call.
+        clean_model = resolve_fleet_model_name(
+            self.validate_model(
+                model,
+                location=clean_location or None,
+            )
+        )
+        transport_options = (
+            {"http_options": HttpOptions.model_validate(http_options)}
+            if http_options is not None
+            else {}
         )
         if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
@@ -161,16 +280,81 @@ class ManagedGeminiRuntimeBinding:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return Gemini(
                 model=clean_model,
-                client_kwargs={"vertexai": False, "api_key": key},
+                client_kwargs={"vertexai": False, "api_key": key, **transport_options},
             )
+        credentials = credentials or local_cli_credentials()
         return Gemini(
             model=clean_model,
             client_kwargs={
                 "vertexai": True,
                 "project": self.project,
                 "location": clean_location,
+                **transport_options,
+                **({"credentials": credentials} if credentials is not None else {}),
             },
         )
+
+    def build_regional_adk_model(self, model: str) -> Any:
+        """An ADK model whose requests fail over across configured Vertex locations.
+
+        Failover happens only while a request is being opened (see
+        ``VertexRegionalClient``): a transient provider failure (429/500/503)
+        there has produced no output and chosen no tool, so replaying that one
+        request in the next location has no side effect, including for
+        tool-using text turns. A stream that has started never moves. The
+        process-local client is shared per project and location list, so a
+        cooling-down endpoint is skipped by every later request instead of
+        failing each one first. Live sessions keep their pinned region from
+        ``build_adk_model``.
+        """
+        clean_model = resolve_fleet_model_name(self.validate_model(model))
+        if self.auth_mode != VERTEX_ADC_AUTH_MODE:
+            return self.build_adk_model(clean_model)
+        locations = self.locations_for_model(clean_model)
+        if len(locations) < 2:
+            return self.build_adk_model(clean_model)
+        credentials = local_cli_credentials()
+        key = (self.project, locations, _clean_env("HUSHH_LOCAL_GCLOUD_ACCOUNT"))
+        with _REGIONAL_ADK_CLIENTS_LOCK:
+            client = _REGIONAL_ADK_CLIENTS.get(key)
+            if client is None:
+                from google import genai
+
+                client = VertexRegionalClient(
+                    project=self.project,
+                    locations=locations,
+                    client_factory=functools.partial(genai.Client, credentials=credentials)
+                    if credentials
+                    else genai.Client,
+                    cooldown_seconds=_vertex_location_cooldown_seconds(),
+                )
+                _REGIONAL_ADK_CLIENTS[key] = client
+        return _regional_gemini_type()(model=clean_model, regional_client=client)
+
+
+_REGIONAL_ADK_CLIENTS: dict[tuple[str, tuple[str, ...], str], VertexRegionalClient] = {}
+_REGIONAL_ADK_CLIENTS_LOCK = threading.Lock()
+
+
+@functools.cache
+def _regional_gemini_type() -> type:
+    from google.adk.models import Gemini
+    from pydantic import Field
+
+    class RegionalGemini(Gemini):
+        """ADK Gemini that sends every request through a shared regional client.
+
+        ADK's ``client`` field only accepts a real ``genai.Client``; overriding
+        ``api_client`` is the documented seam its requests go through.
+        """
+
+        regional_client: Any = Field(default=None, exclude=True)
+
+        @cached_property
+        def api_client(self) -> Any:
+            return self.regional_client
+
+    return RegionalGemini
 
 
 def _clean_env(name: str) -> str:
@@ -182,64 +366,25 @@ def _deployment_environment() -> str:
 
 
 def _managed_genai_auth_mode() -> str:
-    mode = (_clean_env(GENAI_AUTH_MODE_ENV) or VERTEX_ADC_AUTH_MODE).lower()
-    if mode not in {VERTEX_ADC_AUTH_MODE, DEVELOPER_API_KEY_AUTH_MODE}:
-        raise RuntimeError(
-            f"{GENAI_AUTH_MODE_ENV} must be {VERTEX_ADC_AUTH_MODE!r} or "
-            f"{DEVELOPER_API_KEY_AUTH_MODE!r}"
-        )
-    if mode == DEVELOPER_API_KEY_AUTH_MODE and _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Gemini runtimes must use Vertex ADC")
-    if mode == VERTEX_ADC_AUTH_MODE and _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        vertex_enabled = _clean_env("GOOGLE_GENAI_USE_VERTEXAI").lower()
-        if vertex_enabled not in {"1", "true", "yes", "on"}:
-            raise RuntimeError("Hosted Gemini runtimes require GOOGLE_GENAI_USE_VERTEXAI=true")
-    return mode
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().auth_mode
 
 
 def _vertex_project() -> str:
-    for name in _PROJECT_ENV_NAMES:
-        project = _clean_env(name)
-        if project:
-            return project
+    from hushh_mcp.runtime_settings import managed_ai_settings
 
-    if _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Vertex ADC requires GOOGLE_CLOUD_PROJECT")
-
-    try:
-        import google.auth
-
-        _, detected_project = google.auth.default()
-    except Exception as exc:
-        raise RuntimeError(
-            "Vertex ADC is unavailable; configure workload ADC and GOOGLE_CLOUD_PROJECT"
-        ) from exc
-    project = str(detected_project or "").strip()
-    if not project:
-        raise RuntimeError("Vertex ADC requires GOOGLE_CLOUD_PROJECT")
-    return project
+    return managed_ai_settings().project
 
 
 def _vertex_location() -> str:
-    location = (
-        _clean_env("GOOGLE_CLOUD_LOCATION")
-        or _clean_env("GCP_LOCATION")
-        or _clean_env("VERTEX_LOCATION")
-    )
-    if location:
-        return location
-    if _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Vertex ADC requires GOOGLE_CLOUD_LOCATION")
-    return "global"
+    return _vertex_locations()[0]
 
 
 def _vertex_locations() -> tuple[str, ...]:
-    primary = _vertex_location()
-    configured = tuple(
-        value.strip() for value in _clean_env(VERTEX_LOCATIONS_ENV).split(",") if value.strip()
-    )
-    ordered = (primary, *configured)
-    return tuple(dict.fromkeys(ordered))
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().text_locations
 
 
 def _vertex_location_cooldown_seconds() -> float:
@@ -300,6 +445,8 @@ def _build(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     if provider == "gemini":
         return _gemini_client(
@@ -321,6 +468,21 @@ def _build(
         from .openai_transport import GROK_BASE_URL, OpenAITransport
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
+    if provider == "puppy":
+        from .puppy_local_transport import select_puppy_transport
+        from .puppy_transport import PuppyRelayUnavailable
+
+        # Puppy is available only through a linked, owner-local broker on the BYOC pod.
+        # A hub relay is not a fallback: it would move a private inference request out
+        # of the owner's deployment and could silently serve Shared or Hussh Pods.
+        local = select_puppy_transport(
+            device_id=puppy_device_id, catalog_version=puppy_catalog_version
+        )
+        if local is None:
+            raise PuppyRelayUnavailable(
+                "Puppy requires an active device relay on the owner's BYOC pod"
+            )
+        return local
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 
@@ -332,6 +494,8 @@ def build_runtime_client(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     """BYOK client: the user supplies the key for the chosen provider."""
 
@@ -348,6 +512,8 @@ def build_runtime_client(
         gemini_byok_transport=gemini_byok_transport,
         vertex_project=vertex_project,
         vertex_location=vertex_location,
+        puppy_device_id=puppy_device_id,
+        puppy_catalog_version=puppy_catalog_version,
     )
 
 
@@ -360,16 +526,41 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     """
 
     provider = normalize_provider(runtime_provider)
+    if provider == "gemini":
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        if ManagedAzureBinding.from_environment() is not None:
+            from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+            return ManagedAzureTextClient()
     key = (managed_credential or "").strip()
     if provider != "gemini" and not key:
         raise RuntimeError("Managed runtime API key is not configured")
     return _build(provider, key, managed=True)
 
 
+def build_managed_live_client(
+    *, model: str, location: str, vertex_project: str | None = None
+) -> Any:
+    """Managed Gemini Live client from the canonical ADC contract.
+
+    The relay, the readiness probe, and the model-discovery script all come
+    through here so ``genai.Client(`` stays centralized in this module.
+    """
+
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_live_client(
+        model=model,
+        location=location,
+    )
+
+
 def build_managed_gemini_adk_model(
     model: str,
     *,
     vertex_location: str | None = None,
+    http_options: HttpOptions | HttpOptionsDict | None = None,
 ) -> Any:
     """Build an ADK Gemini model from the canonical managed auth contract.
 
@@ -381,12 +572,37 @@ def build_managed_gemini_adk_model(
     ADK owns its internal client, so regional retry remains a direct-client
     capability. This function deliberately pins the configured primary region;
     it does not pretend to provide ``VertexRegionalClient`` failover.
+
+    Optional SDK HTTP options bound individual model requests without replaying
+    a turn or its tools. ``timeout`` uses milliseconds; retry ``attempts`` counts
+    the initial request too. Omission preserves ADK's existing transport defaults.
     """
 
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model, http_options=http_options)
+    if azure is not None:
+        return azure
     return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
         model,
         location=vertex_location,
+        http_options=http_options,
     )
+
+
+def build_managed_regional_gemini_adk_model(
+    model: str, *, vertex_project: str | None = None
+) -> Any:
+    """Build a tool-less single-turn ADK model with bounded regional failover."""
+
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model)
+    if azure is not None:
+        return azure
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_regional_adk_model(model)
 
 
 def build_gemini_byok_adk_model(

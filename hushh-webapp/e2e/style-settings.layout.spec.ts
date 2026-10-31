@@ -1,0 +1,399 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+
+/**
+ * Profile > Preferences > "How One writes to you" at the pixel grid (founder
+ * bar, 2026-09-29): rows on the shared SettingsRow geometry with symmetric
+ * 16 px sides and 8 px top and bottom, one 60 px row rhythm on a wide screen
+ * with labels and fields side by side at every width, every control 44 px tall with
+ * one shared right edge, the note block and footer on the same 16 px inset, a flat surface (no glass blur), the ripple on the Save
+ * press with no scale, neutral-and-accent outline glyphs and no em dash in the copy. Light and
+ * dark, phone and desktop, then again with every row's text widened a little,
+ * because CI's Linux fonts set wider than a Mac.
+ * Set STYLE_SETTINGS_SHOT_DIR to capture one screenshot per width and theme.
+ */
+let script: string;
+let css: string;
+
+test.beforeAll(async () => {
+  const root = process.cwd();
+  const { build } = await import("vite");
+  const { Scanner } = await import("@tailwindcss/oxide");
+  const scanner = new Scanner({});
+  const candidates = new Set<string>();
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "style-settings-"));
+  await build({
+    configFile: false,
+    logLevel: "error",
+    oxc: { jsx: { runtime: "automatic" } },
+    plugins: [{
+      name: "fixture-css-candidates",
+      transform(source, id) {
+        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
+          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+      },
+    }],
+    resolve: { alias: [{ find: "@", replacement: root }] },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    build: {
+      outDir, emptyOutDir: false,
+      copyPublicDir: false,
+      lib: { entry: path.join(root, "e2e/fixtures/style-settings.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" },
+    },
+  });
+  script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const moduleCss = fs.readdirSync(outDir)
+    .filter((file) => file.endsWith(".css"))
+    .map((file) => fs.readFileSync(path.join(outDir, file), "utf8"))
+    .join("\n");
+  const { compile } = await import("tailwindcss");
+  const compiler = await compile(
+    fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
+    {
+      base: path.join(root, "app"),
+      loadStylesheet: async (id, base) => {
+        const file = id === "tailwindcss" ? path.join(root, "node_modules/tailwindcss/index.css")
+          : id === "tw-animate-css" ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
+            : path.resolve(base, id);
+        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+      },
+    },
+  );
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "style-settings.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss), minify: true }).code.toString();
+});
+
+async function open(page: Page, theme: "light" | "dark", state = "saved", reducedMotion: "reduce" | "no-preference" = "reduce", pane = false) {
+  // The ripple picks its mode when it mounts, so motion is set before the fixture loads.
+  await page.emulateMedia({ reducedMotion });
+  await page.route("http://localhost/style-settings**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+  }));
+  await page.goto(`http://localhost/style-settings?state=${state}&pane=${pane}`);
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  await expect(page.getByTestId("style-settings-row")).toHaveCount(5);
+}
+
+async function box(locator: Locator) {
+  const bounds = await locator.boundingBox();
+  if (!bounds) throw new Error("element has no box");
+  return bounds;
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`writing icons keep Profile ink and follow its accent in ${theme} mode`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 844 });
+    await open(page, theme);
+    const ink = await page.locator("main").evaluate(node => getComputedStyle(node).color);
+    const icons = page.locator("[data-slot=settings-row-icon] svg");
+    await expect(icons).toHaveCount(5);
+    for (const accent of ["rgb(0, 122, 255)", "rgb(169, 121, 33)"]) {
+      await page.locator("html").evaluate((node, color) => node.style.setProperty("--app-accent", color), accent);
+      for (const icon of await icons.all()) {
+        await expect(icon).toHaveCSS("color", ink);
+        await expect(icon.locator(".profile-pane-icon-accent-fill")).toHaveCSS("fill", accent);
+      }
+    }
+  });
+}
+
+const onGrid = (value: number, unit: number) => Math.abs(value / unit - Math.round(value / unit)) < 0.02;
+
+test("Save is visible beside the name settings on a short phone screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await open(page, "light", "suggested");
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeInViewport();
+  await expect(save).toBeEnabled();
+  const name = await box(page.getByRole("textbox", { name: "Name One calls you" }));
+  const action = await box(save);
+  expect(action.y + action.height).toBeLessThanOrEqual(name.y);
+  expect(action.width).toBeGreaterThanOrEqual(44);
+  expect(action.height).toBeGreaterThanOrEqual(44);
+  expect(await page.getByTestId("style-settings-group").getByRole("button", { name: "Save", exact: true }).count()).toBe(1);
+});
+
+type Geometry = {
+  rowPadding: number[][];
+  rowHeights: number[];
+  /** A positive gap would mean a field has slipped below its label. */
+  stackGaps: number[];
+  notePadding: number[];
+  textareaHeight: number;
+  iconInsets: number[];
+  controlHeights: number[];
+  controlRights: number[];
+  noteInsets: number[];
+  footerInsets: number[];
+  saveHeight: number;
+  overflow: boolean;
+};
+
+async function measure(page: Page): Promise<Geometry> {
+  return page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-testid='style-settings-row']")];
+    const grid = (row: HTMLElement) => row.querySelector<HTMLElement>(":scope > div, :scope > button") ?? row;
+    const rect = (node: Element) => node.getBoundingClientRect();
+    const controls = [
+      ...document.querySelectorAll<HTMLElement>("[data-testid='style-settings'] input, [data-testid='style-settings'] [data-slot='select-trigger']"),
+    ];
+    const note = document.querySelector<HTMLElement>("[data-testid='style-settings-note-block']")!;
+    const textarea = note.querySelector("textarea")!;
+    const footer = document.querySelector<HTMLElement>("[data-testid='style-settings-footer']")!;
+    const group = document.querySelector<HTMLElement>("[data-testid='style-settings-note-group']")!;
+    const root = document.querySelector<HTMLElement>("[data-testid='style-settings']")!;
+    const rootBox = rect(root);
+    return {
+      rowPadding: rows.map((row) => {
+        const style = getComputedStyle(grid(row));
+        return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat);
+      }),
+      rowHeights: rows.map((row) => rect(row).height),
+      stackGaps: rows.flatMap((row) => {
+        const label = row.querySelector("[data-slot='settings-row-title']")?.parentElement;
+        const control = row.querySelector("input, [data-slot='select-trigger']");
+        if (!label || !control) return [];
+        const gap = rect(control).top - rect(label).bottom;
+        return gap > 0 ? [gap] : [];
+      }),
+      notePadding: (() => {
+        const style = getComputedStyle(note);
+        return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat);
+      })(),
+      textareaHeight: rect(textarea).height,
+      iconInsets: rows.map((row) => rect(row.querySelector("[data-slot='settings-row-icon']")!).left - rect(row).left),
+      controlHeights: controls.map((control) => rect(control).height),
+      controlRights: controls.map((control) => rect(control).right),
+      noteInsets: [rect(textarea).left - rect(note).left, rect(note).right - rect(textarea).right],
+      footerInsets: [
+        rect(footer.querySelector("[data-testid='style-settings-status']")!).left - rect(group).left,
+        rect(group).right - rect(footer.querySelector("[data-testid='style-settings-status']")!).right,
+      ],
+      saveHeight: rect(root.querySelector("[data-testid='style-settings-save']")!).height,
+      overflow: [...root.querySelectorAll("*")].some((node) => {
+        const bounds = rect(node);
+        return bounds.width > 0 && (bounds.left < rootBox.left - 1 || bounds.right > rootBox.right + 1);
+      }),
+    };
+  });
+}
+
+function assertGeometry(geometry: Geometry, label: string) {
+  for (const padding of geometry.rowPadding) expect(padding, `${label} row padding`).toEqual([8, 16, 8, 16]);
+  // One 60 px rhythm: 8 + 44 + 8, every row, on phone and desktop.
+  for (const height of geometry.rowHeights) expect(height, `${label} row height`).toBeCloseTo(60, 0);
+  expect(geometry.stackGaps, `${label} nothing stacks`).toEqual([]);
+  expect(geometry.notePadding, `${label} note padding`).toEqual([16, 16, 16, 16]);
+  expect(onGrid(geometry.textareaHeight, 8), `${label} note field ${geometry.textareaHeight}`).toBe(true);
+  for (const inset of geometry.iconInsets) expect(inset, `${label} icon inset`).toBeCloseTo(16, 0);
+  expect(geometry.controlHeights.length, label).toBe(4);
+  for (const height of geometry.controlHeights) expect(height, `${label} control height`).toBeCloseTo(44, 0);
+  const rights = geometry.controlRights;
+  expect(Math.max(...rights) - Math.min(...rights), `${label} control right edges`).toBeLessThan(0.5);
+  expect(geometry.noteInsets[0], `${label} note left inset`).toBeCloseTo(16, 0);
+  expect(Math.abs(geometry.noteInsets[0]! - geometry.noteInsets[1]!), `${label} note insets`).toBeLessThan(0.5);
+  expect(geometry.footerInsets[0], `${label} footer left inset`).toBeCloseTo(16, 0);
+  expect(Math.abs(geometry.footerInsets[0]! - geometry.footerInsets[1]!), `${label} footer insets`).toBeLessThan(0.5);
+  expect(geometry.saveHeight, `${label} Save height`).toBeGreaterThanOrEqual(44);
+  expect(geometry.overflow, `${label} overflow`).toBe(false);
+}
+
+for (const theme of ["light", "dark"] as const)
+  for (const [width, height] of [[393, 852], [1440, 900]] as const)
+    test(`style settings sit on the 4/8 grid at ${width}px, ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await open(page, theme);
+      const label = `${width}px ${theme}`;
+      const geometry = await measure(page);
+      assertGeometry(geometry, label);
+
+      // Flat Morphy surfaces: no backdrop blur on any group or row.
+      const blurred = await page.locator("[data-testid='style-settings'] *").evaluateAll((nodes) =>
+        nodes.filter((node) => {
+          const filter = getComputedStyle(node).backdropFilter;
+          return filter && filter !== "none";
+        }).length);
+      expect(blurred, `${label} glass`).toBe(0);
+      // Bare outline glyphs on transparent wells; never a sparkle; no em dash.
+      for (const well of await page.locator("[data-slot='settings-row-icon']").all()) {
+        expect(await well.getAttribute("data-icon-tone")).toBe("capability");
+        expect(await well.locator("svg [opacity='0.2']").count()).toBe(0);
+        const colors = await well.locator("svg").evaluate(node => ({
+          ink: getComputedStyle(node).color,
+          accent: getComputedStyle(node.querySelector(".profile-pane-icon-accent-fill")!).fill,
+        }));
+        expect(colors.ink).not.toBe(colors.accent);
+        expect(await well.locator("svg").getAttribute("viewBox")).toBe("0 0 256 256");
+        expect(await well.locator("svg").getAttribute("fill")).toMatch(/^url\(#/);
+      }
+      const text = (await page.getByTestId("style-settings").textContent()) ?? "";
+      expect(text).not.toMatch(/[—–]/);
+      expect(await page.locator("[data-icon*='sparkle' i], [class*='sparkle' i]").count()).toBe(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+
+      const metrics = { width, theme, ...geometry };
+      testInfo.annotations.push({ type: "geometry", description: JSON.stringify(metrics) });
+      const shotDir = process.env.STYLE_SETTINGS_SHOT_DIR;
+      if (shotDir) {
+        fs.mkdirSync(shotDir, { recursive: true });
+        fs.writeFileSync(path.join(shotDir, `geometry-${width}-${theme}.json`), JSON.stringify(metrics, null, 2));
+        await page.setViewportSize({ width, height: 1800 });
+        await page.getByTestId("style-settings").screenshot({ path: path.join(shotDir, `style-settings-${width}-${theme}.png`), animations: "disabled" });
+        await page.setViewportSize({ width, height });
+      }
+
+      await page.addStyleTag({ content: "[data-slot='settings-row-title'],[data-slot='settings-row-description'],[data-testid='style-settings-status']{letter-spacing:0.3px}" });
+      assertGeometry(await measure(page), `${label} widened`);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      expect(errors).toEqual([]);
+    });
+
+test("writing controls stay beside readable labels in a narrow desktop profile pane", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page, "light", "saved", "reduce", true);
+  const section = page.getByTestId("style-settings");
+  await page.getByRole("combobox", { name: "Tone", exact: true }).click();
+  await page.getByRole("option", { name: "No preference", exact: true }).click();
+  for (const width of [272, 342, 398]) {
+    await section.evaluate((node, width) => { node.style.width = `${width}px`; }, width);
+    for (const row of await page.locator(".profile-preferences-control-row").all()) {
+      const title = await box(row.locator("[data-slot='settings-row-title']"));
+      const control = await box(row.locator("input, [data-slot='select-trigger']"));
+      expect(control.x).toBeGreaterThanOrEqual(title.x + title.width);
+      expect(Math.abs((control.y + control.height / 2) - (title.y + title.height / 2))).toBeLessThan(1);
+      const text = await row.locator("[data-slot='settings-row-title']").evaluate(node => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return { lines: range.getClientRects().length, text: range.getBoundingClientRect().width, width: node.clientWidth,
+          height: node.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(node).lineHeight) };
+      });
+      expect(text.lines).toBe(1);
+      expect(text.text).toBeLessThanOrEqual(text.width);
+      expect(text.height).toBeLessThanOrEqual(text.lineHeight + 1);
+      expect(control.height).toBeGreaterThanOrEqual(44);
+    }
+    const selectedText = section.getByRole("combobox", { name: "Tone", exact: true }).locator('[data-slot="select-value"]');
+    expect(await selectedText.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return range.getBoundingClientRect().width <= node.clientWidth + 1;
+    })).toBe(true);
+    expect(await section.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  }
+});
+
+for (const width of [320, 390]) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`Profile writing fields stay on one line at ${width}px ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await open(page, theme, "saved", "reduce", true);
+      const name = page.getByRole("textbox", { name: "Name One calls you" });
+      await name.fill("A longer preferred name");
+      for (const label of ["Tone", "Length", "Language"]) {
+        await page.getByRole("combobox", { name: label, exact: true }).click();
+        await page.getByRole("option", { name: "No preference", exact: true }).click();
+      }
+      await page.addStyleTag({ content: "[data-slot='settings-row-title'] { letter-spacing: 0.3px !important; }" });
+      const metrics = await page.locator(".profile-preferences-control-row").evaluateAll(rows => rows.map(row => {
+        const title = row.querySelector('[data-slot="settings-row-title"]')!;
+        const control = row.querySelector('input, [data-slot="select-trigger"]')!;
+        const value = control.querySelector('[data-slot="select-value"]');
+        const range = document.createRange();
+        range.selectNodeContents(title);
+        const titleBox = title.getBoundingClientRect();
+        const controlBox = control.getBoundingClientRect();
+        const titleFits = titleBox.height <= parseFloat(getComputedStyle(title).lineHeight) + 1 && range.getBoundingClientRect().width <= title.clientWidth + 1;
+        if (value) range.selectNodeContents(value);
+        return { titleFits, valueFits: !value || range.getBoundingClientRect().width <= value.clientWidth + 1,
+          valueWidth: value?.clientWidth, valueTextWidth: value ? range.getBoundingClientRect().width : undefined,
+          valueFont: value ? getComputedStyle(value).fontSize : undefined, controlWidth: controlBox.width,
+          titleRight: titleBox.right, controlLeft: controlBox.left, controlRight: controlBox.right,
+          centerDifference: Math.abs((titleBox.top + titleBox.height / 2) - (controlBox.top + controlBox.height / 2)),
+          controlHeight: controlBox.height };
+      }));
+      expect(metrics).toHaveLength(4);
+      for (const metric of metrics) {
+        expect(metric.titleFits, JSON.stringify(metric)).toBe(true);
+        expect(metric.valueFits, JSON.stringify(metric)).toBe(true);
+        expect(metric.controlLeft).toBeGreaterThan(metric.titleRight);
+        expect(metric.centerDifference).toBeLessThan(1);
+        expect(metric.controlHeight).toBeGreaterThanOrEqual(44);
+        expect(metric.controlRight).toBeCloseTo(metrics[0]!.controlRight, 0);
+      }
+      await expect(name).toHaveValue("A longer preferred name");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: testInfo.outputPath("profile-writing-preferences.png"), animations: "disabled" });
+    });
+  }
+}
+
+test("Profile pane writing preferences use the Your account type scale", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, "light", "saved", "reduce", true);
+  const typography = await page.getByTestId("style-settings").evaluate((root) => {
+    const size = (selector: string) => getComputedStyle(root.querySelector(selector)!).fontSize;
+    return {
+      groupHeading: size('[data-slot="settings-group-heading"]'),
+      groupDescription: size('[data-slot="settings-group-heading"] + .ui-text-row-description'),
+      rowTitles: [...root.querySelectorAll('[data-slot="settings-row-title"]')].map((node) => getComputedStyle(node).fontSize),
+      rowDescriptions: [...root.querySelectorAll('[data-slot="settings-row-description"]')].map((node) => getComputedStyle(node).fontSize),
+      input: size('input[data-slot="input"]'),
+      select: size('[data-slot="select-trigger"]'),
+      note: size('textarea'),
+      noteCount: size('[data-testid="style-settings-note-count"]'),
+      status: size('[data-testid="style-settings-status"]'),
+      save: size('[data-testid="style-settings-save"]'),
+    };
+  });
+  expect(typography).toEqual({
+    groupHeading: "10px",
+    groupDescription: "12px",
+    rowTitles: Array(5).fill("13px"),
+    rowDescriptions: [],
+    input: "12px",
+    select: "12px",
+    note: "13px",
+    noteCount: "10px",
+    status: "12px",
+    save: "12px",
+  });
+  await page.getByRole("combobox", { name: "Tone" }).click();
+  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("13px");
+
+  await open(page, "light");
+  await page.getByRole("combobox", { name: "Tone" }).click();
+  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("14px");
+});
+
+test("the Save press ripples without scaling, and a chat offer reads as unsaved", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await open(page, "light", "suggested", "no-preference");
+  await expect(page.getByTestId("style-settings-status")).toHaveText("Suggested in chat. Check it, then save.");
+  const save = page.getByTestId("style-settings-save");
+  await expect(save).toBeEnabled();
+  await save.scrollIntoViewIfNeeded();
+  const before = await box(save);
+  await page.mouse.move(before.x + before.width * 0.3, before.y + before.height / 2);
+  await page.mouse.down();
+  const read = () => save.evaluate((button) => {
+    const surface = button.querySelector(".morphy-ripple-host md-ripple")?.shadowRoot?.querySelector(".surface");
+    const style = getComputedStyle(button);
+    const flatScale = style.scale === "none" || /^1(\s+1)?$/.test(style.scale);
+    return { pressed: Boolean(surface?.classList.contains("pressed")), scaled: style.transform !== "none" || !flatScale };
+  });
+  await expect.poll(async () => (await read()).pressed, { timeout: 2000 }).toBe(true);
+  await page.waitForTimeout(120);
+  const reading = await read();
+  const pressed = await box(save);
+  await page.mouse.up();
+  expect(reading.scaled).toBe(false);
+  expect(Math.abs(pressed.width - before.width)).toBeLessThan(0.5);
+  expect(Math.abs(pressed.height - before.height)).toBeLessThan(0.5);
+});

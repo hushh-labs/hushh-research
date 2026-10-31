@@ -8,13 +8,28 @@ export type AgentPkmAutoSavePolicy = {
   enabled: boolean;
   version: 1;
   enabledAt: string | null;
+  source: "product_default" | "owner_choice";
 };
 
+export const AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT = "2026-09-04T00:00:00.000Z";
+
 export const DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY: AgentPkmAutoSavePolicy = {
-  enabled: false,
+  enabled: true,
   version: 1,
   enabledAt: null,
+  source: "product_default",
 };
+
+/** Existing cache events invalidate authority; only a fresh encrypted read re-enables it. */
+export function subscribeAgentPkmAutoSavePolicyInvalidation(userId: string, invalidate: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onChange = (event: Event) => {
+    const detail = (event as CustomEvent<{ userId?: string; domain?: string }>).detail;
+    if (detail?.userId === userId && detail.domain === "runtime_secrets") invalidate();
+  };
+  window.addEventListener("pkm-domain-changed", onChange);
+  return () => window.removeEventListener("pkm-domain-changed", onChange);
+}
 
 function parsePolicy(value: string | null): AgentPkmAutoSavePolicy {
   if (!value) return DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY;
@@ -27,9 +42,12 @@ function parsePolicy(value: string | null): AgentPkmAutoSavePolicy {
         typeof parsed.enabledAt === "string" && parsed.enabledAt.trim()
           ? parsed.enabledAt
           : null,
+      source: "owner_choice",
     };
   } catch {
-    return DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY;
+    // A corrupt stored owner choice is not absence of a choice. Never
+    // silently replace it with an enabled product default.
+    return { enabled: false, version: 1, enabledAt: null, source: "owner_choice" };
   }
 }
 
@@ -56,6 +74,7 @@ export async function saveAgentPkmAutoSavePolicy(params: {
     enabled: params.enabled,
     version: 1,
     enabledAt: params.enabled ? new Date().toISOString() : null,
+    source: "owner_choice",
   };
   const result = await PersonalKnowledgeModelService.storeRuntimeSecret({
     userId: params.userId,

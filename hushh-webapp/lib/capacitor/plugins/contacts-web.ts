@@ -3,6 +3,7 @@ import type {
   HushhContactsPlugin,
   HushhContactsReadResult,
 } from "@/lib/capacitor";
+import { contactInvitationsEnabled } from "@/lib/contacts/invitation-candidates";
 
 /**
  * Browser fallback for contact reads.
@@ -46,7 +47,13 @@ function localeRegion(): string | null {
 }
 
 export class HushhContactsWeb implements HushhContactsPlugin {
+  private emailSupported = false;
   async getPermissionState(): Promise<HushhContactsPermissionState> {
+    // Warm capability information before the tap. Never await this in readContacts.
+    if (contactInvitationsEnabled()) {
+      try { this.emailSupported = Boolean((await contactPicker()?.getProperties?.())?.includes("email")); }
+      catch { this.emailSupported = false; }
+    }
     // The Contact Picker grants per-invocation, so there is no persistent state
     // to report — only whether a prompt is reachable at all.
     return { state: contactPicker() ? "prompt" : "unavailable" };
@@ -70,7 +77,7 @@ export class HushhContactsWeb implements HushhContactsPlugin {
 
     let selected: ContactPickerResult[];
     try {
-      selected = await picker.select(["name", "tel"], { multiple: true });
+      selected = await picker.select(contactInvitationsEnabled() && this.emailSupported ? ["name", "tel", "email"] : ["name", "tel"], { multiple: true });
     } catch (error) {
       // The picker rejects when it is called outside a user gesture, and also
       // when the user dismisses it. Neither is an error worth surfacing as a
@@ -85,17 +92,27 @@ export class HushhContactsWeb implements HushhContactsPlugin {
           totalAvailable: 0,
         };
       }
-      throw new Error("Contacts are only available in the native mobile app.");
+      // NOT "install the app". The picker exists in this browser — it just
+      // refused this call, and the three ways it does that are all things the
+      // page did rather than things the browser cannot do: invoking outside a
+      // user gesture, running in an insecure context, or sitting in a
+      // cross-origin iframe. Telling somebody whose browser supports contacts
+      // to go and install an app is advice that cannot help them, and it sent
+      // every one of those cases to the wrong place.
+      throw new Error(
+        "Could not open the contact picker. Tap the button again — and if this page is embedded in another site, open it directly.",
+      );
     }
 
-    const limit = Math.max(1, Math.min(options?.limit ?? 500, 2000));
+    const limit = Math.max(1, Math.min(options?.limit ?? 500, 10_000));
     const contacts = selected
       .map((entry, index) => ({
         id: `web-contact:${index}`,
         displayName: entry.name?.find((name) => name.trim()) ?? null,
         phoneNumbers: (entry.tel ?? []).filter((tel) => tel.trim()),
+        ...(contactInvitationsEnabled() && this.emailSupported ? { hasPhoneEntries: (entry.tel ?? []).length > 0, emailAddresses: (entry.email ?? []).filter((email) => email.trim()) } : {}),
       }))
-      .filter((contact) => contact.phoneNumbers.length > 0);
+      .filter((contact) => contact.phoneNumbers.length > 0 || (contact.emailAddresses?.length ?? 0) > 0);
 
     return {
       contacts: contacts.slice(0, limit),

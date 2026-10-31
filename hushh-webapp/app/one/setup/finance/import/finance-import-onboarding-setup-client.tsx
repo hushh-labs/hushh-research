@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -13,10 +14,13 @@ import {
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 
 export function FinanceImportOnboardingSetupClient() {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const searchParams = useSearchParams();
+  const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
   const [sourceSettled, setSourceSettled] = useState<
     "plaid" | "statement" | "later" | null
   >(null);
@@ -29,14 +33,15 @@ export function FinanceImportOnboardingSetupClient() {
     // Root setup may have been skipped before Finance is opened. This is still
     // an explicit Finance task and must retain the portfolio-source terminal.
     journeyMode: "auto",
+    returnTo,
   });
 
-  if (loading || !user || !coordinator.isReady) {
+  if (loading || !user || !userId || !coordinator.isReady) {
     return <SetupCapabilityLoading label="Preparing Finance setup…" />;
   }
 
   return (
-    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] ">
+    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] !pb-[calc(var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance,4rem))+3rem)]">
       <NativeTestBeacon
         routeId="/one/setup/finance/import"
         marker="native-route-one-setup-finance-import"
@@ -44,14 +49,20 @@ export function FinanceImportOnboardingSetupClient() {
         dataState="loaded"
       />
       <KaiFlow
-        userId={user.uid}
+        userId={userId}
         mode="import"
         vaultOwnerToken={vaultOwnerToken ?? ""}
         onSetupSourceSettled={async (source, callbackAttemptId) => {
-          if (!user) return false;
-          const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+          if (!userId) return false;
+          const journey = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
+          if (returnTo && PreVaultUserStateService.isSetupResolved(journey)) {
+            // A deferred source resumes after root setup. Keep the import's
+            // existing explicit terminal; do not revive its old journey attempt.
+            setSourceSettled(source);
+            return true;
+          }
           if (
             journey.onboardingActiveCapability !== "finance" ||
             (callbackAttemptId &&
@@ -60,7 +71,7 @@ export function FinanceImportOnboardingSetupClient() {
             return false;
           }
           await PreVaultUserStateService.syncOnboardingJourney({
-            userId: user.uid,
+            userId,
             phase: "capability_setup",
             activeCapability: "finance",
             callbackState: "succeeded",
@@ -71,8 +82,8 @@ export function FinanceImportOnboardingSetupClient() {
           return true;
         }}
         onSetupConnectorAttemptSettled={async (outcome, callbackAttemptId) => {
-          if (!user) return;
-          const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+          if (!userId) return;
+          const journey = await PreVaultUserStateService.bootstrapState(userId, {
             force: true,
           });
           if (
@@ -84,7 +95,7 @@ export function FinanceImportOnboardingSetupClient() {
             return;
           }
           await PreVaultUserStateService.syncOnboardingJourney({
-            userId: user.uid,
+            userId,
             phase: "external_connector",
             activeCapability: "finance",
             callbackState: outcome,
@@ -100,6 +111,7 @@ export function FinanceImportOnboardingSetupClient() {
         isOperationallyReady={true}
         coordinator={coordinator}
         finishLabel={sourceSettled ? "Finish Finance setup" : "I'll link this later"}
+        insetBottom={true}
       />
     </FullscreenFlowShell>
   );

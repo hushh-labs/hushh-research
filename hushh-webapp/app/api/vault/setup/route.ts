@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { forwardVaultBackendError } from "@/app/api/vault/_utils/backend-error";
 import {
   invalidJsonPayloadResponse,
   readJsonObject,
 } from "@/app/api/_utils/json-body";
 import { validateFirebaseToken } from "@/lib/auth/validate";
-import { isDevelopment, logSecurityEvent } from "@/lib/config";
+import { devAuthBypassAllowed, logSecurityEvent } from "@/lib/config";
+import { VAULT_WRITE_PROTOCOL_VERSION } from "@/lib/vault/write-protocol-version";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     if (!wrappers.some((wrapper) => wrapper.method === "passphrase")) {
       return NextResponse.json(
-        { error: "Passphrase wrapper is required" },
+        { error: "Password wrapper is required" },
         { status: 400 },
       );
     }
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
-      if (!validation.valid && !isDevelopment()) {
+      if (!validation.valid && !devAuthBypassAllowed()) {
         return NextResponse.json(
           { error: "Authentication failed", code: "AUTH_INVALID" },
           { status: 401 },
@@ -86,17 +88,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const clientVersion =
+    const vaultWriteProtocolVersion =
       request.headers.get("x-hushh-client-version") ||
       request.headers.get("x-client-version") ||
-      process.env.NEXT_PUBLIC_CLIENT_VERSION ||
-      "2.0.0";
+      VAULT_WRITE_PROTOCOL_VERSION;
 
     const response = await fetch(`${PYTHON_API_URL}/db/vault/setup`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-hushh-client-version": clientVersion,
+        "x-hushh-client-version": vaultWriteProtocolVersion,
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
       body: JSON.stringify({
@@ -112,11 +113,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: errorText || "Backend error" },
-        { status: response.status },
-      );
+      return forwardVaultBackendError(response);
     }
 
     const result = await response.json();

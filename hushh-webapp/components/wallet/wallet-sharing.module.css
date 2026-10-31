@@ -1,0 +1,183 @@
+
+.hero { position: relative; overflow: hidden; border-radius: 26px; padding: 25px; color: #fff; background: var(--app-card-surface-default-solid); box-shadow: 0 12px 28px #11182718; }
+.heroTop { display: flex; align-items: center; justify-content: space-between; font-size: 10px; letter-spacing: .18em; color: #d4d3e1; }
+.hero h2 { margin: 25px 0 12px; }
+.hero > p { max-width: 260px; color: #cbcdd9; font-size: 13px; line-height: 1.65; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 25px; padding-top: 18px; border-top: 1px solid #ffffff24; }
+.stats div { display: flex; flex-direction: column; gap: 5px; }
+.stats strong { font-size: 24px; font-weight: 600; }
+.stats span { font-size: 11px; color: #cbcdd9; }
+.group { display: grid; gap: 10px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 18px 14px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); box-shadow: 0 3px 12px #11182705; transition: transform 180ms ease; }
+@media (hover: hover) { .row:hover { transform: translateY(-2px); } }
+.avatar { display: grid; place-items: center; width: 40px; height: 46px; flex-shrink: 0; border-radius: 12px; background: var(--muted); color: #41415b; font-size: 16px; font-weight: 600; }
+.empty { display: flex; align-items: center; gap: 20px; padding: 24px 20px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); }
+.cards { position: relative; width: 56px; height: 62px; flex-shrink: 0; }
+.cards i { position: absolute; width: 45px; height: 55px; border-radius: 9px; background: #ddd9eb; transform: rotate(-14deg); left: 0; top: 0; }
+.cards i:nth-child(2) { background: #a6adc6; transform: rotate(-5deg); left: 5px; top: 3px; }
+.cards i:last-child { display: grid; place-items: center; color: #e6eafa; background: linear-gradient(140deg,#43445c,#242d44); transform: rotate(6deg); left: 10px; top: 6px; box-shadow: 0 5px 10px #11182718; }
+.cards svg { width: 21px; }
+.note { display: flex; align-items: flex-start; gap: 8px; color: var(--muted-foreground); font-size: 12px; line-height: 1.65; padding: 0 8px; }
+.accessCard { padding: 20px; border-radius: 18px; color: #fff; background: var(--app-card-surface-default-solid); }
+.accessCard p { margin: 16px 0 7px; font-size: 20px; font-weight: 600; letter-spacing: -.03em; }
+.accessCard span { font-size: 9px; letter-spacing: .18em; color: #cbd1e4; }
+.facts { display: grid; gap: 14px; font-family: var(--font-app-body); }
+.facts div { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.facts dt { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; font-weight: 600; margin-bottom: 5px; }
+.facts dd { font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
+.duration { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--app-card-border-standard); border-radius: 12px; background: var(--app-card-surface-default-solid); color: var(--app-primary-label); font-family: var(--font-app-body); font-size: 14px; line-height: 22px; }
+.warning { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 12px; background: var(--muted); color: var(--app-secondary-label); font-size: 13px; line-height: 18px; }
+@media (max-width: 620px) { .duration { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .row { transition: none; } .row:hover { transform: none; } }
+
+.guide { overflow: hidden; border: 1px solid var(--border); border-radius: 20px; background: var(--card); }
+.guide details + details { border-top: 1px solid var(--border); }
+.guide summary { display: flex; align-items: center; gap: 12px; padding: 18px 16px; cursor: pointer; font-size: 14px; font-weight: 400; list-style: none; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary > span:nth-child(2) { flex: 1; }
+.guide small { display: block; margin-top: 5px; color: var(--muted-foreground); font-size: 11px; line-height: 1.5; font-weight: 400; }
+.guideIcon { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 42px; border-radius: 10px; background: var(--muted); color: var(--primary); }
+.guide p, .help p, .help ol { padding: 0 16px 16px; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.help { border-radius: 16px; border: 1px solid var(--border); background: var(--card); }
+.help summary { padding: 16px; font-size: 14px; font-weight: 400; cursor: pointer; }
+.help ol { padding-left: 34px; list-style: decimal; }
+
+/* Match Mail's white feature panels, blue tint and shared typography. */
+.hero { container-type:inline-size; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); padding:20px; color:var(--foreground); background:var(--app-card-surface-default-solid); box-shadow:var(--app-card-shadow-feature); }
+.heroTop { color:var(--muted-foreground); }
+.heroTop svg { color:var(--app-accent); }
+.hero > p { max-width:420px; color:var(--muted-foreground); font-size:15px; line-height:22px; }
+.stats { border-color:var(--border); }
+.stats span { color:var(--muted-foreground); font-size:13px; }
+.stats strong { color:var(--app-accent); }
+.avatar { color:var(--app-accent); background:var(--app-accent-tint); }
+.accessCard { color:var(--foreground); background:var(--app-card-surface-default-solid); border:1px solid var(--border); }
+.accessCard svg { color:var(--app-accent); }
+.accessCard span { color:var(--muted-foreground); }
+@media(min-width:640px) { .hero { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); column-gap:32px; padding:32px; } .heroTop { grid-column:1 / -1; } .hero h2 { grid-column:1; } .hero > p { grid-column:1; } .stats { grid-column:2; grid-row:2 / 4; align-self:center; border:1px solid var(--border); border-radius:20px; background:var(--card); padding:24px; margin:0; box-shadow:var(--app-card-shadow-feature); } .guide { display:grid; grid-template-columns:1fr 1fr; } .guide details + details { border-top:0; border-left:1px solid var(--border); } }
+
+.row p:first-child { font-size:16px; }
+.row p:nth-child(2) { font-size:15px; }
+.guide summary { font-size:16px; }
+.guide small { font-size:13px; }
+.filter { border:1px solid var(--border); background:var(--card); color:var(--foreground); }
+.filter[aria-pressed=true] { border-color:color-mix(in srgb,var(--app-accent) 35%,transparent); background:var(--app-accent-tint); color:var(--app-accent); }
+
+.heroCard { container-type:inline-size; min-width:0; width:100%; max-width:360px; margin:24px auto 0; }
+.heroCard figcaption { margin-top:10px; color:var(--muted-foreground); font-size:12px; text-align:center; line-height:1.5; }
+@media(min-width:640px) { .heroCard { grid-column:2; grid-row:2 / 4; align-self:center; margin:20px 0 0; } }
+
+/* Keep the heading aligned with the other Wallet feature panels. */
+.hero h2 { margin:0 0 12px; }
+@media(min-width:640px) { .heroCard { grid-row:1 / 3; margin:0; } }
+
+/* Match Profile's compact headings, labels and supporting copy. */
+.content { font-family: var(--font-app-body); }
+.hero { --type-card-title-size: 18px; --type-card-title-line: 24px; }
+.hero > p { font-family: var(--font-app-body); font-size: 12px; line-height: 1.4; }
+.content > section > h3 { --type-card-title-size: 14px; --type-card-title-line: 22px; }
+.content > section > h3 span { font-family: var(--font-app-body); font-size: 12px; }
+.row p:first-child { font-size: 14px; line-height: 21px; font-weight: 550; }
+.row p:nth-child(2), .empty p, .content > p { font-size: 12px; line-height: 18px; }
+.row button { --type-button-label-size: 12px; --type-compact-button-label-size: 12px; font-family: var(--font-app-body); }
+@layer base {
+  .content .hero h2 { font-family: var(--font-app-display) !important; font-size: 18px !important; line-height: 24px !important; }
+  .content > section > h3 { font-family: var(--font-app-body) !important; font-size: 14px !important; line-height: 22px !important; font-weight: 600 !important; }
+  .content > section > h3 span,
+  .content .hero > p,
+  .content .empty p,
+  .content > p,
+  .content .row p:nth-child(2) { font-family: var(--font-app-body) !important; font-size: 12px !important; line-height: 18px !important; }
+  .content .row p:first-child { font-family: var(--font-app-body) !important; font-size: 14px !important; line-height: 21px !important; font-weight: 550 !important; }
+}
+
+/* Use Profile's reference scale in the shared compact-row cascade too. */
+.history {
+  font-family: var(--font-app-body);
+  --type-section-label-compact-size: 14px;
+  --type-section-label-compact-weight: 600;
+  --type-section-label-compact-line: 22px;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-weight: 550;
+  --type-row-label-compact-line: 21px;
+}
+@layer base {
+  .history [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 22px !important;
+  }
+  .history [data-slot="settings-row-title"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    font-weight: 550 !important;
+    line-height: 21px !important;
+  }
+  .history [data-slot="settings-row-description"],
+  .history [data-slot="settings-row-description"] :is(p, time, summary, li) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+  }
+}
+
+/* Keep the introduction compact instead of stretching its two text rows. */
+.content .hero { padding: 20px; }
+.content .hero h2 { margin-bottom: 8px; }
+.content .heroCard { max-width: 300px; margin-top: 16px; }
+@media (min-width: 640px) {
+  .content .hero { grid-template-rows: auto 1fr; column-gap: 24px; }
+  .content .hero > p { align-self: start; margin: 0; }
+  .content .heroCard { margin: 0; justify-self: end; }
+}
+
+
+/* History opens as a full-page detail on phones, not a partial-height sheet. */
+.historyDetail[data-slot="drawer-content"] {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  margin-top: 0 !important;
+  border-radius: 0 !important;
+}
+.historyDetail [data-slot="drawer-header"] { flex-shrink: 0; }
+
+/* Shared and received card headers use Profile's row label and description scale. */
+@layer base {
+  .historyDetail :global([data-slot$="-header"]) :global(.ui-text-navigation-title) {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    line-height: 28px !important;
+    letter-spacing: 0 !important;
+  }
+  .historyDetail :global([data-slot$="-header"]) :global(.ui-text-section-label),
+  .historyDetail :global([data-slot$="-header"]) :global(.ui-text-row-description) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    font-weight: 400 !important;
+    line-height: 20px !important;
+    letter-spacing: 0 !important;
+  }
+}
+.receivedCard { display:block; width:100%; min-width:0; padding:0; text-align:left; border:0; border-radius:var(--app-card-radius-feature); background:transparent; cursor:pointer; }
+.receivedCard:focus-visible { outline:2px solid var(--app-focus-ring); outline-offset:6px; }
+.receivedFace { display:flex; flex-direction:column; justify-content:flex-end; gap:10px; aspect-ratio:85.6/53.98; padding:24px; border:1px solid color-mix(in oklab,var(--app-accent) 24%,var(--app-separator)); border-radius:var(--app-card-radius-feature); background:color-mix(in oklab,var(--app-accent) 14%,var(--app-card-surface-default-solid)); color:var(--app-primary-label); }
+.receivedFace[data-status="revoked"],.receivedFace[data-status="expired"] { background:var(--app-neutral-fill); border-color:var(--app-separator); color:var(--app-secondary-label); }
+.receivedFaceTop { display:flex; flex:1; align-items:flex-start; justify-content:space-between; gap:12px; font-size:13px; }
+.receivedFace strong { font-size:clamp(16px,2.1vw,21px); line-height:1.4; font-weight:600; letter-spacing:.04em; overflow-wrap:anywhere; }
+.receivedFace small { font-size:11px; color:var(--app-secondary-label); }
+.receivedCaption { display:flex; align-items:center; gap:9px; margin-top:14px; }
+.receivedCaption>span:nth-last-child(2) { flex:1; min-width:0; }
+.receivedCaption strong { display:block; font-size:13px; line-height:20px; font-weight:600; overflow-wrap:anywhere; }
+.receivedCaption small { display:block; font-size:12px; line-height:18px; margin-top:3px; color:var(--app-secondary-label); overflow-wrap:anywhere; }
+.receivedAvatar { display:grid; place-items:center; width:30px; height:30px; flex-shrink:0; border-radius:var(--app-radius-pill); background:var(--app-neutral-fill); font-size:12px; font-weight:600; }
+.accessStatus { flex-shrink:0; padding:4px 8px; border-radius:var(--app-radius-pill); background:color-mix(in oklab,var(--app-accent) 12%,var(--app-card-surface-default-solid)); color:var(--app-accent); font-size:11px; line-height:18px; white-space:nowrap; }
+.accessStatus[data-ended="true"] { color:var(--app-secondary-label); background:var(--app-neutral-fill); }
+.receivedDetailCaption { display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:14px; }
+.receivedEmpty { display:flex; flex-direction:column; align-items:center; gap:12px; padding:48px 20px; text-align:center; color:var(--app-secondary-label); }
+.receivedEmpty h3 { color:var(--app-primary-label); font-size:15px; font-weight:600; }
+.receivedEmpty p { font-size:13px; line-height:20px; }
+.pastAccess { padding-top:24px; margin-top:24px; border-top:1px solid var(--app-separator); }
+.pastAccess summary { min-height:44px; cursor:pointer; font-size:13px; color:var(--app-secondary-label); }
+.pastAccess summary>span { margin-left:8px; }

@@ -3,15 +3,18 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useState,
   useMemo,
   useRef,
   type CSSProperties,
 } from "react";
 import { useRouter } from "next/navigation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
+  hasTopShellTabPager,
   requestTopShellTabSelection,
   setTopShellTabSwipeState,
   topShellTabSwipePositionVariable,
@@ -19,6 +22,8 @@ import {
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 
 function topShellTabDomId(
@@ -37,18 +42,29 @@ function topShellTabDomId(
 export function TopShellTabs({
   tabSet,
   navigationMode = "replace",
+  onValueChange,
+  disabled = false,
 }: {
   tabSet: TopShellTabSet;
   navigationMode?: "push" | "replace";
+  /** Local workspaces keep their state in the mounted pager. */
+  onValueChange?: (value: string) => void;
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  // Query tabs swap content inside one route. Route-backed workspaces (RIA)
-  // own distinct durable screens and therefore use the single full route
-  // envelope for both taps and swipes.
+  // Query tabs swap content inside one route. RIA retains durable pathname
+  // routes, but its `/ria` layout owns a persistent identity shell, so its
+  // tab switch uses the same no-envelope contextual commit as Location. The
+  // route page below that shell may change; the shell itself must not fade or
+  // translate with it.
   const transitionMode =
-    tabSet.queryParam === null ? "full" : "contextual";
+    tabSet.id === "ria"
+      ? "contextual"
+      : tabSet.queryParam === null
+        ? "full"
+        : "contextual";
   const optimisticValue = useMemo(() => {
     const activeIntent = [...interactionIntents]
       .reverse()
@@ -63,7 +79,7 @@ export function TopShellTabs({
       ? tabSet.tabs.find((tab) => tab.href === activeIntent.target)?.value
       : null;
   }, [interactionIntents, tabSet.tabs, transitionMode]);
-  const selectedValue = optimisticValue ?? tabSet.activeValue;
+  const selectedValue = onValueChange ? tabSet.activeValue : optimisticValue ?? tabSet.activeValue;
   const activeIndex = Math.max(
     0,
     tabSet.tabs.findIndex((tab) => tab.value === selectedValue),
@@ -76,15 +92,40 @@ export function TopShellTabs({
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+  // The segmented strip is the canonical style for every signed-in hub
+  // (founder directive, 2026-09-22: Finance joined Connect and Consent). The
+  // underline arm remains for the public knowledge tab sets only.
+  const usesModuleSegmentedTabs =
+    tabSet.id === "public" ||
+    tabSet.id === "wallet" ||
+    tabSet.id === "calendar" ||
+    tabSet.id === "location" ||
+    tabSet.id === "connect" ||
+    tabSet.id === "consent" ||
+    tabSet.id === "finance" ||
+    tabSet.id === "ria";
+  const usesCompactLabels = usesModuleSegmentedTabs && tabSet.tabs.length > 3 && tabSet.id !== "consent";
+  const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const [activeTextWidth, setActiveTextWidth] = useState(0);
+  // The underline arm is a full-cell bar scaled on X to the label's width, so
+  // a tab change animates on the compositor instead of relayouting the strip
+  // through a width transition. Measured before paint so the first frame
+  // already has the right ratio; null (no layout yet, or jsdom) keeps the
+  // CSS width fallback and no transform.
+  const [underlineScale, setUnderlineScale] = useState<number | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const activeTextSpan = textRefs.current[activeIndex];
-    if (activeTextSpan) {
-      setActiveTextWidth(activeTextSpan.offsetWidth);
-    }
+    if (!activeTextSpan) return;
+    const cell =
+      activeTextSpan.closest<HTMLElement>('[role="tab"]') ??
+      activeTextSpan.parentElement;
+    const cellWidth = cell?.offsetWidth ?? 0;
+    if (cellWidth <= 0) return;
+    setUnderlineScale(
+      Math.min(1, Math.max(28, activeTextSpan.offsetWidth) / cellWidth),
+    );
   }, [activeIndex, tabSet.tabs.length]);
 
   // Keep the shared swipe-position variable in sync with the committed active
@@ -94,45 +135,86 @@ export function TopShellTabs({
   // persisted position variable can retain the PREVIOUS index. The transform
   // only falls back to `activeIndex` while that variable is unset, so a stale
   // value would leave the underline resting under the wrong tab until the next
-  // tap. Re-sync here (never mid-drag) so the resting indicator always matches
-  // the selected tab. Inert during drags and no-op when already aligned.
+  // tap. Re-sync here (never while the pager owns the variable) so the resting
+  // indicator always matches the selected tab, and no-op when already aligned.
   useEffect(() => {
-    if (tabSwipeState.isDragging) return;
+    if (tabSwipeState.pagerOwned) return;
     if (Math.abs(tabSwipeState.position - activeIndex) < 0.001) return;
     setTopShellTabSwipeState(tabSet.id, activeIndex, false);
-  }, [activeIndex, tabSet.id, tabSwipeState.isDragging, tabSwipeState.position]);
+  }, [activeIndex, tabSet.id, tabSwipeState.pagerOwned, tabSwipeState.position]);
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
       const tab = tabSet.tabs[index];
-      if (!tab) return;
+      if (!tab || disabled) return;
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
 
       // Move the shared compositor indicator at pointer/keyboard time. The
       // query-backed route remains the semantic authority, but it must not
       // delay or replay the visible tab response.
-      setTopShellTabSwipeState(tabSet.id, index, false);
+      //
+      // Skipped where a pager is mounted, because there this write was the
+      // first half of a two-writer race: it set the destination and started a
+      // 240ms transition, and the pager then overwrote the same variable with
+      // live scroll progress on every frame of it. The panel landed at ~400ms
+      // and the pill was still creeping at ~600ms. `requestTopShellTabSelection`
+      // below reaches the pager in this same tick, so the pill still starts
+      // moving on the very next frame -- it just starts from the panel's real
+      // position and stays welded to it.
+      if (!hasTopShellTabPager(tabSet.id)) {
+        setTopShellTabSwipeState(tabSet.id, index, false);
+      }
       requestTopShellTabSelection(tabSet.id, tab.value);
+      if (onValueChange) {
+        // Local workspaces keep route authority, but use the same immediate
+        // pager/indicator handoff as routed taps before publishing selection.
+        onValueChange(tab.value);
+        appHaptic("selection");
+        return;
+      }
       beginRouteTransition(
         tab.href,
         () => {
+          if (shouldResetScrollOnSelection) {
+            scrollAppToTop();
+            resetKaiBottomChromeVisibility();
+          }
           if (navigationMode === "push") {
-            router.push(tab.href, { scroll: false });
+            router.push(
+              tab.href,
+              shouldResetScrollOnSelection ? undefined : { scroll: false },
+            );
             return;
           }
-          router.replace(tab.href, { scroll: false });
+          router.replace(
+            tab.href,
+            shouldResetScrollOnSelection ? undefined : { scroll: false },
+          );
         },
         "tap",
         transitionMode,
+        "selection",
       );
     },
-    [navigationMode, router, selectedValue, tabSet, transitionMode],
+    [
+      navigationMode,
+      onValueChange,
+      disabled,
+      router,
+      selectedValue,
+      shouldResetScrollOnSelection,
+      tabSet,
+      transitionMode,
+    ],
   );
 
   return (
     <div
-      className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current"
+      className={cn(
+        "top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current",
+        usesModuleSegmentedTabs && "justify-center",
+      )}
       data-ui-role="agent-tab-bar"
       data-top-shell-tab-set={tabSet.id}
       style={
@@ -143,7 +225,37 @@ export function TopShellTabs({
     >
       <div
         aria-label={`${tabSet.label} navigation`}
-        className="relative flex h-full w-full"
+        className={cn(
+          "relative flex",
+          usesModuleSegmentedTabs
+            ? // Same edges as the cards under it, at every width.
+              //
+              // This carried `mx-5` on top of the frame's own
+              // `px-[var(--page-inline-gutter-standard)]`, so it paid the page
+              // gutter twice and sat 40px narrower than the grouped cards on
+              // EVERY phone — 36px from the edge against their 16px. And it
+              // capped at 720px, a number belonging to nothing else here, while
+              // the Location column is 880px: 104-112px short on desktop.
+              //
+              // The cap is now the page column's own content width, so the two
+              // cannot drift apart again. Both tokens already exist. Scoped to
+              // Location, Connect, Consent, Finance, and RIA by the module branch
+              // above — the public tab sets take the underline arm and do not move.
+              //
+              // RIA joined 2026-09 (#6289's follow-up): this wrapper carries
+              // no outer width constraint of its own (see top-app-bar.tsx),
+              // so the `--app-shell-agent` cap here is the only one that
+              // applies — same as Location. RIA Picks' own content already
+              // renders at that same width (`width="agent"` on its
+              // AppPageShell), so this does not narrow anything RIA already
+              // shows wider. Verified by rendering the component directly
+              // (no authenticated route reachable locally without reviewer
+              // credentials) at desktop and mobile widths against Location
+              // side by side.
+              "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+            : "h-full w-full",
+          tabSet.id === "consent" && "h-12",
+        )}
         role="tablist"
       >
         {tabSet.tabs.map((tab, index) => {
@@ -157,6 +269,8 @@ export function TopShellTabs({
               id={topShellTabDomId(tabSet, "tab", tab.value)}
               type="button"
               role="tab"
+              aria-label={tabSet.id === "consent" ? tab.label : undefined}
+              disabled={disabled}
               data-ui-role="agent-tab"
               data-voice-control-id={
                 tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined
@@ -167,6 +281,9 @@ export function TopShellTabs({
               tabIndex={isActive ? 0 : -1}
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
+                usesCompactLabels && "min-w-0 px-0.5 sm:px-3",
+                tabSet.id === "consent" && "min-w-0 px-0.5 sm:px-3",
+                tabSet.id === "calendar" && "min-w-0 px-1 sm:px-3",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {
@@ -192,13 +309,20 @@ export function TopShellTabs({
                 }}
                 data-ui-role="agent-tab-label"
                 className={cn(
-                  "ui-text-agent-tab-label relative truncate transition-colors duration-150",
-                  isActive
-                    ? "text-[color:var(--app-accent)]"
-                    : "text-[color:var(--app-label)] hover:text-current",
+                  "ui-text-agent-tab-label relative transition-colors duration-150",
+                  tabSet.id === "consent" ? "whitespace-normal overflow-visible text-center" : "truncate",
+                  usesCompactLabels &&
+                    "[--type-agent-tab-label-size:11px] min-[360px]:[--type-agent-tab-label-size:12px] min-[400px]:[--type-agent-tab-label-size:14px] sm:[--type-agent-tab-label-size:15px]",
+                  usesModuleSegmentedTabs
+                    ? isActive
+                      ? "font-semibold text-[color:var(--app-accent)]"
+                      : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
+                    : isActive
+                      ? "text-[color:var(--app-accent)]"
+                      : "text-[color:var(--app-label)] hover:text-current",
                 )}
               >
-                {tab.label}
+                {tabSet.id === "consent" && tab.label === "Connections" ? <>Connec<wbr />tions</> : tab.label}
               </span>
             </button>
           );
@@ -208,21 +332,37 @@ export function TopShellTabs({
             aria-hidden
             data-testid="top-shell-tab-indicator"
             className={cn(
-              "pointer-events-none absolute bottom-0 left-0 z-20 flex justify-center motion-reduce:transition-none",
-              tabSwipeState.isDragging
+              "pointer-events-none absolute left-0 flex justify-center motion-reduce:transition-none",
+              usesModuleSegmentedTabs
+                ? "inset-y-0.5 z-0"
+                : "bottom-0 z-20",
+              // While the pager owns the variable -- a finger on it, or a
+              // tapped panel in flight -- the pill IS the panel's position and
+              // must track it frame for frame. A transition here would be a
+              // second animation chasing the first, retargeted every frame.
+              tabSwipeState.pagerOwned
                 ? "transition-none"
-                : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+                : "transition-transform duration-[150ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
             )}
             style={{
               transform: indicatorTransform,
               width: tabWidth,
             }}
           >
-            <span 
-              className="h-[3px] rounded-full bg-[var(--app-accent)] transition-[width] duration-150"
-              style={{
-                width: activeTextWidth ? `${Math.max(28, activeTextWidth)}px` : 'max(28px, calc(100% - 2rem))'
-              }}
+            <span
+              className={cn(
+                "transition-transform duration-150 motion-reduce:transition-none",
+                usesModuleSegmentedTabs
+                  ? "h-full w-[calc(100%-4px)] rounded-[8px] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+                  : "h-[3px] w-full origin-center rounded-full bg-[var(--app-accent)]",
+              )}
+              style={
+                usesModuleSegmentedTabs
+                  ? undefined
+                  : underlineScale !== null
+                    ? { transform: `scaleX(${underlineScale})` }
+                    : { width: "max(28px, calc(100% - 2rem))" }
+              }
             />
           </div>
         ) : null}

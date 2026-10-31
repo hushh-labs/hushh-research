@@ -7,24 +7,84 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.phone_transfer_service import ConfirmedTransfer
 
 import asyncpg
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
+from hushh_mcp.runtime_settings import (
+    personal_agent_enabled,
+)
+from hushh_mcp.services import account_firebase_mutations
+from hushh_mcp.services.account_generation_service import AccountGenerationService
+from hushh_mcp.services.phone_holder_release import deleted_full_account_holders
 
 logger = logging.getLogger(__name__)
 
 _IDENTITY_STALE_AFTER = timedelta(hours=24)
 _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
 _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
+_IDENTITY_SYNC_IN_FLIGHT: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
+# In-flight personal-agent provisioning kickoffs, deduped per user (phone-verify seam).
+_PERSONAL_AGENT_PROVISION_TASKS: dict[str, asyncio.Task[None]] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 
 # A verification code must not outlive the sitting; same 15 minutes the claim
 # ticket uses. Codes were previously valid forever.
 _ALIAS_VERIFICATION_TTL_SECONDS = 15 * 60
+
+
+def resolve_firebase_email(user_record: Any) -> str | None:
+    """The best email Firebase knows for this account.
+
+    The identity shadow used to read `user_record.email` and nothing else, so
+    an account whose top-level email was empty was cached with no address at
+    all. That is not an edge case here: people sign in with Google, with Apple,
+    and with a phone number, and only the first reliably populates the
+    top-level field.
+
+    - Apple, especially with Hide My Email, frequently leaves the top-level
+      email empty while the provider entry carries the relay address.
+    - A phone-first account that later links Google has the address on the
+      provider entry before the top-level field catches up.
+
+    Every downstream feature that needs to reach someone by email inherited
+    that blank -- including the Save my Soul alert, which silently skipped any
+    contact with no address and reported "Emailed 0" without saying why.
+
+    Order: the top-level field, then Google, then Apple, then any provider that
+    has one. Providers are only consulted when the field above is empty, so a
+    verified top-level address always wins.
+
+    Returns None when the account genuinely has no email anywhere -- a
+    phone-only signup. That case is real and cannot be papered over; the caller
+    has to handle "this person is not reachable by mail".
+    """
+    direct = str(getattr(user_record, "email", "") or "").strip()
+    if direct:
+        return direct
+
+    providers = getattr(user_record, "provider_data", None) or []
+    by_provider: dict[str, str] = {}
+    for entry in providers:
+        email = str(getattr(entry, "email", "") or "").strip()
+        if not email or "@" not in email:
+            continue
+        provider_id = str(getattr(entry, "provider_id", "") or "").strip().lower()
+        by_provider.setdefault(provider_id, email)
+
+    for provider_id in ("google.com", "apple.com"):
+        if by_provider.get(provider_id):
+            return by_provider[provider_id]
+
+    for email in by_provider.values():
+        return email
+    return None
 
 
 class ActorIdentityAliasError(RuntimeError):
@@ -40,7 +100,224 @@ class ActorIdentityAliasError(RuntimeError):
         super().__init__(message)
 
 
+class ActorIdentityPhoneClaimConflictError(RuntimeError):
+    """A test or metadata claim cannot displace a verified phone owner."""
+
+
+class ActorIdentitySyncUnavailableError(RuntimeError):
+    """Provider or persistence failure is not evidence of an unverified phone."""
+
+    code = "CONTACT_SYNC_IDENTITY_UNAVAILABLE"
+    status_code = 503
+    message = "Account verification is temporarily unavailable. Please try syncing again."
+
+    def __init__(self) -> None:
+        super().__init__(self.message)
+
+
 class ActorIdentityService:
+    @staticmethod
+    async def _ensure_actor_spine(conn: asyncpg.Connection, user_id: str) -> None:
+        """Create the FK parents required by the identity cache atomically.
+
+        Authenticated users can legitimately exist before they create a vault.
+        Migration 019 defines a crypto-empty placeholder row for that state;
+        actor_profiles and actor_identity_cache must still follow the canonical
+        vault -> profile -> identity FK order.
+        """
+
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        await conn.execute(
+            """
+            INSERT INTO vault_keys (
+              user_id,
+              vault_status,
+              vault_key_hash,
+              primary_method,
+              primary_wrapper_id,
+              recovery_encrypted_vault_key,
+              recovery_salt,
+              recovery_iv,
+              first_login_at,
+              last_login_at,
+              login_count,
+              created_at,
+              updated_at
+            )
+            VALUES (
+              $1,
+              'placeholder',
+              NULL,
+              'passphrase',
+              'default',
+              NULL,
+              NULL,
+              NULL,
+              $2,
+              $2,
+              1,
+              $2,
+              $2
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            user_id,
+            now_ms,
+        )
+        await conn.execute(
+            """
+            INSERT INTO actor_profiles (
+              user_id,
+              personas,
+              last_active_persona,
+              investor_marketplace_opt_in,
+              created_at,
+              updated_at
+            )
+            VALUES (
+              $1,
+              ARRAY['investor']::text[],
+              'investor',
+              FALSE,
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            user_id,
+        )
+
+    @staticmethod
+    async def _lock_and_clear_verified_phone_binding(
+        conn: asyncpg.Connection,
+        *,
+        user_id: str,
+        phone_number: str,
+        allow_owner_transfer: bool = True,
+        release_deleted_holders: bool = True,
+    ) -> bool:
+        """Serialize one verified-phone owner transfer inside its transaction.
+
+        The advisory lock closes the empty-set race where two first claims can
+        both observe no prior owner. The ordered row lock also prevents two
+        users swapping numbers concurrently from locking each other's identity
+        rows in opposite order. Every verified-phone writer in this service
+        must use this seam before its identity upsert.
+        """
+
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            f"actor_identity_phone_claim:{phone_number}",
+        )
+        if not allow_owner_transfer:
+            # Background provider hydration is not a new OTP possession claim.
+            # Recheck under the same lock used by explicit claims, including
+            # claims committed after the Firebase request began.
+            bindings = await conn.fetch(
+                """
+                SELECT user_id, phone_number, phone_verified
+                FROM actor_identity_cache
+                WHERE user_id = $1 OR phone_number = $2
+                ORDER BY user_id
+                FOR UPDATE
+                """,
+                user_id,
+                phone_number,
+            )
+            # An explicit OTP claim is not blocked by a holder whose full-account
+            # deletion is admitted; the UPDATE below detaches that dead binding.
+            holders = {
+                binding["user_id"]
+                for binding in bindings
+                if binding["user_id"] != user_id
+                and binding["phone_number"] == phone_number
+                and binding["phone_verified"] is True
+            }
+            if holders and (
+                not release_deleted_holders
+                or holders - await deleted_full_account_holders(conn, holders)
+            ):
+                return False
+        await conn.execute(
+            """
+            WITH locked_bindings AS MATERIALIZED (
+              SELECT user_id
+              FROM actor_identity_cache
+              WHERE user_id = $1 OR phone_number = $2
+              ORDER BY user_id
+              FOR UPDATE
+            )
+            UPDATE actor_identity_cache AS identity
+            SET
+              phone_number = NULL,
+              phone_verified = FALSE,
+              updated_at = NOW()
+            FROM locked_bindings
+            WHERE identity.user_id = locked_bindings.user_id
+              AND identity.phone_number = $2
+              AND identity.user_id <> $1
+            """,
+            user_id,
+            phone_number,
+        )
+        return True
+
+    async def sync_from_firebase_if_due(
+        self,
+        user_id: str,
+        *,
+        force: bool = False,
+    ) -> dict[str, Any] | None:
+        """Await one lifecycle-bound, cooldown-aware Firebase refresh.
+
+        Authentication attaches this call to Starlette's response background
+        lifecycle, so the first caller performs the refresh directly instead
+        of spawning work that Cloud Run may freeze. Concurrent callers await
+        the same completion future, and a recently successful refresh skips
+        even the cache query. Failures clear the cooldown for a later retry.
+        """
+
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id or not self._looks_like_firebase_uid(normalized_user_id):
+            return None
+
+        scheduled = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
+        if scheduled and not scheduled.done():
+            return await asyncio.shield(scheduled)
+
+        existing = _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id)
+        if existing and not existing.done():
+            return await asyncio.shield(existing)
+
+        now = datetime.now(timezone.utc)
+        cooldown_until = _IDENTITY_SYNC_COOLDOWN_UNTIL.get(normalized_user_id)
+        if not force and cooldown_until and cooldown_until > now:
+            return None
+
+        loop = asyncio.get_running_loop()
+        completion: asyncio.Future[dict[str, Any] | None] = loop.create_future()
+        _IDENTITY_SYNC_IN_FLIGHT[normalized_user_id] = completion
+        _IDENTITY_SYNC_COOLDOWN_UNTIL[normalized_user_id] = now + _IDENTITY_SYNC_COOLDOWN
+
+        try:
+            result = await self.sync_from_firebase(normalized_user_id, force=force)
+        except BaseException:
+            _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            if not completion.done():
+                # Waiters only need to know that no refresh landed; the owner
+                # still receives the original cancellation/error below.
+                completion.set_result(None)
+            raise
+        else:
+            if result is None:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            if not completion.done():
+                completion.set_result(result)
+            return result
+        finally:
+            if _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id) is completion:
+                _IDENTITY_SYNC_IN_FLIGHT.pop(normalized_user_id, None)
+
     def schedule_sync_from_firebase(
         self,
         user_id: str,
@@ -53,6 +330,9 @@ class ActorIdentityService:
 
         existing = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
         if existing and not existing.done():
+            return False
+        awaited = _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id)
+        if awaited and not awaited.done():
             return False
 
         now = datetime.now(timezone.utc)
@@ -73,16 +353,111 @@ class ActorIdentityService:
             if _IDENTITY_SYNC_TASKS.get(normalized_user_id) is completed:
                 _IDENTITY_SYNC_TASKS.pop(normalized_user_id, None)
             try:
+                result = completed.result()
+                if result is None:
+                    _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            except asyncio.CancelledError:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            except Exception as exc:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+                logger.debug(
+                    "actor_identity_cache background sync skipped error=%s",
+                    type(exc).__name__,
+                )
+
+        task.add_done_callback(_cleanup)
+        return True
+
+    def schedule_provision_personal_agent(
+        self, user_id: str, phone_number: str, *, via_ai_connection: bool = False
+    ) -> bool:
+        """Fire-and-forget: register the user's PENDING personal agent on phone-verify.
+
+        Flag-gated and strictly best-effort -- it never blocks or fails phone
+        verification. When ``PERSONAL_AGENT_ENABLED`` is off this is a no-op.
+        Deduped by an in-flight task per user; the actual work (HusshID + pending
+        registry row) is idempotent and non-destructive.
+        """
+        if not personal_agent_enabled():
+            return False
+        # The AI-connection gate owns this trigger now. Provisioning on phone-verify
+        # stood a billable pod behind an event that said nothing about whether the
+        # agent could think -- a user who never connected a model got a warm pod
+        # that answered nothing, forever.
+        #
+        # `via_ai_connection` is an explicit argument rather than an inspection of
+        # the call stack: the caller states which trigger it is, so the two can
+        # never both fire for one user and no future caller can be misclassified by
+        # where it happens to live.
+        from hushh_mcp.runtime_settings import provision_on_ai_connection  # noqa: PLC0415
+
+        if provision_on_ai_connection() and not via_ai_connection:
+            logger.info("personal_agent.provision_deferred reason=awaiting_ai_connection")
+            return False
+
+        normalized_user_id = str(user_id or "").strip()
+        normalized_phone = str(phone_number or "").strip()
+        if not normalized_user_id or not normalized_phone:
+            return False
+        if not self._looks_like_firebase_uid(normalized_user_id):
+            return False
+
+        existing = _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id)
+        if existing and not existing.done():
+            return False
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+
+        task = loop.create_task(
+            self._register_pending_personal_agent(normalized_user_id, normalized_phone)
+        )
+        _PERSONAL_AGENT_PROVISION_TASKS[normalized_user_id] = task
+
+        def _cleanup(completed: asyncio.Task[None]) -> None:
+            if _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id) is completed:
+                _PERSONAL_AGENT_PROVISION_TASKS.pop(normalized_user_id, None)
+            try:
                 completed.result()
             except Exception as exc:
                 logger.debug(
-                    "actor_identity_cache background sync skipped for %s: %s",
+                    "personal-agent provisioning kickoff skipped for %s: %s",
                     normalized_user_id,
                     exc,
                 )
 
         task.add_done_callback(_cleanup)
         return True
+
+    async def _register_pending_personal_agent(self, user_id: str, phone_number: str) -> None:
+        # Deferred import: no personal-agent dependency at module import time, and
+        # nothing runs unless the flag gated the scheduler open.
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        # Resolve the SAME backend the owner-authorized route uses
+        # (api/routes/one/personal_agent.py). Constructing this service without a
+        # backend silently yields NullBackend, so this path would have reported
+        # success while creating no host at all -- and it is the path that will run
+        # for every signup, where nobody is watching a response body.
+        registry = PersonalAgentRegistryRepo()
+        service = PersonalAgentProvisioningService(
+            registry=registry, backend=resolve_compute_backend()
+        )
+        await service.register_pending(user_id=user_id, phone_e164=phone_number)
+
+        from hushh_mcp.services.personal_agent_phone_activation import continue_verified_phone
+
+        await continue_verified_phone(
+            service=service, registry=registry, user_id=user_id, phone_number=phone_number
+        )
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
@@ -350,17 +725,52 @@ class ActorIdentityService:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - timestamp >= _IDENTITY_STALE_AFTER
 
-    async def get_many(self, user_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+    @staticmethod
+    async def read_provider_phone_fallbacks(conn, *, candidates: dict[str, str]) -> dict[str, str]:
+        """Read-only Firebase fallback; never replace a present canonical row.
+
+        Call after lifecycle barriers and before identity row locks. The shared
+        claim lock uses the existing writer's exact key/namespace and prevents a
+        stale provider number from being projected during a verified transfer.
+        These candidates must come from current Firebase records, not a client.
+        """
+        if len(candidates) > 50:
+            raise ValueError("identity projection exceeds page bound")
+        valid = {
+            uid: phone
+            for uid, phone in candidates.items()
+            if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone)
+        }
+        if not valid:
+            return {}
+        for phone in sorted(set(valid.values())):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                f"actor_identity_phone_claim:{phone}",
+            )
+        bindings = await conn.fetch(
+            "SELECT user_id,phone_number FROM actor_identity_cache "
+            "WHERE phone_verified=TRUE AND phone_number=ANY($1::text[])",
+            sorted(set(valid.values())),
+            timeout=5,
+        )
+        return {
+            uid: phone
+            for uid, phone in valid.items()
+            if not any(row["phone_number"] == phone and row["user_id"] != uid for row in bindings)
+        }
+
+    async def get_many(self, user_ids: Iterable[str], *, conn=None) -> dict[str, dict[str, Any]]:
+        """Read identities; a caller-owned transaction retains authority until commit."""
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
         normalized_ids = [user_id for user_id in normalized_ids if user_id]
         if not normalized_ids:
             return {}
 
-        pool = await get_pool()
-        try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
+        async def read(connection):
+            # Both query variants are authored constants; IDs remain bound in $1.
+            return await connection.fetch(
+                """
                     SELECT
                       user_id,
                       display_name,
@@ -375,13 +785,29 @@ class ActorIdentityService:
                       updated_at
                     FROM actor_identity_cache
                     WHERE user_id = ANY($1::text[])
-                    """,
-                    normalized_ids,
-                )
+                    ORDER BY user_id
+                    """
+                + (" FOR SHARE" if conn is not None else ""),  # nosec B608
+                normalized_ids,
+                timeout=5,
+            )
+
+        try:
+            if conn is not None:
+                rows = await read(conn)
+            else:
+                pool = await get_pool()
+                async with pool.acquire() as connection:
+                    rows = await read(connection)
+
         except asyncpg.UndefinedTableError:
+            if conn is not None:
+                raise
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
         except asyncpg.UndefinedColumnError as exc:
+            if conn is not None:
+                raise
             message = str(exc)
             phone_missing = "phone_number" in message or "phone_verified" in message
             custom_photo_missing = "custom_photo_url" in message
@@ -404,6 +830,29 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def get_many_verified_email_aliases(
+        self, user_ids: Iterable[str], *, conn
+    ) -> dict[str, list[str]]:
+        """Bounded, read-only aliases in the reporting caller's lifecycle transaction."""
+        ids = sorted({str(uid).strip() for uid in user_ids if str(uid).strip()})
+        if len(ids) > 50:
+            raise ValueError("Identity alias read exceeds bound")
+        if not ids:
+            return {}
+        rows = await conn.fetch(
+            "SELECT user_id,email_normalized FROM actor_verified_email_aliases "
+            "WHERE user_id=ANY($1::text[]) AND verification_status='verified' "
+            "AND revoked_at IS NULL ORDER BY user_id,email_normalized LIMIT 5001 FOR SHARE",
+            ids,
+            timeout=5,
+        )
+        if len(rows) > 5000:
+            raise ValueError("Identity alias read exceeds bound")
+        result: dict[str, list[str]] = {}
+        for row in rows:
+            result.setdefault(str(row["user_id"]), []).append(str(row["email_normalized"]))
+        return result
+
     async def upsert_identity(
         self,
         *,
@@ -415,85 +864,203 @@ class ActorIdentityService:
         email_verified: bool | None = None,
         phone_verified: bool | None = None,
         source: str = "unknown",
+        preserve_verified_phone: bool = False,
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
+        normalized_phone_number = str(phone_number or "").strip() or None
 
         pool = await get_pool()
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
+                async with conn.transaction():
+                    await self._ensure_actor_spine(conn, normalized_user_id)
+                    if phone_verified is True and normalized_phone_number:
+                        phone_write_allowed = await self._lock_and_clear_verified_phone_binding(
+                            conn,
+                            user_id=normalized_user_id,
+                            phone_number=normalized_phone_number,
+                            # Hydration never carries OTP possession authority.
+                            allow_owner_transfer=False,
+                            release_deleted_holders=False,
+                        )
+                        if not phone_write_allowed:
+                            normalized_phone_number = None
+                            phone_verified = None
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3,
+                          $4,
+                          $5,
+                          COALESCE($6, FALSE),
+                          COALESCE($7, FALSE),
+                          $8,
+                          NOW(),
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
+                          email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
+                          phone_number = CASE
+                            WHEN $9 AND actor_identity_cache.phone_verified = TRUE
+                              AND NULLIF(BTRIM(actor_identity_cache.phone_number), '') IS NOT NULL
+                            THEN actor_identity_cache.phone_number
+                            ELSE COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number)
+                          END,
+                          photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
+                          email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                          phone_verified = CASE
+                            WHEN $9 AND actor_identity_cache.phone_verified = TRUE
+                              AND NULLIF(BTRIM(actor_identity_cache.phone_number), '') IS NOT NULL
+                            THEN actor_identity_cache.phone_verified
+                            ELSE COALESCE($7, actor_identity_cache.phone_verified)
+                          END,
+                          source = CASE
+                            WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
+                            ELSE EXCLUDED.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        str(display_name or "").strip() or None,
+                        str(email or "").strip().lower() or None,
+                        normalized_phone_number,
+                        str(photo_url or "").strip() or None,
+                        email_verified,
+                        phone_verified,
+                        str(source or "").strip() or "unknown",
+                        preserve_verified_phone,
                     )
-                    VALUES (
-                      $1,
-                      $2,
-                      $3,
-                      $4,
-                      $5,
-                      COALESCE($6, FALSE),
-                      COALESCE($7, FALSE),
-                      $8,
-                      NOW(),
-                      NOW(),
-                      NOW()
-                    )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
-                      email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
-                      phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
-                      photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
-                      source = CASE
-                        WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
-                        ELSE EXCLUDED.source
-                      END,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      COALESCE(custom_photo_url, photo_url) AS photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
-                    normalized_user_id,
-                    str(display_name or "").strip() or None,
-                    str(email or "").strip().lower() or None,
-                    str(phone_number or "").strip() or None,
-                    str(photo_url or "").strip() or None,
-                    email_verified,
-                    phone_verified,
-                    str(source or "").strip() or "unknown",
-                )
         except Exception as exc:
-            logger.debug(
-                "actor_identity_cache upsert skipped for %s: %s",
-                normalized_user_id,
-                exc,
+            logger.error(
+                "actor_identity_cache upsert failed error=%s",
+                type(exc).__name__,
             )
             return None
 
+        # A missing-only directory repair restores an index, not a new signup
+        # verification event. Keep referral/reward state outside that repair.
+        if phone_verified is True and not preserve_verified_phone:
+            await self._sync_referral_qualification_best_effort(normalized_user_id)
+
+        return self._normalize_row(row)
+
+    @staticmethod
+    async def _sync_referral_qualification_best_effort(user_id: str) -> None:
+        """Best-effort hook: let a newly-verified phone progress a referral.
+
+        `sync_referral_qualification_from_onboarding` is otherwise only
+        re-invoked from `vault_keys_service` when onboarding itself completes.
+        Phone verification can land after that -- `sync_from_firebase` is a
+        background, cooldown-gated resync -- and nothing previously re-checked
+        a relationship that was parked at `phone_not_verified`. Calling it
+        again here, from the write that actually flips `phone_verified` to
+        true, closes that ordering gap. It is safe to call for an unreferred
+        user or an already-settled relationship (both are documented no-ops),
+        and it runs in a worker thread because the referral service uses a
+        blocking psycopg2 connection, not asyncpg. Any failure here must never
+        surface as a failure of the identity write that triggered it.
+        """
+        try:
+            from hushh_mcp.services.one_referral_service import (
+                sync_referral_qualification_from_onboarding,
+            )
+
+            await asyncio.to_thread(sync_referral_qualification_from_onboarding, user_id)
+        except Exception:
+            logger.exception("[actor_identity] referral_qualification_sync_failed user=%s", user_id)
+
+    async def fill_missing_display_name(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        source: str,
+    ) -> dict[str, Any] | None:
+        """Seed a verified provider name without replacing the owner's chosen name."""
+
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        value = self.validate_display_name(display_name)
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await self._ensure_actor_spine(conn, normalized_user_id)
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id, display_name, source, last_synced_at, created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = CASE
+                            WHEN NULLIF(BTRIM(actor_identity_cache.display_name), '') IS NULL
+                              THEN EXCLUDED.display_name
+                            ELSE actor_identity_cache.display_name
+                          END,
+                          source = CASE
+                            WHEN NULLIF(BTRIM(actor_identity_cache.display_name), '') IS NULL
+                              THEN EXCLUDED.source
+                            ELSE actor_identity_cache.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        value,
+                        str(source or "").strip() or "provider_profile",
+                    )
+        except Exception as exc:
+            logger.error(
+                "actor_identity_cache fill_missing_display_name failed error=%s",
+                type(exc).__name__,
+            )
+            return None
         return self._normalize_row(row)
 
     async def set_custom_photo_url(
@@ -566,112 +1133,74 @@ class ActorIdentityService:
             return None
         return self._normalize_row(row)
 
+    async def can_claim_test_phone(self, *, user_id: str, phone_number: str) -> bool:
+        """Choose test-code vs real OTP without granting transfer authority.
+
+        This is only a start-flow hint. Confirmation rechecks ownership under
+        the serialized writer lock, including owners committed after this read.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            owner = await conn.fetchval(
+                """
+                SELECT user_id FROM actor_identity_cache
+                WHERE phone_number = $1 AND phone_verified = TRUE
+                """,
+                phone_number,
+            )
+            if owner not in (None, user_id):
+                return owner in await deleted_full_account_holders(conn, (owner,))
+        return True
+
     async def claim_verified_phone(
         self,
         *,
         user_id: str,
         phone_number: str,
         source: str = "firebase_phone_claim",
+        transfer: ConfirmedTransfer | None = None,
     ) -> dict[str, Any] | None:
-        normalized_user_id = str(user_id or "").strip()
-        normalized_phone_number = str(phone_number or "").strip()
-        normalized_source = str(source or "").strip() or "firebase_phone_claim"
-        if not normalized_user_id or not normalized_phone_number:
-            return None
+        from hushh_mcp.services.actor_phone_claim import claim_verified_phone
 
-        pool = await get_pool()
+        return await claim_verified_phone(
+            self,
+            get_pool,
+            user_id=user_id,
+            phone_number=phone_number,
+            source=source,
+            transfer=transfer,
+        )
 
-        # Two fully static SQL literals (no string interpolation/concatenation,
-        # so the query is never dynamically built). They differ only in the
-        # RETURNING photo_url projection: the COALESCE variant preserves a custom
-        # avatar (post-107); the plain-photo_url variant keeps the phone claim
-        # working during the 107 migration gap (no custom avatar can exist yet).
-        claim_insert_with_custom_photo = """
-            INSERT INTO actor_identity_cache (
-              user_id, phone_number, phone_verified, source,
-              last_synced_at, created_at, updated_at
-            )
-            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-              phone_number = EXCLUDED.phone_number,
-              phone_verified = TRUE,
-              source = $3,
-              last_synced_at = NOW(),
-              updated_at = NOW()
-            RETURNING
-              user_id, display_name, email, phone_number,
-              COALESCE(custom_photo_url, photo_url) AS photo_url,
-              email_verified, phone_verified, source,
-              last_synced_at, created_at, updated_at
-        """
-        claim_insert_plain_photo = """
-            INSERT INTO actor_identity_cache (
-              user_id, phone_number, phone_verified, source,
-              last_synced_at, created_at, updated_at
-            )
-            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-              phone_number = EXCLUDED.phone_number,
-              phone_verified = TRUE,
-              source = $3,
-              last_synced_at = NOW(),
-              updated_at = NOW()
-            RETURNING
-              user_id, display_name, email, phone_number,
-              photo_url AS photo_url,
-              email_verified, phone_verified, source,
-              last_synced_at, created_at, updated_at
-        """
-
+    def _schedule_phone_resume(self, user_id: str, phone: str) -> None:
+        """Hand the resume to the background; never raises into phone verify."""
         try:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE actor_identity_cache
-                    SET
-                      phone_number = NULL,
-                      phone_verified = FALSE,
-                      updated_at = NOW()
-                    WHERE phone_number = $2
-                      AND user_id <> $1
-                    """,
-                    normalized_user_id,
-                    normalized_phone_number,
-                )
-                try:
-                    # Preserve a custom avatar in the returned (and client-cached)
-                    # identity, matching get_many/upsert_identity/set_custom_photo_url.
-                    row = await conn.fetchrow(
-                        claim_insert_with_custom_photo,
-                        normalized_user_id,
-                        normalized_phone_number,
-                        normalized_source,
-                    )
-                except asyncpg.UndefinedColumnError as exc:
-                    if "custom_photo_url" not in str(exc):
-                        raise
-                    # Pre-107 gap: no custom avatar can exist yet, so the plain
-                    # photo_url is equivalent — keep the phone claim working.
-                    row = await conn.fetchrow(
-                        claim_insert_plain_photo,
-                        normalized_user_id,
-                        normalized_phone_number,
-                        normalized_source,
-                    )
-        except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
-            logger.debug(
-                "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
-            )
-            return None
-        except Exception as exc:
-            logger.debug(
-                "actor_identity_cache phone claim skipped for %s: %s",
-                normalized_user_id,
-                exc,
-            )
-            return None
+            from hushh_mcp.services.owner_cloud_attach import run_after_phone  # noqa: PLC0415
 
-        return self._normalize_row(row)
+            run_after_phone(user_id, self._resume_ai_connection, phone)
+        except Exception:  # noqa: BLE001 -- the resume must never break phone verify
+            logger.warning("personal_agent.phone_resume_unscheduled")
+
+    async def _resume_ai_connection(self, user_id: str, phone: str = "") -> None:
+        """Resume pre-phone choices: own-cloud attach, then managed AI; BYOK fires on its proof."""
+        try:
+            from hushh_mcp.services import ai_connection_gate as gate  # noqa: PLC0415
+            from hushh_mcp.services import owner_cloud_attach as attach  # noqa: PLC0415
+            from hushh_mcp.services.vault_keys_service import VaultKeysService  # noqa: PLC0415
+
+            await attach.resume_attach_after_phone(user_id, phone)
+            state = await VaultKeysService().get_pre_vault_state(user_id)
+            if str(state.get("oneRuntimeSetupChoice") or "") != "hushh_managed_vertex":
+                return
+            verdict = await gate.on_ai_connection_verified(
+                user_id=user_id, provider="hushh_managed_vertex", transport="managed_vertex"
+            )
+            logger.info(
+                "personal_agent.ai_connection_resumed_after_phone scheduled=%s reason=%s",
+                bool(verdict.get("scheduled")),
+                str(verdict.get("reason") or "")[:80],
+            )
+        except Exception:  # noqa: BLE001 - phone verification must complete regardless
+            logger.warning("personal_agent.ai_connection_resume_failed", exc_info=True)
 
     async def list_verified_email_aliases(self, user_id: str) -> list[dict[str, Any]]:
         normalized_user_id = str(user_id or "").strip()
@@ -714,7 +1243,7 @@ class ActorIdentityService:
             return []
         return [self._normalize_alias_row(row) for row in rows]
 
-    async def list_account_identifiers(self, user_id: str) -> list[str]:
+    async def list_account_identifiers(self, user_id: str, *, refresh: bool = True) -> list[str]:
         """
         Return identifiers that are verified or first-party known for this account.
 
@@ -736,7 +1265,7 @@ class ActorIdentityService:
             if normalized and normalized not in identifiers:
                 identifiers.append(normalized)
 
-        identity = await self.sync_from_firebase(normalized_user_id)
+        identity = await self.sync_from_firebase(normalized_user_id) if refresh else None
         if not identity:
             identity = (await self.get_many([normalized_user_id])).get(normalized_user_id) or {}
 
@@ -1068,25 +1597,150 @@ class ActorIdentityService:
             ) from exc
         return self._normalize_alias_row(verified)
 
+    async def sync_verified_phone_from_firebase(
+        self, user_id: str, *, missing_only: bool = False
+    ) -> dict[str, Any] | None:
+        """Repair an incomplete phone shadow using existing provider verification.
+
+        A fresh shadow can predate signup verification. Its cache TTL is not
+        proof that another OTP is needed. Complete verified claims keep the
+        normal cached path; incomplete ones refresh only this owner's Firebase
+        identity through the existing serialized phone writer. Contact-discovery
+        admission still belongs to its database policy gate.
+        """
+        try:
+            if missing_only:
+                # A stale complete backend OTP claim is still authoritative.
+                # Do not let cache freshness trigger a provider replacement.
+                identity = (await self.get_many([user_id])).get(user_id)
+                if (
+                    identity
+                    and identity.get("phone_verified") is True
+                    and identity.get("phone_number")
+                ):
+                    return identity
+                record = await self._get_firebase_user_record(user_id, require_success=True)
+                phone = getattr(record, "phone_number", None)
+                if not phone or getattr(record, "disabled", False):
+                    return identity
+                # The SQL conflict update rechecks completeness after locking,
+                # including an OTP claim committed during the provider lookup.
+                updated = await self.upsert_identity(
+                    user_id=user_id,
+                    phone_number=phone,
+                    phone_verified=True,
+                    source="firebase_auth",
+                    preserve_verified_phone=True,
+                )
+                if updated is None:
+                    raise ActorIdentitySyncUnavailableError()
+                return updated
+            identity = await self.sync_from_firebase(user_id, force=False)
+            if (
+                identity
+                and identity.get("phone_verified") is True
+                and str(identity.get("phone_number") or "").strip()
+            ):
+                return identity
+            return await self.sync_from_firebase(user_id, force=True, require_success=True)
+        except ActorIdentitySyncUnavailableError:
+            raise
+        except Exception as exc:
+            # Pool acquisition and identity reads can fail before provider
+            # refresh. Those failures do not invalidate signup verification.
+            logger.debug("contact identity recovery unavailable error=%s", type(exc).__name__)
+            raise ActorIdentitySyncUnavailableError() from None
+
     async def sync_from_firebase(
         self,
         user_id: str,
         *,
         force: bool = False,
+        require_success: bool = False,
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
-        if not self._looks_like_firebase_uid(normalized_user_id):
+        # Strict callers already authenticated this exact Firebase UID. The
+        # background scheduling heuristic must not reject imported/custom UIDs.
+        if not require_success and not self._looks_like_firebase_uid(normalized_user_id):
             return None
 
         cached = (await self.get_many([normalized_user_id])).get(normalized_user_id)
         if cached and not force and not self._is_stale(cached):
             return cached
 
+        user_record = await self._get_firebase_user_record(
+            normalized_user_id, require_success=require_success
+        )
+        if user_record is None:
+            return cached
+        updated = await self._upsert_firebase_user_record(
+            normalized_user_id, user_record, require_success=require_success
+        )
+        return updated or cached
+
+    async def sync_contact_sync_requester_from_firebase(self, user_id: str) -> str | None:
+        """Return fresh provider email evidence only for phone-less requesters.
+
+        Phone-backed web/native accounts retain their existing cached admission.
+        Established Google/Apple accounts can instead prove their identity with
+        the provider's current verified email. This does not verify a phone or
+        make the requester discoverable by phone. The graph service separately
+        rechecks the same email and established-account state at both boundaries.
+        """
+        try:
+            identity = await self.sync_from_firebase(user_id, force=False)
+            if identity is None:
+                # Imported/custom Firebase UIDs may miss the background sync
+                # heuristic. A current app phone claim still keeps the same
+                # provider-independent path as every other verified account.
+                identity = (await self.get_many([user_id])).get(user_id)
+            if (
+                identity
+                and identity.get("phone_verified") is True
+                and str(identity.get("phone_number") or "").strip()
+            ):
+                return None
+
+            # The route already authenticated this exact UID. Background UID
+            # heuristics must not stand in for Firebase's own identity lookup.
+            normalized_user_id = str(user_id or "").strip()
+            user_record = await self._get_firebase_user_record(
+                normalized_user_id, require_success=True
+            )
+            updated = await self._upsert_firebase_user_record(
+                normalized_user_id, user_record, require_success=True
+            )
+            if updated is None:
+                raise ActorIdentitySyncUnavailableError()
+
+            current_email = str(resolve_firebase_email(user_record) or "").strip().lower()
+            social_provider = any(
+                getattr(provider, "provider_id", None) in {"google.com", "apple.com"}
+                for provider in (getattr(user_record, "provider_data", None) or [])
+            )
+            # Read current provider evidence, never COALESCE-retained display
+            # email from the shadow or a client bootstrap hint.
+            if (
+                social_provider
+                and getattr(user_record, "email_verified", False) is True
+                and current_email
+            ):
+                return current_email
+            return None
+        except ActorIdentitySyncUnavailableError:
+            raise
+        except Exception as exc:
+            logger.debug("contact identity recovery unavailable error=%s", type(exc).__name__)
+            raise ActorIdentitySyncUnavailableError() from None
+
+    async def _get_firebase_user_record(self, user_id: str, *, require_success: bool) -> Any | None:
         firebase_app = get_firebase_auth_app()
         if firebase_app is None:
-            return cached
+            if require_success:
+                raise ActorIdentitySyncUnavailableError()
+            return None
 
         try:
             from firebase_admin import auth as firebase_auth
@@ -1095,29 +1749,169 @@ class ActorIdentityService:
             # Run it in a worker thread so it never stalls the asyncio event loop
             # (a blocked loop serialises every concurrent request and manifests as
             # multi-second latency and pool-acquire timeouts elsewhere).
+            firebase_uid = user_id
+            if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+                firebase_uid = await asyncio.to_thread(
+                    AccountGenerationService.firebase_identity_for_owner, user_id
+                )
             user_record = await asyncio.to_thread(
-                firebase_auth.get_user, normalized_user_id, app=firebase_app
+                firebase_auth.get_user, firebase_uid, app=firebase_app
             )
         except Exception as exc:
             logger.debug(
-                "actor_identity_cache firebase sync skipped for %s: %s",
-                normalized_user_id,
-                exc,
+                "actor_identity_cache firebase sync skipped error=%s",
+                type(exc).__name__,
             )
-            return cached
+            if require_success:
+                raise ActorIdentitySyncUnavailableError() from None
+            return None
 
+        # Quarantined or unavailable users cannot create fresh identity proof.
+        if user_record is None or getattr(user_record, "disabled", False) is True:
+            if require_success:
+                raise ActorIdentitySyncUnavailableError()
+            return None
+
+        return user_record
+
+    async def _upsert_firebase_user_record(
+        self, user_id: str, user_record: Any, *, require_success: bool
+    ) -> dict[str, Any] | None:
         firebase_phone_number = getattr(user_record, "phone_number", None)
         updated = await self.upsert_identity(
-            user_id=normalized_user_id,
+            user_id=user_id,
             display_name=getattr(user_record, "display_name", None),
-            email=getattr(user_record, "email", None),
+            email=resolve_firebase_email(user_record),
             phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),
             phone_verified=True if firebase_phone_number else None,
             source="firebase_auth",
+            # Provider snapshots can arrive after a newer OTP claim. Metadata
+            # refresh may repair an incomplete phone, never replace a committed
+            # verified phone. Replacement has an explicit finalization path.
+            preserve_verified_phone=True,
         )
-        return updated or cached
+        if updated is None and require_success:
+            raise ActorIdentitySyncUnavailableError()
+        # Preserve the existing qualification refresh when the provider agrees
+        # with the committed phone; a mismatched old snapshot grants nothing.
+        if (
+            firebase_phone_number
+            and updated
+            and updated.get("phone_verified") is True
+            and updated.get("phone_number") == firebase_phone_number
+        ):
+            await self._sync_referral_qualification_best_effort(user_id)
+        return updated
+
+    async def finalize_verified_phone_from_firebase(
+        self, user_id: str, expected_phone_number: str
+    ) -> dict[str, Any] | None:
+        """Persist an explicitly completed native link, not an ambient refresh.
+
+        The requested value alone is not proof: Firebase must currently hold
+        that exact verified phone for this authenticated UID. Reuse the normal
+        serialized writer, without phone-token authority to transfer an owner.
+        """
+        phone = str(expected_phone_number or "").strip()
+        if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
+            raise ValueError("The verified phone number is invalid.")
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await asyncio.to_thread(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
+        record = await self._get_firebase_user_record(user_id, require_success=True)
+        if record is None:
+            raise ActorIdentitySyncUnavailableError()
+        if (
+            str(getattr(record, "uid", "")) != identity_uid
+            or str(getattr(record, "phone_number", "") or "").strip() != phone
+        ):
+            raise ValueError("The verified phone no longer matches this attempt. Please retry.")
+        identity = await self.claim_verified_phone(
+            user_id=user_id, phone_number=phone, source="firebase_auth"
+        )
+        if (
+            identity is None
+            or identity.get("user_id") != user_id
+            or identity.get("phone_verified") is not True
+            or identity.get("phone_number") != phone
+        ):
+            raise ActorIdentitySyncUnavailableError()
+        return identity
+
+    @staticmethod
+    def validate_display_name(display_name: str) -> str:
+        """Trim and bound a person-authored display name.
+
+        2-60 characters, no control characters, no URLs or @handles: a name is
+        a name, not a link.
+        """
+        value = " ".join(str(display_name or "").split())
+        if len(value) < 2 or len(value) > 60:
+            raise ValueError("Display name must be between 2 and 60 characters.")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+            raise ValueError("Display name contains unsupported characters.")
+        lowered = value.lower()
+        if "@" in value or "://" in lowered or "www." in lowered or lowered.startswith("http"):
+            raise ValueError("Display name cannot contain links or handles.")
+        return value
+
+    async def update_display_name(self, user_id: str, display_name: str) -> dict[str, Any] | None:
+        """Change the person's display name at its source of truth (Firebase Auth),
+        then re-sync the identity shadow so every surface agrees immediately."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        value = self.validate_display_name(display_name)
+        firebase_app = get_firebase_auth_app()
+        if firebase_app is None:
+            raise RuntimeError("Identity provider is not configured.")
+        await account_firebase_mutations.run(
+            normalized_user_id,
+            purpose="display_name",
+            authority_project=str(getattr(firebase_app, "project_id", "")),
+            operation=lambda firebase_uid: account_firebase_mutations.set_display_name(
+                firebase_app, firebase_uid, value
+            ),
+        )
+        # From here the provider holds the new name. Nothing below may turn
+        # that committed write into "your name wasn't changed": a shadow that
+        # fails to catch up is reported as pending, never as a failure.
+        try:
+            updated = await self.sync_from_firebase(
+                normalized_user_id, force=True, require_success=True
+            )
+            if updated is None:
+                # The provider accepted the change; never report the old name back.
+                updated = await self.upsert_identity(
+                    user_id=normalized_user_id,
+                    display_name=value,
+                    email=None,
+                    phone_number=None,
+                    photo_url=None,
+                    email_verified=None,
+                    phone_verified=None,
+                    source="firebase_auth",
+                )
+        except Exception as exc:  # noqa: BLE001 - post-commit shadow errors are opaque
+            logger.warning(
+                "identity.display_name.shadow_sync_pending error=%s",
+                type(exc).__name__,
+            )
+            return {
+                "user_id": normalized_user_id,
+                "display_name": value,
+                "shadow_sync": "pending",
+            }
+        result = dict(updated or {})
+        result.setdefault("user_id", normalized_user_id)
+        if not str(result.get("display_name") or "").strip():
+            result["display_name"] = value
+        result["shadow_sync"] = "synced"
+        return result
 
     async def ensure_many(self, user_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]

@@ -2,7 +2,7 @@
 
 import { Card } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Fingerprint, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Fingerprint, KeyRound, Lock, ShieldCheck } from "@/components/icons";
 
 type VaultRow = {
   label: string;

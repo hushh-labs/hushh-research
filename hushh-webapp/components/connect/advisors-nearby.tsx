@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Building2, UserRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AdvisorDetailSurface } from "@/components/connect/advisor-detail-surface";
 import {
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
+  ExpandRadiusButton,
   LocationPrompt,
+  NearbyDirectorySearch,
+  NearbyDistanceBadge,
+  NearbyTagBadge,
   PostalCodeForm,
   QuietBlock,
 } from "@/components/connect/nearby-directory-ui";
 import { OfficeDetailSurface } from "@/components/connect/office-detail-surface";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
@@ -62,8 +68,15 @@ export function AdvisorsNearby({
   /** A failed extra page. Kept apart from `error` so it never hides the list. */
   const [pageError, setPageError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdvisorCard | null>(null);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 200);
 
   const requestRef = useRef(0);
+  const cardsRef = useRef<AdvisorCard[]>([]);
+
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
 
   useEffect(() => {
     if (!location.snapshot) return;
@@ -84,6 +97,7 @@ export function AdvisorsNearby({
       if (offset === 0) {
         setLoading(true);
         setError(null);
+        setMeta(null);
       } else {
         setLoadingMore(true);
       }
@@ -105,9 +119,12 @@ export function AdvisorsNearby({
         if (token !== requestRef.current) return;
         setMeta(result.meta);
         setAttribution(result.attribution ?? null);
-        setCards((previous) =>
-          offset === 0 ? result.items : [...previous, ...result.items],
-        );
+        setCards((previous) => {
+          const next =
+            offset === 0 ? result.items : [...previous, ...result.items];
+          cardsRef.current = next;
+          return next;
+        });
       } catch (caught) {
         if (token !== requestRef.current) return;
         const message =
@@ -115,11 +132,15 @@ export function AdvisorsNearby({
             ? caught.message
             : "Advisors are unavailable right now.";
         if (offset === 0) {
-          // A fresh search that failed has nothing to show, and its old paging
-          // cursor now points into a list that no longer exists.
-          setError(message);
-          setCards([]);
-          setMeta(null);
+          if (cardsRef.current.length > 0) {
+            setPageError(message);
+          } else {
+            // A cold search that failed has nothing to show, and its old paging
+            // cursor now points into a list that no longer exists.
+            setError(message);
+            setCards([]);
+            setMeta(null);
+          }
         } else {
           // A failed page must not take the page already on screen with it.
           setPageError(message);
@@ -147,6 +168,24 @@ export function AdvisorsNearby({
     setAnchor({ kind: "postal", postalCode });
   }, []);
 
+  const filteredCards = useMemo(() => {
+    const needle = debouncedQuery.trim().toLowerCase();
+    if (!needle) return cards;
+    return cards.filter((card) =>
+      [
+        card.name,
+        card.firmName,
+        card.city,
+        card.state,
+        card.kind === "branch" ? "office" : "advisor",
+      ]
+        .filter((field): field is string => Boolean(field))
+        .some((field) => field.toLowerCase().includes(needle)),
+    );
+  }, [cards, debouncedQuery]);
+
+  const nextRadiusMi = ADVISOR_RADIUS_OPTIONS_MI.find((mi) => mi > radiusMi);
+
   if (!anchor) {
     return (
       <LocationPrompt
@@ -168,6 +207,8 @@ export function AdvisorsNearby({
     meta?.radiusAdjusted && meta.radiusMi
       ? `Within ${meta.radiusMi} mi.`
       : null;
+  const blockingLoading = loading && cards.length === 0;
+  const refreshing = loading && cards.length > 0;
 
   return (
     <div className="space-y-4" data-testid="advisors-nearby">
@@ -175,14 +216,23 @@ export function AdvisorsNearby({
         value={String(radiusMi)}
         onValueChange={(value) => setRadiusMi(Number(value))}
         options={RADIUS_OPTIONS}
-        disabled={loading}
+        disabled={blockingLoading}
       />
 
       {narrowed ? (
         <p className="type-footnote text-muted-foreground">{narrowed}</p>
       ) : null}
 
-      {error && !loading ? (
+      {!error && cards.length > 0 ? (
+        <NearbyDirectorySearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search advisors or firms"
+          testId="advisors-search"
+        />
+      ) : null}
+
+      {error && !blockingLoading ? (
         // A failed search must still offer the ZIP box. "Try again" only
         // re-runs the anchor that just failed, so on its own it strands anyone
         // whose ZIP was the problem — the only way out was to leave the tab and
@@ -212,40 +262,73 @@ export function AdvisorsNearby({
         </QuietBlock>
       ) : null}
 
-      {!error && !loading && cards.length === 0 ? (
+      {!error && !blockingLoading && cards.length === 0 ? (
         // Coordinates can be perfectly good and still match nobody — FINRA is a
         // US register. Offer the one input that can actually help rather than a
         // dead end.
         <QuietBlock
           title="Nothing nearby"
-          subtitle="Try a US ZIP."
+          subtitle="Try a US ZIP, or search a wider radius."
           testId="advisors-empty"
         >
-          <PostalCodeForm
-            busy={loading}
-            initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
-            onSearch={handlePostalCode}
-            testId="advisors-postal-input"
-          />
+          <div className="flex w-full flex-col items-center gap-4">
+            <PostalCodeForm
+              busy={loading}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="advisors-postal-input"
+            />
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          </div>
         </QuietBlock>
       ) : null}
 
-      {error || (!loading && cards.length === 0) ? null : (
+      {!error && !blockingLoading && cards.length > 0 && filteredCards.length === 0 ? (
+        <QuietBlock
+          title="No matches"
+          subtitle="Try a different name or firm."
+          testId="advisors-search-empty"
+        >
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="sm"
+            onClick={() => setQuery("")}
+          >
+            Clear search
+          </Button>
+        </QuietBlock>
+      ) : null}
+
+      {error ||
+      (!loading && cards.length === 0) ||
+      (!loading && filteredCards.length === 0) ? null : (
         <SettingsGroup
           title={meta?.grouped ? "Offices" : "Advisors"}
           separatorInset
         >
-          {loading ? (
+          {blockingLoading ? (
             <DirectoryLoadingRows testId="advisors-loading" />
           ) : (
-            cards.map((card) => {
+            filteredCards.map((card) => {
               const distance = formatDistance(card.distanceMiles);
               return (
                 <SettingsRow
                   key={`${card.kind}-${card.id}`}
+                  icon={card.kind === "branch" ? Building2 : UserRound}
+                  iconTone="blue"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name ?? "Advisor"}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name ?? "Advisor"}
+                      </span>
+                      <NearbyTagBadge>
+                        {card.kind === "branch" ? "Office" : "Advisor"}
+                      </NearbyTagBadge>
                       {card.hasDisclosures ? (
                         <span
                           className="size-1.5 shrink-0 rounded-full bg-amber-500"
@@ -259,19 +342,23 @@ export function AdvisorsNearby({
                   density="compact"
                   chevron
                   onClick={() => setSelected(card)}
-                  trailing={
-                    distance ? (
-                      <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
-                        {distance}
-                      </span>
-                    ) : undefined
-                  }
+                  trailing={<NearbyDistanceBadge distance={distance} />}
                 />
               );
             })
           )}
         </SettingsGroup>
       )}
+
+      {refreshing ? (
+        <p
+          className="type-footnote text-center text-muted-foreground"
+          role="status"
+          data-testid="advisors-refreshing"
+        >
+          Updating nearby…
+        </p>
+      ) : null}
 
       {meta?.hasMore && typeof meta.nextOffset === "number" && !loading ? (
         <div className="flex flex-col items-center gap-2">

@@ -1,0 +1,155 @@
+.browser { width:100%; max-width:420px; margin:0 auto; padding:20px 0 12px; }
+.demoNotice { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:20px; }
+.demoNotice p,.disclaimer { color:var(--muted-foreground); font-size:12px; line-height:1.5; }
+.demoBadge { display:inline-flex; flex:none; padding:4px 8px; border:1px solid var(--border); border-radius:6px; color:var(--muted-foreground); font-size:10px; line-height:14px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
+.eyebrow { display:block; font-size:10px; font-weight:600; letter-spacing:.1em; color:var(--muted-foreground); }
+.overviewSummary { display:flex; flex-direction:column; align-items:center; gap:8px; padding:4px 0 24px; }
+.overviewSummary strong { font-size:36px; line-height:1.1; font-weight:600; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+.overviewSummary>span:last-child { color:var(--muted-foreground); font-size:12px; }
+.dock { display:flex; align-items:center; gap:8px; width:100%; max-width:460px; margin:0 auto; padding:8px; border:1px solid var(--border); border-radius:18px; background:var(--card); box-shadow:var(--app-shadow-product); }
+.allButton { flex:none; padding-inline:10px; gap:4px; }
+.allButton[aria-pressed=true] { color:var(--app-accent); background:var(--muted); }
+.thumbnails { display:flex; align-items:center; gap:8px; flex:1; min-width:0; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; padding:4px 2px; }
+.thumbnails::-webkit-scrollbar { display:none; }
+.thumbnailButton { flex:0 0 58px; padding:3px; border:2px solid transparent; border-radius:8px; transition:border-color var(--motion-duration-sm) ease,transform var(--motion-duration-sm) ease; }
+.thumbnailButton[aria-pressed=true] { border-color:var(--app-accent); transform:translateY(-2px); }
+.thumbnailButton:focus-visible { outline:3px solid var(--app-focus-ring); outline-offset:1px; }
+.thumbnailButton:disabled { opacity:.5; }
+.thumbnail { position:relative; display:flex; flex-direction:column; justify-content:space-between; aspect-ratio:85.6/53.98; overflow:hidden; border-radius:4px; background:linear-gradient(120deg,#b324fa,#5500a2); color:white; padding:3px 4px; font-size:7px; line-height:1; text-align:left; }
+.thumbnail[data-finish="1"] { background:linear-gradient(130deg,#703867,#261c32); }
+.thumbnail[data-finish="2"] { background:linear-gradient(130deg,#15254c,#231337); }
+.thumbnail i { width:6px; height:4px; border-radius:1px; background:#e3c588; }
+.thumbnail small { font-size:6px; letter-spacing:1px; align-self:flex-end; }
+.plus { flex:none; width:40px; height:40px; padding:0; }
+.detailNavigation,.paymentHeader,.sectionHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.detailNavigation>span,.sectionHeading>span { font-size:12px; color:var(--muted-foreground); }
+.paymentHeader>span { font-size:12px; color:var(--muted-foreground); }
+.selectedFace { touch-action:pan-y; }
+.activity { display:flex; flex-direction:column; gap:20px; }
+.sectionHeading h3 { font-size:14px; font-weight:600; }
+.statement,.reward { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px; border:1px solid var(--border); border-radius:16px; background:var(--card); text-align:left; }
+.statement strong,.reward strong { display:block; margin:8px 0; font-size:23px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.025em; }
+.statement small,.reward small { display:block; color:var(--muted-foreground); font-size:12px; line-height:1.5; }
+.reward { background:color-mix(in srgb,var(--app-accent) 5%,var(--card)); }
+.reward strong { font-size:18px; }
+.transactions { list-style:none; padding:0; margin:0; }
+.transactions li { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); font-size:14px; }
+.transactions small { display:block; margin-top:4px; color:var(--muted-foreground); font-size:11px; }
+.transactions strong { flex:none; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+.quickActions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding-top:12px; }
+.addAction { width:244px; max-width:100%; white-space:normal; }
+.previewPanel { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding-block:12px; }
+.previewPanel p { color:var(--muted-foreground); font-size:14px; line-height:1.6; }
+@media(prefers-reduced-motion:reduce) { .thumbnailButton { transition:none; } }
+
+/* Preserve layout while the page moves; keyboard focus always keeps controls visible. */
+
+
+/* The content panel follows Mail; payment-card faces retain their real proportions. */
+.browser { max-width:820px; margin-top:16px; padding:20px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); box-shadow:var(--app-card-shadow-feature); }
+.selectedFace { width:100%; max-width:min(420px, calc((100dvh - 260px) * 1.586)); margin-inline:auto; }
+.overviewSummary { align-items:flex-start; text-align:left; }
+.overviewSummary strong { font-size:40px; font-weight:600; line-height:1.1; }
+.demoNotice p,.disclaimer,.overviewSummary>span:last-child { font-size:14px; line-height:1.5; }
+@media(min-width:640px) { .browser { padding:32px; } }
+
+.title { margin-bottom:16px; }
+
+/* A continuous shelf masks cards below the switcher, as in a physical wallet. */
+.dock { max-width:460px; border:0; border-radius:0; box-shadow:none; padding-block:4px; background:var(--app-card-surface-default-solid); }
+.browser { padding-top:16px; }
+.browser [data-testid="wallet-preview-collection"],
+.browser [data-testid="wallet-add-collection"] { max-width:420px; }
+
+/* Compact reference strip: retain touch targets without a tall surrounding shelf. */
+.dock { gap:6px; padding:0; min-height:44px; }
+.dock { position:relative; top:-44px; }
+.thumbnails { gap:6px; padding:0 2px; }
+.thumbnailButton { flex-basis:54px; min-height:44px; display:flex; align-items:center; padding:2px; }
+.thumbnail { width:100%; }
+.allButton { min-height:44px; padding-inline:8px; }
+.plus { width:44px; height:44px; }
+
+/* Hide the complete shelf, including its mask, without changing scroll geometry.
+   Anchored on a local class: CSS-modules pure mode (native webpack build) rejects selectors with only :global parts. */
+.dockHost[data-scrolling-down="true"]:not(:focus-within) { visibility:hidden; pointer-events:none; }
+
+/* Keep the first card inset from the panel's rounded top edge. */
+.browser[data-mode="all"] { margin-top:0; padding-top:20px; }
+@media(min-width:640px) {
+  .browser[data-mode="all"] { padding-top:32px; }
+}
+
+/* Keep card navigation visually lightweight while retaining its hit area. */
+@layer base {
+  .searchAction { font-size:13px !important; }
+  .detailNavigation > button {
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--app-accent);
+  }
+  .detailNavigation > button:focus-visible {
+    outline: none;
+    text-decoration: underline;
+    box-shadow: inset 0 -2px 0 var(--app-focus-ring) !important;
+  }
+}
+
+/* A visitor preview is its own reading surface; the payment-card face remains in Cards. */
+.browser:has([data-wallet-visitor-preview="true"]) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+
+/* Collections share one geometry; the selected record uses the shared detail surface. */
+.browser,.browser[data-mode="all"] { max-width:none; margin:0; padding:0; border:0; background:transparent; box-shadow:none; }
+.collection { min-width:0; }
+.emptyCollection { display:flex; flex-direction:column; align-items:center; gap:8px; padding:28px 20px; border:1px dashed var(--app-separator); border-radius:var(--app-card-radius-feature); text-align:center; }
+.emptyCollection>p { font-size:16px; line-height:24px; font-weight:600; }
+.emptyCollection>span { max-width:280px; color:var(--app-secondary-label); font-size:13px; line-height:20px; }
+.emptyCollection>button { margin-top:8px; max-width:100%; }
+.cardGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px 24px; }
+.cardTile { min-width:0; }
+.cardOpen { display:block; width:100%; padding:0; border:0; background:transparent; text-align:left; cursor:pointer; border-radius:var(--app-card-radius-feature); }
+.cardOpen:focus-visible,.oneCardOpen:focus-visible { outline:2px solid var(--app-focus-ring); outline-offset:6px; }
+.cardOpen:disabled,.oneCardOpen:disabled { opacity:.55; cursor:default; }
+.cardCaption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 2px 0; }
+.cardCaption strong,.oneCardOpen strong { display:block; font-size:14px; line-height:21px; font-weight:600; }
+.cardCaption small,.oneCardOpen small { display:block; margin-top:3px; font-size:12px; line-height:18px; color:var(--app-secondary-label); }
+.cardCaption>svg,.oneCardOpen>svg { flex-shrink:0; color:var(--app-secondary-label); }
+.oneCards { margin-top:28px; padding-top:24px; border-top:1px solid var(--app-separator); }
+.oneCards>.sectionHeading { flex-wrap:wrap; gap:4px 12px; margin-bottom:16px; }
+.oneCardGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.oneCardOpen { display:block; min-width:0; padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); text-align:left; cursor:pointer; }
+.oneCardOpen:hover:not(:disabled) { border-color:var(--app-secondary-label); }
+.oneCardCaption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 2px 2px; }
+.oneCardCaption>span { min-width:0; flex:1; }
+.oneCardCaption strong,.oneCardCaption small { overflow-wrap:anywhere; }
+.oneCardCaption>svg { flex-shrink:0; color:var(--app-secondary-label); }
+.oneCardArt { display:block; width:100%; overflow:hidden; pointer-events:none; }
+.oneCardArt>div { width:100%; }
+.detailPanel { font-family:var(--font-app-body); }
+.detailBody { min-height:0; }
+.detailPanel .selectedFace { max-width:380px; }
+@media(min-width:1100px) { .cardGrid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(min-width:768px) {
+  .detailPanel.detailPanel { left:auto; right:24px; top:24px; bottom:24px; height:auto; max-height:calc(100dvh - 48px); width:min(520px,calc(100vw - 48px)); }
+}
+@media(max-width:767px) {
+  .cardGrid { gap:24px 16px; }
+  .oneCards { margin-top:24px; padding-top:20px; }
+  .oneCardGrid { grid-template-columns:minmax(0,1fr); gap:10px; }
+  .oneCardOpen { display:grid; grid-template-columns:88px minmax(0,1fr); align-items:center; gap:14px; min-height:88px; padding:12px; }
+  .oneCardCaption { padding:0; gap:8px; }
+  .emptyCollection { padding:24px 16px; }
+}
+@media(max-width:560px) {
+  .cardGrid { grid-template-columns:1fr; }
+  .skeletonGrid>div:nth-child(n+2) { display:none; }
+}
+
+@layer base {
+  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 14px !important; font-weight: 600 !important; line-height: 22px !important; }
+}
+
+/* Leave room for View details and both card edges above the dock in short windows. */
+@media (min-width: 640px) and (max-height: 640px) {
+  .browser[data-mode="all"] { padding-top: 8px; }
+}

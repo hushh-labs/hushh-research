@@ -1,6 +1,7 @@
 "use client";
 
-import { MoreHorizontal, Pencil, Trash2, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MoreHorizontal, Pencil, Trash2, Undo2 } from "@/components/icons";
 
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -32,6 +33,25 @@ export function HoldingRowActions({
   className,
 }: HoldingRowActionsProps) {
   const normalizedSymbol = symbol || "holding";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const dismissedByScroll = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismissOnScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      if (target === document || target === window ||
+        (target instanceof Element && target.contains(triggerRef.current))) {
+        dismissedByScroll.current = true;
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("scroll", dismissOnScroll, true);
+    return () => window.removeEventListener("scroll", dismissOnScroll, true);
+  }, [menuOpen]);
 
   if (layout === "row") {
     return (
@@ -41,9 +61,10 @@ export function HoldingRowActions({
           className
         )}
       >
-        <DropdownMenu modal={false}>
+        <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <MorphyButton
+              ref={triggerRef}
               variant="none"
               effect="fade"
               size="sm"
@@ -54,11 +75,19 @@ export function HoldingRowActions({
               <Icon icon={MoreHorizontal} size="sm" />
             </MorphyButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6}>
+          <DropdownMenuContent
+            ref={menuRef}
+            align="start"
+            sideOffset={6}
+            onCloseAutoFocus={(event) => {
+              if (dismissedByScroll.current) event.preventDefault();
+              dismissedByScroll.current = false;
+            }}
+          >
             <DropdownMenuItem
               disabled={disableEdit}
-              onSelect={(event) => {
-                event.preventDefault();
+              onSelect={() => {
+                setMenuOpen(false);
                 if (!disableEdit) onEdit();
               }}
             >
@@ -67,8 +96,8 @@ export function HoldingRowActions({
             </DropdownMenuItem>
             <DropdownMenuItem
               className={cn(!isDeleted && "text-rose-600 focus:text-rose-600")}
-              onSelect={(event) => {
-                event.preventDefault();
+              onSelect={() => {
+                setMenuOpen(false);
                 onToggleDelete();
               }}
             >

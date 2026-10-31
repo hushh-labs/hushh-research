@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { normalizeRpHost, resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import {
+  isPasskeyRpIdCompatibleWithHost,
+  normalizeRpHost,
+  resolvePasskeyEnvironment,
+  resolvePasskeyRpId,
+} from "@/lib/vault/passkey-rp";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -50,7 +55,7 @@ describe("passkey RP resolution", () => {
     expect(rpId).toBe("localhost");
   });
 
-  it("uses the explicit shared RP on UAT web when configured", () => {
+  it("prefers the exact UAT host over a stale shared parent RP on web", () => {
     process.env.NEXT_PUBLIC_PASSKEY_RP_ID = "one.hushh.ai";
 
     const rpId = resolvePasskeyRpId({
@@ -58,6 +63,65 @@ describe("passkey RP resolution", () => {
       hostname: "uat.one.hushh.ai",
     });
 
-    expect(rpId).toBe("one.hushh.ai");
+    expect(rpId).toBe("uat.one.hushh.ai");
+  });
+
+  it("accepts the shared parent RP for a hosted UAT origin", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost(
+        "uat.one.hushh.ai",
+        "one.hushh.ai",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects IP-address RP IDs even when localhost normalization is available", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("127.0.0.1", "127.0.0.1"),
+    ).toBe(false);
+    expect(
+      isPasskeyRpIdCompatibleWithHost("[::1]", "[::1]"),
+    ).toBe(false);
+  });
+
+  it("does not accept a child RP from the canonical origin", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("one.hushh.ai", "uat.one.hushh.ai"),
+    ).toBe(false);
+  });
+
+  it.each(["dev.one", "uat.one", "one"])(
+    "accepts reciprocal spelling aliases only for %s",
+    (prefix) => {
+      const oldHost = `${prefix}.hushh.ai`;
+      const newHost = `${prefix}.hussh.si`;
+      const recentHost = `${prefix}.hussh.ai`;
+      expect(isPasskeyRpIdCompatibleWithHost(newHost, oldHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(oldHost, newHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(newHost, recentHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(recentHost, newHost)).toBe(true);
+      expect(resolvePasskeyRpId({ isNative: false, hostname: newHost })).toBe(newHost);
+      expect(isPasskeyRpIdCompatibleWithHost(`evil.${newHost}`, oldHost)).toBe(false);
+    },
+  );
+
+  it("rejects foreign environments and unregistered spelling aliases", () => {
+    expect(isPasskeyRpIdCompatibleWithHost("dev.one.hussh.ai", "one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("uat.one.hussh.ai", "dev.one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("one.hussh.si", "uat.one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("other.hussh.ai", "other.hushh.ai")).toBe(false);
+  });
+
+  it.each(["hushh.ai", "hussh.ai", "hussh.si"])("resolves handoff environments for %s", (domain) => {
+    expect(resolvePasskeyEnvironment(`one.${domain}`)).toBe("production");
+    expect(resolvePasskeyEnvironment(`uat.one.${domain}`)).toBe("uat");
+    expect(resolvePasskeyEnvironment(`dev.one.${domain}`)).toBe("dev");
+    expect(resolvePasskeyEnvironment(`evil.one.${domain}`)).toBeNull();
+  });
+
+  it("rejects unrelated RP IDs even when their text is a suffix", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("notone.hushh.ai", "one.hushh.ai"),
+    ).toBe(false);
   });
 });

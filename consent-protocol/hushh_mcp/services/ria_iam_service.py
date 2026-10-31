@@ -22,8 +22,25 @@ from hushh_mcp.services.consent_request_links import (
     build_connection_request_url,
     build_consent_request_url,
 )
-from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from hushh_mcp.services.contact_sync_contract import (
+    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+    CONTACT_SYNC_PREFERENCE_DEFAULT,
+    CONTACT_SYNC_PREFERENCE_ENABLED,
+    contact_sync_preference_state,
+)
+from hushh_mcp.services.email_delivery_queue_service import (
+    EmailDeliveryQueueUnavailable,
+    get_email_delivery_queue_service,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
+from hushh_mcp.services.ria_pick_package_projection import (
+    build_pick_package_summary,
+    coerce_package_rows,
+    count_screening_rows,
+    normalize_ria_pick_thesis_text,
+)
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
     NameVerificationResult,
@@ -69,6 +86,7 @@ _IAM_SCHEMA_READY_CACHE = False
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
+_RIA_PICK_THESIS_MAX_LENGTH = 2000
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
 
 
@@ -155,9 +173,9 @@ _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
 )
 _RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
 _RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
-_RIA_KAI_SPECIALIZED_LABEL = "Kai specialized access"
+_RIA_KAI_SPECIALIZED_LABEL = "Portfolio + data"
 _RIA_KAI_SPECIALIZED_DESCRIPTION = (
-    "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
+    "Advisor-side One and explorer access for portfolio, profile, analysis history, "
     "and runtime context."
 )
 _OFFICIAL_LOCATION_REPORT_URLS: tuple[str, ...] = (
@@ -786,9 +804,10 @@ _RIA_LICENSE_VERIFICATION_REUSE_TTL = timedelta(hours=24)
 
 
 class RIAIAMPolicyError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, *, code: str | None = None):
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
 
 
 class IAMSchemaNotReadyError(Exception):
@@ -2647,24 +2666,59 @@ class RIAIAMService:
             await conn.close()
 
     async def get_contact_discoverability(self, user_id: str) -> dict[str, Any]:
-        """Report whether this account can be found by someone who has its number.
-
-        Defaults to enabled: contact sync is only useful if the people in a
-        user's address book are findable, and the match discloses nothing
-        beyond confirming a number the requester already had.
-        """
+        """Report the effective directory contact-matching preference."""
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
             row = await conn.fetchrow(
-                "SELECT contact_discoverable FROM actor_profiles WHERE user_id = $1",
+                """
+                SELECT actor.contact_discoverable,
+                       actor.contact_sync_consent_enabled_at,
+                       actor.contact_sync_consent_rule_version,
+                       actor.contact_sync_consent_contract_version,
+                       marketplace.is_discoverable AS marketplace_is_discoverable
+                FROM (SELECT $1::text AS user_id) requested
+                LEFT JOIN actor_profiles actor ON actor.user_id = requested.user_id
+                LEFT JOIN marketplace_public_profiles marketplace
+                  ON marketplace.user_id = requested.user_id
+                """,
                 user_id,
+            )
+            preference_state = contact_sync_preference_state(
+                discoverable=None if row is None else row["contact_discoverable"],
+                enabled_at=(None if row is None else row["contact_sync_consent_enabled_at"]),
+                rule_version=(0 if row is None else row["contact_sync_consent_rule_version"]),
+                contract_version=(
+                    None if row is None else row["contact_sync_consent_contract_version"]
+                ),
+            )
+            directory_visible = bool(
+                row is not None and row["marketplace_is_discoverable"] is not False
+            )
+            enabled = bool(
+                directory_visible
+                and preference_state
+                in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
             )
             return {
                 "user_id": user_id,
-                "contact_discoverable": (
-                    True if row is None else bool(row["contact_discoverable"])
+                "contact_discoverable": enabled,
+                "stored_contact_discoverable": bool(
+                    row is not None and row["contact_discoverable"]
                 ),
+                "contact_sync_consent_enabled_at": (
+                    None if row is None else row["contact_sync_consent_enabled_at"]
+                ),
+                "contact_sync_consent_rule_version": (
+                    0 if row is None else int(row["contact_sync_consent_rule_version"] or 0)
+                ),
+                "contact_sync_consent_contract_version": (
+                    None if row is None else row["contact_sync_consent_contract_version"]
+                ),
+                "contact_sync_preference_state": preference_state,
+                "contact_sync_match_policy_version": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                "directory_visible": directory_visible,
+                "iam_schema_ready": True,
             }
         except (
             asyncpg.exceptions.UndefinedColumnError,
@@ -2674,11 +2728,33 @@ class RIAIAMService:
         finally:
             await conn.close()
 
-    async def set_contact_discoverability(self, user_id: str, enabled: bool) -> dict[str, Any]:
-        """Turn phone-number discoverability on or off for this account."""
+    async def set_contact_discoverability(
+        self,
+        user_id: str,
+        enabled: bool,
+        *,
+        consent_version: str | None = None,
+    ) -> dict[str, Any]:
+        """Set combined consent for verified contact matching and auto-connect."""
+
+        normalized_consent_version = str(consent_version or "").strip() or None
+        if enabled and normalized_consent_version != CONTACT_SYNC_CONSENT_CONTRACT_VERSION:
+            raise RIAIAMPolicyError(
+                "Contact sync consent disclosure is out of date. Refresh the app and try again.",
+                status_code=409,
+            )
         conn = await self._conn()
         try:
             async with conn.transaction():
+                # Serialize this explicit preference with contact-sync graph
+                # creation for the same person. Migration 200 applies the same
+                # lock to every relevant policy-table writer, including rows
+                # created by other services.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, $2))",
+                    user_id,
+                    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+                )
                 await self._ensure_vault_user_row(conn, user_id)
                 await self._ensure_iam_schema_ready(conn)
                 row = await conn.fetchrow(
@@ -2687,23 +2763,81 @@ class RIAIAMService:
                         user_id,
                         personas,
                         last_active_persona,
-                        contact_discoverable
+                        contact_discoverable,
+                        contact_sync_consent_enabled_at,
+                        contact_sync_consent_rule_version,
+                        contact_sync_consent_contract_version
                     )
-                    VALUES ($1, ARRAY['investor']::text[], 'investor', $2)
+                    VALUES (
+                      $1, ARRAY['investor']::text[], 'investor', $2,
+                      CASE WHEN $2 THEN NOW() ELSE NULL END,
+                      1,
+                      CASE WHEN $2 THEN $3 ELSE NULL END
+                    )
                     ON CONFLICT (user_id) DO UPDATE
                     SET
                       contact_discoverable = $2,
+                      contact_sync_consent_enabled_at = CASE
+                        WHEN $2 AND NOT actor_profiles.contact_discoverable THEN NOW()
+                        WHEN $2 THEN COALESCE(
+                          actor_profiles.contact_sync_consent_enabled_at, NOW()
+                        )
+                        ELSE NULL
+                      END,
+                      contact_sync_consent_rule_version =
+                        actor_profiles.contact_sync_consent_rule_version + 1,
+                      contact_sync_consent_contract_version = CASE
+                        WHEN $2 THEN $3
+                        ELSE NULL
+                      END,
                       updated_at = NOW()
-                    RETURNING user_id, contact_discoverable
+                    RETURNING user_id, contact_discoverable,
+                              contact_sync_consent_enabled_at,
+                              contact_sync_consent_rule_version,
+                              contact_sync_consent_contract_version
                     """,
                     user_id,
                     enabled,
+                    normalized_consent_version,
                 )
                 if row is None:
                     raise RuntimeError("Failed to update contact discoverability")
+                marketplace_row = await conn.fetchrow(
+                    """
+                    SELECT is_discoverable
+                    FROM marketplace_public_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                preference_state = contact_sync_preference_state(
+                    discoverable=row["contact_discoverable"],
+                    enabled_at=row["contact_sync_consent_enabled_at"],
+                    rule_version=row["contact_sync_consent_rule_version"],
+                    contract_version=row["contact_sync_consent_contract_version"],
+                )
+                directory_visible = bool(
+                    marketplace_row is None or marketplace_row["is_discoverable"] is not False
+                )
                 return {
                     "user_id": row["user_id"],
-                    "contact_discoverable": bool(row["contact_discoverable"]),
+                    "contact_discoverable": bool(
+                        directory_visible
+                        and preference_state
+                        in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
+                    ),
+                    "stored_contact_discoverable": bool(row["contact_discoverable"]),
+                    "contact_sync_consent_enabled_at": row["contact_sync_consent_enabled_at"],
+                    "contact_sync_consent_rule_version": int(
+                        row["contact_sync_consent_rule_version"] or 0
+                    ),
+                    "contact_sync_consent_contract_version": row[
+                        "contact_sync_consent_contract_version"
+                    ],
+                    "contact_sync_preference_state": preference_state,
+                    "contact_sync_match_policy_version": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                    "directory_visible": directory_visible,
+                    "iam_schema_ready": True,
                 }
         except (
             asyncpg.exceptions.UndefinedColumnError,
@@ -3227,82 +3361,6 @@ class RIAIAMService:
         )
 
     @staticmethod
-    def _parse_list_of_dicts(value: Any) -> list[dict[str, Any]]:
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except Exception:
-                return []
-            if isinstance(parsed, list):
-                return [item for item in parsed if isinstance(item, dict)]
-        return []
-
-    async def _list_linked_account_branches(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        investor_user_id: str,
-    ) -> list[dict[str, Any]]:
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT item_id, institution_name, latest_accounts_json
-                FROM kai_plaid_items
-                WHERE user_id = $1
-                  AND COALESCE(status, '') <> 'permission_revoked'
-                ORDER BY updated_at DESC
-                """,
-                investor_user_id,
-            )
-        except asyncpg.exceptions.UndefinedTableError:
-            return []
-
-        out: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            item_id = str(row["item_id"] or "").strip() or None
-            institution_name = str(row["institution_name"] or "").strip() or None
-            accounts = self._parse_list_of_dicts(row["latest_accounts_json"])
-            for account in accounts:
-                account_id = str(account.get("account_id") or "").strip()
-                persistent_account_id = (
-                    str(account.get("persistent_account_id") or "").strip() or None
-                )
-                branch_id = persistent_account_id or account_id
-                if not branch_id or branch_id in seen:
-                    continue
-                seen.add(branch_id)
-                out.append(
-                    {
-                        "branch_id": branch_id,
-                        "account_id": account_id or branch_id,
-                        "persistent_account_id": persistent_account_id,
-                        "item_id": item_id,
-                        "institution_name": institution_name
-                        or str(account.get("institution_name") or "").strip()
-                        or None,
-                        "name": str(
-                            account.get("name") or account.get("official_name") or branch_id
-                        ).strip(),
-                        "official_name": str(account.get("official_name") or "").strip() or None,
-                        "mask": str(account.get("mask") or "").strip() or None,
-                        "type": str(account.get("type") or "").strip() or None,
-                        "subtype": str(account.get("subtype") or "").strip() or None,
-                    }
-                )
-
-        out.sort(
-            key=lambda item: (
-                str(item.get("institution_name") or "").lower(),
-                str(item.get("name") or "").lower(),
-                str(item.get("mask") or "").lower(),
-            )
-        )
-        return out
-
-    @staticmethod
     def _bundle_scope_state(
         scope: str,
         *,
@@ -3752,28 +3810,15 @@ class RIAIAMService:
                     )
 
                 normalized_account_ids = self._normalize_account_ids(selected_account_ids)
-                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID:
-                    account_branches = await self._list_linked_account_branches(
-                        conn,
-                        investor_user_id=subject_user_id,
+                if template.template_id == _RIA_KAI_SPECIALIZED_TEMPLATE_ID and (
+                    normalized_account_ids
+                ):
+                    # Linked accounts are sealed in the investor's vault; the
+                    # server holds no account list an advisor could select from.
+                    raise RIAIAMPolicyError(
+                        "Selected account is not available for this investor workspace",
+                        status_code=400,
                     )
-                    available_account_ids = {
-                        str(item.get("branch_id") or item.get("account_id") or "").strip()
-                        for item in account_branches
-                        if str(item.get("branch_id") or item.get("account_id") or "").strip()
-                    }
-                    if not normalized_account_ids and available_account_ids:
-                        normalized_account_ids = sorted(available_account_ids)
-                    invalid_account_ids = [
-                        account_id
-                        for account_id in normalized_account_ids
-                        if account_id not in available_account_ids
-                    ]
-                    if invalid_account_ids:
-                        raise RIAIAMPolicyError(
-                            "Selected account is not available for this investor workspace",
-                            status_code=400,
-                        )
 
                 if firm_id:
                     membership = await conn.fetchrow(
@@ -5247,8 +5292,10 @@ class RIAIAMService:
             async with conn.transaction():
                 await self._ensure_iam_schema_ready(conn)
                 await self._ensure_vault_user_row(conn, user_id)
-                await self._ensure_actor_profile_row(conn, user_id)
 
+                # ria_profiles.user_id already FK-proves that actor_profiles exists.
+                # Avoid locking that row before actor_identity_cache so this
+                # path keeps the same identity-then-profile lock order as contact sync.
                 profile_row = await conn.fetchrow(
                     "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
                 )
@@ -5355,15 +5402,20 @@ class RIAIAMService:
                         "DELETE FROM ria_license_verifications WHERE user_id = $1",
                         "ria_license_verifications",
                     ),
-                    (
-                        "DELETE FROM actor_identity_cache WHERE user_id = $1",
-                        "actor_identity_cache",
-                    ),
                 ):
                     try:
                         await conn.execute(stmt, user_id)
                     except asyncpg.exceptions.UndefinedTableError:
                         logger.warning("%s unavailable during RIA delete; skipping", label)
+
+                # Signup verification and account identity belong to the surviving
+                # One account. A Google Firebase user may have no phone field to
+                # recover a deleted app-level claim. Preserve identity and retain
+                # the identity-before-profile row lock order used by contact sync.
+                await conn.fetchrow(
+                    "SELECT user_id FROM actor_identity_cache WHERE user_id = $1 FOR UPDATE",
+                    user_id,
+                )
 
                 # (3) Marketplace public projection: keep as an investor listing if
                 # the user opted in, else remove so the deleted RIA disappears from
@@ -5900,10 +5952,7 @@ class RIAIAMService:
                 for payload in latest_by_request.values()
                 if payload.get("action") == "REQUESTED"
             ]
-            account_branches = await self._list_linked_account_branches(
-                conn,
-                investor_user_id=investor_user_id,
-            )
+            account_branches: list[dict[str, Any]] = []
             kai_specialized_bundle, scoped_account_branches = (
                 self._build_kai_specialized_bundle_state(
                     account_branches=account_branches,
@@ -6422,9 +6471,34 @@ class RIAIAMService:
 
     @staticmethod
     def _coerce_package_rows(rows: Any) -> list[dict[str, Any]]:
-        if not isinstance(rows, list):
-            return []
-        return [dict(row) for row in rows if isinstance(row, dict)]
+        return coerce_package_rows(rows)
+
+    @staticmethod
+    def _normalize_ria_pick_thesis_text(value: Any) -> str | None:
+        return normalize_ria_pick_thesis_text(value, max_length=_RIA_PICK_THESIS_MAX_LENGTH)
+
+    @staticmethod
+    def _build_ria_advisor_thesis(
+        *,
+        text: str | None,
+        provider_user_id: str | None = None,
+        updated_at: str | None = None,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        thesis_text = RIAIAMService._normalize_ria_pick_thesis_text(
+            text or (existing or {}).get("text")
+        )
+        author = str(provider_user_id or (existing or {}).get("authored_by_user_id") or "").strip()
+        source = str((existing or {}).get("source") or "ria_picks_editor").strip()
+        timestamp = str(updated_at or (existing or {}).get("updated_at") or "").strip()
+        if not thesis_text or not author or source != "ria_picks_editor" or not timestamp:
+            return None
+        return {
+            "text": thesis_text,
+            "authored_by_user_id": author,
+            "source": "ria_picks_editor",
+            "updated_at": timestamp,
+        }
 
     def _normalize_top_pick_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         symbol_master = get_symbol_master_service()
@@ -6446,12 +6520,16 @@ class RIAIAMService:
                 )
                 continue
             tier = str(row.get("tier") or "").strip().upper()
-            thesis = str(row.get("investment_thesis") or "").strip()
+            advisor_thesis = row.get("advisor_thesis")
+            existing_advisor_thesis = advisor_thesis if isinstance(advisor_thesis, dict) else None
+            has_investment_thesis_field = "investment_thesis" in row
+            thesis = self._normalize_ria_pick_thesis_text(
+                row.get("investment_thesis")
+                if has_investment_thesis_field
+                else (existing_advisor_thesis or {}).get("text")
+            )
             if not tier:
                 row_errors.append(f"Top picks row {index}: tier is required")
-                continue
-            if not thesis:
-                row_errors.append(f"Top picks row {index}: investment_thesis is required")
                 continue
             normalized_rows.append(
                 {
@@ -6467,6 +6545,12 @@ class RIAIAMService:
                     "conviction_weight": row.get("conviction_weight"),
                     "recommendation_bias": row.get("recommendation_bias"),
                     "investment_thesis": thesis,
+                    "advisor_thesis": self._build_ria_advisor_thesis(
+                        text=thesis,
+                        existing=existing_advisor_thesis
+                        if not has_investment_thesis_field
+                        else None,
+                    ),
                     "fcf_billions": row.get("fcf_billions"),
                 }
             )
@@ -6579,10 +6663,18 @@ class RIAIAMService:
         avoid_rows: list[dict[str, Any]],
         screening_sections: list[dict[str, Any]],
         package_note: str | None,
+        investor_debate_thesis: str | None,
     ) -> dict[str, Any]:
+        normalized_investor_debate_thesis = str(investor_debate_thesis or "").strip()
+        if len(normalized_investor_debate_thesis) > 2000:
+            raise RIAIAMPolicyError(
+                "Investor debate context must be 2,000 characters or fewer",
+                status_code=400,
+            )
         return {
             "package_version": 1,
             "package_note": str(package_note or "").strip() or None,
+            "investor_debate_thesis": normalized_investor_debate_thesis or None,
             "avoid_rows": avoid_rows,
             "screening_sections": screening_sections,
         }
@@ -6596,6 +6688,7 @@ class RIAIAMService:
                 {"section": section_key, "rows": []} for section_key in _RIA_SCREENING_SECTION_ORDER
             ],
             "package_note": None,
+            "investor_debate_thesis": None,
         }
 
     def _normalize_pick_package(
@@ -6605,6 +6698,7 @@ class RIAIAMService:
         avoid_rows: list[dict[str, Any]],
         screening_sections: list[dict[str, Any]],
         package_note: str | None,
+        investor_debate_thesis: str | None,
     ) -> dict[str, Any]:
         normalized_top_picks = self._normalize_top_pick_rows(top_picks)
         normalized_avoid_rows = self._normalize_avoid_rows(
@@ -6620,6 +6714,7 @@ class RIAIAMService:
                 avoid_rows=normalized_avoid_rows,
                 screening_sections=normalized_screening_sections,
                 package_note=package_note,
+                investor_debate_thesis=investor_debate_thesis,
             ),
         }
 
@@ -6636,6 +6731,7 @@ class RIAIAMService:
             raw_screening_sections if isinstance(raw_screening_sections, list) else []
         )
         package_note = str(metadata.get("package_note") or "").strip() or None
+        investor_debate_thesis = str(metadata.get("investor_debate_thesis") or "").strip() or None
         normalized_sections = [
             {
                 "section": str(section.get("section") or section.get("key") or "").strip(),
@@ -6657,20 +6753,12 @@ class RIAIAMService:
             "avoid_rows": [dict(row) for row in avoid_rows if isinstance(row, dict)],
             "screening_sections": normalized_sections,
             "package_note": package_note,
+            "investor_debate_thesis": investor_debate_thesis,
         }
 
     @staticmethod
     def _count_screening_rows(screening_sections: list[dict[str, Any]] | None) -> int:
-        if not isinstance(screening_sections, list):
-            return 0
-        total = 0
-        for section in screening_sections:
-            if not isinstance(section, dict):
-                continue
-            rows = section.get("rows")
-            if isinstance(rows, list):
-                total += len(rows)
-        return total
+        return count_screening_rows(screening_sections)
 
     def _pick_package_has_material_content(self, package: dict[str, Any] | None) -> bool:
         if not isinstance(package, dict):
@@ -6679,24 +6767,62 @@ class RIAIAMService:
         avoid_rows = package.get("avoid_rows")
         screening_sections = package.get("screening_sections")
         package_note = str(package.get("package_note") or "").strip()
+        investor_debate_thesis = str(package.get("investor_debate_thesis") or "").strip()
         return bool(
             (isinstance(top_picks, list) and len(top_picks) > 0)
             or (isinstance(avoid_rows, list) and len(avoid_rows) > 0)
             or self._count_screening_rows(screening_sections) > 0
             or package_note
+            or investor_debate_thesis
         )
 
-    def _build_pick_package_projection(self, package: dict[str, Any]) -> dict[str, Any]:
+    def _build_pick_package_projection(
+        self,
+        package: dict[str, Any],
+        *,
+        provider_user_id: str | None = None,
+        updated_at: str | None = None,
+    ) -> dict[str, Any]:
         normalized = self._normalize_pick_package(
             top_picks=self._coerce_package_rows(package.get("top_picks")),
             avoid_rows=self._coerce_package_rows(package.get("avoid_rows")),
             screening_sections=self._coerce_package_rows(package.get("screening_sections")),
             package_note=str(package.get("package_note") or "").strip() or None,
+            investor_debate_thesis=(
+                str(package.get("investor_debate_thesis") or "").strip() or None
+            ),
         )
-        return self._normalize_pick_package_response(
+        projected = self._normalize_pick_package_response(
             normalized["top_picks"],
             normalized["package_metadata"],
         )
+        if provider_user_id:
+            stamped_at = updated_at or datetime.now(timezone.utc).isoformat()
+            top_picks = []
+            for row in projected.get("top_picks") or []:
+                if not isinstance(row, dict):
+                    continue
+                existing = row.get("advisor_thesis")
+                existing_thesis = existing if isinstance(existing, dict) else {}
+                has_investment_thesis_field = "investment_thesis" in row
+                thesis = self._normalize_ria_pick_thesis_text(
+                    row.get("investment_thesis")
+                    if has_investment_thesis_field
+                    else existing_thesis.get("text")
+                )
+                top_picks.append(
+                    {
+                        **row,
+                        "investment_thesis": thesis,
+                        "advisor_thesis": self._build_ria_advisor_thesis(
+                            text=thesis,
+                            provider_user_id=provider_user_id,
+                            updated_at=stamped_at,
+                        ),
+                    }
+                )
+            projected["top_picks"] = top_picks
+        return projected
 
     def _build_pick_package_summary(
         self,
@@ -6708,20 +6834,16 @@ class RIAIAMService:
         active_share_count: int = 0,
         has_package: bool = True,
     ) -> dict[str, Any]:
-        top_picks = package.get("top_picks") if isinstance(package, dict) else []
-        avoid_rows = package.get("avoid_rows") if isinstance(package, dict) else []
-        screening_sections = package.get("screening_sections") if isinstance(package, dict) else []
-        return {
-            "has_package": bool(has_package),
-            "storage_source": storage_source,
-            "package_revision": int(revision or 0),
-            "top_pick_count": len(top_picks) if isinstance(top_picks, list) else 0,
-            "avoid_count": len(avoid_rows) if isinstance(avoid_rows, list) else 0,
-            "screening_row_count": self._count_screening_rows(screening_sections),
-            "last_updated": updated_at,
-            "active_share_count": max(0, int(active_share_count or 0)),
-            "path": _RIA_PICKS_PKM_PATH,
-        }
+        return build_pick_package_summary(
+            package=package,
+            storage_source=storage_source,
+            revision=revision,
+            updated_at=updated_at,
+            active_share_count=active_share_count,
+            has_package=has_package,
+            pkm_path=_RIA_PICKS_PKM_PATH,
+            count_rows=self._count_screening_rows,
+        )
 
     async def _count_active_pick_shares(
         self,
@@ -6898,7 +7020,12 @@ class RIAIAMService:
         ria_profile_id = str(relationship["ria_profile_id"])
         prior_artifact = await conn.fetchrow(
             """
-            SELECT artifact_projection, artifact_metadata, source_data_version, source_manifest_revision
+            SELECT
+              artifact_projection,
+              artifact_metadata,
+              source_data_version,
+              source_manifest_revision,
+              updated_at
             FROM ria_pick_share_artifacts
             WHERE ria_profile_id = $1::uuid
               AND grant_key = $2
@@ -6919,7 +7046,11 @@ class RIAIAMService:
             artifact_projection = self._parse_metadata(
                 prior_artifact_payload.get("artifact_projection")
             )
-            package_projection = self._build_pick_package_projection(artifact_projection)
+            package_projection = self._build_pick_package_projection(
+                artifact_projection,
+                provider_user_id=provider_user_id,
+                updated_at=self._serialize_datetime_value(prior_artifact_payload.get("updated_at")),
+            )
             artifact_metadata = self._parse_metadata(
                 prior_artifact_payload.get("artifact_metadata")
             )
@@ -6999,6 +7130,7 @@ class RIAIAMService:
         *,
         label: str | None,
         package_note: str | None,
+        investor_debate_thesis: str | None,
         top_picks: list[dict[str, Any]] | None,
         avoid_rows: list[dict[str, Any]] | None,
         screening_sections: list[dict[str, Any]] | None,
@@ -7011,7 +7143,10 @@ class RIAIAMService:
                 "avoid_rows": self._coerce_package_rows(avoid_rows),
                 "screening_sections": self._coerce_package_rows(screening_sections),
                 "package_note": package_note,
-            }
+                "investor_debate_thesis": investor_debate_thesis,
+            },
+            provider_user_id=user_id,
+            updated_at=datetime.now(timezone.utc).isoformat(),
         )
         conn = await self._conn()
         try:
@@ -7090,6 +7225,7 @@ class RIAIAMService:
             avoid_rows=self._coerce_package_rows(avoid_rows),
             screening_sections=self._coerce_package_rows(screening_sections),
             package_note=package_note,
+            investor_debate_thesis=None,
         )
         return self._normalize_pick_package_response(
             package["top_picks"],
@@ -7723,26 +7859,29 @@ class RIAIAMService:
                 },
             )
 
-        await queue_service.enqueue(
-            kind="invite_email",
-            send_callable=lambda: invite_email_service.send_ria_invite(
-                target_email=normalized_target_email,
-                target_display_name=target_display_name,
-                advisor_name=advisor_name,
-                firm_name=firm_name,
-                invite_token=invite_token,
-                invite_path=invite_path,
-                expires_at=expires_at,
-                reason=reason,
-            ),
-            on_success=_mark_success,
-            on_failure=_mark_failure,
-            context={
-                "invite_id": invite_id,
-                "invite_token": invite_token,
-                "target_email": normalized_target_email,
-            },
-        )
+        try:
+            await queue_service.enqueue(
+                kind="invite_email",
+                send_callable=lambda: invite_email_service.send_ria_invite(
+                    target_email=normalized_target_email,
+                    target_display_name=target_display_name,
+                    advisor_name=advisor_name,
+                    firm_name=firm_name,
+                    invite_token=invite_token,
+                    invite_path=invite_path,
+                    expires_at=expires_at,
+                    reason=reason,
+                ),
+                on_success=_mark_success,
+                on_failure=_mark_failure,
+                context={
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "target_email": normalized_target_email,
+                },
+            )
+        except EmailDeliveryQueueUnavailable as exc:
+            await _mark_failure(exc)
 
     async def set_ria_marketplace_discoverability(
         self,
@@ -8460,10 +8599,7 @@ class RIAIAMService:
             )
             granted_scope_keys = {str(item["scope"]) for item in granted_scopes}
             if metadata is None:
-                account_branches = await self._list_linked_account_branches(
-                    conn,
-                    investor_user_id=investor_user_id,
-                )
+                account_branches: list[dict[str, Any]] = []
                 granted_payloads = [
                     payload
                     for payload in latest_by_scope.values()
@@ -8527,10 +8663,7 @@ class RIAIAMService:
                     available_domains = []
                     domain_summaries = {}
 
-            account_branches = await self._list_linked_account_branches(
-                conn,
-                investor_user_id=investor_user_id,
-            )
+            account_branches = []
             granted_payloads = [
                 payload
                 for payload in latest_by_scope.values()
@@ -8922,15 +9055,204 @@ class RIAIAMService:
 
     @staticmethod
     def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        """A stored phone number as the E.164 string the client hashed.
+
+        No country guessing. This used to read a bare ten-digit number as North
+        American -- `if len(digits) == 10: return f"+1{digits}"` -- which is the
+        same bug the client-side normalizer removed and documented at
+        `lib/contacts/phone-normalization.ts:11-15`.
+
+        It is worse here than it was there. On the client a wrong guess only
+        produced a digest that missed. Here it fabricates an identity: a stored
+        `9876543210` belonging to an Indian account was hashed as
+        `+19876543210`, so a requester holding the real US number `+19876543210`
+        would have been told that stranger is on Hussh. A guess that can
+        disclose somebody's membership to a person who does not know them is
+        not a fallback, and returning nothing is the correct answer to a
+        question we cannot answer.
+
+        Every writer of `actor_identity_cache.phone_number` in this repo stores
+        E.164 with the leading `+` -- the Firebase mirror in
+        `ActorIdentityService.sync_from_firebase`, the token claim path, and the
+        UAT test-confirm path through `_normalize_phone_number`, which forces a
+        `+` unconditionally. Migration 047 added the column with no backfill.
+        The counter below exists to prove that from production traffic rather
+        than from reading the writers, because a row predating any of them
+        would now go unmatched instead of wrongly matched.
+        """
+
         raw = str(value or "").strip()
         digits = re.sub(r"\D", "", raw)
         if not digits:
             return None
-        if raw.startswith("+"):
-            return f"+{digits}"
-        if len(digits) == 10:
-            return f"+1{digits}"
+        if not raw.startswith("+"):
+            # Not an error and not fatal -- the row still matches whenever its
+            # digits already carry a country code. Logged without the number so
+            # the count is visible and the value never is.
+            logger.warning(
+                "contact_match.stored_phone_missing_plus digits_len=%s",
+                len(digits),
+            )
         return f"+{digits}"
+
+    async def match_one_network_contact_lookups_exact(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Directly correlate every submitted contact proof without scan truncation.
+
+        The legacy marketplace matcher intentionally caps its candidate scan.
+        A mutating sync may not inherit that approximation: the client must not
+        be told a valid match is unmatched merely because its uid sorted after
+        an internal row cap. This query joins each bounded proof to the indexed
+        last-four bucket and compares the SHA-256 digest in Postgres, returning
+        matched rows only and never returning the digest or phone digits.
+        """
+
+        if len(phone_lookups) > 1000:
+            # The HTTP contract and lookup-weighted abuse budget use this same
+            # batch boundary. Never silently slice here: doing so would turn a
+            # caller regression into an ordinary zero-match result, recreating
+            # the exact class of truncation bug this matcher replaces.
+            raise RIAIAMPolicyError(
+                "Contact matching accepts at most 1000 proofs per batch.",
+                status_code=422,
+            )
+
+        normalized: list[tuple[str, str, str]] = []
+        for item in phone_lookups:
+            lookup_id = str(item.get("lookup_id") or "").strip()
+            digest = str(item.get("hash") or "").strip().lower()
+            last4 = str(item.get("last4") or "").strip()
+            if (
+                lookup_id
+                and len(digest) == 64
+                and all(ch in "0123456789abcdef" for ch in digest)
+                and len(last4) == 4
+                and all(ch in "0123456789" for ch in last4)
+            ):
+                normalized.append((lookup_id, digest, last4))
+        if not normalized:
+            return []
+
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                WITH submitted_lookup AS (
+                  SELECT lookup_id, digest_hex, last4
+                  FROM UNNEST($2::text[], $3::text[], $4::text[])
+                    AS submitted(lookup_id, digest_hex, last4)
+                ),
+                correlated_identity AS (
+                  SELECT
+                    submitted.lookup_id,
+                    identity.user_id,
+                    identity.display_name,
+                    identity.photo_url,
+                    COUNT(*) OVER (PARTITION BY submitted.lookup_id) AS match_count
+                  FROM submitted_lookup submitted
+                  JOIN actor_identity_cache identity
+                    ON RIGHT(
+                      regexp_replace(identity.phone_number, '[^0-9]', '', 'g'), 4
+                    ) = submitted.last4
+                   AND encode(
+                     digest(
+                       convert_to(
+                         '+' || regexp_replace(identity.phone_number, '[^0-9]', '', 'g'),
+                         'UTF8'
+                       ),
+                       'sha256'
+                     ),
+                     'hex'
+                   ) = submitted.digest_hex
+                  WHERE identity.phone_verified = TRUE
+                    AND identity.phone_number IS NOT NULL
+                )
+                SELECT
+                  identity.lookup_id,
+                  identity.user_id,
+                  COALESCE(NULLIF(identity.display_name, ''), profile.display_name)
+                    AS display_name,
+                  identity.photo_url
+                FROM correlated_identity identity
+                LEFT JOIN actor_profiles actor ON actor.user_id = identity.user_id
+                LEFT JOIN marketplace_public_profiles profile
+                  ON profile.user_id = identity.user_id
+                -- A stale duplicate verified-phone binding is not a reason to
+                -- pick one account by uid ordering. Treat it as no match until
+                -- identity repair makes the proof unambiguous. Count every
+                -- verified binding before applying discoverability so a hidden
+                -- duplicate cannot make another account appear unique.
+                WHERE identity.match_count = 1
+                  AND identity.user_id <> $1
+                  AND (
+                    EXISTS (
+                      -- Contact discoverability controls disclosure to new
+                      -- people. It must not hide a relationship the requester
+                      -- can already see in their canonical ONE graph.
+                      SELECT 1
+                      FROM connections existing_connection
+                      WHERE existing_connection.status = 'active'
+                        AND (
+                          (
+                            existing_connection.user_a_id = $1
+                            AND existing_connection.user_b_id = identity.user_id
+                          ) OR (
+                            existing_connection.user_b_id = $1
+                            AND existing_connection.user_a_id = identity.user_id
+                          )
+                        )
+                    )
+                    OR (
+                      -- New exact matches follow the same visibility boundary
+                      -- as the verified ONE Connect directory. A missing/default
+                      -- contact preference is eligible; a recorded opt-out or
+                      -- malformed positive-version decision fails closed.
+                      profile.is_discoverable IS DISTINCT FROM FALSE
+                      AND (
+                        actor.user_id IS NULL
+                        OR (
+                          COALESCE(actor.contact_sync_consent_rule_version, 0) = 0
+                          AND actor.contact_sync_consent_enabled_at IS NULL
+                          AND actor.contact_sync_consent_contract_version IS NULL
+                        )
+                        OR (
+                          actor.contact_discoverable = TRUE
+                          AND actor.contact_sync_consent_enabled_at IS NOT NULL
+                          AND actor.contact_sync_consent_rule_version > 0
+                          AND actor.contact_sync_consent_contract_version = $5
+                        )
+                      )
+                    )
+                  )
+                ORDER BY identity.lookup_id
+                """,
+                user_id,
+                [item[0] for item in normalized],
+                [item[1] for item in normalized],
+                [item[2] for item in normalized],
+                CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            )
+            return [
+                {
+                    "lookup_id": str(row["lookup_id"]),
+                    "user_id": str(row["user_id"]),
+                    "display_name": row["display_name"],
+                    "photo_url": row["photo_url"],
+                }
+                for row in rows
+            ]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
 
     async def match_marketplace_contacts(
         self,
@@ -8949,10 +9271,11 @@ class RIAIAMService:
             investors who opted in). This is the Connect deck's policy.
 
         ``one_network``
-            Any account that is phone verified and has not turned off contact
-            discoverability. This is what One Location contact sync needs; the
-            marketplace policy returns nothing for ordinary users because
-            ``marketplace_public_profiles.is_discoverable`` defaults to FALSE.
+            Current verified ONE Connect-directory accounts that have not
+            explicitly disabled contact matching. A version-zero preference is
+            the directory default; malformed positive-version evidence fails
+            closed. Canonical contact sync uses the non-truncating exact matcher
+            above, while this scope remains for compatible read-only callers.
 
         Neither policy discloses a phone number. The caller proves it already
         holds the number by supplying its SHA-256 digest, and the server only
@@ -8981,23 +9304,78 @@ class RIAIAMService:
         # base grew past a few thousand accounts, so the pre-filter is now sized
         # against collision volume rather than the result limit, and still
         # bounded so a wide lookup set cannot pull an unbounded result set.
-        candidate_row_cap = min(max(limit_safe * 50, 500), 5000)
+        #
+        # Sized against the buckets actually asked for, not a flat ceiling.
+        #
+        # The old `min(..., 5000)` was a truncation with no meaning attached to
+        # it: rows come back `ORDER BY aic.user_id ASC`, an ordering the query's
+        # own comment calls arbitrary, and anything past the cap was never
+        # digest-compared. A last4 bucket holds roughly one ten-thousandth of
+        # the user base, so a full address book of 1000 buckets expects
+        # `users / 10` candidates -- which crosses 5000 at only fifty thousand
+        # accounts. Past that, a person whose Firebase uid sorts late was
+        # dropped from every large lookup, deterministically and permanently,
+        # and the response was an ordinary empty list. Somebody could be
+        # invisible to their own contacts forever with nothing to see.
+        #
+        # The bound is still real: `phone_lookups` is capped at 1000 by the
+        # route, so this cannot exceed 50k rows however the request is shaped,
+        # and the digest set that decides matches is bounded by the same 1000.
+        candidate_row_cap = min(max(len(last4_values) * 50, 500), 50_000)
 
         if normalized_scope == "one_network":
-            # actor_profiles is LEFT JOINed so an account that has never had a
-            # profile row written still matches. The COALESCE below supplies the
-            # discoverable-by-default posture for that case; an inner join would
-            # silently make those accounts unfindable.
+            # Mirror verified ONE directory visibility plus the explicit
+            # contact opt-out. Do not mistake default eligibility for authored
+            # target consent; graph provenance uses a separate policy marker.
             eligibility_join = """
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = aic.user_id
-                  AND mp.is_discoverable = TRUE
                 LEFT JOIN actor_profiles ap
                   ON ap.user_id = aic.user_id
                 LEFT JOIN ria_profiles rp
                   ON rp.user_id = aic.user_id
             """
-            eligibility_predicate = "AND COALESCE(ap.contact_discoverable, TRUE) = TRUE"
+            eligibility_predicate = """
+                  AND (
+                    EXISTS (
+                      SELECT 1
+                      FROM connections existing_connection
+                      WHERE existing_connection.status = 'active'
+                        AND (
+                          (
+                            existing_connection.user_a_id = $1
+                            AND existing_connection.user_b_id = aic.user_id
+                          ) OR (
+                            existing_connection.user_b_id = $1
+                            AND existing_connection.user_a_id = aic.user_id
+                          )
+                        )
+                    )
+                    OR (
+                      mp.is_discoverable IS DISTINCT FROM FALSE
+                      AND (
+                        ap.user_id IS NULL
+                        OR (
+                          COALESCE(ap.contact_sync_consent_rule_version, 0) = 0
+                          AND ap.contact_sync_consent_enabled_at IS NULL
+                          AND ap.contact_sync_consent_contract_version IS NULL
+                        )
+                        OR (
+                          ap.contact_discoverable = TRUE
+                          AND ap.contact_sync_consent_enabled_at IS NOT NULL
+                          AND ap.contact_sync_consent_rule_version > 0
+                          AND ap.contact_sync_consent_contract_version = $4
+                        )
+                      )
+                    )
+                  )
+            """
+            query_args: tuple[Any, ...] = (
+                user_id,
+                last4_values,
+                candidate_row_cap,
+                CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            )
         else:
             eligibility_join = """
                 JOIN marketplace_public_profiles mp
@@ -9020,6 +9398,7 @@ class RIAIAMService:
                     )
                   )
             """
+            query_args = (user_id, last4_values, candidate_row_cap)
 
         conn = await self._conn()
         try:
@@ -9056,9 +9435,7 @@ class RIAIAMService:
                 ORDER BY aic.user_id ASC
                 LIMIT $3::integer
                 """,  # nosec B608
-                user_id,
-                last4_values,
-                candidate_row_cap,
+                *query_args,
             )
             matches: list[dict[str, Any]] = []
             seen_users: set[str] = set()
@@ -9109,7 +9486,18 @@ class RIAIAMService:
                         "kind": kind,
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
-                        "phone_last4": last4,
+                        # No phone digits, not even four.
+                        #
+                        # The caller derived every digest it sent from its own
+                        # address book, so it already holds the number behind
+                        # each match -- echoing part of it back tells the caller
+                        # nothing it did not have, and costs a real leak the
+                        # moment a response is logged, cached, or rendered into
+                        # a page. Both of those were happening: the marketplace
+                        # deck rendered these four digits into the DOM, and One
+                        # Location stripped them on arrival. A field one client
+                        # has to defend against and another leaks is a field
+                        # that should never have left the server.
                         "profile": profile,
                     }
                 )
@@ -9309,6 +9697,161 @@ class RIAIAMService:
                 normalized_status,
                 normalized_action,
                 max(1, min(limit, 100)),
+            )
+            return [self._marketplace_investor_action_row(row) for row in rows]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def record_nws_nearby_action(
+        self,
+        user_id: str,
+        *,
+        person_id: str,
+        action: str,
+        snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Shortlist or dismiss one NWS Nearby public record.
+
+        Deliberately a sibling of ``record_marketplace_investor_action`` rather
+        than a branch inside it. That method resolves its target by reading a
+        local table, and an NWS person has no local row to read — the record is
+        supplied by the caller because it came from an external public-record
+        service. Sharing the table is the point; sharing the target resolution
+        would mean teaching it to accept an unverifiable target.
+
+        ``connect_request`` is refused for the same reason it is refused for
+        public SEC profiles: there is nobody on the other end to receive it.
+        """
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported nearby action", status_code=400)
+        if normalized_action == "connect_request":
+            raise RIAIAMPolicyError(
+                "Public records can be shortlisted, not connected directly",
+                status_code=400,
+            )
+
+        normalized_person = str(person_id or "").strip()
+        if not normalized_person or len(normalized_person) > 128:
+            raise RIAIAMPolicyError("person_id is required", status_code=400)
+
+        # Namespaced so an NWS key can never collide with a public_sec or
+        # hushh_user key in the table's unique (actor_user_id, target_key) index.
+        target_key = f"nws:{normalized_person}"
+        safe_snapshot = snapshot if isinstance(snapshot, dict) else {}
+        status = _MARKETPLACE_INVESTOR_ACTION_STATUS[normalized_action]
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO marketplace_investor_actions (
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES ($1, $2, 'nws_nearby', $3, NULL, NULL, $4, $5, $6::jsonb,
+                            '{}'::jsonb, NOW(), NOW())
+                    ON CONFLICT (actor_user_id, target_key)
+                    DO UPDATE SET
+                      ria_profile_id = EXCLUDED.ria_profile_id,
+                      action = EXCLUDED.action,
+                      status = EXCLUDED.status,
+                      target_snapshot = EXCLUDED.target_snapshot,
+                      updated_at = NOW()
+                    RETURNING
+                      id,
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    """,
+                    user_id,
+                    ria["id"],
+                    target_key,
+                    normalized_action,
+                    status,
+                    json.dumps(safe_snapshot),
+                )
+                return self._marketplace_investor_action_row(row)
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        except asyncpg.exceptions.CheckViolationError as exc:
+            # Reached when migration 148 has not run on this database yet. The
+            # widened source_type/target CHECKs are what admit this row at all,
+            # so a violation here is a schema-readiness fact, not bad input.
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_nws_nearby_shortlist(
+        self,
+        user_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return this advisor's shortlisted NWS records, newest first."""
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            # READ path: never provision the 'ria' persona here — doing so
+            # outside a transaction would durably resurrect a deleted advisor's
+            # persona. Same reasoning as list_marketplace_investor_actions.
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=False)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  actor_user_id,
+                  ria_profile_id,
+                  source_type,
+                  target_key,
+                  target_user_id,
+                  public_profile_id,
+                  action,
+                  status,
+                  target_snapshot,
+                  metadata,
+                  created_at,
+                  updated_at
+                FROM marketplace_investor_actions
+                WHERE actor_user_id = $1
+                  AND source_type = 'nws_nearby'
+                  AND status = 'shortlisted'
+                ORDER BY updated_at DESC
+                LIMIT $2
+                """,
+                user_id,
+                max(1, min(limit, 200)),
             )
             return [self._marketplace_investor_action_row(row) for row in rows]
         except (

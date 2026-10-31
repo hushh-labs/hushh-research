@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,17 +18,18 @@ const mocks = vi.hoisted(() => ({
   },
   loadSavedLocations: vi.fn(),
   addSavedLocation: vi.fn(),
+  favoriteSavedLocation: vi.fn(),
   removeSavedLocation: vi.fn(),
   updateSavedLocationAddress: vi.fn(),
   captureCurrentPosition: vi.fn(),
   reverseGeocode: vi.fn(),
-  getMapState: vi.fn(),
+  getMapPreferences: vi.fn(),
   updateMapPreferences: vi.fn(),
   toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: mocks.authUser }),
+  useAuth: () => ({ user: mocks.authUser, userId: mocks.authUser?.uid ?? null }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -35,7 +37,18 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
+  LOCATION_PKM_DOMAIN: "location",
   DuplicateSavedLocationError: class DuplicateSavedLocationError extends Error {},
+  // Real behaviour, not a stub: the modal opens on whatever this returns, and
+  // a stub would hide a label being pre-selected over a saved place.
+  defaultSavedLocationCategory: (
+    existing: ReadonlyArray<{ category: string }> = [],
+  ) => {
+    const taken = new Set(existing.map((location) => location.category));
+    if (!taken.has("home")) return "home";
+    if (!taken.has("work")) return "work";
+    return "other";
+  },
   duplicateSavedLocationMessage: (location: {
     category: string;
     label: string;
@@ -57,6 +70,7 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
     ) ?? null,
   loadSavedLocations: mocks.loadSavedLocations,
   addSavedLocation: mocks.addSavedLocation,
+  favoriteSavedLocation: mocks.favoriteSavedLocation,
   removeSavedLocation: mocks.removeSavedLocation,
   updateSavedLocationAddress: mocks.updateSavedLocationAddress,
   sortSavedLocationsForDisplay: (locations: Array<Record<string, unknown>>) =>
@@ -67,7 +81,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     captureCurrentPosition: mocks.captureCurrentPosition,
     reverseGeocode: mocks.reverseGeocode,
-    getMapState: mocks.getMapState,
+    getMapPreferences: mocks.getMapPreferences,
     updateMapPreferences: mocks.updateMapPreferences,
   },
 }));
@@ -118,9 +132,11 @@ vi.mock("sonner", () => ({
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import {
   forgetOneLocationControlPreference,
+  readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { DuplicateSavedLocationError } from "@/lib/one-location/saved-locations";
+import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 const HOME = {
   id: "home",
@@ -151,6 +167,7 @@ describe("SavedLocationsSection", () => {
     mocks.vault.vaultOwnerToken = "vault-owner-token";
     mocks.loadSavedLocations.mockReset().mockResolvedValue([HOME]);
     mocks.addSavedLocation.mockReset().mockResolvedValue([HOME]);
+    mocks.favoriteSavedLocation.mockReset();
     mocks.removeSavedLocation.mockReset().mockResolvedValue([]);
     mocks.updateSavedLocationAddress.mockReset().mockResolvedValue([HOME]);
     mocks.captureCurrentPosition.mockReset().mockResolvedValue({
@@ -164,11 +181,9 @@ describe("SavedLocationsSection", () => {
       name: null,
       countryCode: "IN",
     });
-    mocks.getMapState.mockReset().mockResolvedValue({
-      preferences: {
-        presenceMode: "ghost",
-        rendererConsentVersion: "google-maps-renderer-v1",
-      },
+    mocks.getMapPreferences.mockReset().mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
       freshnessSeconds: 60,
       markers: [],
     });
@@ -190,13 +205,45 @@ describe("SavedLocationsSection", () => {
       await screen.findByText("Kasturba Road, Bengaluru"),
     ).toBeInTheDocument();
     expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Encrypted in your vault."),
+    ).not.toBeInTheDocument();
+    const homeIcon = screen.getByTestId("saved-location-icon-home");
+    // Home uses the authored category accent; keep its white glyph paired
+    // with a colored background rather than a white foreground surface.
+    expect(homeIcon.className).toContain("bg-[color:var(--app-accent)]");
+    expect(homeIcon.className).toContain("text-white");
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
       userId: "user-123",
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner-token",
     });
-    expect(mocks.getMapState).toHaveBeenCalledWith("vault-owner-token");
+    expect(mocks.getMapPreferences).toHaveBeenCalledWith("vault-owner-token");
+  });
+
+  it("separates check-out saves while keeping existing custom places in favorites", async () => {
+    mocks.loadSavedLocations.mockResolvedValue([
+      HOME,
+      { ...HOME, id: "old-custom", category: "other", label: "Existing gym" },
+      { ...HOME, id: "checked-in", category: "other", label: "Coffee shop", savedFrom: "check_in" },
+    ]);
+    render(<SavedLocationsSection />);
+    await screen.findByText("Coffee shop");
+    const favorites = within(screen.getByRole("region", { name: "Favorite Places" }));
+    const checkedIn = within(screen.getByRole("region", { name: "Checked In Places" }));
+    expect(favorites.getByText("Home")).toBeInTheDocument();
+    expect(favorites.getByText("Existing gym")).toBeInTheDocument();
+    expect(favorites.queryByText("Coffee shop")).toBeNull();
+    expect(checkedIn.getByText("Coffee shop")).toBeInTheDocument();
+    expect(checkedIn.queryByText("Existing gym")).toBeNull();
+    expect(favorites.getByRole("button", { name: "Add place" })).toBeInTheDocument();
+    expect(checkedIn.queryByRole("button", { name: "Add place" })).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: /Coffee shop/ }));
+    fireEvent.click(checkedIn.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(mocks.removeSavedLocation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "checked-in" }),
+    ));
   });
 
   it("fails closed while the vault is locked", async () => {
@@ -213,6 +260,66 @@ describe("SavedLocationsSection", () => {
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
   });
 
+  it("shows the venue, address and visit date before expansion, then moves it to favorites", async () => {
+    const visit = {
+      ...HOME,
+      id: "visit",
+      category: "other",
+      label: "Dezzerto, Shop 9, Tower 1, Godrej Gre",
+      address: null,
+      savedFrom: "check_in",
+      checkedInAt: "2026-10-21T12:00:00.000Z",
+    };
+    mocks.loadSavedLocations.mockResolvedValue([HOME, visit]);
+    mocks.reverseGeocode.mockResolvedValue({ formattedAddress: "Shop 9, Tower 1, Godrej Green Cove, Pune" });
+    mocks.favoriteSavedLocation.mockResolvedValue([HOME, { ...visit, placeName: "Dezzerto", savedFrom: undefined }]);
+    render(<SavedLocationsSection />);
+    const region = await screen.findByRole("region", { name: "Checked In Places" });
+    const checkedIn = within(region);
+    expect(await checkedIn.findByText("Shop 9, Tower 1, Godrej Green Cove, Pune")).toBeInTheDocument();
+    expect(checkedIn.getByText("Dezzerto")).toBeInTheDocument();
+    expect(region.querySelector("time")).toHaveAttribute("datetime", visit.checkedInAt);
+    expect(region.querySelector("time")).toHaveAttribute("title", expect.stringContaining("Checked in on"));
+    expect(checkedIn.queryByText("Address unavailable")).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: /Dezzerto/ }));
+    expect(checkedIn.queryByRole("button", { name: "Edit" })).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: "Add to favorites" }));
+    await waitFor(() => expect(mocks.favoriteSavedLocation).toHaveBeenCalledWith({
+      context: { userId: "user-123", vaultKey: "vault-key", vaultOwnerToken: "vault-owner-token" },
+      id: "visit",
+    }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Favorite Places" })).getByText("Dezzerto")).toBeInTheDocument());
+    expect(checkedIn.queryByText("Dezzerto")).toBeNull();
+  });
+
+  it("uses a saved-date label for legacy visits and keeps recovery inside the vault session", async () => {
+    let resolveAddress!: (value: { formattedAddress: string }) => void;
+    mocks.reverseGeocode.mockReturnValue(new Promise((resolve) => { resolveAddress = resolve; }));
+    mocks.loadSavedLocations.mockResolvedValue([{ ...HOME, id: "legacy", category: "other", label: "Cafe, Shop 3, Pune", address: null, savedFrom: "check_in" }]);
+    const view = render(<SavedLocationsSection />);
+    expect(await screen.findByText("Shop 3, Pune")).toBeInTheDocument();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.reverseGeocode).toHaveBeenCalled());
+    mocks.vault.isVaultUnlocked = false;
+    mocks.vault.vaultKey = null;
+    mocks.vault.vaultOwnerToken = null;
+    view.rerender(<SavedLocationsSection />);
+    await act(async () => resolveAddress({ formattedAddress: "Private recovered address" }));
+    expect(screen.queryByText("Private recovered address")).toBeNull();
+    expect(screen.queryByText("Cafe")).toBeNull();
+  });
+
+  it("retries a legacy address after reconnecting and exposes manual recovery on failure", async () => {
+    const visit = { ...HOME, id: "legacy", category: "other", label: "Cafe, Shop 3, Pune", address: null, savedFrom: "check_in" };
+    mocks.loadSavedLocations.mockImplementation(async () => [{ ...visit }]);
+    mocks.reverseGeocode.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ formattedAddress: "Shop 3, Full street, Pune" });
+    render(<SavedLocationsSection />);
+    fireEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    expect(await screen.findByRole("button", { name: "Find address" })).toBeInTheDocument();
+    fireEvent(window, new Event("online"));
+    expect(await screen.findByText("Shop 3, Full street, Pune")).toBeInTheDocument();
+  });
+
   it("does not request device location while Location is paused", async () => {
     updateOneLocationControlState("user-123", (current) => ({
       ...current,
@@ -224,9 +331,20 @@ describe("SavedLocationsSection", () => {
     await screen.findByText("Kasturba Road, Bengaluru");
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
     expect(
-      screen.getByText(/resume location before capturing another saved place/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/resume location to save another place/i),
+    ).not.toBeInTheDocument();
     expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("activates the shared toggle as soon as Add place captures a location", async () => {
+    render(<SavedLocationsSection />);
+    await screen.findByText("Kasturba Road, Bengaluru");
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /add place/i }));
+    await screen.findByTestId("save-location-modal");
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(true);
+    expect(mocks.captureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mocks.addSavedLocation).not.toHaveBeenCalled();
   });
 
   it("discards a saved-place capture when Location is paused in flight", async () => {
@@ -263,9 +381,7 @@ describe("SavedLocationsSection", () => {
       await Promise.resolve();
     });
 
-    expect(
-      screen.queryByTestId("save-location-modal"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("save-location-modal")).not.toBeInTheDocument();
     expect(mocks.reverseGeocode).not.toHaveBeenCalled();
   });
 
@@ -297,7 +413,7 @@ describe("SavedLocationsSection", () => {
   it("captures, resolves, and saves a new place through encrypted PKM", async () => {
     mocks.loadSavedLocations.mockResolvedValueOnce([]);
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     expect(
@@ -315,10 +431,10 @@ describe("SavedLocationsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     expect(
-      await screen.findByRole("heading", { name: "Add your address details" }),
+      await screen.findByRole("heading", { name: "Address details" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B, Tower 2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -339,8 +455,90 @@ describe("SavedLocationsSection", () => {
           // buildSavedLocationAddress folds the entrance details into the
           // pinned map address (postal code already present, so not repeated).
           address: `Flat 4B, Tower 2, ${PICKED_ENTRANCE_ADDRESS}`,
+          // Stored alongside so a later edit rebuilds this line from its
+          // parts. Composing on top of the composed result is what made an
+          // edited address grow its own entrance details a second time.
+          addressBase: PICKED_ENTRANCE_ADDRESS,
+          addressDetails: {
+            houseOrFlat: "Flat 4B, Tower 2",
+            buildingColor: "",
+            landmark: "",
+            postalCode: "110001",
+          },
         },
       }),
+    );
+
+    // QA: "confirm pin karke bhi agar main apna address save kar rahi hun, aur
+    // main screen par ja rahi hun, wahan toggle off kyun dikha raha hai?"
+    //
+    // The header switch reads `selfPreviewEnabled || nearbyPresenceActive ||
+    // grants`. Saving a place went through none of those, so someone who had
+    // just granted permission, dragged a pin onto their own door and named it
+    // Home was shown "Location off" on the very next screen. Confirming a pin
+    // is the person saying where they are; the control has to agree.
+    await waitFor(() =>
+      expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("opens the add sheet from a chat offer's in-memory prefill and saves with its own writer", async () => {
+    // "Add as Work in Location" from chat: the category arrives in memory only;
+    // the owner still pins the place and saves it here.
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    stageReservedOfferPrefill({
+      ownerUserId: "user-123",
+      ownerFeature: "location",
+      prefill: { kind: "location_saved_place", category: "work", label: "" },
+    });
+    render(<SavedLocationsSection />);
+    await waitFor(() => expect(mocks.captureCurrentPosition).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm pin" }));
+    await screen.findByRole("heading", { name: "Address details" });
+    // Without the offer a first place opens on Home (negative control above).
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.change(screen.getByLabelText(/House or flat/), { target: { value: "Floor 3" } });
+    fireEvent.click(screen.getByRole("button", { name: /save location/i }));
+    await waitFor(() =>
+      expect(mocks.addSavedLocation).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.objectContaining({ category: "work" }) }),
+      ),
+    );
+  });
+
+  it("opens no add sheet when no offer is waiting (negative control)", async () => {
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    render(<SavedLocationsSection />);
+    await screen.findByText(/no places yet/i);
+    expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("cannot turn the preview on while Location is paused", async () => {
+    // The preview flag is the ONLY thing the save writes, and pause outranks
+    // it. Someone who paused Location is told to resume it first, so no place
+    // is saved and nothing flips the header switch back on behind them.
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    render(<SavedLocationsSection />);
+    await screen.findByText(/no places yet/i);
+
+    updateOneLocationControlState("user-123", (current) => ({
+      ...current,
+      paused: true,
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: /add place/i }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Resume Location before adding a saved place.",
+      ),
+    );
+    expect(mocks.addSavedLocation).not.toHaveBeenCalled();
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(
+      false,
     );
   });
 
@@ -356,9 +554,9 @@ describe("SavedLocationsSection", () => {
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -369,7 +567,7 @@ describe("SavedLocationsSection", () => {
       "This place is already saved as Home. Choose a different place or remove it first.",
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 
@@ -381,16 +579,16 @@ describe("SavedLocationsSection", () => {
       ),
     );
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     await screen.findByRole("dialog", {
       name: /pin your entrance|before google maps opens/i,
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -402,7 +600,7 @@ describe("SavedLocationsSection", () => {
       ),
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 
@@ -410,7 +608,11 @@ describe("SavedLocationsSection", () => {
     render(<SavedLocationsSection />);
     await screen.findByText("Kasturba Road, Bengaluru");
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove Home" }));
+    // Edit and Remove now live inside the row, behind its disclosure arrow --
+    // they were crowding every row for the two moments a year anyone needs
+    // them, and the address had no room left to be read.
+    fireEvent.click(screen.getByRole("button", { name: /Home/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
     await waitFor(() =>
       expect(mocks.removeSavedLocation).toHaveBeenCalledWith({

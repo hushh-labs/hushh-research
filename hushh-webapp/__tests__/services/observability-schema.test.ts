@@ -1,8 +1,154 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
+import {
+  LIVE_MEMORY_SOURCE_KINDS,
+} from "@/lib/observability/events";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
 describe("observability schema", () => {
+  it.each(["private note", "1234567890123", 10, null])("drops invalid native build metadata %s", (app_build) => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build,
+    } as any);
+    expect(result.droppedKeys).toContain("app_build");
+    expect(result.sanitized.app_build).toBeUndefined();
+  });
+  it("preserves a bounded numeric build", () => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build: "10",
+    } as any);
+    expect(result.sanitized.app_build).toBe("10");
+  });
+  it.each([
+    ["one_memory_action", "capture_saved", "pkm"],
+    ["one_wallet_action", "card_added", "one_wallet"],
+    ["one_calendar_action", "connected", "one_calendar"],
+    ["one_kyc_action", "reply_sent", "one_kyc"],
+    ["one_crm_action", "record_created", "connected_systems"],
+  ] as const)("keeps only bounded %s feature action metadata", (eventName, action, routeId) => {
+    const result = validateAndSanitizeEvent(eventName, {
+      env: "production", platform: "ios", event_category: "feature",
+      app_version: "1.1.0", route_id: routeId, action, result: "success",
+      email: "person@example.test", wallet_token: "do-not-export",
+      workflow_id: "do-not-export",
+    } as any);
+    expect(result.sanitized).toMatchObject({ route_id: routeId, action, result: "success" });
+    expect(result.droppedKeys).toEqual(expect.arrayContaining(["email", "wallet_token", "workflow_id"]));
+    expect(JSON.stringify(result.sanitized)).not.toContain("example.test");
+  });
+
+  it.each([
+    "one_memory_action",
+    "one_wallet_action",
+    "one_calendar_action",
+    "one_kyc_action",
+    "one_crm_action",
+  ] as const)("rejects undeclared %s action and result values at runtime", (eventName) => {
+    const result = validateAndSanitizeEvent(eventName, {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "1.1.0",
+      route_id: "one_home",
+      action: "invented_action",
+      result: "invented_result",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.fatal).toBe(true);
+    expect(result.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+    expect(result.sanitized).not.toHaveProperty("action");
+    expect(result.sanitized).not.toHaveProperty("result");
+  });
+
+  it.each([undefined, "omitted"])(
+    "fatally rejects governed events whose required enums are %s",
+    (variant) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "feature",
+        app_version: "1.1.0",
+        route_id: "pkm",
+        action: "detail_edited",
+        result: "success",
+      };
+      if (variant === "omitted") delete payload.action;
+      else payload.action = undefined;
+
+      const result = validateAndSanitizeEvent("one_memory_action", payload as never);
+
+      expect(result.fatal).toBe(true);
+      expect(result.droppedKeys).toContain("action");
+    },
+  );
+
+  it("accepts bounded Gmail terminal-sync outcomes and rejects arbitrary stages", () => {
+    const valid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "complete",
+      result: "success",
+    });
+    const invalid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_job_123",
+      result: "success",
+    } as any);
+
+    expect(valid.ok).toBe(true);
+    expect(valid.fatal).toBe(false);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.fatal).toBe(true);
+    expect(invalid.sanitized).not.toHaveProperty("action");
+  });
+
+  it("keeps Gmail connection stage and result enums bounded at runtime", () => {
+    const invalid = validateAndSanitizeEvent("gmail_connect_started", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_specific_stage",
+      result: "error",
+    } as any);
+
+    expect(invalid.ok).toBe(false);
+    expect(invalid.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+  });
+
+  it.each([
+    ["gmail_disconnect_result", undefined, "invented_result"],
+    ["gmail_sync_requested", "auto", "ok"],
+    ["gmail_receipts_loaded", undefined, "invented_result"],
+  ] as const)(
+    "fatally rejects undeclared %s outcome values",
+    (eventName, action, resultValue) => {
+      const payload: Record<string, unknown> = {
+        env: "production",
+        platform: "web",
+        event_category: "system",
+        app_version: "1.1.0",
+        result: resultValue,
+      };
+      if (action) payload.action = action;
+
+      const result = validateAndSanitizeEvent(eventName, payload as never);
+
+      expect(result.ok).toBe(false);
+      expect(result.fatal).toBe(true);
+      expect(result.sanitized).not.toHaveProperty("result");
+      if (action) expect(result.sanitized).not.toHaveProperty("action");
+    },
+  );
   it("accepts metadata-only api payloads", () => {
     const result = validateAndSanitizeEvent("api_request_completed", {
       env: "uat",
@@ -184,6 +330,129 @@ describe("observability schema", () => {
     expect(result.sanitized.total_fact_count_bucket).toBe("50_249");
   });
 
+  /**
+   * The emergency alert is the most sensitive thing this product instruments.
+   * It is worth measuring — an SOS that silently reaches nobody is the worst
+   * bug we could ship — but only ever as counts. This test is the guard that
+   * keeps a future "just add the message so we can debug it" from landing.
+   */
+  it("keeps the emergency SOS event to counts and drops the message, place and people", () => {
+    const result = validateAndSanitizeEvent("one_location_sos_triggered", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "error",
+      selected_count: 3,
+      reached_count: 0,
+      unreachable_count: 3,
+      has_note: true,
+      // None of these may ever reach analytics.
+      message: "I'm not safe, come get me",
+      latitude: 37.7749,
+      longitude: -122.4194,
+      recipient_names: "Mom, Dad",
+      phone: "+16505550101",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("message");
+    expect(result.droppedKeys).toContain("latitude");
+    expect(result.droppedKeys).toContain("longitude");
+    expect(result.droppedKeys).toContain("recipient_names");
+    expect(result.droppedKeys).toContain("phone");
+    // The counts that make the alert falsifiable survive.
+    expect(result.sanitized.selected_count).toBe(3);
+    expect(result.sanitized.reached_count).toBe(0);
+    expect(result.sanitized.has_note).toBe(true);
+  });
+
+  it("accepts the check-in and Circle events without naming the Circle", () => {
+    const checkIn = validateAndSanitizeEvent("one_location_check_in_completed", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "success",
+      selected_count: 2,
+      success_count: 2,
+      failure_count: 0,
+      circle_targeted: true,
+    });
+    expect(checkIn.ok).toBe(true);
+    expect(checkIn.droppedKeys).toEqual([]);
+    expect(checkIn.sanitized.circle_targeted).toBe(true);
+
+    const checkOut = validateAndSanitizeEvent("one_location_check_out_completed", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location_check_in",
+      result: "success",
+    });
+    expect(checkOut.ok).toBe(true);
+    expect(checkOut.droppedKeys).toEqual([]);
+
+    const unsafeCheckOut = validateAndSanitizeEvent("one_location_check_out_completed", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location_check_in",
+      result: "success",
+      place_name: "private venue",
+      latitude: 37.4275,
+    } as any);
+    expect(unsafeCheckOut.ok).toBe(false);
+    expect(unsafeCheckOut.droppedKeys).toEqual(expect.arrayContaining(["place_name", "latitude"]));
+
+    const circle = validateAndSanitizeEvent("one_location_circle_created", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "success",
+      circle_kind: "family",
+      // A Circle name is the user's own words and routinely names a household.
+      circle_name: "The Sharmas",
+    } as any);
+    expect(circle.ok).toBe(false);
+    expect(circle.droppedKeys).toContain("circle_name");
+    expect(circle.sanitized.circle_kind).toBe("family");
+
+    const journey = validateAndSanitizeEvent("one_location_journey_action", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "connect",
+      action: "circle_member_invited",
+      result: "success",
+      entry_surface: "connect_circles",
+      target_type: "circle",
+      circle_kind: "friends",
+      count_bucket: "2_3",
+      circle_name: "Weekend trip",
+      request_id: "request-secret",
+      public_token: "share-secret",
+    } as any);
+    expect(journey.ok).toBe(false);
+    expect(journey.droppedKeys).toEqual(
+      expect.arrayContaining(["circle_name", "request_id", "public_token"]),
+    );
+    expect(journey.sanitized).toMatchObject({
+      action: "circle_member_invited",
+      entry_surface: "connect_circles",
+      target_type: "circle",
+      circle_kind: "friends",
+      count_bucket: "2_3",
+    });
+  });
+
   it("drops sensitive fields from cache performance events", () => {
     const result = validateAndSanitizeEvent("cache_resource_resolved", {
       env: "uat",
@@ -208,5 +477,114 @@ describe("observability schema", () => {
     expect(result.droppedKeys).toContain("pkm_payload");
     expect(result.sanitized.resource_class).toBe("pkm_projection");
     expect(result.sanitized.freshness).toBe("fresh");
+  });
+});
+
+const EVENT_MATRIX = path.resolve(
+  __dirname, "../../../docs/reference/operations/observability-event-matrix.md",
+);
+/** Every key the Live Memory emitter sends. The matrix must document each one. */
+const LIVE_MEMORY_SOURCE_PARAMS = [
+  "kind", "outcome", "lag_bucket", "pending_bucket", "retry_bucket",
+] as const;
+
+/**
+ * Live Memory telemetry is the one place the encrypted source pipeline talks
+ * to analytics. It may say which kind was checked and how long a change
+ * waited, as bands. It may never say which record, what value, whose vault
+ * or when. These tests keep the schema and the event matrix in step.
+ */
+describe("live memory source verification contract", () => {
+  it("keeps the bands and drops anything that could name a record, a value, an owner or a time", () => {
+    const result = validateAndSanitizeEvent("live_memory_source_verified", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      kind: "consent",
+      outcome: "verified",
+      lag_bucket: "1m_5m",
+      pending_bucket: "2_5",
+      retry_bucket: "0",
+      // None of these may ever reach analytics.
+      record_id: "grant-7f3a",
+      source_value: "attr.travel.visits",
+      owner_user_id: "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+      verified_at: "2026-10-15T10:00:00.000Z",
+      lag_ms: 42_000,
+      pending_count: 3,
+    } as any);
+
+    expect(result.fatal).toBe(false);
+    expect(result.sanitized).toEqual({
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      kind: "consent",
+      outcome: "verified",
+      lag_bucket: "1m_5m",
+      pending_bucket: "2_5",
+      retry_bucket: "0",
+    });
+    expect(result.droppedKeys).toEqual(expect.arrayContaining([
+      "record_id", "source_value", "owner_user_id", "verified_at", "lag_ms", "pending_count",
+    ]));
+    expect(JSON.stringify(result.sanitized)).not.toMatch(/grant-7f3a|attr\.|UWHGe|2026-|42000/);
+  });
+
+  const valid = {
+    env: "uat",
+    platform: "web",
+    event_category: "system",
+    app_version: "2.1.0",
+    kind: "document_earning",
+    outcome: "capped",
+    lag_bucket: "unknown",
+    pending_bucket: "gt_20",
+    retry_bucket: "1",
+  } as const;
+
+  it("keeps every source kind, even one as long as an opaque id", () => {
+    // `document_request_payment` is 24 characters, the length at which the
+    // generic rule treats a string as an opaque id and drops it.
+    for (const kind of LIVE_MEMORY_SOURCE_KINDS) {
+      const result = validateAndSanitizeEvent("live_memory_source_verified", { ...valid, kind });
+      expect(result.fatal).toBe(false);
+      expect(result.droppedKeys).toEqual([]);
+      expect(result.sanitized.kind).toBe(kind);
+    }
+  });
+
+  it("drops the whole event when a dimension is missing or leaves its closed set", () => {
+    expect(validateAndSanitizeEvent("live_memory_source_verified", valid).fatal).toBe(false);
+
+    for (const leak of [
+      { kind: "grant-7f3a" }, // a record id where the kind goes
+      { outcome: "Error: connection refused" }, // an error message
+      { pending_bucket: 3 }, // an exact count where a band goes
+      { lag_bucket: "42000" }, // an exact lag
+      { retry_bucket: undefined }, // a band left out
+    ]) {
+      const result = validateAndSanitizeEvent(
+        "live_memory_source_verified", { ...valid, ...leak } as any,
+      );
+      expect(result.fatal).toBe(true);
+    }
+  });
+
+  it("is listed in the event matrix with every emitted param and its privacy note", () => {
+    const matrix = readFileSync(EVENT_MATRIX, "utf8");
+    const row = matrix.split("\n").find((line) => line.startsWith("| `live_memory_source_verified` |"));
+    expect(row).toBeDefined();
+    const paramsCell = row!.split("|").map((cell) => cell.trim())[3];
+    for (const param of LIVE_MEMORY_SOURCE_PARAMS) expect(paramsCell).toContain(`\`${param}\``);
+    const section = matrix.slice(
+      matrix.indexOf("## Live Memory Source Checks"),
+      matrix.indexOf("## Declared but Not Currently Emitted"),
+    );
+    expect(section).toContain(
+      "must never carry an owner id, a record id, a value, a timestamp, an exact count",
+    );
   });
 });

@@ -1,0 +1,676 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_document_delivery",
+  "surface_title": "Protected document delivery",
+  "docs_references": [
+    "docs/reference/architecture/api-contracts.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/consent",
+        "/one/documents/open"
+      ],
+      "screens": [
+        "consents",
+        "one_documents"
+      ],
+      "hidden_navigable": false,
+      "navigation_prerequisites": [
+        "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+      ]
+    },
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "document.hosted.choose",
+      "label": "Choose PDFs from Drive",
+      "meaning": "The owner selects source file metadata with the official Drive picker. This does not authorize a hosted copy.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-choose"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.prepare",
+      "label": "Authorize encrypted copies",
+      "meaning": "The owner reviews exact PDFs, price, deadline and the separate copy disclosure, then explicitly authorizes local source reads, watermarked previews, encryption and ciphertext upload.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-prepare"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.final_approve",
+      "label": "Approve prepared copies",
+      "meaning": "The owner explicitly confirms the immutable encrypted document package and final delivery terms before the recipient can pay.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-final-approve"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.pay",
+      "label": "Accept document terms and pay",
+      "meaning": "The recipient explicitly accepts the approved version, price, deadline and rights, proves possession of the exact recipient key, then opens checkout.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-pay"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.preview",
+      "label": "Preview protected document",
+      "meaning": "The recipient explicitly opens a locally decrypted watermarked PDF preview under a current paid grant. Preview does not download a file.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-preview"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.download_copy",
+      "label": "Download watermarked copy",
+      "meaning": "The recipient explicitly downloads the locally decrypted watermarked PDF under current access. A completed browser handoff does not prove the file was saved.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-download-copy"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.download_original",
+      "label": "Download original document",
+      "meaning": "The recipient explicitly downloads the exact approved original PDF, preserving its bytes and signatures. Downloaded copies cannot be recalled.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-download-original"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.close_preview",
+      "label": "Close document preview",
+      "meaning": "Closes the active preview layer and erases its in-memory decrypted bytes, returning to the document list.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-close-preview"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.recovery_request",
+      "label": "Request document key recovery",
+      "meaning": "The recipient explicitly sets up or recovers a vault-backed connector key and proves possession to request owner-authorized rewrapping of the existing purchase.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-recovery-request"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.repair",
+      "label": "Repair recipient document access",
+      "meaning": "The owner explicitly rewraps the unchanged encrypted package to the recipient replacement key after verifying the paid package; this creates no extra charge.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-repair"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.revoke",
+      "label": "Stop hosted document access",
+      "meaning": "The owner explicitly ends future hosted reads. Previously downloaded copies cannot be recalled.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.refresh",
+      "label": "Refresh document status",
+      "meaning": "Reads current delivery status and activity without changing consent, payment or the document package.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-refresh"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.revoke_drive",
+      "label": "Stop Drive access",
+      "meaning": "The owner explicitly requests removal only of app-created Drive permissions. Existing access remains and reconciliation may be pending. Hosted One access is unchanged.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke-drive"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.revoke_both",
+      "label": "Stop both document channels",
+      "meaning": "The owner explicitly stops future One hosted access and requests removal only of app-created Drive permissions. Drive reconciliation may remain pending; downloaded copies cannot be recalled.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke-both"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.open_link",
+      "label": "Open protected One link",
+      "meaning": "Opens the request-bound HTTPS One reader after final owner approval. The link grants no access, contains no file key, and still requires the approved recipient One account and unlocked vault.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible protected-link control binds the current approved request and checks the signed-in session. Link sharing grants no new access.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-open-link",
+        "document-copy-open-link"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.share_link",
+      "label": "Share protected One link",
+      "meaning": "Explicitly hands the request-bound protected One URL to the existing share sheet or clipboard. Forwarding grants no access or decryption authority and includes no file key.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible protected-link control binds the current approved request and checks the signed-in session. Link sharing grants no new access.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-share-link"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.hosted.load_activity",
+      "label": "Load newer document activity",
+      "meaning": "The owner reads one bounded page of activity after the last loaded event. Distinct visits remain separate. This changes no access, payment, consent or document package.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible activity control retains the current owner session and validated sequence cursor.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-load-activity"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.preview",
+      "label": "Preview One copy",
+      "meaning": "Displays an approved PDF copy in a safe canvas with a visual watermark. Original bytes are unchanged; this does not save a file.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-preview"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.download",
+      "label": "Download original",
+      "meaning": "Downloads the original file only after an explicit click and a fresh entitlement check. Native uses the existing system share sheet; cancellation does not mean saved.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-download"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.close_preview",
+      "label": "Back to files",
+      "meaning": "Closes the document preview and clears its readable bytes before returning to the file list. Also cancels the pending One access confirmation without revoking access.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-close-preview",
+        "document-copy-cancel-revoke"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.refresh",
+      "label": "Refresh One copy",
+      "meaning": "Reads current copy preparation and access status without creating another request or payment. The owner can open, refresh or paginate the private activity list. Requested previews and completed transfers do not prove display or saving.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-refresh",
+        "document-copy-activity",
+        "document-copy-refresh-activity",
+        "document-copy-more-activity"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.revoke",
+      "label": "Stop One access",
+      "meaning": "The owner confirms stopping hosted One access. Drive access and files already saved are separate.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-revoke",
+        "document-copy-confirm-revoke"
+      ],
+      "state_exposure": []
+    }
+  ],
+  "search": {}
+}

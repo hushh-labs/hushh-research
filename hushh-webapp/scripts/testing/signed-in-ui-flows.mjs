@@ -1,5 +1,3 @@
-import fs from "node:fs";
-
 /**
  * Signed-in UI interaction flows shared by Playwright route verification
  * and native iOS UI interaction audit.
@@ -7,14 +5,14 @@ import fs from "node:fs";
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
  * - ensure_ria_workspace: {}
- * - click_bottom_nav: { label: "One" | "Connect" | "Search" }
+ * - click_bottom_nav: { label: "Chat" | "One" | "Connect" | "Feed" }
  * - click_top_tab: { label: string }
  * - click_shell_action: { ariaLabel: string }
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
- * - open_command_palette: { timeoutMs?: number }
  * - navigate_route: { route: string }
+ * - assert_route: { route: string }
  * - clear_import_background: {}
  * - upload_test_asset: { assetPath: string, fileName: string, mimeType: string }
  * - wait_button: { name: string, regex?: boolean, timeoutMs?: number }
@@ -22,8 +20,7 @@ import fs from "node:fs";
  * - assert_no_text: { value: string, regex?: boolean, timeoutMs?: number }
  * - assert_no_persona_mismatch_prompt: { timeoutMs?: number }
  * - assert_voice_control_visible: { controlId: string, timeoutMs?: number }
- * - wait_voice_mode: { modes: string[] | string, timeoutMs?: number, allowPermissionFallback?: boolean }
- * - end_voice_if_active: { timeoutMs?: number }
+ * - wait_command_capture_state: { states: string[] | string, timeoutMs?: number }
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
@@ -50,38 +47,21 @@ export const TERMINAL_DATA_STATES = [
 const KAI_MARKET_ROUTE = "/one/kai";
 const KAI_PORTFOLIO_ROUTE = `${KAI_MARKET_ROUTE}?tab=portfolio`;
 const KAI_ANALYSIS_ROUTE = `${KAI_MARKET_ROUTE}?tab=analysis`;
-const locationOnboardingContract = JSON.parse(
-  fs.readFileSync(
-    new URL("../../lib/onboarding/one-location-onboarding.contract.json", import.meta.url),
-    "utf8",
-  ),
-);
-const LOCATION_ONBOARDING_CHECKPOINTS = locationOnboardingContract.screens.map(
-  (screen) => screen.testId,
-);
-
 export const UI_FLOWS = [
   {
-    id: "native-reviewer-location-intro-fresh-session",
+    id: "native-reviewer-location-setup-handoff",
     route: "/one/setup/location",
-    description: "Location setup traverses every screen once without mutating reviewer capability state",
-    watchdog: {
-      checkpoints: LOCATION_ONBOARDING_CHECKPOINTS,
-      maxCheckpointRegressions: 0,
-      maxNoProgressMs: 20_000,
-    },
+    description:
+      "A completed reviewer admits the Location capability route without replaying unrelated setup; completed Location resolves to its workspace",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "navigate_route", route: "/one/setup/location" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
-      { type: "click_button", name: "Get started" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Add my people" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      { type: "click_button", name: "Next" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
-      { type: "click_button", name: "Continue" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[4] },
+      {
+        type: "wait_beacon",
+        routeIds: ["/one/location", "/one/setup/location"],
+        dataStates: TERMINAL_DATA_STATES,
+        timeoutMs: 60000,
+      },
     ],
   },
   {
@@ -115,8 +95,8 @@ export const UI_FLOWS = [
         dataStates: ["loaded"],
         timeoutMs: 60000,
       },
-      { type: "wait_button", name: "Start debate", timeoutMs: 60000 },
-      { type: "click_button", name: "Start debate" },
+      { type: "wait_button", name: "Start analysis debate", timeoutMs: 60000 },
+      { type: "click_button", name: "Start analysis debate" },
       {
         type: "assert_visible_testid",
         testId: "kai-analysis-active-run",
@@ -195,13 +175,17 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-profile",
-    route: "/one/profile",
-    description: "Profile tab from shell",
+    route: "/one",
+    description: "Profile pane from the One shell, then recursive Account panel",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_shell_action", ariaLabel: "Open Profile" },
-      { type: "wait_beacon", routeIds: ["/one/profile"] },
-      { type: "assert_visible_testid", testId: "profile-primary" },
+      { type: "assert_visible_testid", testId: "profile-pane" },
+      { type: "assert_text", value: "Your account" },
+      { type: "click_button", name: "Your account" },
+      { type: "assert_text", value: "Email, phone, and sign-in." },
+      { type: "assert_url_includes", value: "profile_pane=1" },
+      { type: "assert_url_includes", value: "profile_panel=account" },
     ],
   },
   {
@@ -355,7 +339,7 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
   id: ONE_VOICE_NATIVE_CONTROL_FLOW_ID,
   route: "/one/kai",
   description:
-    "One Voice native control smoke: start realtime voice, observe state, and recover/end",
+    "Talk to One command capture smoke: start, observe capture, cancel, and return idle",
   stepTimeoutMs: 90000,
   steps: [
     { type: "ensure_persona", persona: "investor" },
@@ -377,17 +361,23 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
       controlId: "one_voice_agent_bar_start",
     },
     {
-      type: "wait_voice_mode",
-      modes: ["opening", "listening", "understanding", "speaking", "error"],
-      timeoutMs: 90000,
-      allowPermissionFallback: true,
-    },
-    { type: "end_voice_if_active", timeoutMs: 2000 },
-    {
-      type: "wait_voice_mode",
-      modes: ["idle", "error"],
+      type: "wait_command_capture_state",
+      states: ["starting", "recording"],
       timeoutMs: 30000,
-      allowPermissionFallback: true,
+    },
+    {
+      type: "assert_voice_control_visible",
+      controlId: "one_location_command_cancel_capture",
+      timeoutMs: 10000,
+    },
+    {
+      type: "click_voice_control",
+      controlId: "one_location_command_cancel_capture",
+    },
+    {
+      type: "wait_command_capture_state",
+      states: "idle",
+      timeoutMs: 10000,
     },
   ],
 };

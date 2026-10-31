@@ -5,6 +5,10 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
+import {
+  computeStatementImportId,
+  upsertStatementSnapshot,
+} from "@/lib/kai/brokerage/statement-import-identity";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 
@@ -114,7 +118,9 @@ export class FinanceSetupDraftService {
     const portfolio = asRecord(draft.portfolio);
     const accountInfo = asRecord(portfolio.account_info);
     const existingStatementPeriodEnd = text(accountInfo.statement_period_end);
-    const snapshotId = `setup_${Date.now()}`;
+    // The same id the review save derives, so a statement committed here and
+    // again from the review (or by a retried Finish) stays one snapshot.
+    const snapshotId = await computeStatementImportId(portfolio);
 
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
@@ -129,7 +135,6 @@ export class FinanceSetupDraftService {
       build: (context) => {
         const current = asRecord(context.currentDomainData);
         const existingDocuments = asRecord(current.documents);
-        const existingStatements = asArray(existingDocuments.statements);
         const canonicalPortfolio: FinancialRecord = {
           ...portfolio,
           source_metadata: {
@@ -166,7 +171,7 @@ export class FinanceSetupDraftService {
             setup_staged: true,
           },
         };
-        const statements = [snapshot, ...existingStatements].slice(0, 25);
+        const statements = upsertStatementSnapshot(existingDocuments.statements, snapshot);
         const documents: FinancialRecord = {
           ...existingDocuments,
           schema_version: 1,
@@ -185,7 +190,7 @@ export class FinanceSetupDraftService {
           sources: {
             ...sources,
             active_source: "statement",
-            statement: buildStatementSource(current, statements.map(asRecord), snapshotId, savedAt),
+            statement: buildStatementSource(current, statements, snapshotId, savedAt),
           },
           updated_at: savedAt,
         };

@@ -5,18 +5,20 @@
  * Wraps the GitHub Actions workflow "Release iOS to App Store"
  * (.github/workflows/release-ios-appstore.yml): it resolves the release SHA
  * (the current tip of origin/main by default — i.e. what is live), asks for an
- * explicit confirmation, dispatches the workflow with `gh workflow run`, then
+ * explicit confirmation, dispatches through GitHub's versioned REST API, then
  * streams the run with `gh run watch`.
  *
- * The Apple-facing work (build the UAT-backed app → sign with production APNs
+ * The Apple-facing work (build the selected backend's app → sign with production APNs
  * entitlements → archive → upload to App Store Connect → set What's New →
  * attach the build → optionally submit for review) all runs on the GitHub macOS
  * runner, because GCP has no macOS instances and local builds hang inside iCloud
  * Drive. This script is the thin, auditable dispatcher.
  *
- * BACKEND: the public App Store build ships the SAME UAT backend + UAT Firebase
- * (hushh-pda-uat) as TestFlight — the latest frontend+backend that is live on
- * UAT. It is NOT built against a separate production backend.
+ * BACKEND: `--backend uat` (default) ships the same UAT backend + shared Firebase
+ * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight. `--backend
+ * production` maps to the workflow's `backend_target=production`: the binary
+ * talks to one.hussh.ai and the production API, with the same shared Firebase
+ * identity.
  *
  * SAFETY / IRREVERSIBILITY
  *   By default this prepares the release up to — but NOT including — the final,
@@ -30,6 +32,8 @@
  *   node scripts/release/dispatch-ios-appstore.mjs                 # prepare-only, SHA=origin/main
  *   node scripts/release/dispatch-ios-appstore.mjs --sha <sha>     # pin an explicit green SHA
  *   node scripts/release/dispatch-ios-appstore.mjs --dry-run       # archive+sign only, no upload
+ *   node scripts/release/dispatch-ios-appstore.mjs --backend production  # binary talks to production
+ *   node scripts/release/dispatch-ios-appstore.mjs --marketing-version 1.4.1  # packaging version; source SHA stays pinned
  *   node scripts/release/dispatch-ios-appstore.mjs --whats-new "..."  # App Store release notes for this version
  *   node scripts/release/dispatch-ios-appstore.mjs --notes "..."   # annotate the run summary
  *   node scripts/release/dispatch-ios-appstore.mjs --submit --ack-blockers   # IRREVERSIBLE one-click public submit
@@ -39,6 +43,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
 
 const WORKFLOW = "Release iOS to App Store";
 const REF = "main";
@@ -48,23 +53,35 @@ function fail(message) {
   process.exit(1);
 }
 
-function run(cmd, args, { capture = false } = {}) {
+function run(cmd, args, { capture = false, input } = {}) {
   const res = spawnSync(cmd, args, {
-    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    stdio: capture ? [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] : "inherit",
     encoding: "utf8",
+    input,
   });
   if (res.error) fail(`Failed to run ${cmd}: ${res.error.message}`);
   return res;
 }
 
-function parseArgs(argv) {
+export function parseMarketingVersion(value) {
+  const version = String(value ?? "").trim();
+  if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)) {
+    throw new Error("--marketing-version requires three numeric components, for example 1.4.1.");
+  }
+  return version;
+}
+
+export function parseArgs(argv) {
   const opts = {
     sha: null,
     dryRun: false,
     submit: false,
     ackBlockers: false,
+    releaseAfterApproval: false,
     whatsNew: "",
     notes: "",
+    backend: "uat",
+    marketingVersion: null,
     yes: false,
     watch: true,
   };
@@ -83,11 +100,23 @@ function parseArgs(argv) {
       case "--ack-blockers":
         opts.ackBlockers = true;
         break;
+      case "--release-after-approval":
+        opts.releaseAfterApproval = true;
+        break;
       case "--whats-new":
         opts.whatsNew = argv[++i] ?? "";
         break;
       case "--notes":
         opts.notes = argv[++i] ?? "";
+        break;
+      case "--backend":
+        opts.backend = argv[++i] ?? "";
+        if (!["uat", "production"].includes(opts.backend)) {
+          fail(`--backend must be "uat" or "production", got "${opts.backend}".`);
+        }
+        break;
+      case "--marketing-version":
+        opts.marketingVersion = parseMarketingVersion(argv[++i]);
         break;
       case "--yes":
       case "-y":
@@ -100,7 +129,7 @@ function parseArgs(argv) {
       case "-h":
         console.log(
           "Usage: node scripts/release/dispatch-ios-appstore.mjs " +
-            "[--sha <sha>] [--dry-run] [--whats-new <text>] [--submit --ack-blockers] [--notes <text>] [--yes] [--no-watch]",
+            "[--sha <sha>] [--dry-run] [--backend uat|production] [--marketing-version <x.y.z>] [--whats-new <text>] [--submit --ack-blockers [--release-after-approval]] [--notes <text>] [--yes] [--no-watch]",
         );
         process.exit(0);
         break;
@@ -144,35 +173,32 @@ async function confirm(question) {
   return answer.trim().toLowerCase();
 }
 
-function findLatestRunId() {
-  // gh workflow run does not return the run id; grab the newest run for this workflow.
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const res = run(
-      "gh",
-      [
-        "run",
-        "list",
-        "--workflow",
-        WORKFLOW,
-        "--limit",
-        "1",
-        "--json",
-        "databaseId,headBranch,createdAt",
-      ],
-      { capture: true },
-    );
-    if (res.status === 0 && res.stdout.trim()) {
-      try {
-        const rows = JSON.parse(res.stdout);
-        if (rows.length > 0 && rows[0].databaseId) return String(rows[0].databaseId);
-      } catch {
-        /* retry */
-      }
-    }
-    // brief backoff for the run to register
-    spawnSync("sleep", ["2"]);
+export function dispatchedRunId(response, repository) {
+  const id = response.workflow_run_id;
+  if (!Number.isSafeInteger(id) || id <= 0 ||
+      response.html_url !== `https://github.com/${repository}/actions/runs/${id}`) {
+    throw new Error("Dispatch identity is unverified. Do not redispatch or select the newest run; inspect GitHub first.");
   }
-  return null;
+  return String(id);
+}
+
+export function requireCompletedRelease(result, runId) {
+  if (String(result.databaseId) !== runId || result.workflowName !== WORKFLOW ||
+      result.event !== "workflow_dispatch" || result.headBranch !== REF ||
+      result.status !== "completed" || result.conclusion !== "success") {
+    throw new Error(`Release run ${runId} has not been verified as completed successfully.`);
+  }
+}
+
+export function buildDispatchInputs(opts, sha) {
+  if ((opts.submit || opts.releaseAfterApproval) && opts.backend !== "production") {
+    throw new Error("Public App Store submission requires a production backend; legacy UAT customer transition must be verified before publication.");
+  }
+  const inputs = { sha, backend_target: opts.backend, dry_run: String(opts.dryRun), submit_for_review: String(opts.submit), release_after_approval: String(opts.releaseAfterApproval) };
+  if (opts.marketingVersion) inputs.marketing_version = parseMarketingVersion(opts.marketingVersion);
+  if (opts.whatsNew) inputs.whats_new = opts.whatsNew;
+  if (opts.notes) inputs.notes = opts.notes;
+  return inputs;
 }
 
 async function main() {
@@ -188,6 +214,7 @@ async function main() {
   if (opts.submit && opts.dryRun) {
     fail("--submit and --dry-run are mutually exclusive.");
   }
+  if (opts.releaseAfterApproval && !opts.submit) fail("--release-after-approval requires --submit --ack-blockers.");
 
   ensureGhReady();
   const sha = resolveSha(opts.sha);
@@ -203,8 +230,12 @@ async function main() {
   console.log(`  Workflow  : ${WORKFLOW}`);
   console.log(`  Ref       : ${REF}`);
   console.log(`  SHA       : ${sha}`);
-  console.log(`  Backend   : UAT (hushh-pda-uat) — same as TestFlight`);
+  console.log(`  Version   : ${opts.marketingVersion || "from the exact source project"}`);
+  console.log(
+    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hussh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
+  );
   console.log(`  Mode      : ${mode}`);
+  console.log(`  Publication: ${opts.releaseAfterApproval ? "automatic after Apple approval" : "manual; submission alone does not publish"}`);
   if (!opts.dryRun) {
     console.log(`  What's New : ${opts.whatsNew || "(workflow default)"}`);
   }
@@ -223,36 +254,34 @@ async function main() {
     }
   }
 
-  const ghArgs = ["workflow", "run", WORKFLOW, "--ref", REF, "-f", `sha=${sha}`];
-  if (opts.dryRun) ghArgs.push("-f", "dry_run=true");
-  if (opts.whatsNew) ghArgs.push("-f", `whats_new=${opts.whatsNew}`);
-  if (opts.notes) ghArgs.push("-f", `notes=${opts.notes}`);
-  // --ack-blockers is a local CLI safety gate (checked above); the workflow no
-  // longer takes an ack input — one-click submit is the single submit_for_review flag.
-  if (opts.submit) {
-    ghArgs.push("-f", "submit_for_review=true");
-  }
-
-  console.log(`\n$ gh ${ghArgs.join(" ")}\n`);
-  const dispatch = run("gh", ghArgs);
-  if (dispatch.status !== 0) fail("gh workflow run failed. See the output above.");
+  const repo = run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { capture: true });
+  const repository = repo.stdout.trim();
+  if (repo.status !== 0 || !/^[\w.-]+\/[\w.-]+$/.test(repository)) fail("Could not resolve the target repository.");
+  const inputs = buildDispatchInputs(opts, sha);
+  // The versioned dispatch API returns this dispatch's run ID. Never guess from
+  // a latest-run list: concurrent operators can otherwise watch the wrong release.
+  const dispatch = run("gh", ["api", "--method", "POST",
+    `repos/${repository}/actions/workflows/release-ios-appstore.yml/dispatches`,
+    "-H", "X-GitHub-Api-Version: 2026-03-10", "--input", "-"],
+    { capture: true, input: JSON.stringify({ ref: REF, inputs }) });
+  if (dispatch.status !== 0) fail("Dispatch failed or its outcome is uncertain. Inspect GitHub before retrying.");
+  const runId = dispatchedRunId(JSON.parse(dispatch.stdout), repository);
+  console.log(`Dispatched: https://github.com/${repository}/actions/runs/${runId}`);
 
   if (!opts.watch) {
-    console.log("Dispatched. Watch it with:  gh run watch --workflow \"" + WORKFLOW + "\"");
+    console.log(`Watch it with: gh run watch ${runId} --exit-status`);
     return;
   }
 
-  const runId = findLatestRunId();
-  if (!runId) {
-    console.log(
-      "Dispatched, but could not resolve the run id automatically.\n" +
-        `Watch it with:  gh run watch --workflow "${WORKFLOW}"`,
-    );
-    return;
-  }
   console.log(`\nWatching run ${runId} …\n`);
   const watch = run("gh", ["run", "watch", runId, "--exit-status"]);
-  process.exit(watch.status ?? 0);
+  if (watch.status !== 0) fail(`Release watcher failed for run ${runId}. Inspect its terminal state.`);
+  const result = run("gh", ["run", "view", runId, "--json",
+    "databaseId,workflowName,event,headBranch,status,conclusion"], { capture: true });
+  if (result.status !== 0) fail(`Could not verify release run ${runId}.`);
+  requireCompletedRelease(JSON.parse(result.stdout), runId);
 }
 
-main().catch((err) => fail(err?.message ?? String(err)));
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => fail(err?.message ?? String(err)));
+}

@@ -1,0 +1,229 @@
+"use client";
+
+import { ChevronDown, CircleAlert, Loader2, MailCheck } from "@/components/icons";
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
+import { EmailRichTextPreview } from "@/components/agent/email-rich-text";
+import type { EmailDraft } from "@/lib/services/email-delivery-service";
+
+export type EmailDeliveryHistoryItem = {
+  id: string;
+  instruction: string;
+  draft: EmailDraft;
+  status: "sending" | "sent" | "failed" | "outcome_unknown";
+  /** Opaque server action retained to reconcile this exact send attempt. */
+  actionId?: string | null;
+  /** Restored from action metadata after reload; no draft or mail content is stored. */
+  restoredOnly?: boolean;
+  /** Present only when this is a source-bound Gmail KYC reply. */
+  sourceBoundWorkflowId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+type EmailDeliveryHistoryCardProps = {
+  item: EmailDeliveryHistoryItem;
+  /**
+   * Connects Gmail in place, or repairs a legacy connection that lacks its
+   * send grant. On success the caller reopens this reviewed draft; nothing is
+   * sent until the person sends it again.
+   */
+  onEnableGmailSend?: (item: EmailDeliveryHistoryItem) => void;
+  /** True while this item's Google sign-in window is open. */
+  enablingGmailSend?: boolean;
+  /** Closes this item's Google sign-in window; ends quietly. */
+  onCancelEnableGmailSend?: () => void;
+  onRetry?: (item: EmailDeliveryHistoryItem) => void;
+  onCheckStatus?: (item: EmailDeliveryHistoryItem) => void;
+  checkingStatus?: boolean;
+};
+
+function statusCopy(item: EmailDeliveryHistoryItem): string {
+  switch (item.status) {
+    case "sending":
+      return "Sending in the background…";
+    case "sent":
+      return "Mail sent";
+    case "outcome_unknown":
+      return item.errorMessage || "Gmail delivery is not confirmed";
+    default:
+      return item.errorMessage || "Mail could not be sent.";
+  }
+}
+
+/**
+ * A live-chat receipt for the owner-reviewed draft. It deliberately stays in
+ * React memory: raw mail fields must not be copied into durable chat history
+ * or general workflow records.
+ */
+export function EmailDeliveryHistoryCard({
+  item,
+  onEnableGmailSend,
+  enablingGmailSend = false,
+  onCancelEnableGmailSend,
+  onRetry,
+  onCheckStatus,
+  checkingStatus = false,
+}: EmailDeliveryHistoryCardProps) {
+  const canRetry = item.status === "failed" && !item.restoredOnly;
+  // A never-connected mailbox needs a first connection; retrying alone would fail again.
+  const needsGmailConnect = item.errorCode === "GMAIL_NOT_CONNECTED";
+  // A revoked or expired Google grant (GMAIL_REAUTH_REQUIRED) recovers the same way.
+  const needsGmailReconnect =
+    item.errorCode === "GMAIL_SEND_DISABLED" ||
+    item.errorCode === "GMAIL_SEND_PERMISSION_REQUIRED" ||
+    item.errorCode === "GMAIL_REAUTH_REQUIRED";
+  const gmailAction = needsGmailConnect ? "Connect Gmail" : "Reconnect Mail";
+
+  return (
+    <details
+      className="group mb-4 overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/70 bg-muted/35"
+      data-testid={`one-email-history-${item.status}`}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 marker:hidden [&::-webkit-details-marker]:hidden">
+        <span
+          className={
+            item.status === "failed" || item.status === "outcome_unknown"
+              ? "grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-destructive/10 text-destructive"
+              : "grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"
+          }
+        >
+          {item.status === "sending" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : item.status === "failed" || item.status === "outcome_unknown" ? (
+            <CircleAlert className="h-4 w-4" aria-hidden />
+          ) : (
+            <MailCheck className="h-4 w-4" aria-hidden />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-foreground">
+            {item.status === "sending" ? "Mail sending" : "Mail activity"}
+          </span>
+          <span className="block truncate text-sm text-muted-foreground">
+            {statusCopy(item)}
+          </span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden />
+      </summary>
+
+      <div className="space-y-3 border-t border-border/60 px-4 py-4 text-sm">
+        {item.restoredOnly ? (
+          <p className="text-muted-foreground">
+            {item.status === "sent"
+              ? "Gmail confirmed this earlier send. Draft details are not saved here."
+              : item.status === "failed"
+                ? "Gmail did not send this email. Draft details are not saved here."
+                : "This earlier send attempt has no draft saved here. Check Gmail Sent Mail before sending it again."}
+          </p>
+        ) : (
+          <>
+            <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            Your request
+          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-foreground">
+            {item.instruction}
+          </p>
+        </div>
+        <dl className="grid gap-3 sm:grid-cols-2">
+          {item.sourceBoundWorkflowId ? (
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Delivery</dt>
+              <dd className="mt-1 break-words text-foreground">Original Mail thread</dd>
+            </div>
+          ) : (
+            <>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">To</dt>
+                <dd className="mt-1 break-words text-foreground">{item.draft.to || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Subject</dt>
+                <dd className="mt-1 break-words text-foreground">{item.draft.subject || "—"}</dd>
+              </div>
+            </>
+          )}
+          {item.draft.cc ? (
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Cc</dt>
+              <dd className="mt-1 break-words text-foreground">{item.draft.cc}</dd>
+            </div>
+          ) : null}
+          {item.draft.bcc ? (
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Bcc</dt>
+              <dd className="mt-1 break-words text-foreground">{item.draft.bcc}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            Message
+          </p>
+          {item.draft.body ? (
+            <EmailRichTextPreview
+              className="mt-1 rounded-xl border border-border/60 bg-background/60 px-3 py-3"
+              value={item.draft.body}
+            />
+          ) : (
+            <p className="mt-1 text-foreground">—</p>
+          )}
+            </div>
+          </>
+        )}
+        {item.status === "outcome_unknown" && !item.restoredOnly ? (
+          <p className="text-muted-foreground">
+            We cannot confirm whether Gmail sent it. Check Sent Mail before sending again.
+          </p>
+        ) : null}
+        {(item.status === "outcome_unknown" || item.status === "sending") &&
+          item.actionId && onCheckStatus ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={checkingStatus}
+              onClick={() => onCheckStatus(item)}
+            >
+              {checkingStatus ? "Checking…" : "Check status"}
+            </Button>
+          ) : null}
+        {canRetry ? (
+          <div className="flex flex-wrap gap-2">
+            {needsGmailConnect || needsGmailReconnect ? (
+              onEnableGmailSend ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={enablingGmailSend}
+                    onClick={() => onEnableGmailSend(item)}
+                  >
+                    {enablingGmailSend ? "Waiting for Google…" : gmailAction}
+                  </Button>
+                  {enablingGmailSend && onCancelEnableGmailSend ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={onCancelEnableGmailSend}>
+                      Cancel sign-in
+                    </Button>
+                  ) : null}
+                </>
+              ) : (
+                <Button asChild type="button" variant="outline" size="sm">
+                  <Link href="/one/gmail">{gmailAction}</Link>
+                </Button>
+              )
+            ) : null}
+            {onRetry ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>
+                Edit and retry
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}

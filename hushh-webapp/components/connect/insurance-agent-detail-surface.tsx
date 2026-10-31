@@ -47,6 +47,7 @@ export function InsuranceAgentDetailSurface({
       onOpenChange={onOpenChange}
       eyebrow={agencyStatusLabel(card) ?? undefined}
       title={card.name ?? "Agency"}
+      headerTextOverflow="wrap"
       mobilePresentation="sheet"
       footer={
         card.phone ? (

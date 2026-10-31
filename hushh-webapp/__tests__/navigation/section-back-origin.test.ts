@@ -98,6 +98,31 @@ describe("back leaves a destination by its origin", () => {
     expect(resolveTopShellBackAction({ pathname: CONNECT })).toEqual({
       href: LOCATION_PEOPLE,
       mode: "push",
+      transitionMode: "full",
+    });
+  });
+
+  it("returns from a standalone screen to where it was opened, not One home", () => {
+    // To-dos/Feed/Career/Referrals had no destination identity, so Back
+    // always dumped the person on the One dashboard.
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry("/one/todos");
+
+    expect(resolveTopShellBackAction({ pathname: "/one/todos" })?.href).toBe(
+      LOCATION_PEOPLE,
+    );
+  });
+
+  it("restores the initiating Profile pane from Referrals, retaining its query", () => {
+    const profile = "/?profile_pane=1";
+    recordDestinationEntry(profile);
+    recordDestinationEntry("/one/referrals");
+    expect(resolveTopShellBackAction({ pathname: "/one/referrals" })).toEqual({
+      href: profile, mode: "push", transitionMode: "full",
+    });
+    clearDestinationOrigins();
+    expect(resolveTopShellBackAction({ pathname: "/one/referrals" })).toEqual({
+      href: ONE_HOME, mode: "push", transitionMode: "full",
     });
   });
 
@@ -115,6 +140,7 @@ describe("back leaves a destination by its origin", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: ONE_HOME,
       mode: "push",
+      transitionMode: "full",
     });
   });
 
@@ -127,6 +153,7 @@ describe("back leaves a destination by its origin", () => {
     expect(navigate).toHaveBeenCalledWith({
       href: LOCATION_PEOPLE,
       mode: "push",
+      transitionMode: "full",
     });
     expect(readDestinationOrigin(CONNECT)).toBeNull();
   });
@@ -142,7 +169,11 @@ describe("back leaves a destination by its origin", () => {
       navigate,
     });
 
-    expect(navigate).toHaveBeenCalledWith({ href: LOCATION, mode: "replace" });
+    expect(navigate).toHaveBeenCalledWith({
+      href: `${LOCATION}?view=now`,
+      mode: "replace",
+      transitionMode: "contextual",
+    });
     // The overlay closed; the origin is still owed for when they actually go.
     expect(readDestinationOrigin(LOCATION)).toBe(KAI);
   });

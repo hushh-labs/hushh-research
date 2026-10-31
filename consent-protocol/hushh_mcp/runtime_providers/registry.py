@@ -1,10 +1,10 @@
 """Central model registry for runtime providers.
 
 Single source of truth for which providers and models the Agent brain can run
-on, the canonical default model per provider, and the capability flags the
-voice/transport layers depend on (native realtime, streaming, function calling,
-prompt caching). This removes hardcoded model strings scattered across the
-runtime and lets credential mode stay orthogonal to provider choice.
+on, the canonical default model per provider, and the capability flags used by
+runtime adapters (streaming, function calling, prompt caching). This removes
+hardcoded model strings scattered across the runtime and lets credential mode
+stay orthogonal to provider choice.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Literal
 
 from hushh_mcp.constants import GEMINI_MODEL
 
-ProviderId = Literal["gemini", "anthropic", "openai", "grok"]
+ProviderId = Literal["gemini", "anthropic", "openai", "grok", "puppy"]
 
 _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "gemini": "gemini",
@@ -28,6 +28,10 @@ _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "grok": "grok",
     "xai": "grok",
     "x.ai": "grok",
+    # Puppy is an owner-linked local inference endpoint. It is intentionally
+    # a provider id, not a second agent or routing authority.
+    "puppy": "puppy",
+    "puppy-one": "puppy",
 }
 
 
@@ -48,24 +52,62 @@ class ModelEntry:
 # OpenAI's realtime API base. Grok speaks the OpenAI wire format on its own host.
 OPENAI_REALTIME_PROVIDERS: tuple[ProviderId, ...] = ("gemini", "openai")
 
+# Only measured endpoints are admitted. 2026-10-15: 3.8 Flash returned HTTP 200
+# under the UAT runtime identity on global; other endpoints remain unqualified.
+# 3.7 retains its previously measured multi-region availability.
+_MEASURED_VERTEX_LOCATIONS: dict[str, tuple[str, ...]] = {
+    "gemini-3.8-flash": ("global",),
+    "gemini-3.7-flash": ("global", "us", "eu"),
+}
+
 _MODELS: tuple[ModelEntry, ...] = (
     # Gemini text models use generateContent and are not valid Live transports.
     # Native realtime is model-specific; never infer it from the provider.
+    # Founder rule 2026-09-14: exactly the last two Gemini releases are registered
+    # for generation. A roll-forward replaces the oldest row, it never adds a third.
     ModelEntry(
         provider="gemini",
         model=GEMINI_MODEL,
         supports_prompt_caching=True,
-        supported_vertex_locations=("global",),
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS.get(GEMINI_MODEL, ("global",)),
         aliases=("gemini-default", "default"),
     ),
-    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview"),
-    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.8-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.8-flash"],
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.7-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=_MEASURED_VERTEX_LOCATIONS["gemini-3.7-flash"],
+    ),
+    # Retrieval-only model used by the server-owned Location Brain semantic
+    # index. Global-only availability makes ManagedGeminiRuntimeBinding return
+    # the native GenAI client, which exposes ``embed_content``, rather than the
+    # generation-only regional failover facade.
+    ModelEntry(
+        provider="gemini",
+        model="gemini-embedding-001",
+        supports_streaming=False,
+        supports_function_calling=False,
+        supported_vertex_locations=("global",),
+    ),
+    # Gemini Live (bidirectional audio) on Vertex. Live models are served from
+    # regional endpoints only, so the entry pins its region and never inherits
+    # the global/us/eu multi-region aliases the text fleet uses. Only entries
+    # with ``supports_native_realtime=True`` may be selected by
+    # ``resolve_live_model_entry``; a pass-through id never gains realtime
+    # authority by name. ``aliases`` stays empty on purpose (no aliases rule).
     ModelEntry(
         provider="gemini",
         model="gemini-live-2.5-flash-native-audio",
         supports_native_realtime=True,
+        supported_vertex_locations=("us-central1",),
     ),
-    # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
+    # Anthropic -- native SDK adapter.
     ModelEntry(
         provider="anthropic",
         model="claude-sonnet-4-5",
@@ -74,7 +116,7 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="anthropic", model="claude-opus-4-1", supports_prompt_caching=True),
     ModelEntry(provider="anthropic", model="claude-haiku-4-5", supports_prompt_caching=True),
-    # OpenAI -- native SDK adapter; native realtime API.
+    # OpenAI -- native SDK adapter.
     ModelEntry(
         provider="openai",
         model="gpt-5.1",
@@ -83,13 +125,25 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="openai", model="gpt-5", supports_native_realtime=True),
     ModelEntry(provider="openai", model="gpt-5-mini", supports_native_realtime=True),
-    # Grok -- OpenAI-compatible wire format on the x.ai host; chained-only voice.
+    # Owner-key text models for a pod (``owner_openai``), through the Responses API.
+    # GPT-5.6 Luna scored 54/60 at reasoning low in the 2026-10-03 evaluation
+    # on the owner's Azure deployment; OpenAI's API serves the same ids.
+    ModelEntry(provider="openai", model="gpt-5.6-luna"),
+    ModelEntry(provider="openai", model="gpt-6-luna"),
+    # Grok -- OpenAI-compatible wire format on the x.ai host.
     ModelEntry(
         provider="grok",
         model="grok-4",
         aliases=("grok-default", "grok"),
     ),
     ModelEntry(provider="grok", model="grok-4-fast"),
+    ModelEntry(
+        provider="puppy",
+        model="local",
+        supports_streaming=True,
+        supports_function_calling=True,
+        aliases=("puppy-default",),
+    ),
 )
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[ProviderId, ModelEntry] = {}
@@ -148,3 +202,37 @@ def resolve_model_entry(provider: str | None, model: str | None) -> ModelEntry:
     # default to streaming + function calling on; realtime/caching off until a
     # registry entry declares them.
     return ModelEntry(provider=canonical, model=requested)
+
+
+class LiveModelNotRegisteredError(ValueError):
+    """The requested Live model id is not a registered native-realtime model."""
+
+
+def resolve_live_model_entry(model_id: str | None) -> ModelEntry:
+    """Resolve an explicit Gemini Live model id, failing closed.
+
+    Unlike :func:`resolve_model_entry`, there is no pass-through and no alias
+    lookup: the id must match a registered Gemini entry that declares
+    ``supports_native_realtime=True`` and at least one regional Vertex
+    location. This is what makes ``VERTEX_LIVE_MODEL_ID`` an exact pin rather
+    than a hint.
+    """
+
+    requested = (model_id or "").strip()
+    if not requested:
+        raise LiveModelNotRegisteredError("A Live model id is required")
+    entry = _MODEL_BY_KEY.get(("gemini", requested.lower()))
+    if entry is None or entry.model.lower() != requested.lower():
+        # An alias hit (entry.model != requested) is rejected as well.
+        raise LiveModelNotRegisteredError(f"{requested!r} is not a registered Vertex Live model id")
+    if not entry.supports_native_realtime:
+        raise LiveModelNotRegisteredError(
+            f"{requested!r} is not a native-realtime model and cannot run Gemini Live"
+        )
+    if not entry.supported_vertex_locations or any(
+        location in {"global", "us", "eu"} for location in entry.supported_vertex_locations
+    ):
+        raise LiveModelNotRegisteredError(
+            f"{requested!r} must declare regional Vertex locations only"
+        )
+    return entry

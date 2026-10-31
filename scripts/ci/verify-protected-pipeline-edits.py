@@ -123,6 +123,40 @@ def _files_from_event(args: argparse.Namespace) -> list[str]:
     return _fetch_pr_files(repo=str(repo), pr_number=int(pr_number), token=str(token))
 
 
+class PolicyError(RuntimeError):
+    """The policy cannot be read as a cohort. Never resolved by guessing a wider one."""
+
+
+def resolve_allowed_users(main_policy: dict) -> list[str]:
+    """Who may edit protected pipeline surfaces. Fails CLOSED, and loudly.
+
+    This used to read ``protected_pipeline_edit_users or review_bypass_users or []``,
+    and that fallback WIDENED. Measured 2026-09-04: the narrow key held 8 logins and
+    ``review_bypass_users`` held 14, so DELETING the narrow key would have read in the
+    diff as a narrowing while silently granting six more people the right to edit
+    workflows, deploy config, and this policy itself -- the exact surfaces this guard
+    exists to protect. A fail-safe that widens is not a fail-safe.
+
+    An absent or empty key is therefore a configuration error that stops the run. That
+    is the one outcome nobody can mistake for a grant: a missing cohort is answered by
+    restating the cohort, never by inheriting somebody else's.
+    """
+    if "protected_pipeline_edit_users" not in main_policy:
+        raise PolicyError(
+            "config/ci-governance.json is missing main.protected_pipeline_edit_users. "
+            "Refusing to fall back to a wider list; restore the key rather than letting "
+            "its absence promote anyone."
+        )
+    raw = main_policy.get("protected_pipeline_edit_users") or []
+    users = sorted({str(login).strip() for login in raw if str(login).strip()})
+    if not users:
+        raise PolicyError(
+            "main.protected_pipeline_edit_users is empty. Refusing to widen to another "
+            "list; state the cohort explicitly, even if that cohort is one person."
+        )
+    return users
+
+
 def evaluate(
     *,
     changed_files: list[str],
@@ -169,7 +203,25 @@ def _self_test() -> int:
         ("community edits only app code", ["hushh-webapp/app/page.tsx"], "random-contributor", 0),
         ("community edits scripts/ci", ["scripts/ci/orchestrate.sh"], "random-contributor", 1),
     ]
+    # The cohort resolver: a missing or empty key must STOP the run, never inherit a
+    # wider list. Pinned because the widening fallback read as a narrowing in a diff.
+    wide = ["kushaltrivedi5", "someone-else", "a-third-person"]
+    resolver_cases: list[tuple[str, dict, object]] = [
+        ("cohort stated", {"protected_pipeline_edit_users": ["b", "a"], "review_bypass_users": wide}, ["a", "b"]),
+        ("cohort missing", {"review_bypass_users": wide}, PolicyError),
+        ("cohort empty", {"protected_pipeline_edit_users": [], "review_bypass_users": wide}, PolicyError),
+        ("cohort blank entries", {"protected_pipeline_edit_users": ["  "], "review_bypass_users": wide}, PolicyError),
+    ]
     failures: list[str] = []
+    for name, main_policy, expectation in resolver_cases:
+        try:
+            got: object = resolve_allowed_users(main_policy)
+        except PolicyError:
+            got = PolicyError
+        ok = got is expectation if expectation is PolicyError else got == expectation
+        print(f"[{'ok' if ok else 'FAIL'}] resolver: {name}: {got!r}")
+        if not ok:
+            failures.append(f"resolver {name}: got {got!r}, expected {expectation!r}")
     for name, files, actor, expected in cases:
         code, message = evaluate(
             changed_files=files, actor=actor, allowed_users=allowed, protected_paths=paths
@@ -210,13 +262,11 @@ def main() -> int:
 
     policy = _load_policy()
     main_policy = policy["main"]
-    allowed_users = sorted(
-        set(
-            main_policy.get("protected_pipeline_edit_users")
-            or main_policy.get("review_bypass_users")
-            or []
-        )
-    )
+    try:
+        allowed_users = resolve_allowed_users(main_policy)
+    except PolicyError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     protected_paths = main_policy.get("protected_pipeline_paths") or DEFAULT_PROTECTED_PATHS
     event_name = args.event_name or os.environ.get("GITHUB_EVENT_NAME", "")
 

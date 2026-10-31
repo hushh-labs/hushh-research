@@ -1,0 +1,179 @@
+"""Owner-controlled live Drive preparation preference, independent of OAuth."""
+
+from __future__ import annotations
+
+from sqlalchemy import text
+
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.drive_document_store import DriveDocumentStore
+from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.google_drive_adapter import (
+    DRIVE_BASE,
+    DRIVE_POLICY,
+    LIVE_POLICY_HASH,
+    DriveReadError,
+)
+
+LIVE_BACKGROUND_DISCLOSURE = "live-drive-background-v1"
+
+
+class DriveLivePreferences(DriveDocumentStore):
+    def live_active(
+        self,
+        connection,
+        *,
+        user_id: str,
+        generation: int | None = None,
+        management: bool = False,
+        read_only: bool = False,
+    ) -> dict:
+        if not management and not connector_feature_enabled("google_drive_live", user_id):
+            raise DriveReadError("connector_unavailable")
+        params = {"user_id": user_id, "connector_id": "google_drive"}
+        # A read path must not upsert the placeholder row _lock() creates.
+        row = self._share(connection, params) if read_only else self._lock(connection, params)
+        if row is None:
+            raise DriveReadError("connection_changed")
+        policy = self._row(
+            connection,
+            "SELECT * FROM external_mcp_connectors WHERE connector_id='google_drive' FOR SHARE",
+            {},
+        )
+        return self.validate_live(row, policy, generation=generation)
+
+    @staticmethod
+    def validate_live(row, policy, *, generation: int | None = None):
+        """Canonical live-state validation, independent of the read adapter."""
+        if (
+            not row
+            or row["status"] != "connected"
+            or row["validation_state"] != "verified"
+            or row["verified_policy_hash"] != LIVE_POLICY_HASH
+            or generation is not None
+            and row["connection_generation"] != generation
+            or not policy
+            or not policy["is_active"]
+            or policy["transport_kind"] != "google_drive_rest"
+            or policy["mcp_endpoint"] != DRIVE_BASE
+            or policy["capability_policy"] != DRIVE_POLICY
+        ):
+            raise DriveReadError("connection_changed")
+        return row
+
+    def background_current(
+        self, connection, *, user_id: str, generation: int, read_only: bool = False
+    ) -> dict:
+        self.live_active(connection, user_id=user_id, generation=generation, read_only=read_only)
+        preference = self._row(
+            connection,
+            """SELECT * FROM drive_live_preferences WHERE user_id=:user FOR SHARE""",
+            {"user": user_id},
+        )
+        return self.validate_background(preference, user_id=user_id, generation=generation)
+
+    @staticmethod
+    def validate_background(preference, *, user_id: str, generation: int):
+        # Live Drive defaults to background preparation while connected. A
+        # recorded OFF choice is account-level and survives OAuth reconnects;
+        # connection generation still fences each search and Google grant.
+        if preference and (
+            preference["background_enabled"] is not True
+            or preference["disclosure_version"] != LIVE_BACKGROUND_DISCLOSURE
+        ):
+            raise DriveReadError("background_preparation_required")
+        return preference or {
+            "user_id": user_id,
+            "connection_generation": generation,
+            "background_enabled": True,
+            "disclosure_version": LIVE_BACKGROUND_DISCLOSURE,
+            "revision": 0,
+        }
+
+    async def get_background(self, *, user_id: str) -> dict:
+        def operation(connection):
+            self.live_active(connection, user_id=user_id)
+            preference = self._row(
+                connection,
+                "SELECT * FROM drive_live_preferences WHERE user_id=:user",
+                {"user": user_id},
+            )
+            enabled = preference is None or bool(
+                preference["background_enabled"] is True
+                and preference["disclosure_version"] == LIVE_BACKGROUND_DISCLOSURE
+            )
+            return {"enabled": enabled, "revision": preference["revision"] if preference else 0}
+
+        return await self._transaction(operation)
+
+    async def set_background(self, *, user_id: str, enabled: bool, confirmed: bool) -> dict:
+        if confirmed is not True or type(enabled) is not bool:
+            raise DriveReadError("confirmation_required")
+
+        def operation(connection):
+            current = self.live_active(connection, user_id=user_id)
+            result = self._row(
+                connection,
+                """
+                INSERT INTO drive_live_preferences(user_id,connection_generation,background_enabled)
+                VALUES (:user,:generation,:enabled)
+                ON CONFLICT (user_id) DO UPDATE SET
+                  connection_generation=EXCLUDED.connection_generation,
+                  background_enabled=EXCLUDED.background_enabled,
+                  revision=drive_live_preferences.revision+1,
+                  updated_at=clock_timestamp()
+                RETURNING revision
+                """,
+                {
+                    "user": user_id,
+                    "generation": current["connection_generation"],
+                    "enabled": enabled,
+                },
+            )
+            # Pause collection jobs with the same account-level background toggle.
+            # The preparation preference remains recorded, including a saved
+            # pause. Enabling background work never overrides that choice.
+            connection.execute(
+                text("""UPDATE drive_collection_sync SET lease_id=NULL,lease_expires_at=NULL,
+              next_at=clock_timestamp()+make_interval(secs=>:delay),updated_at=clock_timestamp()
+              WHERE user_id=:user"""),
+                {"user": user_id, "delay": 0 if enabled else 31536000},
+            )
+            connection.execute(
+                text("""UPDATE connected_documents SET
+              processing_enabled=:enabled AND EXISTS (SELECT 1 FROM drive_collection_sync s WHERE s.user_id=:user AND s.processing_enabled),
+              processing_revision=processing_revision+1,lease_id=NULL,lease_expires_at=NULL,
+              next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+              WHERE user_id=:user AND source_profile='live' AND last_error_code IS DISTINCT FROM 'source_unavailable'"""),
+                {"user": user_id, "enabled": enabled},
+            )
+            if enabled:
+                # A trusted request paused while background work was OFF can
+                # retry immediately. Only the auto worker writes this code;
+                # no old manual request is turned into auto sharing here.
+                connection.execute(
+                    text("""WITH resumed AS (
+                      UPDATE drive_share_requests
+                      SET preparation_error_code=CASE
+                        WHEN bulk_search_started_at IS NULL THEN 'trusted_auto_queued'
+                        ELSE 'trusted_auto_active' END,
+                        preparation_next_at=clock_timestamp(),
+                        updated_at=clock_timestamp()
+                      WHERE user_id=:user AND status='pending'
+                        AND expires_at>clock_timestamp()
+                        AND preparation_error_code='background_preparation_required'
+                      RETURNING request_id
+                    )
+                    UPDATE drive_owner_search_jobs j
+                    SET next_at=clock_timestamp(),updated_at=clock_timestamp()
+                    FROM resumed r
+                    WHERE j.user_id=:user AND j.client_request_id=r.request_id
+                      AND j.status='queued' AND j.next_at=j.expires_at"""),
+                    {"user": user_id},
+                )
+            return {"enabled": enabled, "revision": result["revision"]}
+
+        result = await self._transaction(operation)
+        if enabled:
+            await wake_drive_work("suggestions")
+            await wake_drive_work("documents")
+        return result

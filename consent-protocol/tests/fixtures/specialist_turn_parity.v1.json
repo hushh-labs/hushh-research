@@ -1,0 +1,254 @@
+{
+  "cases": {
+    "location_message_turn": {
+      "conversation_id": "loc_conv_parity",
+      "directive_kind": "prompt",
+      "directive_payload": {
+        "allowFreeText": true,
+        "id": "prm-parity-1",
+        "kind": "select",
+        "maxSelections": 2,
+        "minSelections": 1,
+        "options": [
+          {
+            "id": "mom-1",
+            "label": "Mom"
+          },
+          {
+            "id": "dad-1",
+            "label": "Dad"
+          }
+        ],
+        "purpose": "select_recipients"
+      },
+      "is_complete": false,
+      "model": "one+location",
+      "service_calls": [
+        {
+          "call": "handle_turn",
+          "consent_token": "<consent_token>",
+          "message": "share my location with Mom",
+          "user_id": "user_parity"
+        }
+      ],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": [
+          "location"
+        ]
+      }
+    },
+    "location_selection_delegate_result": {
+      "conversation_id": "loc_conv_parity",
+      "directive_kind": "action",
+      "directive_payload": {
+        "id": "act-parity-1",
+        "shares": [
+          {
+            "durationHours": 1,
+            "userId": "mom-1"
+          }
+        ],
+        "type": "publish_share"
+      },
+      "is_complete": true,
+      "model": "one+location",
+      "service_calls": [
+        {
+          "call": "handle_turn",
+          "consent_token": "<consent_token>",
+          "conversation_id": "loc_conv_parity",
+          "selection_result": {
+            "id": "prm-parity-1",
+            "kind": "select",
+            "selected": [
+              {
+                "userId": "mom-1"
+              }
+            ],
+            "status": "answered"
+          },
+          "user_id": "user_parity"
+        }
+      ],
+      "state_changed": true,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": [
+          "Mom"
+        ]
+      }
+    },
+    "nav_active_grants": {
+      "conversation_id": "thread_parity",
+      "directive_kind": "prompt",
+      "directive_payload": {
+        "items": [
+          {
+            "actions": [
+              "revoke",
+              "details"
+            ],
+            "expiresAt": "2026-07-04T01:53:37.924978+00:00",
+            "id": "one_location_grant:grant_parity_1",
+            "label": "Travel Planner",
+            "metadata": {
+              "grant_id": "grant_parity_1",
+              "request_source": "one_location_share_grant",
+              "section": "people"
+            },
+            "scope": "cap.location.live.view"
+          }
+        ],
+        "kind": "consent_actions"
+      },
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [
+        {
+          "actor": "investor",
+          "call": "list_center",
+          "surface": "active",
+          "top": 10,
+          "user_id": "user_parity"
+        }
+      ],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": 2,
+        "mentions": [
+          "Travel Planner",
+          "Kai"
+        ]
+      }
+    },
+    "nav_empty_message": {
+      "conversation_id": "thread_parity",
+      "directive_kind": null,
+      "directive_payload": null,
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [
+          "scope"
+        ],
+        "count": null,
+        "mentions": []
+      }
+    },
+    "nav_invalid_token": {
+      "conversation_id": "thread_parity",
+      "directive_kind": "prompt",
+      "directive_payload": {
+        "agentId": "agent_nav",
+        "kind": "consent_required",
+        "requiredScope": "agent.nav.review"
+      },
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": []
+      }
+    },
+    "nav_previous_grants": {
+      "conversation_id": "thread_parity",
+      "directive_kind": null,
+      "directive_payload": null,
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [
+        {
+          "actor": "investor",
+          "call": "list_center",
+          "surface": "previous",
+          "top": 10,
+          "user_id": "user_parity"
+        }
+      ],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": 1,
+        "mentions": [
+          "Jhumma Kumari"
+        ]
+      }
+    },
+    "nav_what_am_i_sharing_right_now": {
+      "conversation_id": "thread_parity",
+      "directive_kind": null,
+      "directive_payload": null,
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": []
+      }
+    },
+    "nav_what_did_i_share_before": {
+      "conversation_id": "thread_parity",
+      "directive_kind": null,
+      "directive_payload": null,
+      "is_complete": true,
+      "model": "one+nav",
+      "service_calls": [],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": []
+      }
+    },
+    "personal_information_message_turn": {
+      "conversation_id": "pi_conv_parity",
+      "directive_kind": "action",
+      "directive_payload": {
+        "slices": [
+          {
+            "id": "slice-parity-1",
+            "title": "Weekday commute"
+          },
+          {
+            "id": "slice-parity-2",
+            "title": "Weekend travel"
+          }
+        ],
+        "topic": "commute",
+        "type": "publish_slices"
+      },
+      "is_complete": true,
+      "model": "one+memory",
+      "service_calls": [
+        {
+          "call": "handle_turn",
+          "consent_token": "<consent_token>",
+          "message": "what could I publish about my commute",
+          "user_id": "user_parity"
+        }
+      ],
+      "state_changed": false,
+      "text_rules": {
+        "allowed_words": [],
+        "count": null,
+        "mentions": [
+          "commute"
+        ]
+      }
+    }
+  },
+  "description": "Structural golden for the SpecialistTurnResult seam, one entry per registered in-process specialist case. Source of truth: consent-protocol/hushh_mcp/adk_bridge/. Free text is governed by text_rules, never pinned. Refresh with PARITY_UPDATE_GOLDEN=1 pytest tests/test_specialist_turn_parity.py.",
+  "version": 1
+}

@@ -22,17 +22,23 @@ describe("SharedWithMeCard", () => {
       </SharedWithMeCard>,
     );
 
-    const livePill = screen.getByText("Live");
-    expect(livePill.parentElement?.textContent).toContain(
-      "Live until Jul 28, 11:19 PMLive",
-    );
+    expect(screen.getByText("Live until Jul 28, 11:19 PM")).toBeTruthy();
+    expect(screen.queryByText("Active")).toBeNull();
+    expect(screen.getByText("Trusted A")).toBeTruthy();
+    expect(screen.queryByText("Trusted A is sharing with you")).toBeNull();
 
-    const expandButton = screen.getByRole("button", {
-      name: "Expand shared location from Trusted A",
+    const viewButton = screen.getByRole("button", {
+      name: "View shared location from Trusted A",
     });
-    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.getAllByRole("button", {
+        name: /shared location from Trusted A/,
+      }),
+    ).toHaveLength(1);
+    expect(viewButton.getAttribute("aria-expanded")).toBe("false");
+    expect(viewButton.querySelectorAll("svg")).toHaveLength(2);
     const previewRegion = document.getElementById(
-      expandButton.getAttribute("aria-controls") ?? "",
+      viewButton.getAttribute("aria-controls") ?? "",
     );
     expect(previewRegion).not.toBeNull();
     expect(previewRegion?.hidden).toBe(true);
@@ -42,7 +48,7 @@ describe("SharedWithMeCard", () => {
       }),
     ).toBeNull();
 
-    fireEvent.click(expandButton);
+    fireEvent.click(viewButton);
     expect(onView).toHaveBeenCalledTimes(1);
 
     rerender(
@@ -51,18 +57,17 @@ describe("SharedWithMeCard", () => {
       </SharedWithMeCard>,
     );
 
-    const collapseButton = screen.getByRole("button", {
+    const hideButton = screen.getByRole("button", {
       name: "Collapse shared location from Trusted A",
     });
     const recenterButton = screen.getByRole("button", {
       name: "Recenter map on Trusted A's location",
     });
-    expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
-    expect(collapseButton).not.toBeDisabled();
-    expect(
-      recenterButton.compareDocumentPosition(collapseButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const mapFrame = screen.getByTestId("shared-location-map-frame");
+    const actions = screen.getByTestId("shared-location-card-actions");
+    expect(hideButton.getAttribute("aria-expanded")).toBe("true");
+    expect(hideButton.querySelectorAll("svg")).toHaveLength(1);
+    expect(hideButton).not.toBeDisabled();
     expect(previewRegion?.hidden).toBe(false);
     expect(
       screen.getByRole("link", {
@@ -70,12 +75,114 @@ describe("SharedWithMeCard", () => {
       }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(mapFrame).toHaveClass(
+      "border-[color:var(--app-separator)]",
+      "rounded-[16px]",
+    );
+    expect(mapFrame).not.toHaveClass(
+      "border-[color:var(--app-card-border-strong)]",
+    );
+    expect(recenterButton).toHaveAttribute("title", "Reset map view");
+    expect(actions).toHaveClass("mt-1", "flex-row", "py-1", "sm:mt-1.5");
+    expect(
+      screen.getByRole("link", {
+        name: "Open shared location in Google Maps",
+      }),
+    ).toHaveClass("text-[13px]", "font-medium");
 
     fireEvent.click(recenterButton);
     expect(onRecenter).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
 
-    fireEvent.click(collapseButton);
+    fireEvent.click(hideButton);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The card is what a recipient looks at while there is no location on it, and
+ * for a long time that was a name, a date, and nothing else. The page computed
+ * a reason on every five-second poll; the only thing that rendered it was the
+ * retired legacy UI, so the reason never reached anyone.
+ *
+ * Both tones are asserted because the failure mode runs in both directions: a
+ * silent card tells a waiting recipient nothing, and an alarming card tells a
+ * recipient on the happy path that something is wrong. The most common status
+ * here by far -- the owner has not published a first point yet -- is a success.
+ */
+describe("SharedWithMeCard view status", () => {
+  const base = {
+    name: "Trusted A",
+    statusLine: "Live until Jul 28, 11:19 PM",
+    onView: () => {},
+  };
+
+  it("says nothing when there is nothing to say", () => {
+    render(<SharedWithMeCard {...base} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Ask to refresh" }),
+    ).toBeNull();
+  });
+
+  it("reports waiting calmly, with no alert and no recovery action", () => {
+    const onAskReshare = vi.fn();
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{
+          message: "Waiting for Trusted A's first update.",
+          tone: "waiting",
+        }}
+        onAskReshare={onAskReshare}
+      />,
+    );
+
+    expect(screen.getByText("Waiting for their first update…")).toBeTruthy();
+    expect(
+      screen.queryByText("Waiting for Trusted A's first update."),
+    ).toBeNull();
+    // A healthy share must never be announced as a problem. `role="alert"`
+    // interrupts a screen reader, and amber reads as "something is broken" --
+    // both wrong for a share that is working and simply has not been published
+    // to yet.
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Nothing for the recipient to do; the next poll resolves it. Offering
+    // "Ask to refresh" here would nag the owner about a share they already made.
+    expect(screen.queryByRole("button", { name: "Ask to refresh" })).toBeNull();
+    expect(onAskReshare).not.toHaveBeenCalled();
+  });
+
+  it("raises a blocked share as an alert and offers the recovery action", () => {
+    const onAskReshare = vi.fn();
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{
+          message:
+            "Couldn't open Trusted A's live location — the secure key changed. Ask them to share again.",
+          tone: "blocked",
+        }}
+        onAskReshare={onAskReshare}
+      />,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("the secure key changed");
+
+    const action = screen.getByRole("button", { name: "Ask to refresh" });
+    fireEvent.click(action);
+    expect(onAskReshare).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no action when the caller supplies none", () => {
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{ message: "Could not open this share.", tone: "blocked" }}
+      />,
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ask to refresh" })).toBeNull();
   });
 });

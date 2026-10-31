@@ -33,6 +33,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 import {
   buildOneLocationWorkflowHref,
   hasSeenOneLocationNotification,
+  locationWorkflowNotificationCopy,
   isOneLocationGrantUnwatched,
   locationShareNotificationCopy,
   markOneLocationGrantOpened,
@@ -210,6 +211,87 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
     expect(oneLocationSectionForWorkflowNotificationType("location_one_network_joined")).toBe("people");
     expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_invite")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_added")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_removed")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_left")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_renamed")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_deleted")).toBe("people");
+  });
+
+  it("describes Circle removal and departure events without technical copy", () => {
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_removed",
+        circleName: "Family",
+      }).description,
+    ).toBe("You were removed from Family.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_left",
+        networkLabel: "Neelesh",
+      }).description,
+    ).toBe("Neelesh left your Circle.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_invite_declined",
+        networkLabel: "Asha",
+      }).description,
+    ).toBe("Asha declined your Circle invitation.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_renamed",
+        circleName: "Family trip",
+      }).description,
+    ).toBe("This Circle is now called Family trip.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_deleted",
+        circleName: "Family trip",
+      }).description,
+    ).toBe("Family trip was deleted by its owner.");
+  });
+
+  it("names the person who added you, and never says nobody did", () => {
+    // Nobody accepted anything here, so this notification is the only moment
+    // the person finds out. "You were added to a Circle" is a stranger's hand
+    // on the shoulder; the name is what makes it an ordinary social act.
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_added",
+        networkLabel: "Neelesh",
+        circleName: "Family",
+      }).description,
+    ).toBe("Neelesh added you to Family.");
+
+    // Without the Circle name it still names the person -- and stops there.
+    // "Neelesh added you to THEIR Circle" put a possessive pronoun directly
+    // after the name it stands for, which is the thing QA read as wrong. The
+    // name has already said whose Circle it is.
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_added",
+        networkLabel: "Neelesh",
+      }).description,
+    ).toBe("Neelesh added you to a Circle.");
+
+    // And with nothing resolvable it degrades to the same neutral label every
+    // other One Location line uses -- not to "Someone".
+    const anonymous = locationWorkflowNotificationCopy({
+      type: "location_circle_member_added",
+      circleName: "Family",
+    });
+    expect(anonymous.title).toBe("Added to a Circle");
+    expect(anonymous.description).not.toContain("Someone");
+    expect(anonymous.description).toContain("Family");
+  });
+
+  it("deep links a Circle notification to the Circle it is about", () => {
+    const href = buildOneLocationWorkflowHref({
+      circleId: "circle_1",
+      section: "people",
+    });
+    expect(href).toContain("circleId=circle_1");
+    expect(href).toContain("section=people");
   });
 
   it("keeps a Circle invitation deep link on the People surface", () => {
@@ -273,7 +355,7 @@ describe("One-Location share notification copy", () => {
       }),
     ).toEqual({
       title: "Drive shared",
-      description: "Alex started sharing their drive and live ETA with you.",
+      description: "Alex started sharing drive and live ETA with you.",
     });
   });
 });

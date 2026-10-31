@@ -1,6 +1,6 @@
 import index from "@/contracts/kai/one-route-orchestration-index.v1.json";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
 
 describe("One route orchestration index", () => {
@@ -25,7 +25,6 @@ describe("One route orchestration index", () => {
       (entry) => entry.route_pattern === "/login",
     );
     expect(login?.action_ids).toEqual([
-      "auth.close_legal",
       "auth.open_privacy",
       "auth.open_terms",
       "auth.sign_in_apple",
@@ -66,18 +65,24 @@ describe("One route orchestration index", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("indexes the root welcome as a published, generated action surface", () => {
+  it("indexes the root as the dual-mode canonical Chat surface", () => {
     const root = index.routes.find((entry) => entry.route_pattern === "/");
     expect(root).toMatchObject({
-      instruction_id: "route.one.intro",
-      context_policy: "publish",
-      action_ids: ["onboarding.claim_one"],
+      instruction_id: "route.chat.root",
+      context_policy: "minimal",
+      action_ids: [
+        "calendar.invitation.review",
+        "onboarding.claim_one",
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal",
+      ],
       delegation_policy: { mode: "no_delegation" },
     });
     expect(root?.voice_playbook).toMatchObject({
-      screen: "one_intro",
-      primary_action_id: "onboarding.claim_one",
-      proactivity: "on_entry",
+      screen: "chat",
+      primary_action_id: null,
+      proactivity: "ambient",
     });
   });
 

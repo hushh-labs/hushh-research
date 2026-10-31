@@ -16,23 +16,29 @@ import {
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 /**
  * Returns `null` until the current persona's summary has resolved. Consumers
  * must treat that as an unknown count, never as zero: zero is a meaningful
  * statement that there are no pending requests.
  */
-export function useConsentPendingSummaryCount(): number | null {
-  const { user } = useAuth();
+export function useConsentPendingSummaryCount(
+  options?: { enabled?: boolean },
+): number | null {
+  const { user, userId } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
+  const rootChatReady = useRootChatDeferredReady();
+  const foregroundChatActive = useForegroundChatActive();
   const actor: ConsentCenterActor | undefined =
     pathname?.startsWith("/ria") && activePersona === "ria" ? "ria" : undefined;
   const mode = "consents";
   const [mutationTick, setMutationTick] = useState(0);
   const scope = actor === "ria" ? "ria" : "one";
-  const cacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${scope}:${mode}`)
+  const cacheKey = userId
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, `${scope}:${mode}`)
     : "consent_center_summary_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -59,15 +65,16 @@ export function useConsentPendingSummaryCount(): number | null {
   const summaryResource = useStaleResource({
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
-    enabled: Boolean(user?.uid),
+    // Hidden chrome and foreground chat both defer background summaries.
+    enabled: Boolean(userId) && rootChatReady && !foregroundChatActive && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
-      if (!user?.uid || !idToken) {
+      if (!userId || !idToken) {
         throw new Error("Sign in to review consents");
       }
       return ConsentCenterService.getSummary({
         idToken,
-        userId: user.uid,
+        userId,
         actor,
         mode,
         force: mutationTick > 0,

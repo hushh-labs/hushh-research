@@ -18,20 +18,86 @@ These docs describe the mobile side of the platform's `Separation of Duties`: on
 
 Within the seven-layer platform architecture, mobile is the main Layer 6 and Layer 7 delivery surface.
 
+## iOS Native Bottom Navigation
+
+The iOS 26+ wrapper uses Apple's standard `UITabBar` through
+`HushhNativeNavigation`. This fits the existing UIKit Capacitor host; it does
+not require replacing the app with SwiftUI or creating one WebView per tab.
+Web, Android, older iOS versions and wrappers without this plugin retain the
+shared web navigation. Native installation must acknowledge before DOM tabs
+are replaced by a measured layout reservation.
+
+React's `app-bottom-nav.ts` remains the routing authority for Chat, One,
+Connect and Feed. Navigation capability version 3 removes Search; older wrappers
+use the four-tab web fallback. Native taps carry only an allowlisted tab identity,
+document identity, interaction epoch and ordered tap sequence. Credentials,
+owner information and destination URLs do not cross this presentation bridge. Stale state updates and retired documents cannot act;
+each tap is confirmed against native privacy generation and current visibility.
+Presentation-only revisions (selection, theme or badge changes) do not discard
+the final tap. Failed provisional loads do not retire the surviving document.
+
+The recovery wrapper hides native bottom navigation under mounted shared
+overlays and the keyboard. Profile and History remain full-height React
+drawers; custom dock, shell controls and selectors select React before first
+paint. Experimental reserved-region and asynchronous native-clipping paths
+are disabled together, not accepted presentation-continuity mechanisms.
+See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for the current renderer scope, qualification-only native composition study
+and separate physical evidence. Session/vault
+gates, keyboard navigation hiding and the full-window privacy shield retain
+their concealment contracts.
+The native bar and web voice slot stay pinned together without per-frame
+bridge traffic. The DOM reservation excludes the native home-indicator inset;
+the existing shared bottom shell reserves the reported native inset once, not
+the web fallback's compact inset. Custom persistent Chat history publishes its
+authored open state; default non-modal dialog contents also isolate native tabs.
+
+Verification: `npm run verify:capacitor:plugins`,
+`npx vitest run __tests__/capacitor/native-navigation.test.tsx`,
+`AppTests/NativeSupportTests/testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates`,
+and the opt-in attach-only
+`AppUITests/AppUITests/testLocalSessionNativeTabsKeepTheSessionAndRespectOverlays`.
+The device journey requires an already-installed, unlocked candidate and
+`HUSHH_RUN_LOCAL_SESSION_SMOKE=true`; it supplies no credentials and never
+launches or resets One. A successful build alone does not prove visual Liquid
+Glass rendering, Voice layout, or physical-device continuity.
+
 ## Native Continuity Contract
 
 Native checks have two deliberately separate lanes:
 
 - `npm run ios:cold:audit` and `npm run android:cold:audit` are destructive fixture audits. They reset app state and use a reviewer fixture to prove cold-start route behavior. They do not prove retained route, authenticated session, or the memory-only vault across background/resume.
-- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive, visible same-session rehearsals. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
+- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
-The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector; vault, auth, and notification consumers subscribe to its lifecycle signal rather than registering competing Capacitor listeners.
+The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate session admission or relock an already-unlocked session. AuthProvider consumes the shared signal only for bounded phone-identity recovery when canonical phone evidence is unavailable or expired; fresh evidence needs no request, and recovery never reopens the session gate.
+
+For an iPhone Debug reviewer preparation that must use Passphrase rather than
+the account's default quick unlock, launch once with `-UITestMode`,
+`-UITestResetAppState false`, `-UITestAutoReviewerLogin false` and
+`-UITestRunUiFlows false`. All four belong together: test mode alone defaults
+to resetting app state. Omit initial-route, expected-user and app credential
+injection; preserve the existing sign-in and verify its owner before the
+normal XCUI Unlock action. The existing test bridge selects the passphrase
+surface without authenticating it. Resolve the authorized credential into
+runner memory only. This launch is preparation, not continuity evidence;
+subsequent attach-only tests do not relaunch, reset or sign out. Ordinary
+users' default methods are unchanged. Follow
+[physical reviewer preflight](../../../.agents/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
+for device authorization and artifact handling.
 
 ## Native Authentication Settlement
 
 - `AuthProvider` is the only React publication authority for native identity.
   Native restoration and explicit provider settlement may publish a user; the
   Firebase JS observer must not independently mutate native React auth state.
+- Document requests use `HushhAuth.reauthenticateGoogleIdentity` for fresh proof
+  of the **current** Google-linked Firebase user, never replacement sign-in.
+  Native interactive auth admission and callbacks share the main thread;
+  owner/session/phase/deadline fences prevent late results from authorizing a
+  request. Android keeps a timed-out provider result slot quarantined until it
+  drains. Only Firebase proof returns to the guarded service; no Google token
+  persistence or new React identity publication is added. This bridge is not
+  native Drive OAuth, Picker, recovery, or authenticated-provider acceptance.
 - A completed Apple/Google provider result enters a post-auth settlement before
   setup or vault guards can render. The provider-issued Firebase ID token is
   reused for the authoritative pre-vault bootstrap, and the settlement ends
@@ -61,6 +127,92 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   comparison can turn a prerequisite route into a self-redirect loop that web
   development does not reproduce.
 
+## Resume Privacy Shield Contract
+
+- iOS and Android cover the native WebView before the app becomes inactive, so
+  stale authenticated or vault content cannot appear in an app-switcher
+  snapshot or the first resumed frame. Android also owns `FLAG_SECURE` while
+  the cover is visible.
+- On iOS the cover is visually the launch screen (system background plus the
+  `Splash` asset). Control Center, Notification Center, system prompts,
+  screenshots, and the app switcher therefore never show a loading state. The
+  cover has no status text or progress indicator; release fades it out.
+- Every inactive cycle receives a process-local generation and a cause:
+  `inactive`, `background`, or `restart`. The native cover protects snapshots
+  and the first resumed frame; it does not trigger account/session validation
+  for an identity that is already restored in memory. `HushhSessionPrivacy`
+  publishes retained state events after actual activation, independently of the
+  shared interaction coordinator's background-only `pause`/`resume` events.
+- `AuthProvider` reconciles a subscription with a state read, treats unknown
+  bridge state as recovery, and checks refused acknowledgements. It acknowledges
+  the current generation after the resumed document is ready to be shown.
+  Explicit auth recovery and authoritative API failures remain separate paths;
+  routine focus, visibility, and native resume cannot remount the protected UI.
+  Older acknowledgements cannot uncover a newer shield.
+- The shared Vault guard's checking/recovery surface is an opaque browser-modal
+  top-layer dialog. Previously mounted and newly appended route portals remain
+  covered and implicitly inert; focus and Escape stay with the safe gate. This
+  preserves mounted route state on supported hosts. If modal isolation is
+  unavailable, the guard drops retained route descendants before showing its
+  ordinary modal fallback; it never assumes a hidden parent contains portals.
+- Resume itself never removes the cover. Native code accepts release only while
+  the app/activity is active and the requested generation is current. A
+  terminal account or session result keeps the cover in place through the
+  document replacement that returns the person to Login.
+- If a cover remains for eight seconds after activation, native controls expose
+  `Try again` and `Restart session` and explain that verification could not
+  complete. Retry starts another bounded check
+  without removing those escape controls. Restart
+  advances the generation and retires the observed JavaScript document IDs
+  before reloading the current app document, keeps the cover present, and
+  preserves Firebase identity. An old document cannot acknowledge even a newly
+  read restart generation. The fresh JavaScript runtime
+  has no decrypted main-vault key and uses the normal unlock/recovery flow; only
+  its rendered safe destination can release the cover. Neither action grants
+  access or releases the cover on a timer.
+- The cover is visual and accessible: iOS presents it as a modal accessibility
+  surface; Android hides the underlying WebView descendants from TalkBack and
+  restores the WebView's previous accessibility mode only after an accepted
+  release or activity teardown.
+- A fresh process starts unshielded because it has no prior WebView content to
+  expose. The normal auth/loading gates still withhold authenticated surfaces
+  during cold restoration; the shield is not authentication persistence and
+  never stores a credential, vault key, or account identifier.
+
+## Vault setup and runtime session
+
+- Setup creates the existing passphrase/recovery wrappers once. Existing Vaults
+  are opened, never recreated. The optional quick-unlock choice is applied from
+  the final recovery-key continuation; cancellation does not invalidate setup.
+- The app-root `VaultProvider` owns the memory-only unlocked main-app key. Route
+  changes, focus, transient OS sheets and background returns preserve it. There
+  is no inactivity lock. Explicit lock, sign-out, account change and a fresh
+  document/process require unlock again. Browser storage never holds the key.
+- Owner-token validity is separate from local key availability. Expired tokens
+  cannot authorize calls. Temporary validation/renewal outages hide protected
+  UI behind retryable recovery without discarding the key. Renewal, or the
+  session re-check that a 503 hands off to, retries at most every 30 seconds
+  for as long as the outage lasts, so a sleeping laptop or offline phone never
+  locks. Locking stops the retries. There is no idle-lock setting. Terminal
+  invalidation clears the key. Late unlock, renewal and native Messages publication are scoped to
+  the current identity/runtime epoch.
+- Native enrollment prefers the available Face ID/Touch ID Keychain path;
+  existing native passkeys remain supported. New protected secrets have unique
+  device-wrapper references and retain `WhenUnlockedThisDeviceOnly` plus
+  `biometryCurrentSet`. Enrollment verifies Keychain recovery and persisted
+  encrypted-wrapper readback before changing the primary method. Legacy
+  `default` references remain compatible; another device's wrapper is not
+  selected as a local biometric enrollment.
+- `Unlock One` exposes the actual biometric label, passphrase, recovery key and
+  the hard gate's sign-out escape. Native quick unlock gets one automatic
+  attempt; cancellation requires an explicit retry. Browser passkeys start only
+  from an explicit button. Switching methods invalidates the current attempt
+  and cancels its native/WebAuthn request. The form scrolls within the available
+  safe-area/keyboard space instead of pushing fallback controls below it.
+- The existing Messages extension custody contract remains a distinct native
+  Keychain exception, not a way to restore the main-app key after process death.
+  Native generation checks reject publication after clearing that custody entry.
+
 ## Native Test Safety Contract
 
 Native verification has four distinct kinds of evidence. They must never be
@@ -77,10 +229,27 @@ substituted for one another:
 - Physical-device tests use a separately authorised test session and terminate
   their launched app even when an XCTest assertion fails.
 
+The anonymous account-recovery CI smoke leaves final termination to its host.
+`hushh-webapp/scripts/native/ios-simulator-cleanup.py` requires an explicit simulator UUID,
+bounds termination and process checks, and verifies absence of the exact app's
+launchd label or a freshly observed shutdown of that exact simulator. A failed
+inventory query records timeout, refusal, or invalid output separately; missing,
+duplicate, transitioning or unavailable device state cannot prove absence.
+The existing cold-audit wrapper uses the same helper. Test failure
+remains failure; successful assertions with unverified cleanup also fail. This
+proves app-process absence only, not cleanup of every WebKit child or XCTest
+runner. Direct invocations of that smoke must run the same host cleanup.
+
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
-and a pinned id fails only after a full build. Interactive runs resolve a
-concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+and a pinned id fails only after a full build. Simulator launches resolve a
+concrete device at launch time. The compatibility command
+`APP_RUNTIME_PROFILE=dev .agents/skills/mobile-native/scripts/run-ios-sim.sh [UDID]` delegates to
+`.agents/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+native environment resolver. It keeps Simulator in the background, bounds boot
+readiness to 120 seconds, and verifies the bundled backend before installation.
+Its historical default remains UAT; select dev explicitly for private-branch work.
+Authenticated rehearsal follows the reviewer workflow and is separate from launch proof.
 A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its
@@ -90,4 +259,9 @@ host stops.
 
 - [capacitor-parity-audit.md](./capacitor-parity-audit.md): parity contract and audit gate.
 - [capacitor-parity-audit-report.md](./capacitor-parity-audit-report.md): latest release-ready audit findings.
+- [render-performance-charter.md](./render-performance-charter.md): the frame-pacing bar in numbers, the in-app probe, the native instruments, and the ratchet that defends it.
 - [../architecture/frontend-native-surface-map.md](../architecture/frontend-native-surface-map.md): route to API/native/plugin/voice mapper scaffold.
+
+### Lost-vault deletion phone verification
+
+The shared lost-vault deletion form supports native country/phone entry and manual SMS codes through `HushhAuth.startPhoneDeletionVerification`, `confirmPhoneDeletionVerification`, and `cancelPhoneDeletionVerification`. Android also accepts instant verification. The bridge keeps phone proof separate from the signed-in Firebase identity and binds every result to an opaque attempt and the captured owner/session. See [the deletion contract](../one/lost-vault-account-deletion.md#current-implementation-boundaries) for SDK cleanup, persistence limits, and release requirements. Native SMS delivery and app-verification configuration require verification on a newly built app; browser viewport tests do not establish those behaviors.

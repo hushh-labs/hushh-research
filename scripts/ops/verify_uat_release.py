@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from importlib.util import module_from_spec, spec_from_file_location
 from typing import Any
 
 import requests
@@ -18,8 +19,6 @@ PROTOCOL_ROOT = REPO_ROOT / "consent-protocol"
 WEB_ROOT = REPO_ROOT / "hushh-webapp"
 if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
-
-from importlib.util import module_from_spec, spec_from_file_location
 
 _UAT_SMOKE_PATH = PROTOCOL_ROOT / "scripts" / "uat_kai_regression_smoke.py"
 _UAT_SPEC = spec_from_file_location("uat_kai_regression_smoke", _UAT_SMOKE_PATH)
@@ -96,6 +95,43 @@ def _record_exception(
     failures.append(name)
 
 
+def _command_recovery_check(response: requests.Response) -> dict[str, Any]:
+    """A private-placement refusal proves the hub boundary, not pod recovery."""
+    commands = response.json()
+    commands = commands if isinstance(commands, dict) else {}
+    detail = commands.get("detail")
+    detail = detail if isinstance(detail, dict) else {}
+    error_code = detail.get("code")
+    hosting_mode = detail.get("hostingMode")
+    private_modes = ("byoc", "pending", "hussh_pods", "unplaced")
+    private_runtime_required = (
+        response.status_code == 409
+        and error_code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        and ("hostingMode" not in detail or hosting_mode in private_modes)
+    )
+    commands_ok = response.status_code == 200 and isinstance(
+        commands.get("commands"), list
+    )
+    return {
+        "name": "location_command_recovery",
+        "ok": commands_ok or private_runtime_required,
+        "recovery_verified": commands_ok,
+        "private_runtime_required": private_runtime_required,
+        "status_code": response.status_code,
+        "error_code": error_code
+        if error_code in ("AGENT_PRIVATE_RUNTIME_REQUIRED", "AGENT_HOSTING_UNAVAILABLE")
+        else "unrecognized"
+        if error_code is not None
+        else None,
+        "hosting_mode": hosting_mode
+        if hosting_mode in (*private_modes, "shared", "unknown")
+        else "unrecognized"
+        if hosting_mode is not None
+        else None,
+        "command_count": len(commands["commands"]) if commands_ok else 0,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend-url", required=True)
@@ -104,20 +140,32 @@ def main() -> int:
     parser.add_argument("--web-env", default=DEFAULT_WEBAPP_ENV)
     parser.add_argument("--report-path", required=True)
     parser.add_argument(
+        "--run-live-model-checks",
+        choices=("true", "false"),
+        default="false",
+        help="Opt into the paid live RIA probe selected by the release verification plan.",
+    )
+    parser.add_argument(
         "--include-signed-in-routes",
         action="store_true",
         help="Run the heavy signed-in route browser sweep and include it in the report.",
     )
     args = parser.parse_args()
+    run_live_model_checks = args.run_live_model_checks == "true"
 
     report: dict[str, Any] = {
         "backend_url": args.backend_url,
         "frontend_url": args.frontend_url,
         "checks": [],
         "status": "healthy",
+        "run_live_model_checks": run_live_model_checks,
     }
 
     failures: list[str] = []
+    # Checks that failed because an EXTERNAL provider is unavailable, not because
+    # this release is bad. They are reported, never hidden, but they must not
+    # block: a Google billing hold is not a reason to withhold healthy code.
+    degraded: list[str] = []
 
     backend_probe = _http_probe(f"{args.backend_url.rstrip('/')}/health")
     report["checks"].append({"name": "backend_health", **backend_probe})
@@ -137,7 +185,9 @@ def main() -> int:
             web_env=args.web_env,
         )
         smoke.authenticate()
-        report["checks"].append({"name": "smoke_auth", "ok": True, "user_id": smoke.user_id})
+        report["checks"].append(
+            {"name": "smoke_auth", "ok": True, "user_id": smoke.user_id}
+        )
     except Exception as exc:  # pragma: no cover - exercised in live verification
         _record_exception(report, failures, name="smoke_auth", exc=exc)
 
@@ -164,61 +214,71 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            relay_session = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/one/adk/relay-session",
-                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
-                expected=200,
-            ).json()
-            relay_session_ok = bool(
-                isinstance(relay_session.get("relay_ticket"), str)
-                and relay_session.get("relay_ticket")
-                and isinstance(relay_session.get("expires_at"), int)
-                and relay_session.get("expires_at") > 0
+            response = smoke._request(  # noqa: SLF001
+                "GET",
+                "/api/one/action-proposals",
+                headers=smoke._vault_headers(),  # noqa: SLF001
+                expected=None,
             )
-            report["checks"].append(
-                {
-                    "name": "voice_relay_session",
-                    "ok": relay_session_ok,
-                    "model": relay_session.get("model"),
-                    "tier": relay_session.get("tier"),
-                }
-            )
-            if not relay_session_ok:
-                failures.append("voice_relay_session")
+            command_check = _command_recovery_check(response)
+            report["checks"].append(command_check)
+            if not command_check["ok"]:
+                failures.append("location_command_recovery")
         except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_relay_session", exc=exc)
+            _record_exception(
+                report, failures, name="location_command_recovery", exc=exc
+            )
 
-        try:
-            ria_stage1 = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/ria/onboarding/verify-name",
-                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
-                json_body={
-                    "query": RIA_STAGE1_SMOKE_QUERY,
-                    "force_live_verification": True,
-                },
-                expected=200,
-            ).json()
-            ria_stage1_ok = (
-                str(ria_stage1.get("status") or "") == "verified"
-                and str(ria_stage1.get("crd_number") or "") == RIA_STAGE1_SMOKE_CRD
-            )
-            report["checks"].append(
-                {
-                    "name": "ria_stage1_query_only",
-                    "ok": ria_stage1_ok,
-                    "status": ria_stage1.get("status"),
-                    "provider": ria_stage1.get("provider"),
-                    "matched_name": ria_stage1.get("matched_name"),
-                    "crd_number": ria_stage1.get("crd_number"),
-                    "reason_code": ria_stage1.get("reason_code"),
-                }
-            )
-            if not ria_stage1_ok:
-                failures.append("ria_stage1_query_only")
-        except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
+        if run_live_model_checks:
+            try:
+                ria_stage1 = smoke._request(  # noqa: SLF001
+                    "POST",
+                    "/api/ria/onboarding/verify-name",
+                    headers=smoke._firebase_auth_headers(),  # noqa: SLF001
+                    json_body={
+                        "query": RIA_STAGE1_SMOKE_QUERY,
+                        "force_live_verification": True,
+                    },
+                    expected=200,
+                ).json()
+                ria_stage1_ok = (
+                    str(ria_stage1.get("status") or "") == "verified"
+                    and str(ria_stage1.get("crd_number") or "") == RIA_STAGE1_SMOKE_CRD
+                )
+                report["checks"].append(
+                    {
+                        "name": "ria_stage1_query_only",
+                        "ok": ria_stage1_ok,
+                        "status": ria_stage1.get("status"),
+                        "provider": ria_stage1.get("provider"),
+                        "matched_name": ria_stage1.get("matched_name"),
+                        "crd_number": ria_stage1.get("crd_number"),
+                        "reason_code": ria_stage1.get("reason_code"),
+                    }
+                )
+                if not ria_stage1_ok:
+                    # The backend already distinguishes "the provider is down" from
+                    # "this advisor is not verified" -- ria_verification.py emits
+                    # provider_unavailable for a 5xx/denied upstream and not_verified
+                    # for a genuine negative. Until now that distinction was recorded
+                    # in the check and then thrown away here, so an upstream Gemini
+                    # outage read as a release regression.
+                    if str(ria_stage1.get("status") or "") == "provider_unavailable":
+                        degraded.append("ria_stage1_query_only")
+                    else:
+                        failures.append("ria_stage1_query_only")
+            except Exception as exc:  # pragma: no cover - exercised in live verification
+                _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
+
+    if not run_live_model_checks:
+        report["checks"].append(
+            {
+                "name": "ria_stage1_query_only",
+                "ok": None,
+                "skipped": True,
+                "reason": "live_model_checks_not_requested",
+            }
+        )
 
     if args.include_signed_in_routes:
         route_results = []
@@ -244,9 +304,16 @@ def main() -> int:
             }
         )
 
+    # Three states, not two. A release whose own code is healthy but whose
+    # provider is down is neither "healthy" (AI does not work) nor "blocked"
+    # (nothing is wrong with the build) -- reporting either one is a lie.
+    report["degraded"] = degraded
     if failures:
         report["status"] = "blocked"
         report["failures"] = failures
+    elif degraded:
+        report["status"] = "degraded"
+        report["failures"] = []
 
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,11 @@
 "use client";
 
-import { Loader2, RefreshCw, ShieldCheck, ShieldAlert } from "lucide-react";
+import {
+  SpinnerGapIcon as Loader2,
+  ArrowsClockwiseIcon as RefreshCw,
+  ShieldIcon as ShieldCheck,
+  ShieldWarningIcon as ShieldAlert,
+} from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";

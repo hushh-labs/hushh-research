@@ -355,6 +355,10 @@ CREATE TABLE IF NOT EXISTS "vault_keys" (
   "nav_setup_completed_at" INTEGER,
   "nav_setup_skipped_at" INTEGER,
   "setup_capability_ids" TEXT,
+  "setup_capability_declined_ids" TEXT,
+  "one_chat_onboarding" TEXT,
+  "one_business_profile_saved" INTEGER NOT NULL DEFAULT 0,
+  "one_magic_intelligence_saved" INTEGER NOT NULL DEFAULT 0,
   "setup_capabilities_updated_at" INTEGER,
   "setup_state_updated_at" INTEGER,
   "one_runtime_setup_choice" TEXT CHECK ("one_runtime_setup_choice" IS NULL OR "one_runtime_setup_choice" IN ('hushh_managed_vertex', 'byok_pending_vault')),
@@ -557,5 +561,34 @@ CREATE TABLE IF NOT EXISTS "kai_analyze_runs" (
 
 CREATE INDEX IF NOT EXISTS "idx_kai_analyze_runs_expiry"
   ON "kai_analyze_runs" ("expires_at");
+
+-- Cross-process state for Kai debate and portfolio-import runs.
+-- Mirror of migration 253_kai_run_state.sql for the offline SQLite test harness.
+CREATE TABLE IF NOT EXISTS "kai_run_state" (
+  "run_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "run_kind" TEXT NOT NULL CHECK ("run_kind" IN ('debate', 'import')),
+  "session_id" TEXT NOT NULL DEFAULT '',
+  "ticker" TEXT NOT NULL DEFAULT '',
+  "status" TEXT NOT NULL CHECK ("status" IN ('running', 'completed', 'failed', 'canceled')),
+  "terminal_event" TEXT,
+  "terminal_receipt" TEXT NOT NULL DEFAULT '{}',
+  "progress" TEXT NOT NULL DEFAULT '{}',
+  "started_at_iso" TEXT,
+  "completed_at_iso" TEXT,
+  "heartbeat_at" INTEGER,
+  "finished_at" INTEGER,
+  "cancel_requested_at" INTEGER,
+  "relay_public_key" TEXT,
+  "relay_ciphertext" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "expires_at" INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "idx_kai_run_state_owner_active"
+  ON "kai_run_state" ("user_id", "run_kind", "session_id", "status");
+
+CREATE INDEX IF NOT EXISTS "idx_kai_run_state_expiry"
+  ON "kai_run_state" ("expires_at");
 
 -- WARNING: table users not found in live schema, skipped

@@ -10,6 +10,7 @@ import {
   trackCacheResourceResolved,
   trackWarmupCompleted,
 } from "@/lib/observability/client";
+import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const CONVERSATION_LIMIT = 20;
@@ -22,6 +23,8 @@ type AgentChatHistoryCacheEntry = {
 };
 
 export type AgentChatHistorySnapshot = {
+  ownerId: string;
+  cacheGeneration: string;
   conversations: AgentChatConversation[];
   latestConversationId: string | null;
   latestMessages: AgentChatMessage[];
@@ -34,6 +37,14 @@ const historyLoadsByKey = new Map<string, Promise<AgentChatMessage[]>>();
 const generationByUser = new Map<string, number>();
 let globalGeneration = 0;
 
+if (typeof window !== "undefined") {
+  window.addEventListener(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, (event) => {
+    const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+    const userId = typeof detail?.userId === "string" ? detail.userId : "";
+    if (userId) clearAgentChatHistoryCache(userId);
+  });
+}
+
 function generationFor(userId: string): string {
   return `${globalGeneration}:${generationByUser.get(userId) || 0}`;
 }
@@ -44,9 +55,11 @@ function assertCurrentGeneration(userId: string, generation: string): void {
   }
 }
 
-function snapshot(entry: AgentChatHistoryCacheEntry): AgentChatHistorySnapshot {
+function snapshot(entry: AgentChatHistoryCacheEntry, userId: string): AgentChatHistorySnapshot {
   const latestConversationId = entry.conversations[0]?.id || null;
   return {
+    ownerId: userId,
+    cacheGeneration: generationFor(userId),
     conversations: [...entry.conversations],
     latestConversationId,
     latestMessages: latestConversationId
@@ -60,7 +73,12 @@ export function peekAgentChatHistoryCache(
   userId: string,
 ): AgentChatHistorySnapshot | null {
   const entry = entriesByUser.get(userId);
-  return entry ? snapshot(entry) : null;
+  return entry ? snapshot(entry, userId) : null;
+}
+
+/** Presentation liveness only; cached history never grants request authority. */
+export function isAgentChatHistorySnapshotCurrent(userId: string, value: AgentChatHistorySnapshot): boolean {
+  return value.ownerId === userId && value.cacheGeneration === generationFor(userId);
 }
 
 export function clearAgentChatHistoryCache(userId?: string): void {
@@ -82,10 +100,12 @@ export function clearAgentChatHistoryCache(userId?: string): void {
 export function warmAgentChatHistoryCache(input: {
   userId: string;
   vaultOwnerToken: string;
+  /** Unlocked vault key; only its derived chat key is sent. */
+  vaultKey: string;
   force?: boolean;
 }): Promise<AgentChatHistorySnapshot> {
   const cached = entriesByUser.get(input.userId);
-  if (!input.force && cached && snapshot(cached).isFresh) {
+  if (!input.force && cached && snapshot(cached, input.userId).isFresh) {
     trackCacheResourceResolved({
       result: "success",
       resourceClass: "realtime_stream",
@@ -93,7 +113,7 @@ export function warmAgentChatHistoryCache(input: {
       freshness: "fresh",
       durationMs: 0,
     });
-    return Promise.resolve(snapshot(cached));
+    return Promise.resolve(snapshot(cached, input.userId));
   }
 
   const existing = warmupsByUser.get(input.userId);
@@ -104,26 +124,16 @@ export function warmAgentChatHistoryCache(input: {
   const warmup = listAgentChatConversations({
     userId: input.userId,
     vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
     limit: CONVERSATION_LIMIT,
   })
-    .then(async (conversations) => {
+    .then((conversations) => {
       assertCurrentGeneration(input.userId, generation);
       const previous = entriesByUser.get(input.userId);
       const messagesByConversation = new Map(previous?.messagesByConversation || []);
       const validIds = new Set(conversations.map((conversation) => conversation.id));
       for (const conversationId of messagesByConversation.keys()) {
         if (!validIds.has(conversationId)) messagesByConversation.delete(conversationId);
-      }
-
-      const latestConversationId = conversations[0]?.id;
-      if (latestConversationId) {
-        const latestMessages = await getAgentChatHistory({
-          conversationId: latestConversationId,
-          vaultOwnerToken: input.vaultOwnerToken,
-          limit: MESSAGE_LIMIT,
-        });
-        assertCurrentGeneration(input.userId, generation);
-        messagesByConversation.set(latestConversationId, latestMessages);
       }
 
       const next: AgentChatHistoryCacheEntry = {
@@ -139,7 +149,19 @@ export function warmAgentChatHistoryCache(input: {
         warmPriority: "agent_chat_history",
         durationMs: Date.now() - startedAt,
       });
-      return snapshot(next);
+      const latestConversationId = conversations[0]?.id;
+      if (latestConversationId && (input.force || !messagesByConversation.has(latestConversationId))) {
+        // The list is usable as soon as it arrives. A slow transcript must not
+        // hold the entire sidebar in its loading state.
+        void loadAgentChatConversationHistory({
+          userId: input.userId,
+          conversationId: latestConversationId,
+          vaultOwnerToken: input.vaultOwnerToken,
+          vaultKey: input.vaultKey,
+          force: input.force,
+        }).catch(() => undefined);
+      }
+      return snapshot(next, input.userId);
     })
     .catch((error) => {
       trackWarmupCompleted({
@@ -166,6 +188,8 @@ export async function loadAgentChatConversationHistory(input: {
   userId: string;
   conversationId: string;
   vaultOwnerToken: string;
+  /** Unlocked vault key; only its derived chat key is sent. */
+  vaultKey: string;
   force?: boolean;
 }): Promise<AgentChatMessage[]> {
   const entry = entriesByUser.get(input.userId);
@@ -180,6 +204,7 @@ export async function loadAgentChatConversationHistory(input: {
   const request = getAgentChatHistory({
     conversationId: input.conversationId,
     vaultOwnerToken: input.vaultOwnerToken,
+    vaultKey: input.vaultKey,
     limit: MESSAGE_LIMIT,
   })
     .then((messages) => {

@@ -7,23 +7,24 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { buildKaiPortfolioSectionRoute } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import { useState } from "react";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 export function KaiPortfolioDetailPage({
   section,
 }: {
   section: Exclude<PortfolioDashboardSection, "overview">;
 }) {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [flowState, setFlowState] = useState<FlowState>("checking");
 
-  if (loading || !user) return null;
+  if (loading || !user || !userId) return null;
 
   return (
     <AppPageShell
       as="div"
-      width="reading"
-      className="relative pb-32"
+      width="agent"
+      className={`relative pb-32 ${financeStyles.workspace}`}
       nativeTest={{
         routeId: buildKaiPortfolioSectionRoute(section),
         marker: `native-route-kai-portfolio-${section}`,
@@ -32,7 +33,7 @@ export function KaiPortfolioDetailPage({
       }}
     >
       <KaiFlow
-        userId={user.uid}
+        userId={userId}
         mode="dashboard"
         vaultOwnerToken={vaultOwnerToken ?? ""}
         dashboardSection={section}

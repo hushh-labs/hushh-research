@@ -22,6 +22,43 @@ from hushh_mcp.consent.token import (
 from hushh_mcp.constants import ConsentScope
 
 
+@pytest.fixture(autouse=True)
+def simulated_active_account(monkeypatch):
+    """These units fabricate the consent ledger; lifecycle is a separate port."""
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _owner: False)
+
+
+@pytest.mark.parametrize("pending", [True, False])
+async def test_retained_grant_cannot_reauthorize_a_deleting_or_retired_account(
+    monkeypatch, pending
+):
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionInProgressError,
+        AccountDeletionLifecycleService,
+    )
+
+    def retired(_owner):
+        if pending:
+            raise AccountDeletionInProgressError("synthetic pending cleanup")
+        return True
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", retired)
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    service = AsyncMock()
+    fake_module.ConsentDBService = lambda: service
+    token = issue_token("synthetic-retired-owner", "self", ConsentScope.VAULT_OWNER)
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, principal = await validate_token_with_db(token.token)
+    assert valid is False
+    assert principal is None
+    assert reason == ("ACCOUNT_DELETION_IN_PROGRESS" if pending else "ACCOUNT_DELETED")
+    service.is_token_active.assert_not_awaited()
+
+
 # Simulated revocation functions that match the implementation pattern
 def hash_token(token_str: str) -> str:
     """Generate SHA256 hash of token for storage."""
@@ -272,11 +309,8 @@ async def test_validate_token_with_db_rejects_memory_revoked_token():
 
 
 @pytest.mark.asyncio
-async def test_validate_token_with_db_vault_owner_grace_period_on_db_error():
-    """
-    VAULT_OWNER token gets grace period when DB is unreachable.
-    Users must not be locked out of their own vault during brief DB hiccups.
-    """
+async def test_validate_token_with_db_vault_owner_refuses_unconfirmed_revocation():
+    """Owner signatures cannot bypass a retired account or revoked grant on outage."""
     token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
     token_str = token_obj.token
 
@@ -292,10 +326,9 @@ async def test_validate_token_with_db_vault_owner_grace_period_on_db_error():
             token_str, ConsentScope.VAULT_OWNER
         )
 
-    # VAULT_OWNER gets grace period — user can still access their own vault
-    assert valid is True
-    assert reason is None
-    assert token_result is not None
+    assert valid is False
+    assert reason == "Token revocation status could not be confirmed (DB unavailable)"
+    assert token_result is None
 
 
 @pytest.mark.asyncio
@@ -345,7 +378,7 @@ async def test_device_owner_token_requires_active_device():
         )
 
     assert valid is False
-    assert reason == "Trusted device is not active"
+    assert reason == "TRUSTED_DEVICE_REVOKED"
     assert result is None
 
 
@@ -372,5 +405,5 @@ async def test_device_owner_token_fails_closed_when_device_status_is_unavailable
         )
 
     assert valid is False
-    assert reason == "Trusted device revocation status could not be confirmed (DB unavailable)"
+    assert reason == "TRUSTED_DEVICE_STATUS_UNCONFIRMED"
     assert result is None

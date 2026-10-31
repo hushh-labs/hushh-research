@@ -15,10 +15,50 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from api.middlewares.auth_reliability_trace import (
+    _HOSTED_RUNTIME_MARKERS as _HOSTED_RUNTIME_MARKERS,
+)
+from api.middlewares.auth_reliability_trace import (
+    AUTH_RELIABILITY_FLAGS as AUTH_RELIABILITY_FLAGS,
+)
+from api.middlewares.auth_reliability_trace import (
+    FEATURE_FLAGS_HEADER as FEATURE_FLAGS_HEADER,
+)
+from api.middlewares.auth_reliability_trace import (
+    _opentelemetry_enabled,
+    phone_request_trace_span,
+    request_feature_scope,
+    request_trace_context,
+)
+from api.middlewares.auth_reliability_trace import (
+    capture_request_trace_events as capture_request_trace_events,
+)
+from api.middlewares.auth_reliability_trace import (
+    get_request_trace_events as get_request_trace_events,
+)
+from api.middlewares.auth_reliability_trace import (
+    request_feature_enabled as request_feature_enabled,
+)
+from api.middlewares.auth_reliability_trace import (
+    request_feature_overrides as request_feature_overrides,
+)
+from api.middlewares.auth_reliability_trace import (
+    request_trace_span as request_trace_span,
+)
+from hushh_mcp.services.chat_key import CHAT_KEY_HEADER
+from hushh_mcp.services.pod_platform import pod_service_name
+
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "x-request-id"
 TRACE_ID_HEADER = "x-trace-id"
+# These Google GET callbacks contain OAuth codes and/or selected Drive IDs in
+# their query strings. App-level structured telemetry keeps only route
+# templates, while OpenTelemetry must not create a second, URL-bearing export.
+_PRIVATE_CALLBACK_TRACE_URLS = (
+    r"/api/connectors/oauth/native/callback(?:[?]|$)|"
+    r"/api/connectors/google_drive/picker/native/callback(?:[?]|$)"
+)
 
 
 @dataclass(frozen=True)
@@ -68,7 +108,7 @@ def _environment() -> str:
 
 
 def _service_name() -> str:
-    return str(os.getenv("K_SERVICE") or os.getenv("SERVICE_NAME") or "consent-protocol")
+    return str(pod_service_name() or os.getenv("SERVICE_NAME") or "consent-protocol")
 
 
 def _is_expected_status(method: str, route_template: str, status_code: int) -> bool:
@@ -106,7 +146,17 @@ def _route_template(request: Request) -> str:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             return path
-    return request.url.path
+    from starlette.routing import Match
+
+    router = getattr(request.scope.get("app"), "router", None)
+    for candidate in getattr(router, "routes", ()):
+        match, _ = candidate.matches(request.scope)
+        path = getattr(candidate, "path", None)
+        if match in {Match.FULL, Match.PARTIAL} and isinstance(path, str) and path:
+            return path
+    # Before routing (and for 404s), a raw URL can contain opaque protected
+    # locators or credentials. It is never a telemetry route template.
+    return "<unmatched>"
 
 
 def _sanitize_request_id(raw: str | None) -> str | None:
@@ -130,9 +180,9 @@ def _resolve_trace_id(request: Request, request_id: str) -> str:
     if incoming:
         return incoming
     traceparent = str(request.headers.get("traceparent") or "").strip()
-    parts = traceparent.split("-")
-    if len(parts) >= 2 and re.fullmatch(r"[0-9a-fA-F]{32}", parts[1]):
-        return parts[1].lower()
+    match = re.fullmatch(r"00-([0-9a-fA-F]{32})-([0-9a-fA-F]{16})-[0-9a-fA-F]{2}", traceparent)
+    if match and int(match[1], 16) and int(match[2], 16):
+        return match[1].lower()
     return request_id
 
 
@@ -198,112 +248,87 @@ def _unverified_jwt_subject(token: str) -> str | None:
 
 
 async def observability_middleware(request: Request, call_next):
-    # Inline imports match the hushh_mcp.consent.token pattern already in this file.
-    # Integrated by Abdul Gaffar — hushh_mcp.consent.audit_logger canonical surface.
-    from db.query_telemetry import (
-        begin_query_telemetry,
-        query_telemetry_snapshot,
-        reset_query_telemetry,
-    )
+    with request_feature_scope(request):
+        return await _observability_middleware(request, call_next)
+
+
+def _log_request_summary(
+    metadata: RequestTraceMetadata, start: float, response, *, failed: bool
+) -> None:
+    from db.query_telemetry import query_telemetry_snapshot
+
+    method, route_template = metadata.method, metadata.route_template
+    status_code = int(response.status_code)
+    payload: dict[str, Any] = {
+        "message": "request.summary",
+        "request_id": metadata.request_id,
+        "trace_id": metadata.trace_id,
+        "method": method,
+        "route_template": route_template,
+        "status_code": status_code,
+        "status_bucket": _status_bucket(method, route_template, status_code),
+        "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+        "outcome_class": _outcome_class(method, route_template, status_code),
+        "service": _service_name(),
+        "env": _environment(),
+        "stream": "text/event-stream" in str(response.headers.get("content-type") or ""),
+        **_query_budget_payload(method, route_template, query_telemetry_snapshot()),
+    }
+    # Exception messages/tracebacks may contain provider credentials or OTPs.
+    (logger.error if failed else logger.info)(json.dumps(payload, separators=(",", ":")))
+
+
+async def _observability_middleware(request: Request, call_next):
+    from db.query_telemetry import begin_query_telemetry, reset_query_telemetry
     from hushh_mcp.consent.audit_logger import bind_trace_id, reset_trace_id
+    from hushh_mcp.consent.pii_sanitizer import sanitize_log_value
 
     request_id = _resolve_request_id(request)
     trace_id = _resolve_trace_id(request, request_id)
     request.state.request_id = request_id
     request.state.trace_id = trace_id
-    # Decode the JWT once here; rate_limit.py reads this cached value instead
-    # of calling validate_token a second time on every request.
+    # Rate limiting reuses this best-effort identity; routes still authorize independently.
     request.state.rate_limit_user_id = _extract_bearer_user_id(request)
-
-    method = request.method.upper()
     start = time.perf_counter()
-    # Inline import mirrors the validate_token pattern above — avoids circular import risk.
-    # Integrated by Abdul Gaffar — hushh_mcp.consent.pii_sanitizer canonical surface.
-    from hushh_mcp.consent.pii_sanitizer import sanitize_log_value
-
-    route_template = sanitize_log_value(_route_template(request))
-    trace_metadata = RequestTraceMetadata(
+    metadata = RequestTraceMetadata(
         request_id=request_id,
         trace_id=trace_id,
-        method=method,
-        route_template=route_template,
+        method=request.method.upper(),
+        route_template=sanitize_log_value(_route_template(request)),
     )
-    request.state.trace_metadata = trace_metadata
-    token = _request_trace_ctx.set(trace_metadata)
+    request.state.trace_metadata = metadata
+    token = _request_trace_ctx.set(metadata)
     query_token = begin_query_telemetry()
-
-    # Inject the request_id as the audit trace_id so every log line emitted
-    # within this request is correlatable.  Canonical attach point for
-    # hushh_mcp/consent/audit_logger.py (Integrated by Abdul Gaffar).
-    _audit_token = bind_trace_id(request_id)
-
+    # Audit and request metadata share the resolved trace correlation; the
+    # request ID keeps its existing response-header compatibility.
+    audit_token = bind_trace_id(trace_id)
     try:
-        response = await call_next(request)
-    except Exception:
-        duration_ms = round((time.perf_counter() - start) * 1000, 2)
-        status_code = 500
-        status_bucket = _status_bucket(method, route_template, status_code)
-        payload: dict[str, Any] = {
-            "message": "request.summary",
-            "request_id": request_id,
-            "trace_id": trace_id,
-            "method": method,
-            "route_template": route_template,
-            "status_code": status_code,
-            "status_bucket": status_bucket,
-            "duration_ms": duration_ms,
-            "outcome_class": _outcome_class(method, route_template, status_code),
-            "service": _service_name(),
-            "env": _environment(),
-            "stream": False,
-            **_query_budget_payload(method, route_template, query_telemetry_snapshot()),
-        }
-        logger.exception(json.dumps(payload, separators=(",", ":")))
-        error_response = JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-        )
-        error_response.headers[REQUEST_ID_HEADER] = request_id
-        reset_trace_id(_audit_token)
-        error_response.headers[TRACE_ID_HEADER] = trace_id
+        with request_trace_context(request_id, trace_id):
+            failed = False
+            try:
+                with phone_request_trace_span(request, "receive"):
+                    response = await call_next(request)
+            except Exception:
+                failed = True
+                response = JSONResponse(
+                    status_code=500, content={"detail": "Internal server error"}
+                )
+            with phone_request_trace_span(request, "response"):
+                response.headers[REQUEST_ID_HEADER] = request_id
+                response.headers[TRACE_ID_HEADER] = trace_id
+            _log_request_summary(metadata, start, response, failed=failed)
+            return response
+    finally:
+        reset_trace_id(audit_token)
         _request_trace_ctx.reset(token)
         reset_query_telemetry(query_token)
-        return error_response
-
-    duration_ms = round((time.perf_counter() - start) * 1000, 2)
-    response.headers[REQUEST_ID_HEADER] = request_id
-    response.headers[TRACE_ID_HEADER] = trace_id
-
-    status_code = int(response.status_code)
-    status_bucket = _status_bucket(method, route_template, status_code)
-    content_type = str(response.headers.get("content-type") or "")
-
-    payload = {
-        "message": "request.summary",
-        "request_id": request_id,
-        "trace_id": trace_id,
-        "method": method,
-        "route_template": route_template,
-        "status_code": status_code,
-        "status_bucket": status_bucket,
-        "duration_ms": duration_ms,
-        "outcome_class": _outcome_class(method, route_template, status_code),
-        "service": _service_name(),
-        "env": _environment(),
-        "stream": "text/event-stream" in content_type,
-        **_query_budget_payload(method, route_template, query_telemetry_snapshot()),
-    }
-    logger.info(json.dumps(payload, separators=(",", ":")))
-
-    reset_trace_id(_audit_token)
-    _request_trace_ctx.reset(token)
-    reset_query_telemetry(query_token)
-    return response
 
 
 def configure_opentelemetry(app: FastAPI) -> None:
-    enabled_raw = str(os.getenv("OTEL_ENABLED", "false")).strip().lower()
-    if enabled_raw not in {"1", "true", "yes", "on"}:
+    from api.utils.private_trace_exporter import protect_incoming_trace_context
+
+    protect_incoming_trace_context()
+    if not _opentelemetry_enabled():
         logger.info("observability.otel_disabled")
         return
 
@@ -315,6 +340,8 @@ def configure_opentelemetry(app: FastAPI) -> None:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        from api.utils.private_trace_exporter import PrivateTraceExporter
     except Exception:
         logger.exception("observability.otel_import_failed")
         return
@@ -327,10 +354,18 @@ def configure_opentelemetry(app: FastAPI) -> None:
             }
         )
         provider = TracerProvider(resource=resource)
-        provider.add_span_processor(BatchSpanProcessor(CloudTraceSpanExporter()))
+        provider.add_span_processor(
+            BatchSpanProcessor(PrivateTraceExporter(CloudTraceSpanExporter()))
+        )
 
         trace.set_tracer_provider(provider)
-        FastAPIInstrumentor.instrument_app(app)
+        FastAPIInstrumentor.instrument_app(
+            app,
+            excluded_urls=_PRIVATE_CALLBACK_TRACE_URLS,
+            # Header capture is off; if it is ever enabled, the chat key must
+            # never become a span attribute.
+            http_capture_headers_sanitize_fields=[CHAT_KEY_HEADER],
+        )
         HTTPXClientInstrumentor().instrument()
         logger.info("observability.otel_enabled")
     except Exception:

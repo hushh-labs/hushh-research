@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearGmailOAuthPopupAttempt,
+  consumeStoredGmailOAuthPopupSettlement,
+  notifyGmailOAuthPopupOpenerFallback,
   openGmailOAuthPopup,
   readGmailOAuthPopupAttempt,
   type GmailOAuthPopupAttempt,
@@ -35,6 +37,7 @@ function makeAttempt(): GmailOAuthPopupAttempt {
     version: 1,
     attemptId: "gmail-ios-test",
     startedAt: Date.now(),
+    ownerId: "user-123",
   };
 }
 
@@ -70,6 +73,26 @@ describe("gmail-oauth-popup", () => {
     );
   });
 
+  it("shows progress instead of leaving the trusted popup blank", () => {
+    const attempt = makeAttempt();
+    const popup = {
+      close: vi.fn(),
+      document: {
+        title: "",
+        body: { textContent: "", style: { cssText: "" } },
+      },
+      focus: vi.fn(),
+      localStorage: makeStorage(),
+      sessionStorage: makeStorage(),
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+
+    openGmailOAuthPopup(attempt);
+
+    expect(popup.document.title).toBe("Connecting Mail");
+    expect(popup.document.body?.textContent).toBe("Opening secure Google sign-in…");
+  });
+
   it("keeps the retained popup open when reading sessionStorage itself throws", () => {
     const attempt = makeAttempt();
     const fallbackStorage = makeStorage();
@@ -95,13 +118,36 @@ describe("gmail-oauth-popup", () => {
     );
   });
 
-  it("reads and clears the fallback popup attempt marker", () => {
+  it("clears only the requested attempt across session and fallback storage", () => {
     const attempt = makeAttempt();
     window.localStorage.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(attempt));
 
     expect(readGmailOAuthPopupAttempt()).toEqual(attempt);
 
+    const newer = { ...attempt, attemptId: "newer-mail-attempt" };
+    window.sessionStorage.setItem("one_gmail_oauth_popup_attempt_v1", JSON.stringify(attempt));
+    window.localStorage.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(newer));
+    clearGmailOAuthPopupAttempt(undefined, attempt.attemptId);
+    expect(window.sessionStorage.getItem("one_gmail_oauth_popup_attempt_v1")).toBeNull();
+    expect(readGmailOAuthPopupAttempt()).toEqual(newer);
+
+    // Existing explicit, unconditional cleanup retains its compatibility.
     clearGmailOAuthPopupAttempt();
     expect(readGmailOAuthPopupAttempt()).toBeNull();
+  });
+
+  it("persists and consumes one callback-owned settlement marker", () => {
+    const settlement = {
+      schemaVersion: 1 as const,
+      type: "gmail_oauth_settlement" as const,
+      attemptId: makeAttempt().attemptId,
+      outcome: "failed" as const,
+    };
+
+    expect(notifyGmailOAuthPopupOpenerFallback(settlement)).toBe(true);
+    expect(
+      consumeStoredGmailOAuthPopupSettlement(settlement.attemptId),
+    ).toMatchObject(settlement);
+    expect(consumeStoredGmailOAuthPopupSettlement(settlement.attemptId)).toBeNull();
   });
 });

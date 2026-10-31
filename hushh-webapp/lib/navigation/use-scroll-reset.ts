@@ -52,28 +52,28 @@ export function useScrollReset(
     if (!enabled) return;
     let cancelled = false;
     let rafA = 0;
-    let rafB = 0;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const run = () => {
       if (cancelled) return;
       scrollAppToTop(behavior);
     };
 
-    // Immediate reset
+    // Immediate reset, then one follow-up after the incoming route's first
+    // layout. Each scrollTo forces a layout when the document is dirty, and
+    // the previous four writes per navigation (immediate, frame, double
+    // frame, 120 ms) landed exactly while the new page was laying out. The
+    // follow-up writes only when something moved the scroll in between.
     run();
-    // Follow-up resets after paint/layout to beat route transition jitter.
-    rafA = window.requestAnimationFrame(run);
-    rafB = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(run);
+    rafA = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const root = getAppScrollRoot();
+      const offset = root ? root.scrollTop : window.scrollY;
+      if (offset !== 0) run();
     });
-    timeoutId = setTimeout(run, 120);
 
     return () => {
       cancelled = true;
       if (rafA) window.cancelAnimationFrame(rafA);
-      if (rafB) window.cancelAnimationFrame(rafB);
-      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [enabled, behavior, key]);
 }

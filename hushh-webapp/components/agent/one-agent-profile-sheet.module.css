@@ -1,0 +1,147 @@
+.sheet,
+.nativeBody {
+  --settings-group-stack-gap: 8px;
+  --settings-heading-stack-gap: 4px;
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 12px;
+}
+.sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  font-family: var(--font-app-body);
+}
+.content,
+.nativeBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.scroll {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  container: one-profile-content / inline-size;
+  padding: 12px var(--page-inline-gutter-standard)
+    max(24px, var(--app-safe-area-bottom-effective, 0px));
+}
+.hero {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 20px var(--page-inline-gutter-standard) 16px;
+  text-align: center;
+}
+.avatar {
+  --one-profile-artwork-size: clamp(208px, calc(100vw - 112px), 224px);
+  position: relative;
+  width: min(100%, var(--one-presence-size, var(--one-profile-artwork-size)));
+  aspect-ratio: 1;
+  margin-bottom: calc(var(--one-presence-size, var(--one-profile-artwork-size)) * -0.102);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.artwork {
+  width: 100%;
+  height: 100%;
+}
+.title {
+  margin: 0;
+  font-family: var(--font-app-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 27px;
+  letter-spacing: normal;
+}
+.tabs {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 0;
+  overflow: hidden;
+}
+.modelControl {
+  flex: none;
+  padding: 0 var(--page-inline-gutter-standard) 12px;
+}
+.tabList {
+  flex: none;
+  width: auto;
+  margin-inline: var(--page-inline-gutter-standard);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.tabList button {
+  min-height: 44px;
+}
+.feed,
+.todo,
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sectionHeading h3 {
+  font-size: var(--app-side-pane-section-size);
+  font-weight: 600;
+}
+.sectionHeading button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: var(--app-side-pane-row-description-size);
+  color: var(--app-accent-deep);
+}
+.notice {
+  color: var(--muted-foreground);
+  font-size: var(--app-side-pane-row-title-size);
+  padding: 16px 0;
+}
+.notice button {
+  min-height: 44px;
+  color: var(--app-accent-deep);
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 12px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.empty p {
+  font-weight: 400;
+  color: var(--foreground);
+}
+.empty span {
+  font-size: 13px;
+}
+.scroll { container: one-profile-content / inline-size; }
+
+.artwork {
+  width: 100%;
+  height: 100%;
+}

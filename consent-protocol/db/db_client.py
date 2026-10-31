@@ -35,7 +35,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 
-from db.connection import format_database_unavailable_details, local_database_unavailable_hint
+from db.connection import database_unavailable_hint, format_database_unavailable_details
 from db.query_telemetry import record_query
 
 load_dotenv()
@@ -180,7 +180,9 @@ def _dispose_engine_quietly(engine: Any, *, reason: str) -> None:
     try:
         dispose()
     except Exception as exc:  # pragma: no cover - best-effort cleanup only
-        logger.warning("Failed to dispose database engine after %s: %s", reason, exc)
+        logger.warning(
+            "Failed to dispose database engine after %s error_type=%s", reason, type(exc).__name__
+        )
 
 
 def _run_with_connection_retry(
@@ -207,9 +209,9 @@ def _run_with_connection_retry(
             if not should_retry:
                 raise
             logger.warning(
-                "Transient database connection error during %s; disposing engine and retrying once: %s",
+                "Transient database connection error during %s; disposing engine and retrying once error_type=%s",
                 operation_label,
-                exc,
+                type(exc).__name__,
             )
             _dispose_engine_quietly(engine, reason=operation_label)
         finally:
@@ -444,15 +446,24 @@ class TableQuery:
         self._operation = "select"
         self._count_preference: Optional[str] = None
 
-    def select(self, columns: str = "*", count: Optional[str] = None) -> "TableQuery":
+    def select(self, *columns: str, count: Optional[str] = None) -> "TableQuery":
         """
         Select columns to return.
 
         Args:
-            columns: Comma-separated list of columns
+            columns: Column names -- either one comma-separated string (this
+                shim's original contract) or several names as separate arguments
+                (supabase-py's contract). Both are accepted because callers
+                written against supabase-py passed varargs here and the old
+                single-string signature raised ``TypeError`` at RUNTIME only --
+                the reconcile sweep silently skipped every pass on dev until the
+                mismatch was observed live (2026-08-25). ``count`` is
+                keyword-only for the same reason: a positional second string was
+                previously the count algorithm, and varargs would have silently
+                swallowed it into the column list.
             count: Count algorithm (e.g., 'exact')
         """
-        self._columns = columns
+        self._columns = ", ".join(columns) if columns else "*"
         self._count_preference = count
         self._operation = "select"
         return self
@@ -608,7 +619,12 @@ class TableQuery:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Database error: {e}")
+            logger.error(
+                "Database operation failed table=%s operation=%s error_type=%s",
+                self.table_name,
+                self._operation,
+                type(e).__name__,
+            )
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
@@ -616,7 +632,7 @@ class TableQuery:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def _execute_select(self, conn) -> QueryResult:
@@ -891,7 +907,14 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Raw SQL error: {e}")
+            # SQLAlchemy exception strings can include the complete statement
+            # and bound values. Keep runtime telemetry useful without placing
+            # owner identifiers, ciphertext, or other private values in logs.
+            logger.error(
+                "Raw SQL operation failed error_type=%s sql_fingerprint=%s",
+                type(e).__name__,
+                hashlib.sha256(sql.encode("utf-8")).hexdigest()[:12],
+            )
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
@@ -899,7 +922,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def rpc(self, function_name: str, params: Optional[dict] = None) -> QueryResult:
@@ -945,7 +968,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
 

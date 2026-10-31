@@ -5,6 +5,8 @@ import {
   isNativeTestVaultBootstrapManaged,
   isNativeUiTestSession,
   preferPassphraseUnlockForAutomation,
+  shouldDisableExternalTelemetryForAutomation,
+  shouldSkipFirstWelcomeForAutomation,
   shouldSkipGeneratedVaultUnlockForAutomation,
 } from "@/lib/testing/native-test";
 
@@ -21,6 +23,7 @@ describe("native test automation guards", () => {
     expect(isNativeUiTestSession()).toBe(false);
     expect(preferPassphraseUnlockForAutomation()).toBe(false);
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(false);
+    expect(shouldSkipFirstWelcomeForAutomation()).toBe(false);
     expect(isNativeTestVaultBootstrapManaged()).toBe(false);
   });
 
@@ -30,7 +33,7 @@ describe("native test automation guards", () => {
     expect(preferPassphraseUnlockForAutomation()).toBe(false);
   });
 
-  it("allows passphrase bypass only for explicit native UITest sessions", () => {
+  it("prefers the passphrase unlock surface only for explicit native UITest sessions", () => {
     window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,
       autoReviewerLogin: true,
@@ -41,7 +44,58 @@ describe("native test automation guards", () => {
     expect(isNativeUiTestSession()).toBe(true);
     expect(preferPassphraseUnlockForAutomation()).toBe(true);
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(true);
+    expect(shouldSkipFirstWelcomeForAutomation()).toBe(true);
     expect(isNativeTestVaultBootstrapManaged()).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation()).toBe(true);
+  });
+
+  it("allows external telemetry only for the explicit governed UAT analytics smoke", () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      allowUatAnalyticsSmokeTelemetry: true,
+    };
+
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "uat.one.hushh.ai")).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(false);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "release-candidate---hushh-webapp-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---other-service-f2gsa4kfsq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(
+      shouldDisableExternalTelemetryForAutomation(
+        undefined,
+        "analytics-candidate---hushh-webapp-rpphvsc3tq-uc.a.run.app",
+      ),
+    ).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "one.hushh.ai")).toBe(true);
+    expect(shouldDisableExternalTelemetryForAutomation(undefined, "localhost")).toBe(true);
+  });
+
+  it("keeps the visible vault challenge on the passphrase surface without auto-login or a credential", () => {
+    vi.stubGlobal("navigator", { webdriver: false });
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: false,
+    };
+
+    expect(isNativeUiTestSession()).toBe(true);
+    expect(preferPassphraseUnlockForAutomation()).toBe(true);
+    expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(true);
+    expect(isNativeTestVaultBootstrapManaged()).toBe(false);
   });
 
   it("allows Playwright automation to prefer passphrase without native bridge", () => {

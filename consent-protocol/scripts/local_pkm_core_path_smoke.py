@@ -578,16 +578,14 @@ def prompt_cases() -> list[PromptCase]:
         PromptCase("p15", "7b9a662f0c63a4d8f65f5b9d4cb4e2aa", "malformed", "must_not_save"),
         PromptCase("p16", "asdf qwer zxcv", "malformed", "must_not_save"),
         PromptCase("p17", "Maybe this matters.", "ambiguous", "must_not_save"),
-        PromptCase(
-            "p18", "Sell half my AAPL position tomorrow.", "financial_core", "must_not_save"
-        ),
+        PromptCase("p18", "Sell half my AAPL position tomorrow.", "command", "must_not_save"),
         PromptCase(
             "p19",
             "Rebalance my portfolio toward dividend stocks.",
-            "financial_core",
+            "command",
             "must_not_save",
         ),
-        PromptCase("p20", "Move 20% into bonds next week.", "financial_core", "must_not_save"),
+        PromptCase("p20", "Move 20% into bonds next week.", "command", "must_not_save"),
         PromptCase(
             "p21", "I want lower portfolio volatility.", "financial_memory", "observed_only"
         ),
@@ -646,25 +644,17 @@ def summarize_release_issues(results: list[dict[str, Any]]) -> list[dict[str, An
                 }
             )
 
-        if category == "financial_core":
-            if write_mode != "do_not_save":
-                issues.append(
-                    {
-                        "case_id": case_id,
-                        "issue": "financial_core_should_not_be_save_capable",
-                        "write_mode": write_mode,
-                        "target_domain": target_domain,
-                    }
-                )
-            if target_domain not in {None, "financial"}:
-                issues.append(
-                    {
-                        "case_id": case_id,
-                        "issue": "financial_core_target_domain_mismatch",
-                        "write_mode": write_mode,
-                        "target_domain": target_domain,
-                    }
-                )
+        # A live instruction to act ("sell", "rebalance") is the intent agent's
+        # `command`: never memory, so never save-capable.
+        if category == "command" and write_mode != "do_not_save":
+            issues.append(
+                {
+                    "case_id": case_id,
+                    "issue": "command_should_not_be_save_capable",
+                    "write_mode": write_mode,
+                    "target_domain": target_domain,
+                }
+            )
 
         if category == "preview_only" and write_mode == "can_save":
             issues.append(
@@ -740,7 +730,9 @@ def main() -> int:
                 simulated_state=simulated_state,
             )
             write_mode = str(preview.get("write_mode") or "").strip()
-            routing_decision = str(preview.get("routing_decision") or "").strip()
+            intent_class = str(
+                (preview.get("intent_frame") or {}).get("intent_class") or ""
+            ).strip()
             target_domain = str(
                 (preview.get("manifest_draft") or {}).get("domain")
                 or (preview.get("structure_decision") or {}).get("target_domain")
@@ -775,7 +767,7 @@ def main() -> int:
                     "message": case.message,
                     "category": case.category,
                     "expectation": case.expectation,
-                    "routing_decision": routing_decision,
+                    "intent_class": intent_class,
                     "write_mode": write_mode,
                     "target_domain": target_domain or None,
                     "validation_hints": preview.get("validation_hints") or [],

@@ -1,0 +1,272 @@
+#!/usr/bin/env node
+/**
+ * Choose the commit UAT should move to, and prove it is allowed to move there.
+ *
+ * Replaces `git rev-parse origin/main` as the answer to "what do we deploy?".
+ * A branch tip is whatever happened most recently, which is not the same
+ * question as what is proven — and on 2026-08-14 those two answers differed:
+ * a green merge was followed seconds later by a teammate's merge whose own
+ * post-merge gate had not finished, and the tip was dispatched.
+ *
+ * Sources of truth, deliberately independent of each other:
+ *   - what UAT runs now  -> the GitHub Deployment record for environment `uat`
+ *   - whether a commit is proven -> that commit's OWN post-merge check run
+ *   - what is on main    -> `git rev-list` against the fetched remote ref
+ *
+ * The decision logic lives in `uat-target-selection.mjs` so it can be tested
+ * without a network. This file only gathers state and reports.
+ *
+ * Usage:
+ *   node hushh-webapp/scripts/ci/select-uat-target.mjs [--limit 20] [--github-output] [--allow-no-op]
+ *
+ * Requires GITHUB_TOKEN and GITHUB_REPOSITORY (both present in Actions).
+ * Exits non-zero when there is nothing safe to deploy, so a caller that
+ * wants a target can fail closed.
+ */
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
+
+import { assertDeployable, reconcileUatTarget } from "./uat-target-selection.mjs";
+
+const GATE_NAME = "Main Post-Merge Smoke";
+const GATE_CHECK_NAME = `${GATE_NAME} Gate`;
+const REPO = process.env.GITHUB_REPOSITORY || "hushh-labs/hushh-research";
+const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+const CHAT_ONLY_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml";
+const FULL_UAT_WORKFLOW = ".github/workflows/deploy-uat.yml";
+// Older native jobs created environment records just to read UAT secrets.
+// They never move the hosted services. Unknown mutation/rehearsal records
+// retain the existing fail-closed baseline behavior.
+const NATIVE_WORKFLOWS = new Set([
+  ".github/workflows/ship-ios-testflight.yml",
+  ".github/workflows/resume-ios-testflight.yml",
+  ".github/workflows/ios-voice-device.yml",
+  ".github/workflows/ship-android-playstore-v1.yml",
+]);
+
+const args = process.argv.slice(2);
+const limit = Number(valueOf("--limit") || 20);
+const writeGithubOutput = args.includes("--github-output");
+// Selection-only callers can finish without starting a deployment. Other
+// callers still require an actual deployable target and fail closed.
+const allowNoOp = args.includes("--allow-no-op");
+
+function valueOf(flag) {
+  const index = args.indexOf(flag);
+  return index === -1 ? null : args[index + 1];
+}
+
+function git(...a) {
+  return execFileSync("git", a, { encoding: "utf8" }).trim();
+}
+
+async function api(path) {
+  if (!TOKEN) throw new Error("GITHUB_TOKEN is required to read check runs.");
+  // The fetch ban targets app code ("native platforms have no Next.js
+  // server"). This file is a Node CI script on a GitHub runner: there is no
+  // ApiService to route through and no browser to break.
+  // eslint-disable-next-line no-restricted-syntax
+  const response = await fetch(`https://api.github.com/repos/${REPO}${path}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${TOKEN}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub API ${path} -> ${response.status}`);
+  }
+  return response.json();
+}
+
+/** That commit's own gate — never a branch status, never a PR check. */
+async function gateFor(sha) {
+  // Ask GitHub for the gate by name. The unfiltered list is newest first and
+  // never de-duplicated across workflow runs, so on an idle main head the
+  // hourly capacity clock's checks fill its first page and hide the gate.
+  const payload = await api(
+    `/commits/${sha}/check-runs?check_name=${encodeURIComponent(GATE_CHECK_NAME)}&per_page=100`,
+  );
+  const runs = (payload.check_runs || []).filter((run) => run.name === GATE_CHECK_NAME);
+  if (!runs.length) return "absent";
+  if (runs.some((r) => r.status === "completed" && r.conclusion === "success")) {
+    return "success";
+  }
+  if (runs.some((r) => r.status !== "completed")) return "pending";
+  if (runs.some((r) => r.conclusion === "failure" || r.conclusion === "timed_out")) {
+    return "failure";
+  }
+  return "unknown";
+}
+
+function workflowFile(run) {
+  // The Actions API includes a ref suffix, for example workflow.yml@main.
+  return String(run?.path || "").split("@", 1)[0];
+}
+
+async function uatActualSha() {
+  let newestFullDeploymentId = null;
+  let sawDeployment = false;
+  for (let page = 1; page <= 10; page += 1) {
+    const deployments = await api(`/deployments?environment=uat&per_page=100&page=${page}`);
+    sawDeployment ||= deployments.length > 0;
+    for (const deployment of deployments) {
+      const statuses = await api(`/deployments/${deployment.id}/statuses?per_page=10`);
+      const statusUrl = statuses[0]?.log_url;
+      if (statusUrl) {
+        let runId;
+        try {
+          const url = new URL(statusUrl);
+          const prefix = `/${REPO}/actions/runs/`;
+          if (url.origin === "https://github.com" && url.pathname.startsWith(prefix)) {
+            runId = url.pathname.slice(prefix.length).match(/^(\d+)(?:\/job\/\d+)?$/)?.[1];
+          }
+        } catch {
+          // An unknown deployment stays in the full-release baseline.
+        }
+        if (runId) {
+          const run = await api(`/actions/runs/${runId}`);
+          if (workflowFile(run) === CHAT_ONLY_WORKFLOW || NATIVE_WORKFLOWS.has(workflowFile(run))) continue;
+        }
+      }
+      newestFullDeploymentId ??= deployment.id;
+      if (statuses.some((s) => s.state === "success")) {
+        // Service-only Chat releases are partial; a full UAT no-op still needs
+        // the newest full deployment's current healthy release receipt.
+        return { sha: deployment.sha,
+          verified: deployment.id === newestFullDeploymentId && statuses[0]?.state === "success",
+          runUrl: statuses[0]?.log_url };
+      }
+    }
+    if (deployments.length < 100) break;
+  }
+  if (sawDeployment) throw new Error("No successful full UAT deployment found in 1,000 records.");
+  return { sha: null, verified: false };
+}
+
+/** Environment records use workflow SHA, including for rollback/rehearsal jobs.
+ * Match the healthy release's existing exact-target receipt to that same run.
+ * Missing/advisory tagging proof can block a no-op, never authorize one.
+ */
+async function hasExactReleaseReceipt(state) {
+  let statusUrl;
+  try { statusUrl = new URL(state.runUrl); } catch { return false; }
+  const prefix = `/${REPO}/actions/runs/`;
+  if (statusUrl.origin !== "https://github.com" || !statusUrl.pathname.startsWith(prefix)) return false;
+  const runId = statusUrl.pathname.slice(prefix.length).match(/^(\d+)(?:\/job\/\d+)?$/)?.[1];
+  if (!runId) return false;
+  const ref = await api("/git/ref/tags/deployed/uat-latest");
+  if (ref.object?.type !== "tag") return false;
+  const tag = await api(`/git/tags/${ref.object.sha}`);
+  const receipt = String(tag.message || "").split("\n");
+  if (tag.object?.type !== "commit" || tag.object.sha !== state.sha ||
+    !receipt.includes(`sha: ${state.sha}`) ||
+    !receipt.includes(`run: https://github.com/${REPO}/actions/runs/${runId}`) ||
+    !receipt.some(line => /^backend_revision: \S+$/.test(line)) ||
+    !receipt.some(line => /^frontend_revision: \S+$/.test(line))) return false;
+  const run = await api(`/actions/runs/${runId}`);
+  return workflowFile(run) === FULL_UAT_WORKFLOW &&
+    run.event === "workflow_dispatch" && run.head_sha === state.sha &&
+    run.status === "completed" && run.conclusion === "success";
+}
+
+async function main() {
+  git("fetch", "--no-tags", "origin", "main");
+  const mainTipSha = git("rev-parse", "origin/main");
+  const uatState = await uatActualSha();
+  const uatActual = uatState.sha;
+
+  const range = uatActual ? `${uatActual}..origin/main` : `origin/main~${limit}..origin/main`;
+  let shas = [];
+  try {
+    shas = git("rev-list", `--max-count=${limit}`, range).split("\n").filter(Boolean);
+  } catch {
+    // `uatActual` is not an ancestor of main — a force-push or a rebased
+    // history. Treat as a hard block rather than guessing a range.
+    report({
+      mainTipSha,
+      uatActual,
+      decision: "BLOCKED",
+      reason: `Cannot enumerate commits after ${uatActual}; main history diverged from the live UAT commit.`,
+      targetSha: null,
+      candidates: [],
+    });
+    process.exit(2);
+  }
+
+  const candidates = [];
+  for (const sha of shas) {
+    candidates.push({ sha, gate: await gateFor(sha) });
+  }
+
+  const result = reconcileUatTarget({
+    mainTipSha,
+    uatActualSha: uatActual,
+    // The deploy workflow's own concurrency group guarantees single-flight, so
+    // an in-flight check here would only ever see this run itself.
+    uatDeployingSha: null,
+    candidates,
+  });
+
+  if (result.targetSha) {
+    const guard = assertDeployable({
+      targetSha: result.targetSha,
+      uatActualSha: uatActual,
+      targetGate: "success",
+      reachableFromMain: true,
+      descendsFromUatActual: uatActual
+        ? isAncestor(uatActual, result.targetSha)
+        : true,
+    });
+    if (!guard.ok) {
+      report({ mainTipSha, uatActual, ...result, decision: "BLOCKED", reason: guard.reason, candidates });
+      process.exit(2);
+    }
+  }
+
+  const confirmedNoOp = allowNoOp && result.decision === "NO_OP" &&
+    uatState.verified && uatActual === mainTipSha && await hasExactReleaseReceipt(uatState);
+  if (allowNoOp && result.decision === "NO_OP" && !confirmedNoOp) {
+    result.decision = "BLOCKED";
+    result.reason = "Cannot confirm current UAT from the newest successful deployment and its exact-target healthy release receipt.";
+  }
+  report({ mainTipSha, uatActual, ...result, candidates });
+
+  if (writeGithubOutput && process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `sha=${result.targetSha ?? ""}\ndecision=${result.decision}\nuat_actual_sha=${uatActual ?? ""}\nreason=${result.reason}\n`,
+    );
+  }
+  process.exit(result.targetSha || confirmedNoOp ? 0 : 3);
+}
+
+function isAncestor(ancestor, descendant) {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function report({ mainTipSha, uatActual, decision, targetSha, reason, blockedAtSha, candidates }) {
+  const tip = candidates.find((c) => c.sha === mainTipSha);
+  console.log(`repository: ${REPO}`);
+  console.log(`main_tip_sha: ${mainTipSha}`);
+  console.log(`main_tip_gate: ${tip ? tip.gate : uatActual === mainTipSha ? "already-deployed" : "unknown"}`);
+  console.log(`uat_actual_sha: ${uatActual ?? "unknown"}`);
+  console.log(`target_sha: ${targetSha ?? "none"}`);
+  console.log(`target_gate_name: ${GATE_NAME}`);
+  console.log(`decision: ${decision}`);
+  console.log(`reason: ${reason}`);
+  if (blockedAtSha) console.log(`blocked_at_sha: ${blockedAtSha}`);
+  console.log("candidates (newest first):");
+  for (const c of candidates) console.log(`  ${c.sha} gate=${c.gate}`);
+}
+
+main().catch((error) => {
+  console.error(`UAT target selection failed: ${error.message}`);
+  process.exit(1);
+});

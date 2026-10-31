@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.core import _TOOL_PACKAGE_PREFIX, HushhAgent, _import_dotted_path
 from hushh_mcp.hushh_adk.manifest import AgentManifest, ManifestLoader
 
@@ -185,6 +186,37 @@ class TestManifestLoaderLoad:
         finally:
             os.unlink(path)
 
+    def test_prompt_reference_composes_one_shared_instruction(self, tmp_path):
+        # The shared PKM kernel lives once and is composed at load time, so the
+        # runtime, the registry digest and the cache fingerprint all see it and
+        # no service keeps a copy.
+        import yaml
+
+        agents = tmp_path / "agents"
+        (agents / "child").mkdir(parents=True)
+        (agents / "kernel.md").write_text("Shared rule.\n", encoding="utf-8")
+        data = {**_VALID_DICT, "prompt_reference": "../kernel.md", "system_instruction": "Own."}
+        path = agents / "child" / "agent.yaml"
+        path.write_text(yaml.dump(data), encoding="utf-8")
+        manifest = ManifestLoader.load(str(path))
+        assert manifest.system_instruction == "Shared rule.\n\nOwn."
+        assert manifest.prompt_reference == "../kernel.md"
+
+    def test_prompt_reference_outside_the_agents_tree_is_refused(self, tmp_path):
+        # Negative control for the containment check: the same composition with
+        # a path that climbs out of the agents tree must not read the file.
+        import yaml
+
+        (tmp_path / "secret.md").write_text("Not an instruction.", encoding="utf-8")
+        (tmp_path / "agents" / "child").mkdir(parents=True)
+        data = {**_VALID_DICT, "prompt_reference": "../../secret.md"}
+        path = tmp_path / "agents" / "child" / "agent.yaml"
+        path.write_text(yaml.dump(data), encoding="utf-8")
+        with pytest.raises(ValueError, match="must be a file inside"):
+            ManifestLoader.load(str(path))
+        with pytest.raises(ValueError, match="needs a manifest file"):
+            ManifestLoader.load_from_dict({**_VALID_DICT, "prompt_reference": "kernel.md"})
+
 
 # ===========================================================================
 # AgentManifest.tool_py_funcs
@@ -279,6 +311,96 @@ class TestAgentManifestRequiredScopeStrings:
         data = {**_VALID_DICT, "required_scopes": [], "tools": []}
         manifest = ManifestLoader.load_from_dict(data)
         assert manifest.required_scope_strings() == []
+
+
+# ===========================================================================
+# AgentModelConfig.thinking_level
+# ===========================================================================
+
+
+class TestAgentModelConfigThinkingLevel:
+    """The manifest carries the provider's exact thinking vocabulary and nothing else."""
+
+    @staticmethod
+    def _mapping_model(**overrides: Any) -> dict[str, Any]:
+        return {
+            "provider": "gemini",
+            "name": "gemini-default",
+            "mode": "hushh_managed_vertex",
+            **overrides,
+        }
+
+    @pytest.mark.parametrize("level", ["low", "medium", "high"])
+    def test_mapping_model_keeps_thinking_level_through_runtime_normalizer(self, level: str):
+        data = {**_VALID_DICT, "model": self._mapping_model(thinking_level=level)}
+        manifest = ManifestLoader.load_from_dict(data)
+        runtime = manifest.model_config_for_runtime()
+        assert runtime.thinking_level == level
+        # The alias still resolves to the fleet default; the level rides alongside it.
+        assert runtime.name == GEMINI_MODEL
+        assert runtime.provider == "gemini"
+        assert runtime.mode == "hushh_managed_vertex"
+
+    def test_mapping_model_without_thinking_level_yields_none(self):
+        data = {**_VALID_DICT, "model": self._mapping_model()}
+        manifest = ManifestLoader.load_from_dict(data)
+        assert manifest.model_config_for_runtime().thinking_level is None
+
+    def test_string_model_yields_thinking_level_none(self):
+        manifest = ManifestLoader.load_from_dict(_VALID_DICT)
+        assert isinstance(manifest.model, str)
+        assert manifest.model_config_for_runtime().thinking_level is None
+
+    @pytest.mark.parametrize("level", ["minimal", "LOW", "max", "", 1])
+    def test_invalid_thinking_level_is_rejected(self, level: Any):
+        data = {**_VALID_DICT, "model": self._mapping_model(thinking_level=level)}
+        with pytest.raises(ValueError, match="Invalid manifest data"):
+            ManifestLoader.load_from_dict(data)
+
+    def test_runtime_config_is_not_the_authored_object(self):
+        """The normalizer returns a fresh config so callers cannot mutate the manifest."""
+        data = {**_VALID_DICT, "model": self._mapping_model(thinking_level="high")}
+        manifest = ManifestLoader.load_from_dict(data)
+        runtime = manifest.model_config_for_runtime()
+        assert runtime is not manifest.model
+        assert runtime.thinking_level == "high"
+
+    @staticmethod
+    def _subagent(model: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            "id": "child",
+            "name": "Child",
+            "description": "A bounded child of the test agent",
+            "system_instruction": "You are a child.",
+            "telemetry_namespace": "agent.test.child",
+            "rollout": {"rollback": "Remove the child from the parent manifest."},
+            **({"model": model} if model is not None else {}),
+        }
+
+    def test_subagent_model_block_carries_thinking_level(self):
+        """AgentSubagentConfig.model reuses AgentModelConfig on purpose, so a child may
+        author its own level and the parent's block does not leak into it."""
+        data = {
+            **_VALID_DICT,
+            "model": self._mapping_model(thinking_level="high"),
+            "subagents": [self._subagent(self._mapping_model(thinking_level="low"))],
+        }
+        manifest = ManifestLoader.load_from_dict(data)
+        assert manifest.subagents[0].model.thinking_level == "low"
+        assert manifest.model_config_for_runtime().thinking_level == "high"
+
+    def test_subagent_without_model_block_defaults_thinking_level_to_none(self):
+        data = {**_VALID_DICT, "subagents": [self._subagent()]}
+        manifest = ManifestLoader.load_from_dict(data)
+        assert manifest.subagents[0].model.thinking_level is None
+
+    def test_subagent_invalid_thinking_level_is_rejected(self):
+        data = {
+            **_VALID_DICT,
+            "subagents": [self._subagent(self._mapping_model(thinking_level="minimal"))],
+        }
+        with pytest.raises(ValueError, match="Invalid manifest data"):
+            ManifestLoader.load_from_dict(data)
 
 
 # ===========================================================================

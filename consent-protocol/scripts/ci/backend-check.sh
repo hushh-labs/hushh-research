@@ -11,6 +11,14 @@ fi
 
 uv sync --frozen --group dev
 bash scripts/sync_runtime_requirements.sh --check
+uv run python scripts/generate_capability_graph.py --check
+uv run python scripts/generate_plg_observation_contract.py --check
+uv run python scripts/generate_capability_run_schema_contracts.py --check
+uv run python scripts/generate_location_onboarding_runtime_schema_contracts.py --check
+uv run python scripts/generate_scope_commerce_schema_contracts.py --check
+uv run python scripts/generate_emoji_reactions.py --check
+uv run python ../scripts/one_voice_instruction_budget.py --check
+node ../hushh-webapp/scripts/voice/generate-one-location-workflow-card-catalog.mjs --check
 
 uv run ruff check .
 uv run mypy --config-file pyproject.toml --ignore-missing-imports

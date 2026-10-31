@@ -1,13 +1,30 @@
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CURRENT_PKM_CONTRACT_VERSION } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { PKM_CLIENT_VERSION } from "@/lib/vault/write-protocol-version";
+import { v5 as uuidv5 } from "uuid";
 
-export type PkmMutationOperation = "create" | "update" | "move" | "merge" | "delete";
+export type PkmMutationOperation =
+  "create" | "update" | "move" | "merge" | "delete";
+
+/**
+ * The server-issued capability that binds the KYC reply writer
+ * (`agent_chat_kyc_owner_confirmed`) to one open information request. Opaque to
+ * the client: minted by the information-request route, verified at store time.
+ */
+export type KycReplyAuthorizationV1 = {
+  schema_version: "one.kyc_reply_authorization.v1";
+  information_request_id: string;
+  token: string;
+  expires_at: string;
+};
 
 export type PkmUserConfirmation = {
   confirmedByUser: true;
   authorizationMode?: never;
   surface: "chat" | "voice" | "web" | "ios" | "android" | "import";
   source: string;
+  /** Required by the reserved registry for the KYC reply writer only. */
+  kycReplyAuthorization?: KycReplyAuthorizationV1;
   confirmedAt?: string;
   sharingImpactAcknowledged?: boolean;
   sharingImpact?: {
@@ -34,15 +51,93 @@ export type PkmOwnerAutoSaveAuthorization = {
   autoSavePolicyEnabledAt: string;
 };
 
-export type PkmWriteAuthorization = PkmUserConfirmation | PkmOwnerAutoSaveAuthorization;
+/**
+ * Product-default automatic capture for information a person intentionally
+ * enters into One, and for durable details the memory agents draw from the
+ * owner's in-app activity on this device (app_activity_*). This is not an
+ * owner-confirmed preference: audit records must preserve that distinction
+ * until the owner actively changes the setting.
+ */
+export type PkmProductDefaultAutoSaveAuthorization = {
+  authorizationMode: "product_default_auto_save_policy";
+  confirmedByUser?: never;
+  surface: "chat" | "web";
+  source:
+    | "agent_chat_product_default_auto_save"
+    | "kyc_identity_product_default_auto_save"
+    | "app_activity_product_default_auto_save";
+  autoSavePolicyVersion: 1;
+  productDefaultEffectiveAt: string;
+};
+
+export type LocationRequestedWorkflowAuthority = {
+  command_id: string;
+  command_step: number;
+  operation_id: string;
+  workflow_id: "workflow.setup.location";
+  run_id: string;
+};
+
+/** A requested private setup write. The server verifies this locator atomically;
+ * it is neither a clicked review nor permission for general automatic saving. */
+export type PkmRequestedWorkflowAuthorization = {
+  authorizationMode: "owner_requested_workflow";
+  confirmedByUser?: never;
+  surface: "voice" | "chat";
+  source: "location_onboarding_command";
+  workflowAuthority: LocationRequestedWorkflowAuthority;
+};
+
+/**
+ * A refresh of information from a financial source the owner connected
+ * themselves (a Plaid link, or a statement they imported). The connection is the authority; no per-write review is
+ * claimed, so audits never record a background sync as the owner's click.
+ * Financial domain only, and it never deletes.
+ */
+export type PkmConnectedSourceSyncAuthorization = {
+  authorizationMode: "owner_connected_source_sync";
+  confirmedByUser?: never;
+  surface: "web" | "ios" | "android";
+  source: string;
+  connectedSourceProvider: "plaid" | "statement_import";
+};
+
+/** Reproducible encrypted copies of owner-visible source records, never a
+ * claim that the owner reviewed a background write or consent to share. */
+export type PkmSourceProjectionAuthorization = {
+  authorizationMode: "owner_source_projection";
+  confirmedByUser?: never;
+  surface: "web";
+  source: "one_living_memory_source_projection";
+};
+
+export type PkmWriteAuthorization =
+  | PkmSourceProjectionAuthorization
+  | PkmUserConfirmation
+  | PkmConnectedSourceSyncAuthorization
+  | PkmOwnerAutoSaveAuthorization
+  | PkmProductDefaultAutoSaveAuthorization
+  | PkmRequestedWorkflowAuthorization;
 
 export function isOwnerAutoSaveAuthorization(
-  authorization: PkmWriteAuthorization
+  authorization: PkmWriteAuthorization,
 ): authorization is PkmOwnerAutoSaveAuthorization {
   return Boolean(
     authorization &&
-      "authorizationMode" in authorization &&
-      authorization.authorizationMode === "owner_auto_save_policy"
+    "authorizationMode" in authorization &&
+    authorization.authorizationMode === "owner_auto_save_policy",
+  );
+}
+
+export function isAutomaticPkmWriteAuthorization(
+  authorization: PkmWriteAuthorization,
+): authorization is
+  PkmOwnerAutoSaveAuthorization | PkmProductDefaultAutoSaveAuthorization {
+  return Boolean(
+    authorization &&
+    "authorizationMode" in authorization &&
+    (authorization.authorizationMode === "owner_auto_save_policy" ||
+      authorization.authorizationMode === "product_default_auto_save_policy"),
   );
 }
 
@@ -70,6 +165,8 @@ export type PkmMutationPlanV2 = {
   writer_id: string;
   structure_agent_id: string;
   source_revision: number;
+  /** The vault-write protocol level of this client; the server's registry gate. */
+  client_version?: string;
   confirmation_receipt: {
     version: 2;
     receipt_id: string;
@@ -80,17 +177,31 @@ export type PkmMutationPlanV2 = {
     displayed_domain: string;
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
-    authorization_mode: "owner_confirmed" | "owner_auto_save_policy";
+    authorization_mode:
+      | "owner_confirmed"
+      | "owner_auto_save_policy"
+      | "owner_requested_workflow"
+      | "product_default_auto_save_policy"
+      | "owner_connected_source_sync"
+      | "owner_source_projection";
+    workflow_authority?: LocationRequestedWorkflowAuthority;
+    connected_source_provider?: "plaid" | "statement_import";
     auto_save_policy_version?: 1;
     auto_save_policy_enabled_at?: string;
+    product_default_effective_at?: string;
   };
 };
 
 const MACHINE_PROVENANCE_ID = /^[a-z][a-z0-9_.:-]{0,127}$/;
+const PLAN_CLIENT_VERSION = PKM_CLIENT_VERSION;
 
 function normalizedWriterId(value: string): string {
-  const candidate = String(value || "").trim().toLowerCase();
-  return MACHINE_PROVENANCE_ID.test(candidate) ? candidate : "owner_confirmed_write";
+  const candidate = String(value || "")
+    .trim()
+    .toLowerCase();
+  return MACHINE_PROVENANCE_ID.test(candidate)
+    ? candidate
+    : "owner_confirmed_write";
 }
 
 function titleize(value: string): string {
@@ -102,17 +213,20 @@ function titleize(value: string): string {
 
 function opaqueId(kind: "plan" | "receipt"): string {
   const uuid = globalThis.crypto?.randomUUID?.().replace(/-/g, "_");
-  const entropy = uuid || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const entropy =
+    uuid || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   return `pkm_${kind}_${entropy}`;
 }
 
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   if (globalThis.crypto?.subtle) {
     const digest = await globalThis.crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(value)
+      new TextEncoder().encode(value),
     );
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
   }
 
   // Deterministic non-cryptographic fallback used only for the opaque registry
@@ -122,7 +236,9 @@ async function sha256Hex(value: string): Promise<string> {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return Math.abs(hash >>> 0).toString(16).padStart(12, "0");
+  return Math.abs(hash >>> 0)
+    .toString(16)
+    .padStart(12, "0");
 }
 
 function normalizedScope(params: {
@@ -130,20 +246,26 @@ function normalizedScope(params: {
   targetManifest?: DomainManifest | null;
   scopePath?: string;
 }): string {
-  const [requestedScopePart = ""] = String(params.scopePath || "").trim().split(".", 1);
+  const [requestedScopePart = ""] = String(params.scopePath || "")
+    .trim()
+    .split(".", 1);
   const requestedScope = requestedScopePart.toLowerCase();
   const allowedScopes = new Set(
     [params.currentManifest, params.targetManifest]
       .flatMap((manifest) => manifest?.top_level_scope_paths || [])
       .map((scope) => {
-        const [topLevelScope = ""] = String(scope || "").trim().split(".", 1);
+        const [topLevelScope = ""] = String(scope || "")
+          .trim()
+          .split(".", 1);
         return topLevelScope.toLowerCase();
       })
-      .filter(Boolean)
+      .filter(Boolean),
   );
   if (requestedScope) {
     if (allowedScopes.size > 0 && !allowedScopes.has(requestedScope)) {
-      throw new Error("The confirmed PKM scope is not present in the current manifest.");
+      throw new Error(
+        "The confirmed PKM scope is not present in the current manifest.",
+      );
     }
     return requestedScope;
   }
@@ -152,12 +274,23 @@ function normalizedScope(params: {
 
 function registryHandle(
   manifest: DomainManifest | null | undefined,
-  scope: string
+  scope: string,
 ): string | undefined {
   return manifest?.scope_registry?.find((entry) => {
-    const projectionScope = String(entry.summary_projection?.top_level_scope_path || "").trim();
+    const projectionScope = String(
+      entry.summary_projection?.top_level_scope_path || "",
+    ).trim();
     return projectionScope === scope;
   })?.scope_handle;
+}
+
+/**
+ * The plan id a write carries when it has an idempotency scope. The server
+ * derives the commit id from (owner, domain, plan id), so the same scope always
+ * names the same commit, and a device can later ask whether it landed.
+ */
+export function pkmPlanIdForIdempotencyScope(scope: string): string {
+  return `pkm_plan_${uuidv5(scope, "76f0e762-c176-5947-a680-7011af78b71f").replaceAll("-", "")}`;
 }
 
 export async function buildConfirmedPkmMutationPlanV2(params: {
@@ -171,15 +304,40 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   explanation?: string;
   sourceRevision?: number;
   confirmation: PkmWriteAuthorization;
+  idempotencyScope?: string;
 }): Promise<PkmMutationPlanV2> {
-  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
-  const automaticAuthorization = automatic
-    ? params.confirmation as PkmOwnerAutoSaveAuthorization
+  const workflowAuthorization =
+    params.confirmation.authorizationMode === "owner_requested_workflow"
+      ? params.confirmation
+      : null;
+  const automaticAuthorization = isAutomaticPkmWriteAuthorization(
+    params.confirmation,
+  )
+    ? params.confirmation
     : null;
-  const ownerConfirmation = automatic
-    ? null
-    : params.confirmation as PkmUserConfirmation;
-  if (!automatic && params.confirmation.confirmedByUser !== true) {
+  const automatic = automaticAuthorization !== null;
+  const connectedSourceSync =
+    params.confirmation.authorizationMode === "owner_connected_source_sync"
+      ? params.confirmation
+      : null;
+  const sourceProjection =
+    params.confirmation.authorizationMode === "owner_source_projection"
+      ? params.confirmation
+      : null;
+  const ownerConfirmation =
+    automatic ||
+    workflowAuthorization ||
+    connectedSourceSync ||
+    sourceProjection
+      ? null
+      : (params.confirmation as PkmUserConfirmation);
+  if (
+    !automatic &&
+    !workflowAuthorization &&
+    !connectedSourceSync &&
+    !sourceProjection &&
+    params.confirmation.confirmedByUser !== true
+  ) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
   }
 
@@ -192,17 +350,80 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const generatedHandle = `s_${(
     await sha256Hex(`${params.userId}:${domain}:${scope}`)
   ).slice(0, 12)}`;
-  const sourceHandle = registryHandle(params.currentManifest, scope) || generatedHandle;
-  const targetHandle = registryHandle(params.targetManifest, scope) || sourceHandle;
-  const operation = params.operation || (params.currentManifest ? "update" : "create");
+  const sourceHandle =
+    registryHandle(params.currentManifest, scope) || generatedHandle;
+  const targetHandle =
+    registryHandle(params.targetManifest, scope) || sourceHandle;
+  const operation =
+    params.operation || (params.currentManifest ? "update" : "create");
+  if (
+    sourceProjection &&
+    (domain !== "one_living_sources" || operation === "delete")
+  ) {
+    throw new Error(
+      "Source projection can only refresh the private source inventory.",
+    );
+  }
+  if (
+    connectedSourceSync &&
+    (domain !== "financial" || operation === "delete")
+  ) {
+    throw new Error(
+      "A connected-source sync can only refresh financial information.",
+    );
+  }
   if (automatic && operation === "delete") {
     throw new Error("Automatic PKM saving cannot delete saved information.");
   }
-  const planId = opaqueId("plan");
+  if (
+    workflowAuthorization &&
+    (domain !== "location" ||
+      scope !== "saved_places" ||
+      !["create", "merge"].includes(operation) ||
+      !params.idempotencyScope)
+  ) {
+    throw new Error(
+      "The requested workflow can only save its private Location draft.",
+    );
+  }
+  const planId = params.idempotencyScope
+    ? pkmPlanIdForIdempotencyScope(params.idempotencyScope)
+    : opaqueId("plan");
   const sharingImpact = ownerConfirmation?.sharingImpact;
-  const confirmedAt = automatic
-    ? new Date().toISOString()
-    : ownerConfirmation?.confirmedAt || new Date().toISOString();
+  const confirmedAt =
+    automatic || connectedSourceSync
+      ? new Date().toISOString()
+      : ownerConfirmation?.confirmedAt || new Date().toISOString();
+  const authorizationReceipt = sourceProjection
+    ? { authorization_mode: "owner_source_projection" as const }
+    : automaticAuthorization
+      ? {
+          authorization_mode: automaticAuthorization.authorizationMode,
+          auto_save_policy_version:
+            automaticAuthorization.autoSavePolicyVersion,
+          ...(automaticAuthorization.authorizationMode ===
+          "owner_auto_save_policy"
+            ? {
+                auto_save_policy_enabled_at:
+                  automaticAuthorization.autoSavePolicyEnabledAt,
+              }
+            : {
+                product_default_effective_at:
+                  automaticAuthorization.productDefaultEffectiveAt,
+              }),
+        }
+      : workflowAuthorization
+        ? {
+            authorization_mode: "owner_requested_workflow" as const,
+            workflow_authority: workflowAuthorization.workflowAuthority,
+          }
+        : connectedSourceSync
+          ? {
+              authorization_mode: "owner_connected_source_sync" as const,
+              connected_source_provider:
+                connectedSourceSync.connectedSourceProvider,
+            }
+          : { authorization_mode: "owner_confirmed" as const };
 
   return {
     version: 2,
@@ -217,21 +438,36 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (automatic
-        ? `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
-        : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
+      (sourceProjection
+        ? "Rebuilt the private encrypted source inventory from owner-scoped source records; no per-write review or sharing is claimed."
+        : connectedSourceSync
+          ? `Refreshed ${titleize(domain)} / ${titleize(scope)} from a financial connection the owner linked (${connectedSourceSync.connectedSourceProvider}); no per-write review is claimed.`
+          : workflowAuthorization
+            ? "The owner requested Location setup, including saving the current place privately."
+            : automatic
+              ? params.confirmation.authorizationMode ===
+                "product_default_auto_save_policy"
+                ? params.confirmation.source === "app_activity_product_default_auto_save"
+                  ? `Useful details from the owner's in-app activity on this device were saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+                  : `An eligible detail intentionally entered into One was saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+                : `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
+              : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],
     affected_export_ids: sharingImpact?.affectedExportIds || [],
     sharing_impact: {
       active_recipient_count: sharingImpact?.activeRecipientCount || 0,
       recipient_labels: sharingImpact?.recipientLabels || [],
-      enters_next_export_revision: sharingImpact?.entersNextExportRevision === true,
+      enters_next_export_revision:
+        sharingImpact?.entersNextExportRevision === true,
       summary: sharingImpact?.summary || "No active recipients are affected.",
     },
     semantic_contract_version: CURRENT_PKM_CONTRACT_VERSION,
     writer_id: normalizedWriterId(params.confirmation.source),
     structure_agent_id: "pkm_structure_agent",
     source_revision: Math.max(0, params.sourceRevision || 0),
+    // A non-semver override would make the server refuse the plan's shape, so
+    // only a well-formed level is sent; omitting it reads as an older client.
+    ...(PLAN_CLIENT_VERSION ? { client_version: PLAN_CLIENT_VERSION } : {}),
     confirmation_receipt: {
       version: 2,
       receipt_id: opaqueId("receipt"),
@@ -243,13 +479,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       displayed_scope: scope,
       sharing_impact_acknowledged:
         ownerConfirmation?.sharingImpactAcknowledged === true,
-      authorization_mode: automatic ? "owner_auto_save_policy" : "owner_confirmed",
-      ...(automatic
-        ? {
-            auto_save_policy_version: automaticAuthorization!.autoSavePolicyVersion,
-            auto_save_policy_enabled_at: automaticAuthorization!.autoSavePolicyEnabledAt,
-          }
-        : {}),
+      ...authorizationReceipt,
     },
   };
 }

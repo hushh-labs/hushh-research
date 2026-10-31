@@ -1,0 +1,47 @@
+# Same owner service, with a qualified browser-only runtime beside One.
+# Pilot build context: consent-protocol. POD_BASE_IMAGE MUST be an immutable
+# existing pod image. Qualification/install follows the normal release authority.
+ARG POD_BASE_IMAGE
+FROM ${POD_BASE_IMAGE}
+ARG POD_BASE_IMAGE
+USER 0
+RUN /usr/local/bin/python -c \
+    'import os,re; assert re.fullmatch(r".+@sha256:[0-9a-f]{64}", os.environ["POD_BASE_IMAGE"]), "immutable pod base required"'
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap libseccomp2 \
+    && /usr/local/bin/python -m venv /opt/browser/venv \
+    && /opt/browser/venv/bin/pip install --no-cache-dir playwright==1.63.0 pydantic==2.12.5 \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/browser/browsers \
+       /opt/browser/venv/bin/playwright install --with-deps --only-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
+# This separate tree contains only the bounded worker and launch protocol. The
+# sandbox never mounts /app or /opt/venv (One's code, authority and provider SDKs).
+COPY hushh_mcp/services/public_endpoint_policy.py \
+     hushh_mcp/services/public_network_address.py /opt/browser/source/hushh_mcp/services/
+COPY hushh_mcp/services/pod_browser/__init__.py \
+     hushh_mcp/services/pod_browser/contracts.py \
+     hushh_mcp/services/pod_browser/connected_executor.py \
+     hushh_mcp/services/pod_browser/connected_transport.py \
+     hushh_mcp/services/pod_browser/launch_protocol.py \
+     hushh_mcp/services/pod_browser/launch_service.py \
+     hushh_mcp/services/pod_browser/namespace_command.py \
+     hushh_mcp/services/pod_browser/namespace_worker.py \
+     hushh_mcp/services/pod_browser/process_guard.py \
+     hushh_mcp/services/pod_browser/mailbox.py \
+     hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/playwright_actions.py \
+     hushh_mcp/services/pod_browser/playwright_interception.py \
+     hushh_mcp/services/pod_browser/session_state.py \
+     hushh_mcp/services/pod_browser/origin.py \
+     /opt/browser/source/hushh_mcp/services/pod_browser/
+COPY browser_runtime/pod_entrypoint.py /opt/browser/pod_entrypoint.py
+COPY browser_runtime/gunicorn_lifecycle.py /opt/browser/gunicorn_lifecycle.py
+RUN groupadd --system --gid 10002 browser \
+    && useradd --system --uid 10002 --gid 10002 --no-create-home browser \
+    && chmod -R go-w /opt/browser \
+    && cd / \
+    && PYTHONPATH=/opt/browser/source /opt/browser/venv/bin/python -c \
+       "from hushh_mcp.services.pod_browser.connected_executor import ConnectedBrowserWorker; from hushh_mcp.services.pod_browser.namespace_worker import main"
+# The fixed bootstrap drops root before any app/site import. No root supervisor
+# remains. Browser starts only on demand, and neither cloud is enabled here.
+ENTRYPOINT ["/usr/local/bin/python", "-I", "-S", "/opt/browser/pod_entrypoint.py"]
+CMD []

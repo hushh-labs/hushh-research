@@ -1,5 +1,12 @@
 # ADR: PKM Storage and JSONB Boundaries
 
+Wallet payment-card design uses the existing encrypted `wallet.artwork` sibling
+segment, atomically committed with `summary` and `secrets`. It has no consent or
+model exposure; current writers enforce actual reserved value differences before
+encryption. Current code removes security-code collection/read/write, while
+historical encrypted retention and old-client migration remain separately governed.
+See [Wallet scanning, artwork and release boundaries](../one/wallet.md#intelligent-local-scanning-and-private-card-design).
+
 
 ## Visual Context
 
@@ -62,6 +69,36 @@ The current PKM runtime stores Personal Knowledge Model payloads as segmented en
 - Public scope discovery must use handles and coarse metadata, not path leakage.
 - Financial can remain protected while the broader PKM architecture expands across many domains.
 
+## Reserved domain: wallet (2026-09-01)
+
+Wallet cards (the `wallet` domain) are a reserved owner-managed PKM domain, not a new table or a
+`vault.*` scope. Decisions of record:
+
+- One `pkm_blobs` row holds the whole domain; the plaintext inside has exactly
+  two top-level branches, `summary` (nickname, brand, last4, expiry, issuing
+  region per card id) and `secrets` (PAN and cardholder name per card
+  id). CVV and PIN are no longer collected or persisted; consent exports omit
+  legacy security codes, artwork and receipt fields. Branch names line up 1:1 with the two consent-requestable scopes
+  (`attr.wallet.summary.*`, `attr.wallet.secrets.*`) and the
+  `secrets` key matches the client memory-context prune pattern, so card data
+  can never ride into model context even if the domain-level guard regressed.
+- Encryption is client-side under the vault key (the `runtime_secrets`
+  template, including the conflict-retry commit); the server stores ciphertext
+  plus a non-secret summary envelope it validates on every write: brand enum,
+  last4 shape, expiry shape, `normalize_country_hint` on the issuing region,
+  region-locked schemes (RuPay/Mir/Elo/Verve) confined to their home markets,
+  and outright refusal of any secret-shaped key in the envelope. Full
+  PAN/Luhn validation is client-only, by BYOK construction.
+- Sharing deviates deliberately from the `source_library` template: the two
+  branch wildcards are externally requestable (owner approves each grant,
+  delivery via the consent-gated encrypted export); domain wildcard, exact
+  paths, and public projection stay closed. This records the founder decision
+  (2026-09-01) that superseded the earlier "never store CVV/PIN" stance with
+  the consumer-vault model.
+- The Cards specialist (`agent_wallet`) has no server-side data authority; all
+  card operations execute in the owner's browser through Action Gateway
+  client handlers.
+
 ## Revisions and zero-loss upgrades
 
 - Active reads use one coherent domain snapshot containing ciphertext, content revision,
@@ -82,3 +119,155 @@ The current PKM runtime stores Personal Knowledge Model payloads as segmented en
 - v7 writes are fail-closed behind a server kill switch. Reader compatibility and shadow
   rehearsal ship before any v7 persistence is enabled. The policy is checked again at
   commit time so activating the kill switch also blocks an already-issued v7 claim.
+
+## Decision: large pasted recaps become Memory through review, never through a secret (2026-09-02)
+
+A multi-section recap pasted into Agent chat is prepared section by section
+(`lib/pkm/pkm-natural-language-ingestion.ts`): numbered and Markdown headings
+are chunk and segmentation boundaries, existing domain manifests travel with
+every proposal so facts land in scopes that already exist, and one failed
+section is reported as `failed` instead of discarding the rest. Before any card
+reaches the owner, the in-session decrypted working set is checked locally:
+an exact duplicate is dropped and a near match is forced to `confirm_first`.
+A card number inside a pasted recap is redacted on the device before the text leaves it (the last four digits stay for orientation) and the summary says so; a plain chat message carrying one is still blocked. The structurer refuses any passage carrying a card number, security code,
+credential, government id, or bank account (`reject_sensitive_secret`,
+`write_mode: do_not_save`), so a secret is excluded and the owner is pointed
+to the secure form rather than redirected into a plain memory. The review is
+grouped by domain › scope with per-item keep or skip; nothing is written until
+the owner saves the kept items, and `add_to_pkm` now carries the exact passage
+the model meant (`source_text`) instead of the whole turn.
+
+## Decision: structured KYC capture and product-default auto-save (2026-09-04)
+
+One may automatically capture eligible facts that an owner intentionally types
+in One Chat or the Gmail KYC import/chat flow. A vault with no saved preference
+uses the product default. Since 2026-10-29 a stored auto-save choice
+(`loadAgentPkmAutoSavePolicy`) gates in-app activity capture and its
+consolidation, and an unreadable choice fails closed. No owner-facing control
+writes that choice today: the settings toggle was removed in 0d28e4ccea
+(2026-10-12), so only a choice stored before then can opt out. That missing
+control is a recorded gap, as is One Chat ambient capture into `one_memory`,
+which still reads only the vault unlock state, not the stored choice.
+The write receipt records the distinction: a default write uses
+`product_default_auto_save_policy` with a policy version/effective time; a
+setting chosen by the owner continues to use `owner_auto_save_policy`. The PKM
+settings control and a chat receipt make the behavior visible and reversible.
+
+A refresh of a financial source the owner connected themselves (a Plaid link,
+or a statement they imported) uses a third distinct mode,
+`owner_connected_source_sync`, with `connected_source_provider` naming the
+source. The connection is the authority, so the receipt never claims the owner
+reviewed the write. It is valid only for the `financial` domain, cannot delete,
+cannot acknowledge sharing on the owner's behalf, and never triggers a memory
+upgrade from the background. Until 2026-09-23 this refresh was stamped
+`confirmedByUser: true`, which misstated consent.
+
+This does not turn every message into memory. Secrets, ambiguous or
+low-confidence claims, and facts with active sharing recipients remain
+review-first. A correction or removal the owner states in chat is applied by
+the memory agents through the same writer; in-app activity consolidation never
+removes a bullet, and such a decision fails its cycle closed. Failed background writes do not change the
+conversation result. An explicit save surfaces its failure; an ambient capture
+failure stays a quiet pending state and never interrupts chat.
+
+`kyc_identity_v1` is a profile of the existing `/api/pkm/memory/proposals`
+contract, not another memory system. It uses one constrained extraction pass
+for a pasted or chat-entered KYC description, writes only explicit stable facts
+to existing `identity.identity_profile`, its `education` subtree, or
+`professional.profile`, and retains source type/update metadata. It never
+stores an unstructured "about me" blob. The same pass may produce a
+review-first, structured general-PKM fact for a safe durable detail that does
+not fit the KYC registry, so it is not silently discarded. A versioned
+field/alias registry is shared by ingestion, Gmail classification, retrieval,
+and drafting.
+
+Targeted KYC requests first resolve the registry fields, then decrypt only the
+matching manifest-backed encrypted segments in the unlocked client. Exact
+canonical IDs and aliases rank before path and lexical matches. The five-minute
+in-memory cache is invalidated per changed domain after a write. This phase has
+no server-side vector database, no embeddings, and no Gmail-content RAG: Gmail
+content remains outside PKM and is classified transiently under its separate
+consent boundary.
+
+## Decision: business-directory review uses the existing PKM pipeline (2026-10-09)
+
+`business_directory_v1` is a profile of `/api/pkm/memory/proposals`, not a
+second profile store. The existing four model stages propose one structured
+business entity in `businesses.entities` within a valid non-personal domain.
+The host rejects contradictory destinations, inferred fields, summary blobs,
+and ownership claims; it does not replace a successful model proposal with a
+host-authored profile. The review shows selectable business fields rather than
+model bookkeeping or disclaimers as facts.
+
+The unlocked client indexes current records by `_business_origin.business_uid`
+in the existing owner-scoped, in-memory working set. Only safe listing values
+and the existing entity destination enter reconciliation; origin bookkeeping
+does not enter the model prompt. An exact UID/field match needs no write.
+Changed or missing fields go through model review, and the conflict-aware
+writer rechecks business identity before every write/retry. A new entity has
+no prior merge target; its destination comes from the reviewed model payload.
+Updates must name an explicit existing target. Unchecked fields are not sent
+to the writer, and existing fields remain intact.
+
+The chat card is dismissed only after the existing save/checkpoint path or
+exact duplicate evidence. Later and Not my business retain the existing
+server decisions; pending actions disable conflicting controls. Nothing in
+this flow verifies business ownership or publishes a business profile.
+
+Frontend and backend must deploy together. A backend that has not yet
+accepted `business_directory_v1` returns HTTP 422; the client reports a
+deployment mismatch instead of retrying the generic profile. Unit/contract
+tests do not substitute for an authenticated, unlocked model-backed UAT
+review/save rehearsal. Frozen pending-save payloads are preserved on listing
+changes; automatically replacing such a job remains outside this demo scope.
+
+## Decision: in-app activity reaches PKM only through consolidation (2026-10-29)
+
+Founder decision of record. One's in-app activity (the closed event kinds in
+`hushh-webapp/lib/pkm/live-activity/live-activity-types.ts`) never enters PKM
+as raw events. While the owner is signed in and the vault is unlocked, the
+client keeps an encrypted, owner-scoped log on the device through
+`SecureResourceCacheService` with the vault key: at most 7 days and 2,048
+events, enforced when the log is next opened on the device, fenced by owner,
+reset generation and vault session epoch, and purged with the account. It holds
+allowlisted kinds, subject ids, bounded counts, timestamps and place labels:
+the owner's own name for a saved place (their text, up to 40 characters, which
+may name a person) or a Google venue's public name (a check-in, or a place saved
+from one). A label that
+repeats the place's own street address is dropped on a best-effort basis. It
+never holds contents, coordinates, counterpart identity, URLs or tokens.
+
+The only PKM writer is consolidation. A dated digest goes through the existing
+`/api/pkm/memory/proposals` preparation (`soul_markdown_v1`, `one_memory`), the
+existing memory agents decide what is durable, and usable facts are staged
+into `one_memory.markdown` through the existing writer with the product-default
+authorization record. Each cycle makes at most one commit, reads memory.md from
+the server first (and waits while a local memory save is still pending),
+refuses to write on incomplete or fallback preparation and never removes a
+bullet: a delete decision, or a correction that would save as nothing or as
+another existing bullet, fails the cycle closed. Each cycle covers the
+not-yet-consolidated events of one local day (a day can arrive in several
+cycles), and its outcome (saved, nothing durable, host skipped, failed, memory
+full) is recorded through the dedicated `live_activity_consolidation_completed`
+event. A stored auto-save choice gates capture and consolidation (see the
+control gap above). Each chat turn also sends a short "recent activity today"
+packet in `pkm_context`, so the request carries today's activity the same way
+it carries memory.md. Place labels in the digest and the packet are quoted
+names, because they are third-party or free text.
+
+Known gap, cross-device Reset: Reset purges the log only on the device where it
+runs (the reset notice is a same-browser broadcast, and `reset_account` keeps
+vault keys and sessions). Another unlocked device keeps its log for up to 7
+days, shows it in Today, sends it with chat turns and can consolidate it into
+the reset memory.md; Privacy 2.12 says so. Account deletion reaches other
+devices through departure codes. Closing the gap needs a server reset
+generation that only `reset_account` bumps, captured at attach and re-checked
+before staging and before building `pkm_context`.
+
+Why: every PKM commit archives the full previous revision in
+`pkm_domain_revision_segments` for 90 days and adds `pkm_events` rows. Writing
+each event, or flushing the log every minute, would multiply that archive per
+active owner and give the server a plaintext timeline of when the owner acted.
+A device log with bounded consolidation keeps the stored timeline encrypted on
+the device and keeps PKM growth at durable facts only; the per-turn packet is
+request data, held in memory for that request like memory.md.

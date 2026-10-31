@@ -1,27 +1,32 @@
 name: Ship Android to Google Play Store
 
-# One-click: cut a Hushh One Android App Bundle (.aab) from the latest green `main`,
-# build the Capacitor app against the UAT or Production backend + Firebase,
-# sign it with the Android Release Upload Keystore, and upload to Google Play Console
-# (internal, alpha, beta, or production track) via the Google Play Developer API.
+# Manual Google Play release: cut a Hushh One Android App Bundle (.aab) from an
+# exact green `main` SHA, build the Capacitor app against the UAT backend (latest
+# frontend + latest backend, matching UAT) and the shared Firebase authority, sign
+# it with the existing Android Release Upload Keystore, and upload it directly to
+# the internal track (production track is dry-run only). The UAT backend must already be serving the
+# exact release SHA; this workflow never deploys infrastructure.
 #
-# iOS sibling: .github/workflows/ship-ios-testflight.yml
+# iOS equivalent: .github/workflows/release-ios-appstore.yml (backend_target=uat).
 # Runbook & secret setup: docs/guides/mobile/ship-android-playstore.md
 
 "on":
   workflow_dispatch:
     inputs:
+      track:
+        description: "Google Play track (internal for uploads; production permits dry-run only)"
+        required: true
+        default: internal
+        type: choice
+        options:
+          - production
+          - internal
       sha:
         description: "Exact green main SHA to ship (blank defaults to latest origin/main)"
         required: false
         type: string
-      track:
-        description: "Google Play Console track (internal, alpha, beta, production)"
-        required: false
-        default: "internal"
-        type: string
       dry_run:
-        description: "Build & sign .aab but do NOT upload to Google Play Console"
+        description: "Resolve Play versionCode and build/sign/verify .aab, but do NOT upload"
         required: false
         default: false
         type: boolean
@@ -29,19 +34,21 @@ name: Ship Android to Google Play Store
         description: "Optional release notes / summary of changes"
         required: false
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/ship-android-playstore-v1.yml
 
 permissions:
+  actions: read
   contents: read
   checks: read
+  id-token: write
 
 env:
+  # UAT routing, backend provenance, Android signing, Google Play, shared
+  # Firebase, and private artifact material all live in the UAT project.
   GCP_PROJECT_ID: hushh-pda-uat
+  GCP_REGION: us-central1
+  BACKEND_SERVICE: consent-protocol
   ANDROID_PACKAGE_NAME: com.hussh.app
+  TARGET_TRACK: ${{ inputs.track }}
   NODE_OPTIONS: --max-old-space-size=8192
 
 concurrency:
@@ -49,13 +56,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || github.sha }}
+      environment_name: native
+      scope: ${{ 'native' }}
+
   ship:
-    name: Build & upload Android (.aab) to Google Play
+    needs: deployment-security
+    name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest
+    # The `uat` environment carries the UAT workload identity needed to read the
+    # UAT backend revision and secrets. Dispatch authority stays on the stricter
+    # production actor list for both supported upload tracks.
     environment: uat
-    timeout-minutes: 40
+    timeout-minutes: 50
 
     steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Validate target track
+        shell: bash
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_TRACK" in
+            internal|production) ;;
+            *) echo "Refusing unsupported Google Play track." >&2; exit 1 ;;
+          esac
+          if [ "$TARGET_TRACK" = "production" ] && [ "${DRY_RUN:-false}" != "true" ]; then
+            echo "Public Android upload is blocked while this workflow targets UAT. Verify production routing and customer data transition first." >&2
+            exit 1
+          fi
+
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -70,49 +116,112 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Authorize dispatching actor (uat surface)
+      - name: Authorize production dispatch actor
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
 
       - name: Resolve release SHA
         id: resolve
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
-          REQUESTED="${{ github.event.inputs.sha }}"
           git fetch --no-tags origin main
-          if [ -z "${REQUESTED}" ]; then
+          if [ -z "$REQUESTED_SHA" ]; then
             SHA="$(git rev-parse origin/main)"
           else
-            SHA="${REQUESTED}"
+            SHA="$REQUESTED_SHA"
           fi
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "A full 40-character main SHA is required." >&2
+            exit 1
+          }
+          bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "Resolved release SHA: ${SHA}"
 
+      - name: Check out exact release SHA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.resolve.outputs.sha }}
+
+      - name: Assert source SHA
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
       - name: Setup Java 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
-      - name: Authenticate to GCP (Secret Manager)
-        id: gcp-auth
-        continue-on-error: true
-        uses: google-github-actions/auth@v2
+      - name: Validate UAT workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
+
+      - name: Authenticate to GCP with UAT workload identity
+        uses: google-github-actions/auth@v3
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: Set up gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
-      - name: Materialize UAT frontend contract + native Firebase config
+      - name: Assert UAT project scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project "$GCP_PROJECT_ID"
+          ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null)"
+          if [ "$ACTIVE_PROJECT" != "$GCP_PROJECT_ID" ]; then
+            echo "Refusing release: expected UAT project '$GCP_PROJECT_ID' but got '$ACTIVE_PROJECT'." >&2
+            exit 1
+          fi
+
+      - name: Verify matching UAT backend revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --service "$BACKEND_SERVICE" \
+            --expected-env uat \
+            --expected-source deploy-uat \
+            --expected-sha "$EXPECTED_SHA" \
+            --report-path "$RUNNER_TEMP/android-uat-backend-provenance.json"
+
+      - name: Materialize UAT frontend contract
         shell: bash
         run: |
           set -euo pipefail
@@ -126,11 +235,11 @@ jobs:
               exit 1
             fi
           }
+          put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
 
-          BACKEND_URL="$(get BACKEND_URL)"
-          require BACKEND_URL "$BACKEND_URL"
+          BACKEND_URL="$(get BACKEND_URL)";                            require BACKEND_URL "$BACKEND_URL"
           APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hussh.ai"
 
           FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
@@ -139,30 +248,71 @@ jobs:
           FB_SENDER="$(get NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID)"; require NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
           FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";              require NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
           FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
+          FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
+          MAPS_BROWSER_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
+          MAPS_ANDROID_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)"
 
-          {
-            echo "APP_RUNTIME_PROFILE=uat"
-            echo "NEXT_PUBLIC_APP_ENV=uat"
-            echo "NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL}"
-            echo "NEXT_PUBLIC_APP_URL=${APP_URL}"
-            echo "NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai"
-            echo "NEXT_PUBLIC_FIREBASE_API_KEY=${FB_API_KEY}"
-            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FB_AUTH_DOMAIN}"
-            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${FB_PROJECT_ID}"
-            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${FB_STORAGE}"
-            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${FB_SENDER}"
-            echo "NEXT_PUBLIC_FIREBASE_APP_ID=${FB_APP_ID}"
-            echo "NEXT_PUBLIC_FIREBASE_VAPID_KEY=${FB_VAPID}"
-            echo "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
-            echo "NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)"
-          } > hushh-webapp/.env.uat.local
-          chmod 600 hushh-webapp/.env.uat.local
-          echo "Materialized UAT frontend contract at hushh-webapp/.env.uat.local"
+          # Fail before the heavy web build if the resolved backend is not the UAT
+          # host: this guards against a mis-scoped project, and it can never let a
+          # production, localhost or emulator URL into a UAT-target build.
+          case "$BACKEND_URL" in
+            https://*) ;;
+            *) echo "Refusing release: BACKEND_URL must use HTTPS." >&2; exit 1 ;;
+          esac
+          BACKEND_HOST="$(printf '%s' "$BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
+          case "$BACKEND_HOST" in
+            ""|localhost|127.0.0.1|0.0.0.0|10.0.2.2)
+              echo "Refusing release: BACKEND_URL resolves to local/emulator host '${BACKEND_HOST}'." >&2
+              exit 1
+              ;;
+            *uat*|*f2gsa4kfsq*)
+              : # expected UAT backend
+              ;;
+            *)
+              echo "Refusing release: BACKEND_URL resolves to '${BACKEND_HOST}', which is not the UAT backend (project ${GCP_PROJECT_ID})." >&2
+              exit 1
+              ;;
+          esac
+          case "$APP_URL" in
+            https://*) ;;
+            *) echo "Refusing release: APP_FRONTEND_ORIGIN must use HTTPS." >&2; exit 1 ;;
+          esac
+          case "$APP_URL" in
+            *localhost*|*127.0.0.1*)
+              echo "Refusing release: APP_FRONTEND_ORIGIN is a local origin." >&2
+              exit 1
+              ;;
+          esac
 
-      - name: Fetch Android Keystore & Firebase secrets from GCP Secret Manager
+          echo "::add-mask::$FB_API_KEY"
+          echo "::add-mask::$FB_VAPID"
+          [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
+          [ -n "$MAPS_ANDROID_KEY" ] && echo "::add-mask::$MAPS_ANDROID_KEY"
+
+          put APP_RUNTIME_PROFILE "uat"
+          put NEXT_PUBLIC_APP_ENV "uat"
+          put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
+          put NEXT_PUBLIC_APP_URL "$APP_URL"
+          put NEXT_PUBLIC_PASSKEY_RP_ID "uat.one.hushh.ai"
+          put NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
+          put NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
+          put NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
+          put NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
+          put NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
+          put NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
+          put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
+          [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
+          [ -n "$MAPS_BROWSER_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY "$MAPS_BROWSER_KEY"
+          [ -n "$MAPS_ANDROID_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY "$MAPS_ANDROID_KEY"
+          put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
+          put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
+          put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
+          echo "UAT Android frontend contract materialized (backend host ${BACKEND_HOST})."
+
+      - name: Fetch Android release secrets from GCP Secret Manager
         id: gcp-secrets
         continue-on-error: true
-        uses: google-github-actions/get-secretmanager-secrets@v2
+        uses: google-github-actions/get-secretmanager-secrets@v3
         with:
           secrets: |-
             KEYSTORE_B64:${{ env.GCP_PROJECT_ID }}/ANDROID_RELEASE_KEYSTORE_B64
@@ -170,59 +320,86 @@ jobs:
             KEY_ALIAS:${{ env.GCP_PROJECT_ID }}/ANDROID_KEY_ALIAS
             KEY_PASS:${{ env.GCP_PROJECT_ID }}/ANDROID_KEY_PASSWORD
             PLAY_SERVICE_ACCOUNT_B64:${{ env.GCP_PROJECT_ID }}/GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64
-            IOS_FIREBASE_B64:${{ env.GCP_PROJECT_ID }}/IOS_GOOGLESERVICE_INFO_PLIST_B64
             ANDROID_FIREBASE_B64:${{ env.GCP_PROJECT_ID }}/ANDROID_GOOGLE_SERVICES_JSON_B64
 
-      - name: Hydrate Native Firebase Configs
+      - name: Hydrate and verify Android Firebase config
         shell: bash
+        env:
+          ANDROID_FIREBASE_B64: ${{ steps.gcp-secrets.outputs.ANDROID_FIREBASE_B64 || secrets.ANDROID_GOOGLE_SERVICES_JSON_B64 }}
         run: |
           set -euo pipefail
-          IOS_FB="${{ steps.gcp-secrets.outputs.IOS_FIREBASE_B64 }}"
-          ANDROID_FB="${{ steps.gcp-secrets.outputs.ANDROID_FIREBASE_B64 }}"
+          if [ -z "$ANDROID_FIREBASE_B64" ]; then
+            echo "Missing Android Firebase config; refusing to build." >&2
+            exit 1
+          fi
+          printf '%s' "$ANDROID_FIREBASE_B64" | base64 -d > google-services.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-          if [ -n "${IOS_FB}" ]; then
-            echo "${IOS_FB}" | base64 -d > GoogleService-Info.plist
-          fi
-          if [ -n "${ANDROID_FB}" ]; then
-            echo "${ANDROID_FB}" | base64 -d > google-services.json
-          fi
-          echo "Native Firebase configs hydrated."
+          payload = json.loads(Path("google-services.json").read_text(encoding="utf-8"))
+          actual_project = payload.get("project_info", {}).get("project_id", "")
+          expected_project = os.environ["NEXT_PUBLIC_FIREBASE_PROJECT_ID"]
+          if actual_project != expected_project:
+              raise SystemExit(
+                  "Android Firebase project does not match the web Firebase identity."
+              )
+          packages = {
+              client.get("client_info", {})
+              .get("android_client_info", {})
+              .get("package_name", "")
+              for client in payload.get("client", [])
+          }
+          if os.environ["ANDROID_PACKAGE_NAME"] not in packages:
+              raise SystemExit("Android Firebase config does not contain com.hussh.app.")
+          PY
+          chmod 600 google-services.json
+          echo "Android Firebase config matches the web Firebase identity and package."
 
       - name: Hydrate Android Release Keystore
         shell: bash
+        env:
+          RELEASE_KEYSTORE_B64: ${{ steps.gcp-secrets.outputs.KEYSTORE_B64 || secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ steps.gcp-secrets.outputs.KEYSTORE_PASS || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ steps.gcp-secrets.outputs.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ steps.gcp-secrets.outputs.KEY_PASS || secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           KEYSTORE_DIR="${RUNNER_TEMP}/keystore"
           mkdir -p "${KEYSTORE_DIR}"
           KEYSTORE_PATH="${KEYSTORE_DIR}/release-upload-key.jks"
 
-          # Fall back to GitHub secret if GCP Secret Manager secret was not fetched
-          RAW_B64="${{ steps.gcp-secrets.outputs.KEYSTORE_B64 || secrets.ANDROID_RELEASE_KEYSTORE_B64 }}"
-
-          if [ -n "${RAW_B64}" ]; then
-            echo "${RAW_B64}" | base64 -d > "${KEYSTORE_PATH}"
-            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=${{ steps.gcp-secrets.outputs.KEYSTORE_PASS || secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=${{ steps.gcp-secrets.outputs.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=${{ steps.gcp-secrets.outputs.KEY_PASS || secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "Release keystore hydrated successfully."
-          else
-            echo "WARNING: No release keystore provided. Build will produce unsigned/debug AAB."
+          if [ -z "$RELEASE_KEYSTORE_B64" ] || [ -z "$RELEASE_KEYSTORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ]; then
+            echo "Missing release signing material; refusing to publish an unsigned AAB artifact." >&2
+            exit 1
           fi
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          {
+            printf 'ANDROID_KEYSTORE_PATH=%s\n' "$KEYSTORE_PATH"
+            printf 'ANDROID_KEYSTORE_PASSWORD=%s\n' "$RELEASE_KEYSTORE_PASSWORD"
+            printf 'ANDROID_KEY_ALIAS=%s\n' "$RELEASE_KEY_ALIAS"
+            printf 'ANDROID_KEY_PASSWORD=%s\n' "${RELEASE_KEY_PASSWORD:-$RELEASE_KEYSTORE_PASSWORD}"
+          } >> "$GITHUB_ENV"
+          echo "Release keystore hydrated successfully."
 
       - name: Hydrate Google Play Service Account Key
         shell: bash
+        env:
+          PLAY_SERVICE_ACCOUNT_B64: ${{ steps.gcp-secrets.outputs.PLAY_SERVICE_ACCOUNT_B64 || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64 }}
         run: |
           set -euo pipefail
           SERVICE_ACCOUNT_PATH="${RUNNER_TEMP}/google-play-service-account.json"
-          RAW_B64="${{ steps.gcp-secrets.outputs.PLAY_SERVICE_ACCOUNT_B64 || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64 }}"
 
-          if [ -n "${RAW_B64}" ]; then
-            echo "${RAW_B64}" | base64 -d > "${SERVICE_ACCOUNT_PATH}"
+          if [ -n "$PLAY_SERVICE_ACCOUNT_B64" ]; then
+            printf '%s' "$PLAY_SERVICE_ACCOUNT_B64" | base64 -d > "$SERVICE_ACCOUNT_PATH"
+            chmod 600 "$SERVICE_ACCOUNT_PATH"
             echo "PLAY_SERVICE_ACCOUNT_PATH=${SERVICE_ACCOUNT_PATH}" >> "$GITHUB_ENV"
             echo "Google Play Developer API service account hydrated."
           else
-            echo "WARNING: No Google Play service account key provided."
+            echo "Google Play service account is required to prove the monotonic versionCode floor." >&2
+            exit 1
           fi
 
       - name: Create Google Play Python venv
@@ -237,12 +414,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KEY_OPT=""
-          if [ -n "${PLAY_SERVICE_ACCOUNT_PATH:-}" ] && [ -f "${PLAY_SERVICE_ACCOUNT_PATH}" ]; then
-            KEY_OPT="--service-account-json ${PLAY_SERVICE_ACCOUNT_PATH}"
+          if [ -z "${PLAY_SERVICE_ACCOUNT_PATH:-}" ] || [ ! -f "$PLAY_SERVICE_ACCOUNT_PATH" ]; then
+            echo "Google Play service account is required to resolve versionCode." >&2
+            exit 1
           fi
-
-          NEXT_CODE="$("${RUNNER_TEMP}/play-venv/bin/python" scripts/ci/resolve-android-build-number.py ${KEY_OPT} --update-gradle)"
+          NEXT_CODE="$("${RUNNER_TEMP}/play-venv/bin/python" scripts/ci/resolve-android-build-number.py \
+            --service-account-json "$PLAY_SERVICE_ACCOUNT_PATH" \
+            --update-gradle)"
           echo "next_version_code=${NEXT_CODE}" >> "$GITHUB_OUTPUT"
           echo "Resolved next Android versionCode: ${NEXT_CODE}"
 
@@ -257,49 +435,165 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/env/bootstrap_profiles.sh
-          bash scripts/env/use_profile.sh uat
           cd hushh-webapp
-          npm run sync:native-firebase-configs
-          npm run cap:build
-          npm run cap:sync:android
+          # A clean Actions checkout must not contain a local profile capable of
+          # overriding the UAT contract supplied through GITHUB_ENV.
+          test ! -e .env.native.android.local
+          test ! -e .env.native.ios.local
+          test "$(node ./scripts/native/with-android-native-env.mjs --print APP_RUNTIME_PROFILE)" = "uat"
+          test "$(node ./scripts/native/with-android-native-env.mjs --print NEXT_PUBLIC_APP_ENV)" = "uat"
+          test "$(node ./scripts/native/with-android-native-env.mjs --print NEXT_PUBLIC_BACKEND_URL)" = "$NEXT_PUBLIC_BACKEND_URL"
+          npm run sync:native-firebase-configs -- --platform android
+          # Keep the export and Capacitor sync in Android's isolated native
+          # output directory. `cap:build` uses the iOS native wrapper for
+          # iOS runtime-contract attestation, so invoking it here without an
+          # Android environment leaves NEXT_DIST_DIR unset before Next starts.
+          # The Android wrapper is the canonical path used by the performance
+          # lane and ensures both build and sync consume the same export.
+          NATIVE_EXPORT=".next-native-android"
+          node ./scripts/native/with-android-native-env.mjs \
+            npx cross-env CAPACITOR_BUILD=true NEXT_DIST_DIR="$NATIVE_EXPORT" \
+            next build --webpack --debug-build-paths "app/**/page.tsx,!app/api/**"
+          node ./scripts/native/with-android-native-env.mjs \
+            node --input-type=module --eval \
+            'import { writeNativeRuntimeContract } from "./scripts/native/native-runtime-contract.mjs"; writeNativeRuntimeContract({ appRoot: process.cwd(), environment: process.env });'
+          node ./scripts/native/with-android-native-env.mjs \
+            npx cross-env CAPACITOR_PLATFORM=android NEXT_DIST_DIR="$NATIVE_EXPORT" \
+            npx cap sync android
 
-      - name: Compile Android App Bundle (.aab)
+      - name: Verify bundled Android UAT runtime
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          expected_url = os.environ["NEXT_PUBLIC_BACKEND_URL"].rstrip("/")
+          parsed = urlsplit(expected_url)
+          expected_origin = f"{parsed.scheme}://{parsed.netloc}"
+          host = (parsed.hostname or "").lower()
+          if parsed.scheme != "https" or not host or host in {
+              "localhost", "127.0.0.1", "0.0.0.0", "10.0.2.2"
+          } or not ("uat" in host or "f2gsa4kfsq" in host):
+              raise SystemExit("Resolved Android backend is not the UAT backend.")
+
+          assets = Path("hushh-webapp/android/app/src/main/assets")
+          capacitor = json.loads((assets / "capacitor.config.json").read_text(encoding="utf-8"))
+          backend_urls = [
+              plugin["backendUrl"]
+              for plugin in capacitor.get("plugins", {}).values()
+              if isinstance(plugin, dict) and "backendUrl" in plugin
+          ]
+          if not backend_urls or any(value.rstrip("/") != expected_url for value in backend_urls):
+              raise SystemExit("Bundled Capacitor plugin routing is not uniformly UAT.")
+
+          contract = json.loads(
+              (assets / "public/hushh-native-runtime-contract.json").read_text(encoding="utf-8")
+          )
+          expected_contract = {
+              "schema_version": contract.get("schema_version"),
+              "backend_origin": contract.get("backend_origin"),
+              "app_env": contract.get("app_env"),
+              "plaid_sandbox_proof": contract.get("plaid_sandbox_proof"),
+              "dist_dir": contract.get("dist_dir"),
+          }
+          attestation = hashlib.sha256(
+              json.dumps(expected_contract, separators=(",", ":")).encode("utf-8")
+          ).hexdigest()
+          if contract.get("backend_origin") != expected_origin:
+              raise SystemExit("Bundled runtime contract backend does not match UAT.")
+          if contract.get("app_env") != "uat" or contract.get("dist_dir") != ".next-native-android":
+              raise SystemExit("Bundled runtime contract is not the Android UAT profile.")
+          if contract.get("bundle_attestation") != attestation:
+              raise SystemExit("Bundled runtime contract attestation is invalid.")
+          print(f"Verified Android UAT runtime for {host}.")
+          PY
+
+      - name: Compile Android App Bundle (.aab)
+        shell: bash
+        env:
+          VERSION_CODE: ${{ steps.versioning.outputs.next_version_code }}
+        run: |
+          set -euo pipefail
+          grep -Eq "versionCode[[:space:]]+${VERSION_CODE}([^0-9]|$)" hushh-webapp/android/app/build.gradle
           cd hushh-webapp/android
           ./gradlew bundleRelease --stacktrace
 
-      - name: Publish .aab as workflow artifact
-        uses: actions/upload-artifact@v4
+      - name: Verify signed Android App Bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAB="hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$AAB" || { echo "Signed release AAB was not produced." >&2; exit 1; }
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          jarsigner -verify -strict -verbose -certs \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            "$AAB" "$ANDROID_KEY_ALIAS" \
+            > "$RUNNER_TEMP/android-aab-signature.txt" 2>&1
+          grep -Fq "jar verified." "$RUNNER_TEMP/android-aab-signature.txt" || {
+            echo "Android release AAB signature did not verify with the expected upload alias." >&2
+            exit 1
+          }
+          echo "Android release AAB signature verified with the expected upload alias."
+
+      - name: Preserve signed AAB in private UAT bucket
+        id: private_artifact
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/upload-private-native-artifact.py \
+            --file hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab \
+            --source-sha "$RELEASE_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform android-playstore \
+            --receipt "$RUNNER_TEMP/private-native-artifact-receipt.json"
+
+      - name: Upload redacted private AAB receipt
+        uses: actions/upload-artifact@v6
         with:
-          name: hushh-one-android-release-aab
-          path: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
+          name: hushh-one-android-private-receipt-${{ steps.resolve.outputs.sha }}
+          path: ${{ runner.temp }}/private-native-artifact-receipt.json
           retention-days: 14
           if-no-files-found: error
 
       - name: Upload .aab to Google Play Console
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: ${{ env.PLAY_SERVICE_ACCOUNT_PATH }}
           packageName: ${{ env.ANDROID_PACKAGE_NAME }}
           releaseFiles: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
-          tracks: ${{ inputs.track }}
+          tracks: ${{ env.TARGET_TRACK }}
           status: completed
 
       - name: Publish job summary
         shell: bash
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          VERSION_CODE: ${{ steps.versioning.outputs.next_version_code }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+          PRIVATE_ARTIFACT_OUTCOME: ${{ steps.private_artifact.outcome }}
         run: |
           set -euo pipefail
-          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-          ## 🤖 Hushh One Android Play Store Ship
-
-          - **Target Track**: \`${{ inputs.track }}\`
-          - **Version Code**: \`${{ steps.versioning.outputs.next_version_code }}\`
-          - **Package Name**: \`${{ env.ANDROID_PACKAGE_NAME }}\`
-          - **Dry Run**: \`${{ inputs.dry_run }}\`
-          - **Artifact**: \`hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab\`
-          - **Play Console**: [Google Play Console Releases](https://play.google.com/console)
-          EOF
+          {
+            printf '## Hushh One Android Play Store Ship\n\n'
+            printf -- '- **Target Track**: `%s`\n' "$TARGET_TRACK"
+            printf -- '- **Version Code**: `%s`\n' "$VERSION_CODE"
+            printf -- '- **Package Name**: `%s`\n' "$ANDROID_PACKAGE_NAME"
+            printf -- '- **Source SHA**: `%s`\n' "$RELEASE_SHA"
+            printf -- '- **Runtime**: `uat` (`%s`)\n' "$NEXT_PUBLIC_BACKEND_URL"
+            printf -- '- **Dry Run**: `%s`\n' "$DRY_RUN"
+            printf -- '- **Private UAT AAB**: `%s` (14-day bucket retention; receipt only in Actions)\n' "$PRIVATE_ARTIFACT_OUTCOME"
+            printf -- '- **Play Console**: [Google Play Console Releases](https://play.google.com/console)\n'
+          } >> "$GITHUB_STEP_SUMMARY"

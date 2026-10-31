@@ -9,14 +9,14 @@ import {
   SettingsGroup,
   SettingsPresentationProvider,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 
 describe("SettingsRow", () => {
   it("wraps both primary action and trailing in a single interactive row", () => {
     const handleOpen = vi.fn();
     const handleTrailing = vi.fn();
-    render(
+    const { container } = render(
       <SettingsRow
         title="Open privacy"
         description="Manage vault controls"
@@ -42,6 +42,7 @@ describe("SettingsRow", () => {
     // Both handlers fire (trailing click propagation stopped, so only trailing fires)
     expect(handleOpen).toHaveBeenCalledTimes(1);
     expect(handleTrailing).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("button button")).toBeNull();
   });
 
   it("keeps a trailing switch accessible within the unified row", () => {
@@ -81,18 +82,52 @@ describe("SettingsRow", () => {
 
   it("uses compact single-line geometry when a grouped menu has no subtext", () => {
     const { container } = render(
-      <SettingsRow
-        icon={undefined}
-        title="Security"
-        density="compact"
-        chevron
-        onClick={() => {}}
-      />,
+      <SettingsGroup density="compact">
+        <SettingsRow title="Security" chevron onClick={() => {}} />
+        <SettingsRow
+          title="Notifications"
+          onClick={() => {}}
+          trailing={
+            <input type="checkbox" aria-label="Notifications enabled" />
+          }
+        />
+      </SettingsGroup>,
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
-    expect(rowShell?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(rowShell?.className).toContain("[--settings-row-py:8px]");
+    // Both row shapes share the same target and start line. A minimum, rather
+    // than a fixed height, leaves wrapped copy and larger controls room to grow.
+    const grids = container.querySelectorAll(
+      '[data-testid="settings-row"] > .grid',
+    );
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) {
+      expect(grid.className).toContain("min-h-[48px]");
+      expect(grid.className).toContain("px-[var(--settings-row-px)]");
+      expect(grid.className).toContain("py-[var(--settings-row-py)]");
+      expect(grid.className).not.toContain("max-h-");
+    }
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
+  });
+
+  it("can keep navigation-row labels and descriptions to one responsive line", () => {
+    const { container } = render(
+      <SettingsRow
+        title="A deliberately long navigation destination"
+        description="Supporting copy that must not make the row taller"
+        textOverflow="truncate"
+      />,
+    );
+
+    const title = container.querySelector('[data-slot="settings-row-title"]');
+    const description = container.querySelector(
+      '[data-slot="settings-row-description"]',
+    );
+    expect(title?.className).toContain("truncate");
+    expect(title?.className).toContain("whitespace-nowrap");
+    expect(description?.className).toContain("truncate");
+    expect(description?.className).toContain("whitespace-nowrap");
   });
 
   it("uses the calm iPhone settings list label by default", () => {
@@ -101,8 +136,9 @@ describe("SettingsRow", () => {
     );
 
     const title = container.querySelector('[data-slot="settings-row-title"]');
-    expect(title?.className).toContain("text-[15px]");
-    expect(title?.className).toContain("font-normal");
+    expect(title?.className).toContain("ui-text-row-label");
+    expect(title?.className).toContain("ui-text-row-label-compact");
+    expect(title?.getAttribute("data-ui-role")).toBe("body");
     expect(title?.className).not.toContain("font-semibold");
   });
 
@@ -113,8 +149,58 @@ describe("SettingsRow", () => {
     );
 
     expect(globalsCss).toContain('[data-slot="settings-row-title"] {');
-    expect(globalsCss).toContain("font-size: 0.9375rem !important;");
-    expect(globalsCss).toContain("font-weight: 400 !important;");
+    expect(globalsCss).toContain(
+      "font-size: var(--type-row-label-size) !important;",
+    );
+    expect(globalsCss).toContain(
+      "font-weight: var(--type-row-label-weight) !important;",
+    );
+  });
+
+  it("keeps compact workspace headings and rows below the global title ladder", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-section-label-compact-size: 14px;");
+    expect(globalsCss).toContain("--type-row-label-compact-size: 16px;");
+    expect(globalsCss).toContain(
+      '.app-page-shell[data-app-density="compact"] .ui-text-section-label-compact',
+    );
+    expect(globalsCss).toContain('[data-settings-density="compact"]');
+    expect(globalsCss).toContain('[data-slot="settings-group-heading"] {');
+  });
+
+  it("keeps row descriptions visually subordinate to page subtitles and body text", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-page-subtitle-size: 15px;");
+    expect(globalsCss).toContain("--type-page-subtitle-line: 20px;");
+    expect(globalsCss).toContain("--type-row-label-size: 17px;");
+    expect(globalsCss).toContain("--type-row-label-line: 22px;");
+    expect(globalsCss).toContain("--type-row-description-size: 13px;");
+    expect(globalsCss).toContain("--type-row-description-line: 18px;");
+    expect(globalsCss).toMatch(
+      /:is\(\.ui-text-row-description\)\s*\{\s*color:\s*var\(--app-tertiary-label\)\s*!important;/,
+    );
+  });
+
+  it("uses Plus Jakarta Sans as the product UI font family", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain(
+      '--font-family-product: "Plus Jakarta Sans", system-ui, sans-serif;',
+    );
+    expect(globalsCss).not.toContain(
+      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans"',
+    );
   });
 
   it("publishes semantic icon tone while destructive actions retain red", () => {
@@ -148,6 +234,39 @@ describe("SettingsRow", () => {
     ).toBe("red");
   });
 
+  it("makes glyphs inherit the contrasting foreground of coloured icon tiles", () => {
+    function AuthoredColourIcon({
+      color = "#2563eb",
+      ...props
+    }: React.SVGProps<SVGSVGElement>) {
+      return (
+        <svg data-testid="authored-colour-icon" color={color} {...props} />
+      );
+    }
+
+    const { rerender } = render(
+      <SettingsRow icon={AuthoredColourIcon} iconTone="blue" title="Account" />,
+    );
+
+    expect(screen.getByTestId("authored-colour-icon")).toHaveAttribute(
+      "color",
+      "currentColor",
+    );
+
+    rerender(
+      <SettingsRow
+        icon={AuthoredColourIcon}
+        iconTone="capability"
+        title="Account"
+      />,
+    );
+
+    expect(screen.getByTestId("authored-colour-icon")).toHaveAttribute(
+      "color",
+      "#2563eb",
+    );
+  });
+
   it("uses square iOS-style icon wells, shared inset-group radius, and standard card depth", () => {
     const { container } = render(
       <SettingsGroup>
@@ -158,7 +277,7 @@ describe("SettingsRow", () => {
     const group = container.querySelector('[data-slot="settings-group-shell"]');
     const icon = container.querySelector('[data-slot="settings-row-icon"]');
 
-    expect(group?.className).toContain("--app-card-radius-compact");
+    expect(group?.className).toContain("--app-card-radius-standard");
     expect(group?.className).toContain(
       "shadow-[var(--app-card-shadow-standard)]",
     );
@@ -174,9 +293,10 @@ describe("SettingsRow", () => {
       </SettingsGroup>,
     );
 
-    expect(
-      container.querySelector('[data-testid="settings-row"]')?.className,
-    ).toContain("after:left-0");
+    const plainRow = container.querySelector('[data-testid="settings-row"]');
+    expect(plainRow?.className).toContain("after:left-0");
+    expect(plainRow?.className).toContain("after:right-0");
+    expect(plainRow?.className).not.toContain("after:right-4");
 
     rerender(
       <SettingsGroup separatorInset>
@@ -187,7 +307,41 @@ describe("SettingsRow", () => {
 
     expect(
       container.querySelector('[data-testid="settings-row"]')?.className,
-    ).toContain("after:left-[3.75rem]");
+    ).toContain(
+      "after:left-[calc(var(--settings-row-px)+34px+var(--settings-row-gap))]",
+    );
+
+    rerender(
+      <SettingsGroup density="compact" separatorInset>
+        <SettingsRow icon={Phone} title="Icon row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+    const compactRow = container.querySelector('[data-testid="settings-row"]');
+    // Compact page shells change the gap from 12px to 10px. A fixed 58px
+    // separator cannot follow either text start; the inset must use the gap.
+    expect(compactRow?.className).toContain(
+      "after:left-[calc(var(--settings-row-px)+28px+var(--settings-row-gap))]",
+    );
+    expect(compactRow?.className).toContain(
+      "after:right-[var(--settings-row-px)]",
+    );
+    expect(compactRow?.className).not.toContain("after:left-[58px]");
+
+    rerender(
+      <SettingsGroup density="compact" separatorInset>
+        <SettingsRow layout="person" leading={<span>AB</span>} title="Person" />
+        <SettingsRow leading={<span>Custom</span>} title="Custom leading" />
+      </SettingsGroup>,
+    );
+    const leadingRows = container.querySelectorAll(
+      '[data-testid="settings-row"]',
+    );
+    expect(leadingRows[0]?.className).toContain("after:left-[68px]");
+    expect(leadingRows[0]?.querySelector(".grid")?.className).toContain(
+      "min-h-[72px]",
+    );
+    expect(leadingRows[1]?.className).toContain("after:left-[58px]");
   });
 
   it("inherits route-family separator and density defaults", () => {
@@ -206,10 +360,29 @@ describe("SettingsRow", () => {
     const rows = container.querySelectorAll('[data-testid="settings-row"]');
 
     expect(group?.getAttribute("data-inset-separators")).toBe("true");
-    expect(rows[0]?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(rows[0]?.className).toContain("[--settings-row-py:8px]");
     expect(
       rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
     ).not.toContain("sm:h-10");
+  });
+
+  it("defaults embedded groups to the compact mobile list recipe", () => {
+    const { container } = render(
+      <SettingsGroup embedded title="Access history">
+        <SettingsRow title="Active access" description="Until you stop" />
+      </SettingsGroup>,
+    );
+
+    const heading = container.querySelector(
+      '[data-slot="settings-group-heading"]',
+    );
+    const row = container.querySelector('[data-testid="settings-row"]');
+
+    expect(heading?.className).toContain("ui-text-section-label-compact");
+    expect(row?.className).toContain("[--settings-row-py:8px]");
+    expect(
+      row?.querySelector('[data-slot="settings-row-title"]')?.className,
+    ).toContain("ui-text-row-label-compact");
   });
 
   it("supports asChild rows without losing row content", () => {
@@ -231,11 +404,11 @@ describe("SettingsRow", () => {
   });
 });
 
-describe("SettingsSegmentedTabs", () => {
+describe("SegmentedTabs", () => {
   it("keeps the active tab selected and switches tabs through user interaction", () => {
     const handleValueChange = vi.fn();
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="my"
         onValueChange={handleValueChange}
         options={[
@@ -245,13 +418,13 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const active = screen.getByRole("button", { name: "My list" });
-    const inactive = screen.getByRole("button", { name: "Kai list" });
+    const active = screen.getByRole("tab", { name: "My list" });
+    const inactive = screen.getByRole("tab", { name: "Kai list" });
 
     expect(active.getAttribute("data-state")).toBe("active");
-    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(active.getAttribute("aria-selected")).toBe("true");
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
 
     fireEvent.click(active);
     expect(handleValueChange).not.toHaveBeenCalled();
@@ -261,7 +434,7 @@ describe("SettingsSegmentedTabs", () => {
   });
   it("preserves inactive segmented tab accessibility state", () => {
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="kai"
         onValueChange={() => {}}
         options={[
@@ -271,16 +444,75 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const inactive = screen.getByRole("button", { name: "My list" });
+    const inactive = screen.getByRole("tab", { name: "My list" });
+    const active = screen.getByRole("tab", { name: "Kai list" });
 
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
+    expect(inactive.className).toContain(
+      "[@media(hover:hover)]:hover:bg-black/5",
+    );
+    expect(inactive.className).not.toContain("hover:text");
+    expect(active.className).not.toContain("press-scale");
+  });
+
+  it("uses the shared quiet segmented geometry", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Kai list" });
+
+    expect(root?.className).toContain("rounded-[14px]");
+    expect(root?.className).not.toContain("rounded-full");
+    expect(active.className).toContain("rounded-[12px]");
+    expect(active.className).not.toContain("press-scale");
+
+    // Preserve main's current segmented material and the keyboard contract below.
+    expect(root?.className).toContain("bg-[color:var(--app-segmented-track-surface)]");
+    expect(root?.className).toContain("border-0");
+    expect(root?.className).not.toContain("var(--app-card-surface-compact)");
+    expect(active.className).toContain("shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]");
+    expect(active.className).toContain("border-transparent");
+    expect(active.className).toContain("font-semibold");
+    expect(active.className).not.toContain("font-normal");
+  });
+
+  it("supports roving Arrow, Home, and End focus with accessible tab names", () => {
+    const changed = vi.fn();
+    render(<SegmentedTabs value="a" onValueChange={changed} options={[
+      { value: "a", label: "A", accessibleLabel: "First option" },
+      { value: "b", label: "B" },
+      { value: "c", label: "C" },
+    ]} />);
+    const first = screen.getByRole("tab", { name: "First option" });
+    const second = screen.getByRole("tab", { name: "B" });
+    const last = screen.getByRole("tab", { name: "C" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(second).toHaveFocus();
+    expect(changed).toHaveBeenLastCalledWith("b");
+    fireEvent.keyDown(second, { key: "End" });
+    expect(last).toHaveFocus();
+    expect(changed).toHaveBeenLastCalledWith("c");
+    fireEvent.keyDown(last, { key: "Home" });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "ArrowLeft" });
+    expect(last).toHaveFocus();
   });
 
   it("disables the whole segmented control while its selection is settling", () => {
     const handleValueChange = vi.fn();
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="statement"
         onValueChange={handleValueChange}
         disabled
@@ -291,10 +523,96 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const brokerage = screen.getByRole("button", { name: "Brokerage" });
+    const brokerage = screen.getByRole("tab", { name: "Brokerage" });
     expect(brokerage).toBeDisabled();
     fireEvent.click(brokerage);
+    fireEvent.keyDown(brokerage, { key: "ArrowLeft" });
     expect(handleValueChange).not.toHaveBeenCalled();
+  });
+
+  it("supports the scoped Location-style agent navigation variant", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="overview"
+        onValueChange={() => {}}
+        variant="agent-top"
+        options={[
+          { value: "overview", label: "Overview" },
+          { value: "receipts", label: "Receipts" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Overview" });
+    const label = active.querySelector('[data-ui-contract="required-title"]');
+
+    expect(root).toHaveAttribute("data-ui-variant", "agent-top");
+    expect(root?.className).toContain("h-9");
+    expect(root?.className).toContain("rounded-[10px]");
+    expect(active.className).toContain("rounded-[8px]");
+    expect(active.className).toContain("mx-0.5");
+    expect(label).toHaveClass("ui-text-agent-tab-label");
+  });
+
+  it("supports a subordinate text-tab hierarchy without changing tab semantics", () => {
+    const handleValueChange = vi.fn();
+    const { container } = render(
+      <SegmentedTabs
+        value="connected"
+        onValueChange={handleValueChange}
+        ariaLabel="Clients view"
+        variant="subordinate"
+        options={[
+          { value: "connected", label: "Connected" },
+          { value: "nearby", label: "Around you" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Connected" });
+    const inactive = screen.getByRole("tab", { name: "Around you" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "subordinate");
+    expect(root?.className).toContain("bg-transparent");
+    expect(root?.className).toContain("border-b");
+    expect(active.className).toContain("border-b-[color:var(--app-accent)]");
+    expect(active.className).toContain("border-x-0");
+    expect(active.className).toContain("border-t-0");
+    expect(active.className).not.toContain(
+      "bg-[color:var(--app-segmented-active-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(inactive);
+    expect(handleValueChange).toHaveBeenCalledWith("nearby");
+  });
+
+  it("supports compact filter pills with horizontal overflow safety", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="top-picks"
+        onValueChange={() => {}}
+        ariaLabel="Picks category"
+        variant="filter"
+        options={[
+          { value: "top-picks", label: "Top picks" },
+          { value: "avoid", label: "Avoid" },
+          { value: "screening", label: "Screening" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Top picks" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "filter");
+    expect(root?.className).toContain("overflow-x-auto");
+    expect(active.className).toContain("rounded-full");
+    expect(active.className).toContain(
+      "bg-[color:var(--app-accent-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
   });
 });
 
@@ -327,11 +645,6 @@ describe("SettingsDetailPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
-    expect(
-      document
-        .querySelector('[data-slot="dialog-header"]')
-        ?.className.includes("bg-[var(--activeGlassColor)]"),
-    ).toBe(true);
   });
 
   it("places supplied identity media before the detail title", () => {
@@ -406,15 +719,15 @@ describe("SettingsDetailPanel", () => {
     expect(handleOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("uses the shared physics-enabled bottom sheet when requested", async () => {
+  it.each([390, 1280])("keeps an explicitly requested task sheet at %ipx", async width => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
-      value: 390,
+      value: width,
     });
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("max-width"),
+        matches: query.includes("max-width") && width < 768,
         media: query,
         onchange: null,
         addEventListener: vi.fn(),
@@ -430,6 +743,7 @@ describe("SettingsDetailPanel", () => {
         open
         onOpenChange={() => {}}
         title="Decision"
+        presentation="sheet"
         mobilePresentation="sheet"
         showCloseButton={false}
       >
@@ -445,6 +759,46 @@ describe("SettingsDetailPanel", () => {
         document.querySelector('[data-slot="sheet-drag-handle"]'),
       ).toBeTruthy();
     });
+    expect(document.querySelectorAll('[data-task-surface="sheet"]')).toHaveLength(1);
+    expect(document.querySelector('[data-task-surface="dialog"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+});
+
+describe("row hover surface", () => {
+  /**
+   * A row with an interactive trailing control splits: the row action becomes
+   * a full-row button laid under the content so the control beside it stays
+   * independently operable (settings-row-surface.contract.test.tsx). That
+   * split used to change how the row LOOKED on hover, because an inner
+   * title-only button painted the highlight itself -- at `rounded-xl` instead
+   * of the row radius, and inside padding the grid cell had already applied.
+   *
+   * The founder reported it twice, on two different surfaces, in the same
+   * words: the highlight has to reach the edges rather than float as a pill.
+   * Both times the cause was a component drawing a radius of its own instead of
+   * inheriting the shape it sits in.
+   */
+  it("spans the whole row at the row's own radius, split or not", () => {
+    const { container } = render(
+      <SettingsGroup>
+        <SettingsRow
+          title="Financial"
+          onClick={() => undefined}
+          chevron
+          trailing={<input type="checkbox" aria-label="Everything in Financial" />}
+        />
+      </SettingsGroup>,
+    );
+
+    const overlay = container.querySelector('[aria-hidden="true"].absolute.inset-0');
+    expect(overlay, "a split row must still draw a full-bleed hover surface").not.toBeNull();
+    expect(overlay?.className).toContain("inset-0");
+    expect(overlay?.className).toContain("rounded-[inherit]");
+
+    // The inner button must not paint a competing highlight.
+    const primary = container.querySelector("button");
+    expect(primary?.className ?? "").not.toContain("rounded-xl");
+    expect(primary?.className ?? "").not.toContain("hover:bg-foreground");
   });
 });

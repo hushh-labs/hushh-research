@@ -18,10 +18,10 @@ export function RiaOnboardingSetupClient() {
     skipActionId: "setup.skip_ria",
   });
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing RIA setup…" />;
+  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing advisor setup…" />;
 
   return (
-    <div className="flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col justify-center items-center space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
+    <div className="flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col justify-center items-center space-y-4 pb-[calc(var(--app-bottom-inset)+6rem)]">
       <RiaOnboardingPage
         setupMode
         onSetupReadinessChange={setReady}

@@ -1,13 +1,39 @@
 import vector from "../fixtures/hermes-vault-vector.json";
 import creationVector from "../fixtures/hermes-vault-creation-vector.json";
 
-import { VaultService } from "@/lib/services/vault-service";
+import { createHash } from "node:crypto";
+import { VaultService, type VaultState } from "@/lib/services/vault-service";
 import {
   unlockVaultWithPassphrase,
   unlockVaultWithRecoveryKey,
 } from "@/lib/vault/passphrase-key";
 
 describe("Hermes vault crypto vector", () => {
+  const key = "01".repeat(32);
+  const historicalHash = "58badd9b455145b487ad24c7f259cc437cc4ffd0784716845249321fb5961cfc";
+  const rawHash = "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793";
+  const stateWithHash = (vaultKeyHash: string): VaultState => ({
+    vaultKeyHash,
+    primaryMethod: "passphrase",
+    recoveryEncryptedVaultKey: "",
+    recoverySalt: "",
+    recoveryIv: "",
+    wrappers: [],
+  });
+
+  it.each([historicalHash, rawHash])("accepts a deployed hash encoding: %s", async (hash) => {
+    await expect(VaultService.assertVaultKeyMatchesState(stateWithHash(hash), key)).resolves.toBeUndefined();
+    expect(await VaultService.hashVaultKey(key, hash)).toBe(hash);
+  });
+
+  it("keeps new hashes canonical and rejects wrong keys for both stored encodings", async () => {
+    expect(await VaultService.hashVaultKey(key)).toBe(historicalHash);
+    for (const hash of [historicalHash, rawHash]) {
+      await expect(VaultService.assertVaultKeyMatchesState(stateWithHash(hash), "02".repeat(32))).rejects.toThrow("integrity check failed");
+    }
+    await expect(VaultService.assertVaultKeyMatchesState(stateWithHash("invalid-hash"), key)).rejects.toThrow("integrity check failed");
+  });
+
   it("unwraps and hashes identically to the native bridge", async () => {
     const vaultKey = await unlockVaultWithPassphrase(
       vector.passphrase,
@@ -36,6 +62,10 @@ describe("Hermes vault crypto vector", () => {
 
     expect(fromPassphrase).toBe(creationVector.vault_key_hex);
     expect(fromRecovery).toBe(creationVector.vault_key_hex);
+    // Reproduce the pre-change persisted format independently of the service.
+    const legacyState = stateWithHash(createHash("sha256").update(creationVector.vault_key_hex).digest("hex"));
+    await expect(VaultService.assertVaultKeyMatchesState(legacyState, fromPassphrase)).resolves.toBeUndefined();
+    await expect(VaultService.assertVaultKeyMatchesState(legacyState, fromRecovery)).resolves.toBeUndefined();
     expect(await VaultService.hashVaultKey(fromPassphrase)).toBe(
       creationVector.vault_key_hash,
     );

@@ -358,6 +358,12 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let structureDecision = call.getObject("structureDecision") {
             body["structure_decision"] = structureDecision
         }
+        if let authority = call.getObject("locationFinalizeAuthorization") {
+            body["location_finalize_authorization"] = authority
+        }
+        if let kycReplyAuthority = call.getObject("kycReplyAuthorization") {
+            body["kyc_reply_authorization"] = kycReplyAuthority
+        }
         if let mutationPlan = call.getObject("mutationPlan") {
             body["mutation_plan"] = mutationPlan
         }
@@ -459,6 +465,7 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
                     var result: [String: Any] = [
                         "success": (json["success"] as? Bool) ?? true,
                         "conflict": (json["conflict"] as? Bool) ?? false,
+                        "idempotentReplay": (json["idempotent_replay"] as? Bool) ?? false,
                     ]
                     if let message = json["message"] as? String {
                         result["message"] = message
@@ -472,6 +479,8 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
                     if let manifestRevision = json["manifest_revision"] as? Int {
                         result["manifestRevision"] = manifestRevision
                     }
+                    if let revision = json["location_run_revision"] as? Int { result["locationRunRevision"] = revision }
+                    if let receipt = json["location_place_receipt_id"] as? String { result["locationPlaceReceiptId"] = receipt }
                     if let commitId = json["commit_id"] as? String {
                         result["commitId"] = commitId
                     }

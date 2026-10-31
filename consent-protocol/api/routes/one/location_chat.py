@@ -8,8 +8,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_vault_owner_token as require_vault_owner_token
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.location_chat_service import LocationChatService
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,7 @@ class LocationChatRequest(BaseModel):
 @router.post("/location/chat")
 async def location_chat(
     request: LocationChatRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if not request.message and request.action_result is None and request.selection_result is None:
         raise HTTPException(
@@ -78,6 +80,9 @@ async def location_chat(
             ),
         )
         return result
+    except CHAT_KEY_ERRORS:
+        # Refuse with the recoverable chat-key message (app handler), not a 500.
+        raise
     except Exception:
         logger.exception("Location chat turn failed")
         raise HTTPException(status_code=500, detail="Location chat could not be processed")

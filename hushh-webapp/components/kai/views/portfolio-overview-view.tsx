@@ -30,7 +30,7 @@ import {
   BarChart3,
   DollarSign,
   Activity,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
@@ -98,7 +98,7 @@ export function PortfolioOverviewView({
   const kpiValueClassName =
     "text-[26px] font-medium leading-none tracking-normal text-foreground sm:text-[30px]";
   const actionCardClassName =
-    "flex h-full min-h-[132px] flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-transparent bg-[color:var(--app-card-surface-compact)] p-5 text-left shadow-[var(--shadow-xs)] transition-[background-color,box-shadow,transform] duration-200 hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-standard)] hover:-translate-y-0.5";
+    "flex h-full min-h-[132px] flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-transparent bg-[color:var(--app-card-surface-compact)] p-5 text-left shadow-[var(--shadow-xs)] transition-[background-color,box-shadow,transform] duration-150 hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-standard)] hover:-translate-y-0.5";
 
   return (
     <div className="w-full space-y-5">

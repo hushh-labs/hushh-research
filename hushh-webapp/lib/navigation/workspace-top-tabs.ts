@@ -5,7 +5,7 @@ export type WorkspaceTopTab = {
 };
 
 export type WorkspaceTopTabSet = {
-  label: "Finance" | "RIA";
+  label: "Finance" | "Advisor";
   tabs: readonly WorkspaceTopTab[];
   activeId: string;
 };

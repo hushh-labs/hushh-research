@@ -22,7 +22,6 @@ from hushh_mcp.operons.kai.calculators import (
     assess_fundamental_health,
     calculate_annualized_return,
     calculate_annualized_volatility,
-    calculate_financial_ratios,
     calculate_quant_metrics,
     calculate_return_and_risk_metrics,
     calculate_sentiment_score,
@@ -314,64 +313,6 @@ class TestExtractCatalystsFromNews:
 # ---------------------------------------------------------------------------
 
 
-class TestFinancialRatios:
-    def _minimal_filing(self, **overrides):
-        base = {
-            "latest_10k": {
-                "revenue": 1_000_000_000,
-                "net_income": 100_000_000,
-                "total_assets": 500_000_000,
-                "total_liabilities": 200_000_000,
-                "free_cash_flow": 80_000_000,
-                "long_term_debt": 50_000_000,
-                "research_and_development": 30_000_000,
-                "operating_cash_flow": 90_000_000,
-            }
-        }
-        base["latest_10k"].update(overrides)
-        return base
-
-    def test_profit_margin_calculated(self):
-        filing = self._minimal_filing()
-        result = calculate_financial_ratios(filing)
-        assert result["profit_margin"] == pytest.approx(0.1, rel=1e-6)
-
-    def test_zero_revenue_no_division_error(self):
-        filing = self._minimal_filing(revenue=0)
-        result = calculate_financial_ratios(filing)
-        assert result["profit_margin"] == 0.0
-        assert result["fcf_margin"] == 0.0
-        assert result["rnd_intensity"] == 0.0
-
-    def test_zero_net_income_no_division_error(self):
-        filing = self._minimal_filing(net_income=0)
-        result = calculate_financial_ratios(filing)
-        assert result["earnings_quality"] == 0.0
-
-    def test_revenue_billions_conversion(self):
-        filing = self._minimal_filing(revenue=2_000_000_000)
-        result = calculate_financial_ratios(filing)
-        assert result["revenue_billions"] == pytest.approx(2.0, rel=1e-6)
-
-    def test_all_required_keys_present(self):
-        result = calculate_financial_ratios(self._minimal_filing())
-        for key in (
-            "profit_margin",
-            "fcf_margin",
-            "debt_to_equity",
-            "return_on_equity",
-            "rnd_intensity",
-            "earnings_quality",
-            "revenue_billions",
-            "fcf_billions",
-        ):
-            assert key in result, f"Missing key: {key}"
-
-    def test_empty_filing_no_crash(self):
-        result = calculate_financial_ratios({})
-        assert isinstance(result, dict)
-
-
 # ---------------------------------------------------------------------------
 # assess_fundamental_health
 # ---------------------------------------------------------------------------
@@ -440,19 +381,19 @@ class TestValuationMetrics:
         result = calculate_valuation_metrics({"pe_ratio": 25.0})
         assert result["pe_ratio"] == pytest.approx(25.0)
 
-    def test_zero_market_cap_ev_is_zero(self):
+    def test_zero_market_cap_does_not_supply_enterprise_value(self):
         result = calculate_valuation_metrics({"market_cap": 0})
-        assert result["enterprise_value_billions"] == 0.0
+        assert result["enterprise_value_billions"] is None
 
-    def test_market_cap_billions_conversion(self):
-        result = calculate_valuation_metrics({"market_cap": 3_000_000_000})
+    def test_reported_enterprise_value_billions_conversion(self):
+        result = calculate_valuation_metrics({"enterprise_value": 3_000_000_000})
         assert result["enterprise_value_billions"] == pytest.approx(3.0, rel=1e-6)
 
-    def test_missing_keys_default_to_zero(self):
+    def test_missing_keys_stay_unavailable(self):
         result = calculate_valuation_metrics({})
-        assert result["pe_ratio"] == 0.0
-        assert result["pb_ratio"] == 0.0
-        assert result["dividend_yield"] == 0.0
+        assert result["pe_ratio"] is None
+        assert result["pb_ratio"] is None
+        assert result["dividend_yield"] is None
 
     def test_all_keys_present(self):
         result = calculate_valuation_metrics({})
@@ -475,47 +416,50 @@ class TestQuantMetrics:
     def _trend(self, values):
         return [{"year": 2020 + i, "value": v} for i, v in enumerate(values)]
 
-    def test_empty_trends_return_zero_growth(self):
+    def test_empty_trends_return_unavailable_growth(self):
         result = calculate_quant_metrics({})
-        assert result["revenue_growth_yoy"] == 0.0
-        assert result["net_income_growth_yoy"] == 0.0
+        assert result["revenue_growth_yoy"] is None
+        assert result["net_income_growth_yoy"] is None
 
     def test_revenue_growth_calculated(self):
         filing = {
             "latest_10k": {
-                "revenue_trend": self._trend([1_000_000_000, 1_200_000_000]),
+                "period_end": "2021-12-31",
+                "revenue_trend": [
+                    {**row, "end": f"{row['year']}-12-31"}
+                    for row in self._trend([1_000_000_000, 1_200_000_000])
+                ],
             }
         }
         result = calculate_quant_metrics(filing)
         assert result["revenue_growth_yoy"] == pytest.approx(0.2, rel=1e-6)
 
-    def test_zero_previous_revenue_returns_zero_growth(self):
+    def test_zero_previous_revenue_returns_unavailable_growth(self):
         filing = {
             "latest_10k": {
                 "revenue_trend": self._trend([0, 1_000_000_000]),
             }
         }
         result = calculate_quant_metrics(filing)
-        assert result["revenue_growth_yoy"] == 0.0
+        assert result["revenue_growth_yoy"] is None
 
-    def test_cagr_3y_calculated(self):
+    def test_three_observations_are_not_a_three_year_interval(self):
         filing = {
             "latest_10k": {
                 "revenue_trend": self._trend([1_000_000_000, 1_100_000_000, 1_300_000_000]),
             }
         }
         result = calculate_quant_metrics(filing)
-        expected = (1_300_000_000 / 1_000_000_000) ** (1 / 3) - 1
-        assert result["revenue_cagr_3y"] == pytest.approx(expected, rel=1e-6)
+        assert result["revenue_cagr_3y"] is None
 
-    def test_fewer_than_3_years_cagr_zero(self):
+    def test_fewer_than_3_years_cagr_unavailable(self):
         filing = {
             "latest_10k": {
                 "revenue_trend": self._trend([1_000_000_000, 1_200_000_000]),
             }
         }
         result = calculate_quant_metrics(filing)
-        assert result["revenue_cagr_3y"] == 0.0
+        assert result["revenue_cagr_3y"] is None
 
     def test_trend_data_converted_to_billions(self):
         filing = {

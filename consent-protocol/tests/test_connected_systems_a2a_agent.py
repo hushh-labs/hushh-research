@@ -1,11 +1,38 @@
+"""Connected Systems ADK parent invariants without CRM or Gemini calls."""
+
 from __future__ import annotations
 
-import json
+from typing import Any
 
 import pytest
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
+from pydantic import PrivateAttr
 
 from hushh_mcp.adk_bridge.connected_systems_agent import ConnectedSystemsAgentA2A
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
+from hushh_mcp.agents.connected_systems.agent import (
+    build_connected_systems_agent,
+    validate_crm_plan,
+)
+
+
+class ScriptedLlm(BaseLlm):
+    _steps: list[Any] = PrivateAttr(default_factory=list)
+
+    def __init__(self, steps: list[Any]):
+        super().__init__(model="gemini-3.7-flash")
+        self._steps = list(steps)
+
+    async def generate_content_async(self, llm_request, stream=False):
+        step = self._steps.pop(0)
+        part = (
+            types.Part(function_call=types.FunctionCall(name=step[0], args=step[1]))
+            if isinstance(step, tuple)
+            else types.Part(text=step)
+        )
+        yield LlmResponse(content=types.Content(role="model", parts=[part]))
 
 
 def _authority() -> A2AAuthorityContext:
@@ -21,211 +48,134 @@ def _authority() -> A2AAuthorityContext:
     )
 
 
-def _planned_crm_update(*, slots: dict) -> dict:
+def _plan(*, action_id: str = "connected_system.crm.update.propose", **slots: Any) -> dict:
     return {
         "call_id": "crm_llm_plan",
-        "action_id": "connected_system.crm.update.propose",
-        "label": "Propose CRM Update",
-        "execution": "frontend",
-        "slots": {
-            "systemId": "salesforce-fsc-customer0",
-            "objectType": "Contact",
-            **slots,
-        },
-        "message": "Opening Connected Systems so you can review and approve the CRM update.",
-        "reason": None,
+        "action_id": action_id,
+        "slots": {"systemId": "salesforce-fsc-customer0", "objectType": "Contact", **slots},
     }
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_requires_validated_plan_and_does_not_harvest_chat_pii():
-    result = await ConnectedSystemsAgentA2A().handle(
+async def test_connected_systems_parent_uses_adk_and_emits_existing_directive_shape():
+    result = await ConnectedSystemsAgentA2A(
+        model=ScriptedLlm(
+            [
+                ("validate_crm_plan", {"planned_action": _plan(scope="all_connected_crm_systems")}),
+                "I prepared a review card.",
+            ]
+        )
+    ).handle(
         A2ATask(
             user_id="user_crm",
-            consent_token="",
+            consent_token="token",  # noqa: S106
             conversation_id="thread_crm",
             authority=_authority(),
-            message=(
-                "update the CRM record 003ABCDEF123456 city to New York "
-                "for kushal@example.com phone 415-555-1212"
-            ),
+            message="update my city across my connected brands",
         )
     )
 
-    assert result.conversation_id == "thread_crm"
     assert result.model == "one+connected-systems"
-    assert result.directive is None
-    assert "validated Connected Systems action" in result.text
-
-
-@pytest.mark.asyncio
-async def test_connected_systems_a2a_marks_all_brand_updates():
-    result = await ConnectedSystemsAgentA2A().handle(
-        A2ATask(
-            user_id="user_crm",
-            consent_token="",
-            conversation_id="thread_crm",
-            authority=_authority(),
-            message=(
-                "update my new city to New York across all brands for "
-                "kushal@example.com phone 415-555-1212"
-            ),
-            planned_action=_planned_crm_update(
-                slots={
-                    "scope": "all_connected_crm_systems",
-                    "email": "kushal@example.com",
-                    "phone": "415-555-1212",
-                    "additionalFieldsJson": json.dumps({"MailingCity": "New York"}),
-                }
-            ),
-        )
-    )
-
     assert result.directive is not None
-    assert result.directive.kind == "action"
+    assert result.directive.payload["actionId"] == "connected_system.crm.update.propose"
     assert result.directive.payload["confirmLabel"] == "Update all"
-    slots = result.directive.payload["slots"]
-    assert slots["scope"] == "all_connected_crm_systems"
-    assert json.loads(slots["additionalFieldsJson"]) == {"MailingCity": "New York"}
+    assert result.directive.payload["slots"] == {
+        "systemId": "salesforce-fsc-customer0",
+        "objectType": "Contact",
+        "scope": "all_connected_crm_systems",
+    }
+    assert result.is_complete is False
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_does_not_lexically_infer_missing_city_prompt():
-    result = await ConnectedSystemsAgentA2A().handle(
-        A2ATask(
-            user_id="user_crm",
-            consent_token="",
-            conversation_id="thread_crm",
-            authority=_authority(),
-            message="can I update my city in Macy's CRM",
+async def test_parent_requires_attenuated_information_and_action_authority():
+    with pytest.raises(PermissionError):
+        await ConnectedSystemsAgentA2A(model=ScriptedLlm([])).handle(
+            A2ATask(
+                user_id="user_crm",
+                consent_token="token",  # noqa: S106
+                conversation_id="thread_crm",
+                message="read my CRM",
+                authority=A2AAuthorityContext(
+                    subject_user_id="user_crm",
+                    tenant_id="tenant_crm",
+                    task_id="task_crm",
+                    caller_kind="first_party",
+                    information_grant_refs=("grant_ref",),
+                    encrypted_export_refs=("export_ref",),
+                ),
+            )
         )
-    )
 
-    assert result.directive is None
-    assert result.is_complete is True
+
+def test_validate_crm_plan_rejects_chat_values_and_identifiers():
+    class Context:
+        state = {}
+
+    result = validate_crm_plan(_plan(email="kushal@example.com", recordId="003ABC"), Context())
+    assert result == {"status": "invalid", "error": "record_values_must_be_app_bound"}
+    assert Context.state == {}
+
+
+def test_validate_crm_plan_preserves_only_typed_field_metadata():
+    class Context:
+        state = {}
+
+    result = validate_crm_plan(
+        _plan(fieldNames=["MailingCity", "MailingStreet"], ignored="model text"), Context()
+    )
+    assert result["status"] == "validated"
+    assert result["planned_action"]["slots"]["fieldNames"] == ["MailingCity", "MailingStreet"]
+    assert "ignored" not in result["planned_action"]["slots"]
+    assert Context.state["hussh:connected_systems_plan"] == result["planned_action"]
+
+
+def test_validate_crm_plan_blocks_delete_without_executing_it():
+    class Context:
+        state = {}
+
+    result = validate_crm_plan(_plan(action_id="connected_system.crm.delete"), Context())
+    assert result["status"] == "validated"
+    assert result["planned_action"]["execution"] == "blocked"
+    assert result["planned_action"]["reason"] == "crm_delete_manual_only"
+
+
+def test_connected_systems_builder_is_manifest_owned_and_has_schema_child():
+    agent = build_connected_systems_agent(model="gemini-3.7-flash")
+    assert agent.name == "connected_systems"
+    names = {tool.name for tool in agent.tools}
+    assert {"describe_crm_fields", "validate_crm_plan", "crm_schema_mapper"} <= names
+    assert agent.instruction.startswith("You plan work against the owner's connected business")
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_opens_dynamic_field_table_for_validated_scope():
+async def test_delegate_selection_never_turns_free_text_into_a_write():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
-            consent_token="",
-            conversation_id="thread_crm",
-            authority=_authority(),
-            message="can I update my city across all brands",
-            planned_action=_planned_crm_update(slots={"scope": "all_connected_crm_systems"}),
-        )
-    )
-
-    assert result.directive is not None
-    assert result.directive.kind == "action"
-    assert result.directive.payload["slots"]["scope"] == "all_connected_crm_systems"
-    assert result.directive.payload["confirmLabel"] == "Update all"
-
-
-@pytest.mark.asyncio
-async def test_connected_systems_a2a_does_not_turn_prompt_text_into_update_directive():
-    result = await ConnectedSystemsAgentA2A().handle(
-        A2ATask(
-            user_id="user_crm",
-            consent_token="",
+            consent_token="token",  # noqa: S106
             conversation_id="thread_crm",
             authority=_authority(),
             message="",
             delegate_result={
                 "kind": "selection",
-                "id": "crm_prompt",
                 "type": "connected_system.crm.update.propose",
                 "status": "answered",
                 "freeText": "New York",
-                "selected": [
-                    {
-                        "fieldName": "MailingCity",
-                        "slots": {
-                            "systemId": "salesforce-fsc-customer0",
-                            "objectType": "Contact",
-                            "scope": "all_connected_crm_systems",
-                        },
-                    }
-                ],
             },
         )
     )
-
     assert result.directive is None
     assert result.is_complete is True
     assert "CRM field table" in result.text
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_keeps_answered_prompt_in_manual_field_table():
+async def test_completed_delegate_result_is_reported_once():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
-            consent_token="",
-            conversation_id="thread_crm",
-            authority=_authority(),
-            message="",
-            delegate_result={
-                "kind": "selection",
-                "id": "crm_prompt",
-                "type": "connected_system.crm.update.propose",
-                "status": "answered",
-                "freeText": "New York",
-                "selected": [
-                    {
-                        "fieldName": "MailingCity",
-                        "slots": {
-                            "systemId": "salesforce-fsc-customer0",
-                            "objectType": "Contact",
-                        },
-                    }
-                ],
-            },
-        )
-    )
-
-    assert result.directive is None
-    assert result.is_complete is True
-    assert "CRM field table" in result.text
-
-
-@pytest.mark.asyncio
-async def test_connected_systems_a2a_blocks_crm_delete():
-    result = await ConnectedSystemsAgentA2A().handle(
-        A2ATask(
-            user_id="user_crm",
-            consent_token="",
-            conversation_id="thread_crm",
-            authority=_authority(),
-            message="delete the CRM contact record",
-            planned_action={
-                "call_id": "crm_delete_plan",
-                "action_id": "connected_system.crm.delete",
-                "label": "Delete CRM Record",
-                "execution": "blocked",
-                "slots": {},
-                "message": "CRM deletion must be completed manually.",
-                "reason": "crm_delete_manual_only",
-            },
-        )
-    )
-
-    assert result.directive is not None
-    assert result.directive.payload["type"] == "connected_system.crm.delete"
-    assert result.directive.payload["actionId"] == "connected_system.crm.delete"
-    assert result.directive.payload["execution"] == "blocked"
-    assert result.directive.payload["reason"] == "crm_delete_manual_only"
-    assert result.is_complete is True
-
-
-@pytest.mark.asyncio
-async def test_connected_systems_a2a_reports_inline_delegate_result():
-    result = await ConnectedSystemsAgentA2A().handle(
-        A2ATask(
-            user_id="user_crm",
-            consent_token="",
+            consent_token="token",  # noqa: S106
             conversation_id="thread_crm",
             authority=_authority(),
             message="",
@@ -236,6 +186,5 @@ async def test_connected_systems_a2a_reports_inline_delegate_result():
             },
         )
     )
-
-    assert result.directive is None
     assert result.text == "Done. The CRM update was approved and applied."
+    assert result.directive is None

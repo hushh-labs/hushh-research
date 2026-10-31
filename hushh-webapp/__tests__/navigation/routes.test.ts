@@ -8,7 +8,11 @@ import {
   buildKaiMarketRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
+  buildPersonProfileRoute,
   buildWelcomeRoute,
+  buildOneSetupConnectionsRoute,
+  normalizeInvitationReturnTo,
+  resolveOneSetupReturnTo,
   isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
   isCompletedLocationWorkspaceRoute,
@@ -22,10 +26,12 @@ import {
   isRiaRoute,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
+  resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
+  buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
@@ -35,6 +41,50 @@ import {
 } from "@/lib/navigation/route-scope";
 
 describe("navigation routes", () => {
+  it.each(["payouts", "request-pricing"] as const)("addresses %s independently from Memory", (panel) => {
+    const route = `/one/profile/${panel}`;
+    expect(buildProfileRoute({ panel })).toBe(route);
+    expect(resolveProfileRouteState(route)).toEqual({ panel, detail: null });
+    expect(buildCanonicalProfileRouteFromLegacyQuery("/one/profile", `panel=${panel}`)).toBe(route);
+  });
+
+  it("preserves Stripe callbacks from old Memory links without carrying private query values", () => {
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data", "documentPayouts=refresh&token=secret&from=%2Fone%2Ffeed"))
+      .toBe("/one/profile/payouts?from=%2Fone%2Ffeed&documentPayouts=refresh");
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data?documentPayouts=done"))
+      .toBe("/one/profile/payouts?documentPayouts=done");
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data", "documentPayouts=unknown")).toBeNull();
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/payouts", "documentPayouts=refresh")).toBeNull();
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data")).toBeNull();
+  });
+
+  it("admits only the exact encrypted-file reader anonymously and without analytics", () => {
+    for (const route of ["/wallet/open", "/wallet/open/", "/wallet/open/index.html"]) {
+      expect(isPublicRoute(route)).toBe(true);
+      expect(isAnalyticsExemptRoute(route)).toBe(true);
+      expect(isOnboardingAdmissionExemptRoute(route)).toBe(true);
+    }
+    for (const route of ["/wallet", "/wallet/open/private", "/one/wallet"]) {
+      expect(isPublicRoute(route)).toBe(false);
+      expect(isAnalyticsExemptRoute(route)).toBe(false);
+    }
+  });
+  it.each(["/circle/join?code=23456789ABCD", "/one/connect?tab=circles&action=join-circle&code=23456789ABCD", "/one/location/invite/public-token"])("preserves a bounded invite destination through vault/setup: %s", (destination) => {
+    expect(normalizeInvitationReturnTo(destination)).toBe(destination);
+    expect(resolveOneSetupReturnTo(destination)).toBe(destination);
+    expect(buildOneSetupConnectionsRoute(destination)).toBe("/one/setup/connections?return_to=" + encodeURIComponent(destination));
+  });
+  it.each(["https://evil.example", "//evil.example", "/\\evil.example", "/one/location/invite/token/private", "/one/connect?action=delete-circle", "/one/location"])("rejects unrelated or unsafe vault invitation returns: %s", (destination) => {
+    expect(normalizeInvitationReturnTo(destination)).toBeNull();
+  });
+  it("returns login cancellation to the original invitation and rejects setup loops", () => {
+    const invite = "/circle/join?code=23456789ABCD";
+    expect(buildWelcomeRoute(invite)).toBe(invite);
+    expect(resolveOneSetupReturnTo("/one/setup/connections?return_to=%2F")).toBeNull();
+    expect(isPublicRoute(invite.split("?")[0]!)).toBe(true);
+    expect(isPublicRoute("/one/location/invite/token")).toBe(true);
+    expect(isPublicRoute("/one/location/invite/token/private")).toBe(false);
+  });
   it("builds Finance URLs with one explicit canonical tab", () => {
     expect(buildKaiMarketRoute("market")).toBe("/one/kai?tab=market");
     expect(buildKaiMarketRoute("analysis", { ticker: "AAPL" })).toBe(
@@ -56,11 +106,40 @@ describe("navigation routes", () => {
 
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
     expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
+    expect(buildWelcomeRoute("/?invite=one")).toBe("/?invite=one");
     expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe(
       "/?redirect=%2Fone%2Fsetup",
     );
     expect(buildWelcomeRoute("https://example.com")).toBe(ROUTES.HOME);
     expect(buildWelcomeRoute("//example.com")).toBe(ROUTES.HOME);
+  });
+
+  it("builds person profile routes with a safe origin marker", () => {
+    expect(
+      buildPersonProfileRoute("public person/ref", { from: ROUTES.CONNECT }),
+    ).toBe("/people/public%20person%2Fref?from=%2Fone%2Fconnect");
+    expect(
+      buildPersonProfileRoute("public-person-ref", {
+        from: "https://example.com/one/connect",
+      }),
+    ).toBe("/people/public-person-ref");
+    expect(buildPersonProfileRoute("public-person-ref")).toBe(
+      "/people/public-person-ref",
+    );
+  });
+
+  it("resolves the active person ref from public profile pathnames", () => {
+    expect(
+      resolvePersonRefFromProfilePathname("/people/public-person-ref"),
+    ).toBe("public-person-ref");
+    expect(
+      resolvePersonRefFromProfilePathname(
+        "/people/public%20person%2Fref?from=%2Fone%2Fconnect",
+      ),
+    ).toBe("public person/ref");
+    expect(
+      resolvePersonRefFromProfilePathname("/one/profile/access"),
+    ).toBeNull();
   });
 
   it("builds canonical nested profile routes while preserving transient query state", () => {
@@ -82,21 +161,32 @@ describe("navigation routes", () => {
     expect(buildProfileRoute({ panel: "preferences", detail: "gemini" })).toBe(
       "/one/profile/preferences/gemini",
     );
+    expect(buildProfileRoute({ panel: "preferences", detail: "voice" })).toBe(
+      "/one/profile/preferences/voice",
+    );
+    expect(buildProfileRoute({ panel: "preferences", detail: "device" })).toBe("/one/profile/preferences");
+    expect(resolveProfileRouteState("/one/profile/preferences/device")).toEqual({ panel: "preferences", detail: null });
+    expect(buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=preferences&detail=device")).toBe("/one/profile/preferences");
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );
     expect(
       buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
     ).toBe("/one/profile/my-data/domain?key=finance");
+    // Sharing and its per-connection detail are sub-views of the unified Memory
+    // panel but keep the legacy /one/profile/access URLs for deep-link parity.
     expect(
-      buildProfileRoute({ panel: "access", detail: "connection:abc 123" }),
+      buildProfileRoute({ panel: "my-data", detail: "connection:abc 123" }),
     ).toBe("/one/profile/access/connection?id=abc+123");
+    expect(buildProfileRoute({ panel: "my-data", detail: "sharing" })).toBe(
+      "/one/profile/access",
+    );
     expect(
       buildProfileRoute({
         panel: "support",
         detail: "support-compose:bug_report",
       }),
-    ).toBe("/one/profile/support/compose?kind=bug_report");
+    ).toBe("/one/profile/support?kind=bug_report");
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
       buildProfileRoute({
@@ -112,6 +202,9 @@ describe("navigation routes", () => {
     ).toBe(
       "/one/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
     );
+    expect(
+      buildProfileRoute({ panel: "security", detail: "trusted-devices" }),
+    ).toBe("/one/profile/security");
   });
 
   it("resolves nested and legacy profile route state through the same contract", () => {
@@ -127,17 +220,43 @@ describe("navigation routes", () => {
         "/one/profile",
         "tab=privacy&detail=connection:abc",
       ),
-    ).toEqual({ panel: "access", detail: "connection:abc" });
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
+    expect(resolveProfileRouteState("/one/profile/access")).toEqual({
+      panel: "my-data",
+      detail: "sharing",
+    });
+    expect(
+      resolveProfileRouteState(
+        "/one/profile/preferences/voice/changelog",
+      ),
+    ).toEqual({ panel: "preferences", detail: "voice" });
+    expect(
+      resolveProfileRouteState(
+        "/one/profile/preferences/voice/examples",
+      ),
+    ).toEqual({ panel: "preferences", detail: "voice" });
+    expect(
+      resolveProfileRouteState("/one/profile/access/connection", "id=abc"),
+    ).toEqual({ panel: "my-data", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
       panel: null,
       detail: null,
     });
     expect(
+      resolveProfileRouteState("/one/profile/security/devices"),
+    ).toEqual({ panel: null, detail: null });
+    expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",
         "panel=support&detail=support-routing",
       ),
-    ).toBe("/one/profile/support/routing");
+    ).toBe("/one/profile/support");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=support&detail=support-compose:developer_reachout&from=%2Fone",
+      ),
+    ).toBe("/one/profile/support?from=%2Fone&kind=developer_reachout");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",
@@ -150,6 +269,18 @@ describe("navigation routes", () => {
         "panel=gmail&detail=gmail-actions",
       ),
     ).toBe("/one/gmail");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=preferences&detail=voice-changelog",
+      ),
+    ).toBe("/one/profile/preferences/voice");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=preferences&detail=voice-examples",
+      ),
+    ).toBe("/one/profile/preferences/voice");
   });
 
   it("preserves query parameter integrity for ria workspace tabs", () => {
@@ -210,12 +341,27 @@ describe("navigation routes", () => {
   it("defines profile and Connect inside the vault-protected One route family", () => {
     expect(ROUTES.PROFILE).toBe("/one/profile");
     expect(ROUTES.PROFILE_SECURITY).toBe("/one/profile/security");
+    expect(ROUTES.PERSON_PROFILE).toBe("/people/[personRef]");
     expect(ROUTES.CONNECT).toBe("/one/connect");
     expect(ROUTES.CONNECT_SETTINGS).toBe("/one/connect/settings");
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE)).toBe(true);
     expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE_SECURITY)).toBe(
       true,
     );
+    expect(isOnboardingAdmissionExemptRoute("/people/person-ref-scoped")).toBe(
+      true,
+    );
+  });
+
+  it("exempts the Circle join landing from onboarding admission (#5307)", () => {
+    // An entry point from outside the app, like /login: the destination is
+    // the reason the person opened the app, so a mid-setup user must still
+    // see the invitation instead of being bounced to /one/setup with the
+    // code dropped.
+    expect(ROUTES.CIRCLE_JOIN).toBe("/circle/join");
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.CIRCLE_JOIN)).toBe(true);
+    // The destination it hands off to once a code is accepted stays gated.
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.ONE_LOCATION)).toBe(false);
   });
 
   it("preserves ria route classification for nested workspace paths", () => {

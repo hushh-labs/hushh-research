@@ -42,6 +42,10 @@ function isSensitiveKey(key) {
   return SENSITIVE_KEY_FRAGMENTS.some((fragment) => normalized.includes(fragment));
 }
 
+function isOwnerMatchVerdict(key, value) {
+  return key === "bootstrap_uid_ok" && (value === "0" || value === "1");
+}
+
 function routePath(value) {
   try {
     return new URL(String(value || "/"), "https://native-test.local").pathname || "/";
@@ -74,6 +78,8 @@ export function errorClass(value) {
 }
 
 export function sanitizeNativeArtifact(value, key = "") {
+  // Retain only the equality verdict, never either compared owner identifier.
+  if (isOwnerMatchVerdict(key, value)) return value;
   if (isSensitiveKey(key)) {
     return value === null || value === undefined || value === "" ? value : "<redacted>";
   }
@@ -131,6 +137,7 @@ export function assertNativeArtifactSafe(value, forbiddenValues = []) {
     }
   }
   function inspect(entry, key = "") {
+    if (isOwnerMatchVerdict(key, entry)) return;
     if (isSensitiveKey(key) && entry && entry !== "<redacted>") {
       throw new Error(`native artifact field must be redacted: ${key}`);
     }

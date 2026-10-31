@@ -1,25 +1,127 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createElement } from "react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useKaiPreferencesWizard } from "@/components/kai/onboarding/use-kai-preferences-wizard";
+import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
+import { useProfileFinancePreferences } from "@/components/profile/use-profile-finance-preferences";
+import { projectNativeFinancePreferences } from "@/components/profile/native-finance-preferences";
+import { validNativeFinancePath } from "@/lib/capacitor/native-drawers";
+import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 
-import { describe, expect, it } from "vitest";
+const answers = { investment_horizon: "short_term", drawdown_response: "stay", volatility_preference: "moderate" } as const;
+const profile = { preferences: answers } as KaiProfileV2;
+afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
 
-describe("Kai preferences wizard bounded-flow layout", () => {
-  it("keeps a route-owned terminal action inside the viewport that clears onboarding chrome", () => {
-    const source = readFileSync(
-      join(
-        process.cwd(),
-        "components/kai/onboarding/KaiPreferencesWizard.tsx",
-      ),
-      "utf8",
-    );
+describe("Finance preferences shared web/native operation contracts", () => {
+  it("records a voice answer alongside touch selections without implying a hidden step or silently saving", async () => {
+    const save = vi.fn();
+    const { result } = renderHook(() => useKaiPreferencesWizard({ mode: "onboarding", onComplete: save }));
+    act(() => { result.current.selectAnswer("investment_horizon", "short_term"); result.current.selectAnswer("drawdown_response", "stay"); });
+    await act(async () => {
+      const outcome = await resolveLocalOnboardingHandler("kai.setup.answer_volatility")!({ answer: "moderate" });
+      expect(outcome.summary).toContain("Continue to save");
+    });
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => { await result.current.submit(); });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+  it("collects all preferences in one form and submits the exact answers only once", async () => {
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    render(createElement(KaiPreferencesWizard, { mode: "onboarding", onComplete: save }));
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
+    const submit = screen.getByRole("button", { name: "Continue", exact: true });
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Stay invested and review the situation" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Moderate ups and downs for better returns" }));
+    expect(submit).toBeEnabled();
+    act(() => { fireEvent.click(submit); fireEvent.submit(submit.closest("form")!); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith({ ...answers, horizonAnchorChoice: undefined });
+    await act(async () => { finish(); });
+  });
+  it("keeps the active question when onboarding echoes its asynchronously saved initial answers", async () => {
+    const { result, rerender } = renderHook(({ initial }) => useKaiPreferencesWizard({ mode: "onboarding",
+      initialAnswers: initial, onComplete: vi.fn() }), { initialProps: { initial: { ...answers, investment_horizon: "short_term" as "short_term" | "long_term" } } });
+    act(() => { result.current.handleSelect("long_term"); });
+    await act(async () => { await result.current.handlePrimary(); });
+    expect(result.current.step).toBe(1);
+    rerender({ initial: { ...answers, investment_horizon: "long_term" } });
+    expect(result.current.step).toBe(1);
+    expect(result.current.answers.investment_horizon).toBe("long_term");
+  });
+  it("requires the same horizon confirmation for voice/native and submits one committed choice", async () => {
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const { result } = renderHook(() => useKaiPreferencesWizard({ mode: "edit", initialAnswers: answers, onComplete: save }));
+    await act(async () => {
+      const outcome = await resolveLocalOnboardingHandler("kai.setup.answer_horizon")!({ answer: "long_term" });
+      expect(outcome.status).toBe("blocked");
+    });
+    expect(result.current.answers.investment_horizon).toBe("short_term");
+    const projection = projectNativeFinancePreferences({ available: true, profile, loading: false, saving: false,
+      error: null, notice: null, wizard: result.current, retry: async () => undefined });
+    expect(validNativeFinancePath(projection.pages)).toBe(true);
+    expect(projection.pages.map(page => page.id)).toEqual(["finance-preferences", "finance-anchor"]);
+    expect(validNativeFinancePath([...projection.pages].reverse())).toBe(false);
+    act(() => { projection.rows.get("finance-anchor-original")!(); });
+    act(() => { result.current.applyHorizon(); });
+    expect(result.current.answers.investment_horizon).toBe("long_term");
+    await act(async () => { await result.current.handlePrimary(); });
+    await act(async () => { await result.current.handlePrimary(); });
+    let first!: Promise<void>, duplicate!: Promise<void>;
+    act(() => { first = result.current.handlePrimary(); duplicate = result.current.handlePrimary(); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith({ ...answers, investment_horizon: "long_term", horizonAnchorChoice: "keep_original" });
+    await act(async () => { finish(); await Promise.all([first, duplicate]); });
+  });
 
-    expect(source).toContain("terminalFooter?: ReactNode");
-    expect(source).toContain(
-      "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))]",
-    );
-    expect(source).toContain("pb-[var(--app-scroll-bottom-pad)]");
-    expect(source).toContain(
-      '<div className="w-full shrink-0">{props.terminalFooter}</div>',
-    );
+  it("rejects old-visit selections and late owner reads instead of exposing another owner's preferences", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    let resolveOld!: (value: KaiProfileV2) => void;
+    const old = new Promise<KaiProfileV2>(resolve => { resolveOld = resolve; });
+    const read = vi.spyOn(KaiProfileService, "getProfile").mockImplementation(({ userId }) => userId === "owner-a" ? old : Promise.resolve(profile));
+    const { result, rerender } = renderHook(({ owner }) => useProfileFinancePreferences({ userId: owner,
+      vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", canEdit: true }), { initialProps: { owner: "owner-a" } });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const retired = result.current.wizard;
+    publishValidatedAuthSessionOwner("owner-b"); rerender({ owner: "owner-b" });
+    await waitFor(() => expect(result.current.profile).toBe(profile));
+    act(() => { retired.handleSelect("long_term"); });
+    await act(async () => { resolveOld({ preferences: { ...answers, investment_horizon: "long_term" } } as KaiProfileV2); await old; });
+    expect(result.current.profile).toBe(profile);
+    expect(result.current.wizard.answers.investment_horizon).toBe("short_term");
+  });
+
+  it("uses the confirmed save result without a second read that could misreport a committed write", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    const read = vi.spyOn(KaiProfileService, "getProfile").mockResolvedValueOnce(profile).mockRejectedValue(new Error("synthetic refresh failure"));
+    const committed = { ...profile, updated_at: "2026-10-17T00:00:00Z" };
+    const save = vi.spyOn(KaiProfileService, "savePreferences").mockResolvedValue(committed);
+    const { result } = renderHook(() => useProfileFinancePreferences({ userId: "owner-a", vaultKey: "synthetic-key",
+      vaultOwnerToken: "synthetic-owner-token", canEdit: true }));
+    await waitFor(() => expect(result.current.profile).toBe(profile));
+    await act(async () => { await result.current.wizard.handlePrimary(); });
+    await act(async () => { await result.current.wizard.handlePrimary(); });
+    await act(async () => { await result.current.wizard.handlePrimary(); });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(result.current.profile).toBe(committed);
+    expect(result.current.notice).toBe("Preferences updated");
+    expect(result.current.error).toBeNull();
+    save.mockRejectedValueOnce(new Error("synthetic failed save"));
+    await act(async () => { await result.current.wizard.handlePrimary(); });
+    await act(async () => { await result.current.wizard.handlePrimary(); });
+    await act(async () => {
+      const outcome = await resolveLocalOnboardingHandler("kai.setup.answer_volatility")!({ answer: "moderate" });
+      expect(outcome.status).toBe("failed");
+      expect(outcome.summary).toBe("Preferences couldn't be saved. Please retry.");
+    });
+    expect(result.current.notice).toBeNull();
+    expect(result.current.error).toBe("Couldn't save preferences. Please retry.");
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

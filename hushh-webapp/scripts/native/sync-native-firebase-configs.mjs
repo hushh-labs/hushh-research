@@ -2,6 +2,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { validateNativeFirebaseIdentity } from "./native-firebase-identity.mjs";
 
 function resolveAppRoot(cwd = process.cwd()) {
   if (fs.existsSync(path.join(cwd, "capacitor.config.ts"))) {
@@ -56,7 +58,15 @@ function copyIfDifferent(sourcePath, destinationPath) {
 export function syncNativeFirebaseConfigs({
   appRoot = resolveAppRoot(),
   monorepoRoot = path.resolve(appRoot, ".."),
+  platform = "all",
+  expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
 } = {}) {
+  if (!["all", "ios", "android"].includes(platform)) {
+    throw new Error(`Unsupported native Firebase platform: ${platform}`);
+  }
+
+  const includeIos = platform === "all" || platform === "ios";
+  const includeAndroid = platform === "all" || platform === "android";
   const iosSource = firstExisting([
     path.join(monorepoRoot, "GoogleService-Info.plist"),
     path.join(appRoot, "GoogleService-Info.plist"),
@@ -64,18 +74,21 @@ export function syncNativeFirebaseConfigs({
   const androidSource = firstExisting([
     path.join(monorepoRoot, "google-services.json"),
     path.join(monorepoRoot, "android/app/google-services.json"),
+    path.join(appRoot, "android/app/google-services.json"),
     path.join(appRoot, "google-services.json"),
   ]);
 
-  if (!iosSource) {
+  if (includeIos && !iosSource) {
     throw new Error("Missing root GoogleService-Info.plist for iOS native build.");
   }
-  if (!androidSource) {
-    throw new Error("Missing root google-services.json for Android native build.");
+  if (includeAndroid && !androidSource) {
+    throw new Error(
+      "Missing google-services.json for Android native build.",
+    );
   }
 
-  const bundleId = iosBundleId(iosSource);
-  if (bundleId && bundleId !== "com.hushh.app") {
+  const bundleId = includeIos ? iosBundleId(iosSource) : "";
+  if (includeIos && bundleId !== "com.hushh.app") {
     throw new Error(
       `iOS Firebase config bundle id is ${bundleId}; expected com.hushh.app.`
     );
@@ -85,11 +98,28 @@ export function syncNativeFirebaseConfigs({
   // the iOS bundle id, so it accepted a google-services.json with no client for
   // the package Android actually builds as, and Gradle then failed at
   // processDebugGoogleServices with "No matching client found".
-  const packages = androidPackageNames(androidSource);
-  if (!packages.has("com.hussh.app")) {
+  const packages = includeAndroid ? androidPackageNames(androidSource) : new Set();
+  if (includeAndroid && !packages.has("com.hussh.app")) {
     throw new Error(
       "Android Firebase config does not contain package_name com.hussh.app."
     );
+  }
+
+  const expectedProject = expectedProjectId?.trim();
+  const expectedSender = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID?.trim();
+  const profile = process.env.APP_RUNTIME_PROFILE?.trim();
+  if (["uat", "dev", "prod", "production"].includes(profile) && (!expectedProject || !expectedSender)) {
+    throw new Error("Hosted native builds require an explicit Firebase project and sender.");
+  }
+  if (includeIos && expectedProject) {
+    const plist = fs.readFileSync(iosSource, "utf8");
+    const field = key => plist.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]+)</string>`))?.[1] || "";
+    validateNativeFirebaseIdentity({ projectId: field("PROJECT_ID"), senderId: field("GCM_SENDER_ID"), nativeAppId: field("GOOGLE_APP_ID") }, { expectedProject, expectedSender });
+  }
+  if (includeAndroid && expectedProject) {
+    const payload = readJson(androidSource);
+    const client = (payload.client || []).find(item => item.client_info?.android_client_info?.package_name === "com.hussh.app");
+    validateNativeFirebaseIdentity({ projectId: payload.project_info?.project_id, senderId: payload.project_info?.project_number, nativeAppId: client?.client_info?.mobilesdk_app_id }, { expectedProject, expectedSender });
   }
 
   const iosDestination = path.join(
@@ -98,8 +128,8 @@ export function syncNativeFirebaseConfigs({
   );
   const androidDestination = path.join(appRoot, "android/app/google-services.json");
 
-  const iosCopied = copyIfDifferent(iosSource, iosDestination);
-  const androidCopied = copyIfDifferent(androidSource, androidDestination);
+  const iosCopied = includeIos ? copyIfDifferent(iosSource, iosDestination) : false;
+  const androidCopied = includeAndroid ? copyIfDifferent(androidSource, androidDestination) : false;
 
   return {
     iosCopied,
@@ -109,11 +139,16 @@ export function syncNativeFirebaseConfigs({
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+) {
   try {
-    const result = syncNativeFirebaseConfigs();
+    const platformIndex = process.argv.indexOf("--platform");
+    const platform = platformIndex >= 0 ? process.argv[platformIndex + 1] : "all";
+    const result = syncNativeFirebaseConfigs({ platform });
     console.log(
-      `Native Firebase configs ready (iOS ${result.iosCopied ? "updated" : "current"}, Android ${
+      `Native Firebase configs ready (${platform}; iOS ${result.iosCopied ? "updated" : "current"}, Android ${
         result.androidCopied ? "updated" : "current"
       }).`
     );

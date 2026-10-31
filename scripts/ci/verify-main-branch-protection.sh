@@ -39,18 +39,35 @@ export REPO_JSON PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE BRA
 python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" "$REQUIRE_MERGE_QUEUE" "$REQUIRE_CONVERSATION_RESOLUTION" "$REPO" "$BRANCH" "$POLICY_KEY" <<'PY'
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+# Pin native subprocesses to the PATH-resolved CLI, including Windows .cmd fixtures.
+gh_executable = shutil.which("gh")
+if not gh_executable:
+    raise SystemExit("GitHub CLI (gh) is required to verify live branch protection")
+
 required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo, branch, policy_key_arg = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
 branch_flow = policy.get("branch_flow") or {}
-policy_key = policy_key_arg or ("pr_train" if branch == branch_flow.get("train_branch") else "main")
+prepared = branch_flow.get("prepared_branches", {}).get(branch, {})
+known_policy_key = (
+    "main" if branch == branch_flow.get("promotion_branch", "main")
+    else "pr_train" if branch == branch_flow.get("train_branch", "integration/pr-train")
+    else prepared.get("policy_key")
+)
+if not known_policy_key or (policy_key_arg and policy_key_arg != known_policy_key):
+    print(f"ERROR: branch '{branch}' has no matching authored protection policy")
+    sys.exit(1)
+policy_key = known_policy_key
 if policy_key not in policy:
     print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
     sys.exit(1)
-branch_policy = policy[policy_key]
+branch_policy = dict(policy[policy_key])
+if prepared:
+    branch_policy["merge_queue_ruleset_name"] = prepared["merge_queue_ruleset_name"]
 repository_policy = policy.get("repository") or {}
 required_checks = [
     item.strip()
@@ -133,6 +150,8 @@ bypass_team_slugs = sorted(
 merge_queue_bypass = []
 merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
+expected_queue_team_members = set()
+prepared_queue_matches = 0
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
         continue
@@ -141,7 +160,7 @@ for ruleset in ruleset_list:
         continue
     detail = json.loads(
         subprocess.run(
-            ["gh", "api", f"repos/{repo}/rulesets/{ruleset_id}"],
+            [gh_executable, "api", f"repos/{repo}/rulesets/{ruleset_id}"],
             check=True,
             capture_output=True,
             text=True,
@@ -149,6 +168,19 @@ for ruleset in ruleset_list:
     )
     if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
+    if prepared:
+        # Prepared queues are deliberately exact-ref rules, not wildcard inference.
+        refs = detail.get("conditions", {}).get("ref_name", {})
+        if not (
+            detail.get("target") == "branch"
+            and detail.get("enforcement") == "active"
+            and refs.get("include") == [f"refs/heads/{branch}"]
+            and refs.get("exclude") == []
+            and any(rule.get("type") == "merge_queue" and rule.get("parameters")
+                    for rule in detail.get("rules", []))
+        ):
+            continue
+        prepared_queue_matches += 1
     for actor in detail.get("bypass_actors") or []:
         actor_name = ""
         actor_type = str(actor.get("actor_type") or "").strip()
@@ -157,7 +189,7 @@ for ruleset in ruleset_list:
             if actor_id:
                 team_detail = json.loads(
                     subprocess.run(
-                        ["gh", "api", f"organizations/140115870/team/{actor_id}"],
+                        [gh_executable, "api", f"organizations/140115870/team/{actor_id}"],
                         check=True,
                         capture_output=True,
                         text=True,
@@ -172,20 +204,44 @@ for ruleset in ruleset_list:
                 if team_slug:
                     memberships = json.loads(
                         subprocess.run(
-                            ["gh", "api", f"organizations/140115870/team/{actor_id}/members"],
+                            [gh_executable, "api", "--paginate", "--slurp", f"organizations/140115870/team/{actor_id}/members"],
                             check=True,
                             capture_output=True,
                             text=True,
                         ).stdout
                     )
-                    for member in memberships:
-                        member_login = str(member.get("login") or "").strip()
-                        if member_login:
+                    for page in memberships:
+                        if not isinstance(page, list):
+                            raise ValueError("Invalid paginated team membership response")
+                        for member in page:
+                            member_login = str(member.get("login") or "").strip()
+                            if not member_login:
+                                raise ValueError("Team member has no login")
                             merge_queue_bypass.append(member_login)
+                            if team_slug == expected_queue_bypass_team_slug:
+                                expected_queue_team_members.add(member_login)
         else:
             actor_info = actor.get("actor") or {}
             if isinstance(actor_info, dict):
                 actor_name = str(actor_info.get("login") or actor_info.get("name") or "").strip()
+            # Repository ruleset responses identify direct user actors by their
+            # numeric account ID without embedding a login. Resolve only against
+            # the policy's bounded allowlist so the verifier can compare the
+            # live actor rather than silently dropping it.
+            actor_id = actor.get("actor_id")
+            if not actor_name and actor_id:
+                for expected_login in expected_queue_bypass:
+                    user_detail = json.loads(
+                        subprocess.run(
+                            [gh_executable, "api", f"users/{expected_login}"],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        ).stdout
+                    )
+                    if user_detail.get("id") == actor_id:
+                        actor_name = expected_login
+                        break
             if actor_name:
                 merge_queue_bypass.append(actor_name)
 merge_queue_bypass = sorted(set(merge_queue_bypass))
@@ -193,6 +249,35 @@ merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
+if prepared and prepared_queue_matches != 1:
+    errors.append("prepared branch requires exactly one active, exact-ref named merge queue ruleset")
+pending_queue_bypass = []
+missing_queue_bypass = sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
+if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypass_team_slugs:
+    # An approved invitation is not active authority. Only an already-active
+    # governed operator may classify somebody else's confirmed pending/member
+    # state as advisory. Missing, inaccessible or inconsistent membership still
+    # fails, as do every extra actor and all other protection checks below.
+    actor = json.loads(subprocess.run(
+        [gh_executable, "api", "user"], check=True, capture_output=True, text=True,
+    ).stdout).get("login")
+    if actor not in expected_queue_bypass or actor not in expected_queue_team_members:
+        errors.append("authenticated operator is not an active governed queue-team member")
+    else:
+        organization = repo.split("/", 1)[0]
+        for login in missing_queue_bypass:
+            result = subprocess.run(
+                [gh_executable, "api", f"orgs/{organization}/teams/{expected_queue_bypass_team_slug}/memberships/{login}"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                continue
+            try:
+                membership = json.loads(result.stdout)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(membership, dict) and membership.get("state") == "pending" and membership.get("role") == "member":
+                pending_queue_bypass.append(login)
 if expected_allow_auto_merge is not None and allow_auto_merge != bool(expected_allow_auto_merge):
     errors.append(
         f"repository allow_auto_merge drifted: expected {bool(expected_allow_auto_merge)}, got {allow_auto_merge}"
@@ -220,7 +305,7 @@ if expected_bypass_team_slug and bypass_team_slugs != [expected_bypass_team_slug
     errors.append(
         f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
     )
-if merge_queue_bypass != expected_queue_bypass:
+if sorted(set(merge_queue_bypass) | set(pending_queue_bypass)) != expected_queue_bypass:
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
     )
@@ -243,6 +328,10 @@ print(f"Branch protection summary ({branch}): allow_auto_merge={allow_auto_merge
       f"merge_queue_bypass={merge_queue_bypass}, "
       f"merge_queue_bypass_team_names={merge_queue_bypass_team_names}, "
       f"merge_queue_bypass_team_slugs={merge_queue_bypass_team_slugs}")
+
+if pending_queue_bypass:
+    print(f"ADVISORY: approved queue-team invitations await activation: {pending_queue_bypass}; "
+          "these users have no active team authority")
 
 if errors:
     for error in errors:

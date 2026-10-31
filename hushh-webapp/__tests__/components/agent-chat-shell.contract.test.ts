@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { CHAT_USER_BUBBLE_CLASSNAME } from "@/components/agent/chat-message-styles";
+
 const root = process.cwd();
 
 function read(relativePath: string) {
@@ -10,14 +12,21 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
+  it("keeps recent Drive searches out of the chat workspace", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).not.toContain("<DriveBackgroundSearches");
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const popover = read("components/agent/agent-popover-provider.tsx");
+    const providers = read("app/providers.tsx");
 
     expect(workspace).toContain('"overflow-hidden"');
     expect(workspace).not.toContain('"sm:rounded-lg sm:border sm:border-border sm:shadow-sm"');
-    expect(popover).toContain("rounded-[var(--app-card-radius-feature)]");
-    expect(popover).toContain("bg-background/95 text-foreground");
+    expect(workspace).not.toContain("onNavigationActionComplete");
+    expect(workspace).not.toContain("shouldMinimizeForNavigationResult");
+    expect(providers).not.toContain("AgentPopoverProvider");
+    expect(providers).not.toContain("useOptionalAgentPopover");
   });
 
   it("uses shared Morphy shell controls and motion in the conversation workspace", () => {
@@ -25,10 +34,15 @@ describe("private-agent chat shell contract", () => {
     const history = read("components/agent/agent-history-sidebar.tsx");
 
     expect(workspace).toContain("ShellActionSurface");
-    expect(workspace).toContain('"motion-step-enter flex w-full"');
+    expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain("rounded-[var(--app-radius-pill)]");
-    expect(history).toContain("bg-foreground/[0.025]");
+    expect(workspace).toContain('"agent-chat-composer"');
+    expect(workspace).toContain("agent-chat-composer-compact");
+    // Persistent desktop column (2026-09-29): one solid chat-scoped surface
+    // beside the conversation, separated by a hairline, never glass.
+    expect(history).toContain('"border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]"');
+    expect(history).toContain("ShellActionSurface");
+    expect(history).not.toContain('"border-r border-border/70');
   });
 
   it("rotates curated welcome prompts only when a new chat starts", () => {
@@ -39,4 +53,314 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("setWelcomePromptSetIndex((current)");
     expect(workspace).toContain("prompts={welcomePrompts}");
   });
+
+  it("submits follow-up recommendations directly to chat and guards them when busy", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    const followUpUsage = workspace.slice(
+      workspace.indexOf("<AgentFollowUpSuggestions"),
+      workspace.indexOf("/>", workspace.indexOf("<AgentFollowUpSuggestions")),
+    );
+    expect(followUpUsage).toContain("onSelect={submitSuggestedPrompt}");
+    expect(followUpUsage).toContain("disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}");
+    expect(followUpUsage).not.toContain("onSelect={handlePromptDraftSelect}");
+  });
+
+  it("keeps prompt and calendar work serialized while preserving an editable pending queue", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("drainOperationQueue");
+    expect(workspace).toContain("<AgentQueuedStack");
+    expect(read("components/agent/agent-queued-stack.tsx")).toContain("agent-chat-prompt-queue");
+    // Queued text reaches the running turn only through enqueuePrompt, which
+    // the secret guard calls; an edit is screened the same way.
+    const edit = workspace.slice(
+      workspace.indexOf("const editQueuedPrompt = async"),
+      workspace.indexOf("const removeQueuedPrompt = async"),
+    );
+    expect(edit).toContain("containsSecretSpan(text)");
+    expect(edit).toContain("keepSecretsFromTurn([text])");
+    expect(edit.indexOf("containsSecretSpan(text)")).toBeLessThan(edit.indexOf("reclaimQueuedPrompt(id)"));
+    expect(workspace.match(/queue\.offer\(/g)).toHaveLength(1);
+    expect(workspace).toContain("enqueueCalendarDirective");
+    // Calendar and reviewed Gmail changes share one serialized runner.
+    expect(workspace).toContain('pendingText: "Scheduling…"');
+    expect(workspace).toContain("enqueueWorkspaceOperation({");
+    expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
+  });
+
+  it("keeps one composer that grows line by line, with no resize control", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    // Founder direction (2026-09-29): no expand/collapse icon, and a second
+    // line no longer jumps into the tall editor. The tall editor remains only
+    // for opening a pasted-text attachment from its chip.
+    expect(workspace).not.toContain('"agent-chat-composer-expand"');
+    expect(workspace).not.toContain("Expand message editor");
+    expect(workspace).not.toContain("shouldAutoExpand");
+    expect(workspace).not.toContain("manuallyCollapsedComposerDraftsRef");
+    expect(workspace).toContain("agent-chat-composer-expanded");
+    expect(workspace).toContain("agent-chat-composer-expanded-textarea");
+    expect(workspace).toContain("overflow-y-auto");
+    expect(workspace).toContain("agent-chat-composer-surface");
+    expect(workspace).toContain("agent-chat-composer-field");
+    expect(workspace).not.toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
+    expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
+    expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
+    // One text box serves both sizes: two separate ones were swapped when a
+    // long draft auto-expanded and keystrokes in that frame were lost.
+    expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
+    expect(read("app/globals.css")).toContain("max-height: min(10rem, 24dvh)");
+    // The transcript's bottom band follows the composer's measured height.
+    expect(workspace).toContain("--agent-chat-composer-stack-height");
+    expect(workspace).toContain("h-[30dvh]");
+    expect(workspace).toContain("{ duration: 120, easing, fill: \"none\" }");
+    expect(workspace).toContain("transformOrigin: \"left bottom\"");
+    // `composerLong` was removed from this file some time ago; the expanded
+    // editor is driven by `composerExpanded` now. The stale name had left this
+    // whole case red, which is how a red suite stops being read at all.
+    expect(workspace).toContain("composerExpanded ?");
+    expect(workspace).not.toContain("Expanded message</span>");
+    expect(workspace).not.toContain("Writing in expanded composer");
+  });
+
+  it("captures a large paste as an editable in-memory text attachment", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("shouldCaptureLargePaste(pasted)");
+    expect(workspace).toContain("event.preventDefault()");
+    expect(workspace).toContain("createPendingTextAttachment(nextText)");
+    // The chip and its editor live in their own module; the workspace only
+    // hands them the draft and the edit, remove and collapse callbacks.
+    const chip = read("components/agent/agent-text-attachment-editor.tsx");
+    expect(workspace).toContain("<AgentComposerTextAttachment");
+    expect(workspace).toContain("onChange={editLongPromptAttachment}");
+    expect(workspace).toContain("onRemove={removeLongPromptAttachment}");
+    expect(chip).toContain('data-testid="agent-chat-text-attachment"');
+    expect(chip).toContain("getTextAttachmentTitle(attachment.text)");
+    expect(chip).toContain('aria-label="Remove text attachment"');
+    expect(workspace).toContain("collapseComposer");
+    expect(workspace).toContain("combineAttachmentAndComposerText");
+    expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("keepSecretsFromTurn");
+    expect(workspace).toContain("const [submittedText");
+    expect(workspace).toContain('source: "agent_chat_auto_capture"');
+    expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
+    expect(workspace).toContain("beforeEffect: guard.assertCurrent");
+    expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards, candidates)");
+    expect(workspace).toContain('memoryProfile: "soul_markdown_v1"');
+    // Recent in-app activity rides in the turn packet for the current owner only,
+    // composed between Soul.md and its Live Mirror block within the server's limit
+    // (composeAgentPkmContext), so the mirror's END line still closes the packet.
+    expect(workspace).toMatch(
+      /pkmContext: composeAgentPkmContext\(\{[\s\S]{0,240}memory: agentPkmContext\.text \|\| "", events: peekLiveActivity\(userId\)/,
+    );
+    expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
+    expect(workspace).not.toContain("composerPurpose");
+    expect(workspace).not.toContain("Review for Memory");
+    expect(workspace).not.toContain("Send as chat");
+    expect(workspace).not.toContain("AgentPkmReviewPanel");
+    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).not.toContain("const reviewRequired =");
+    expect(workspace).not.toContain('phase: reviewRequired ? "review" : "skipped"');
+  });
+
+  it("keeps active assistant streams full-width and errors compact", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("const hasStreamContent =");
+    expect(workspace).toContain("streamEvents.length > 0");
+    expect(workspace).toContain("Boolean(message.sources?.length)");
+    expect(workspace).toContain("!isError && hasStreamContent");
+    expect(workspace).toContain("!message.renderAsPlainAssistantMessage;");
+    expect(workspace).toContain("renderAsPlainAssistantMessage: true,");
+  });
+
+  it("keeps the header profile control, drops per-message avatars, and removes idle status chrome", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    // The top-right profile control stays, with the canonical avatar source.
+    expect(workspace).toContain("useEffectiveAvatarUrl");
+    expect(workspace).toContain('data-testid="profile-open-button"');
+    // Closing the pane returns to this explicit opener, rather than a guessed
+    // DOM target. The focused Profile admission test covers stale-owner return.
+    expect(workspace).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
+    expect(workspace).toContain("<AvatarImage src={userAvatarUrl}");
+    // No avatar beside individual user bubbles (founder direction, 2026-09-29).
+    expect(workspace).not.toContain('data-testid="agent-chat-self-avatar"');
+    expect(workspace).not.toContain("<AvatarBubble");
+    // Real times move to centered separators above each group of messages.
+    expect(workspace).toContain("computeChatTimeSeparators(timelineItems)");
+    expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
+    expect(workspace).not.toContain("<span>{message.timestamp}</span>");
+    expect(workspace).not.toContain('return "Ready";');
+    // Live status belongs below One, not beside the profile avatar. Idle One
+    // has no tagline; active status crossfades without moving the controls.
+    expect(workspace).toContain('IDLE_AGENT_SUBTITLE = ""');
+    expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
+    expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
+    expect(workspace).not.toContain('title={statusText || undefined}');
+  });
+
+  it("keeps the active-agent mark visible in the compact chat header", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
+    const brandTile = workspace.slice(brandTileStart, workspace.indexOf("The name in the header", brandTileStart));
+
+    expect(brandTileStart).toBeGreaterThan(0);
+    expect(brandTile).toContain("<OnePresenceAvatar");
+    expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
+    expect(brandTile).toContain('className="size-[var(--one-header-artwork-size,32px)] shrink-0"');
+    expect(brandTile).not.toContain("max-sm:hidden");
+  });
+
+  it("keeps One's cloud model picker out of the Puppy One surface", () => {
+    // The founder-reported defect: the header read "Puppy One / On your
+    // machine" with a Gemini chip beside it, over a transcript whose model is
+    // on-device. Two pickers disagreeing about which model is answering, on
+    // the one surface whose entire claim is where the answer was generated.
+    // Gated and not merely hidden, because choosing an item writes One's model
+    // preference and that write must not stay reachable from this surface.
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    // Sliced around the trigger so the assertion is about THIS control, not
+    // about `isPuppySurface` appearing anywhere in a 6,000-line file.
+    const anchor = workspace.indexOf('data-testid="agent-chat-model-picker"');
+    expect(anchor).toBeGreaterThan(0);
+    const pickerBlock = workspace.slice(anchor - 1600, anchor);
+    expect(pickerBlock).toContain("modelPreference && !isPuppySurface && hasInlineModelPicker ? (");
+    // The ungated form the defect shipped as.
+    expect(workspace).not.toContain(
+      "{modelPreference && modelPreference.choices.length > 1 ? (",
+    );
+    // The picker disappearing must not slide the "Puppy" chip out from under
+    // the thumb that pressed it. That is now held by order (picker, toggle,
+    // profile: the toggle is anchored to the right edge), not by a reserved
+    // fixed-width slot; agent-chat-header-layout.contract.test.ts pins it.
+    expect(workspace).not.toContain("w-[7.5rem] shrink-0 justify-end");
+    // And the control names the agent it configures, not just "Model".
+    expect(workspace).toContain('aria-label="One\'s model"');
+  });
+
+  it("pauses One command capture on the way into Puppy One", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const provider = read("components/agent/location-command-provider.tsx");
+
+    expect(workspace).toContain("requestAgentConversationStop();");
+    expect(workspace).toContain("enterPuppySurface();");
+    expect(provider).toContain("AGENT_CONVERSATION_STOP_EVENT");
+    expect(provider).toContain("cancelCapture();");
+    expect(provider).toContain("command.pause();");
+  });
+
+  it("keeps both transcripts mounted and mounts Puppy One only once it is asked for", () => {
+    // One's transcript was hidden (so a cloud turn in flight survives a
+    // glance) while Puppy's was conditionally mounted, so an on-device answer
+    // that can take tens of seconds, and the whole local conversation with it,
+    // was destroyed by the same glance in the other direction.
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).not.toContain("{isPuppySurface ? <PuppyOneSurface /> : null}");
+    expect(workspace).toContain("{puppyEverOpened ? (");
+    expect(workspace).toContain("active={isPuppySurface}");
+    // Lazily, so a workspace that never opens Puppy costs the loopback
+    // gateway and the trusted-device list nothing.
+    expect(workspace).toContain("setPuppyEverOpened(true);");
+  });
+
+  it("puts One's transcript back where the reader left it", () => {
+    // display:none discards scrollTop, so returning from Puppy landed on the
+    // first message of a long history, and `scroll-smooth` then crawled back
+    // down on the next arriving message.
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("oneScrollTopRef.current = scrollTop");
+    expect(workspace).toContain('behavior: "instant" as ScrollBehavior');
+    expect(workspace).toContain("beginTranscriptProgrammaticScroll(target);");
+    expect(workspace).toContain("clearTranscriptProgrammaticScroll");
+  });
+
+  it("keeps Chat route-level and makes /agent a compatibility redirect", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const proxy = read("proxy.ts");
+
+    expect(workspace).toContain(
+      "var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px)))",
+    );
+    expect(workspace).not.toContain('variant="popover"');
+    expect(workspace).not.toContain("onMinimize");
+    expect(workspace).not.toContain("windowControls");
+    expect(proxy).toContain("ROUTES.LEGACY_AGENT");
+    expect(proxy).toContain("ROUTES.HOME");
+  });
+
+  it("gives canonical Chat its own bottom-chrome and scroll ownership", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const shell = read("components/app-ui/app-bottom-shell.tsx");
+    const providers = read("app/providers.tsx");
+
+    expect(workspace).toContain('data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}');
+    expect(workspace).toContain("onKaiBottomChromeScroll(scrollTop)");
+    expect(shell).toContain("agentBarHidden?: boolean");
+    expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
+    expect(shell).toContain("<AgentDockVoiceBoundary>");
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute} active={!isPuppySurface}");
+    expect(workspace).toContain('<AgentBar layout="slot" />');
+    expect(workspace).toContain("<AgentBarSurface");
+    expect(workspace).not.toContain("<AgentVoiceWaveInput");
+    // A command result can outlive capture. Never measure the hidden editor;
+    // its visibility change must trigger sizing when that result is dismissed.
+    expect(workspace).toContain("if (!textarea || showVoiceBar) return;");
+    expect(workspace).toContain("[agentDockHost, composerExpanded, input, setComposerExpanded, showVoiceBar]");
+    expect(providers).toContain("pathname === ROUTES.HOME");
+    expect(providers).toContain("agentBarHidden:");
+  });
+
+  it("lets root Chat use the top spacer and move its composer relatively with bottom chrome", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const styles = read("app/globals.css");
+
+    expect(workspace).toContain("agent-chat-workspace--root");
+    expect(workspace).toContain('data-agent-chat-composer-form={');
+    expect(workspace).toContain("h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height");
+    expect(styles).toContain('[data-agent-chat-composer-form="root"]');
+    expect(styles).toContain("var(--bottom-nav-travel, 0px)");
+  });
+
+  it("keeps selected text visible on the person's own accent bubble", () => {
+    // Regression: the theme highlight is the accent at 28%, so on the accent
+    // bubble selected text vanished. The on-accent rule is keyed to the
+    // bubble's exact fill class; renaming the fill must carry the rule with it.
+    const styles = read("app/globals.css");
+    const fill = CHAT_USER_BUBBLE_CLASSNAME.split(/\s+/).find((name) => name.startsWith("bg-"));
+
+    expect(fill).toBe("bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))]");
+    expect(styles).toContain(`[class~="${fill}"]`);
+    expect(styles).toMatch(/\)\s*::selection\s*\{\s*background-color: var\(--app-accent-selection-bg\);\s*color: var\(--app-accent-selection-fg\);/);
+    expect(styles).toContain("--app-accent-selection-bg:");
+    expect(styles).toContain("--app-accent-selection-fg:");
+  });
+
+  it("does not render the welcome panel while voice is live", () => {
+    // Regression (phone browser, 2026-10-02): on a fresh conversation the
+    // "One workspace" welcome panel and the "Voice connecting" card both
+    // rendered, and the card -- an `absolute bottom-0` overlay in the composer
+    // stack -- cut through the panel centred in the scroll area behind it.
+    // Desktop had the vertical room to hide it; a short phone viewport did not.
+    //
+    // The guard is co-rendering, not spacing: two states that both claim the
+    // canvas must not both be on it, because any gap we leave holds only until
+    // the next shorter viewport. Both gates have to stay on this condition.
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toMatch(
+      /:\s*!hasStartedConversation\s*&&\s*!voiceActive\s*\?/,
+    );
+    // The two facts that made them collide, so this reads as a real constraint
+    // rather than a copy of the line above: the card is a bottom overlay, and
+    // `voiceActive` is the same gate the card itself renders on.
+    expect(workspace).toContain("absolute inset-x-0 bottom-0 z-10");
+    expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
+  });
+
 });

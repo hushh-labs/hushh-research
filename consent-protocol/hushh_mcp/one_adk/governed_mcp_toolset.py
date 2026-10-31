@@ -1,0 +1,988 @@
+"""Owner-bound native ADK MCP tools with application-owned admission.
+
+Provider-specific dispatch does not belong here. The connection resolver and
+approval callback are ports into the existing credential and confirmation
+authorities, not alternative stores. Construct per owner/connection; never put
+an authenticated instance on a shared static root agent.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import logging
+import os
+import re
+import time
+import warnings
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable
+from copy import deepcopy
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, Literal, cast, get_args
+
+from google.adk.telemetry.tracing import _should_report_mcp_http_exchanges
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    MCPSessionManager,
+    StreamableHTTPConnectionParams,
+    _http_debug_var,
+)
+from google.adk.tools.mcp_tool.mcp_tool import _RESERVED_TOOL_NAMES, McpTool
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from mcp.types import Tool
+from referencing.exceptions import Unresolvable
+
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.consent.audit_logger import get_audit_logger
+from hushh_mcp.one_adk.mcp_curated_credentials import current_curated_credential
+from hushh_mcp.one_adk.mcp_registered_credentials import registered_credential_headers
+from hushh_mcp.one_adk.mcp_result_projection import (
+    _credential_values as _credential_values,
+)
+from hushh_mcp.one_adk.mcp_result_projection import (
+    _redact_credentials as _redact_credentials,
+)
+from hushh_mcp.one_adk.mcp_result_projection import (
+    project_mcp_result,
+)
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.curated_connector_manifest import get_manifest
+from hushh_mcp.services.external_connector_credentials_service import (
+    get_external_connector_credentials_service,
+)
+from hushh_mcp.services.external_connector_curated_oauth import (
+    curated_free_read_tools,
+    curated_policy_hash,
+    is_curated_oauth_connector,
+)
+from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.external_connector_registry_service import (
+    get_external_connector_registry_service,
+)
+from hushh_mcp.services.external_mcp_client import (
+    ExternalMcpAuthError,
+    ExternalMcpError,
+    _http_status_from_error,
+    _list_session_tools,
+    model_facing_schema,
+    schema_is_valid,
+)
+from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+from hushh_mcp.services.stripe_mcp_policy import (
+    official_stripe_endpoint,
+    require_stripe_oauth,
+    require_stripe_tool,
+    stripe_catalog,
+    stripe_readiness,
+)
+from hushh_mcp.services.stripe_mcp_reads import (
+    ACCOUNT_TOOLS,
+    closed_stripe_reads,
+)
+
+logger = logging.getLogger(__name__)
+
+# ADK announces this flag on every connector discovery. We rely on it knowingly:
+# it is what turns a provider error into a tool result instead of a failed turn.
+# One line per discovery buried real warnings in the UAT logs.
+warnings.filterwarnings(
+    "ignore",
+    message=r"\[EXPERIMENTAL\] feature FeatureName\._MCP_GRACEFUL_ERROR_HANDLING",
+    category=UserWarning,
+)
+
+# Provider tools the reviewed allowlist dropped, last logged per connector, so a
+# provider that renames, adds or removes a tool is noticed once instead of every
+# turn. Process memory only; bounded.
+_LOGGED_DROPPED_TOOLS: dict[str, tuple[str, ...]] = {}
+_LOGGED_DROPPED_TOOLS_LIMIT = 256
+
+# Validated provider schemas only: never headers, credentials, sessions,
+# approvals, arguments, or results. The full owner-scoped connection binding
+# includes connection/policy generation, so a connector change gets a new key.
+_CATALOG_CACHE: OrderedDict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = OrderedDict()
+_CATALOG_CACHE_LIMIT = 256
+
+
+def _catalog_cache_ttl_seconds() -> float:
+    try:
+        value = float(os.getenv("MCP_CATALOG_CACHE_TTL_SECONDS", "300"))
+    except ValueError:
+        return 300.0
+    return value if 30 <= value <= 900 else 300.0
+
+
+def _cached_catalog(
+    key: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cached = _CATALOG_CACHE.get(key)
+    if cached is None:
+        return None
+    expires_at, catalog = cached
+    if expires_at <= time.monotonic():
+        _CATALOG_CACHE.pop(key, None)
+        return None
+    _CATALOG_CACHE.move_to_end(key)
+    return deepcopy(catalog)
+
+
+def _store_catalog(
+    key: tuple[Any, ...],
+    catalog: list[dict[str, Any]],
+) -> None:
+    _CATALOG_CACHE[key] = (
+        time.monotonic() + _catalog_cache_ttl_seconds(),
+        deepcopy(catalog),
+    )
+    _CATALOG_CACHE.move_to_end(key)
+    while len(_CATALOG_CACHE) > _CATALOG_CACHE_LIMIT:
+        _CATALOG_CACHE.popitem(last=False)
+
+
+def _evict_catalog(key: tuple[Any, ...]) -> None:
+    _CATALOG_CACHE.pop(key, None)
+
+
+def clear_mcp_catalog_cache() -> None:
+    """Drop descriptor-only cache entries (test/operational invalidation seam)."""
+    _CATALOG_CACHE.clear()
+
+
+def mcp_call_timeout_seconds() -> float:
+    """Per-step budget for connector discovery and an approved call.
+
+    Defaults to 20s. A development machine that reaches the database over a
+    high-latency link may raise it with MCP_TOOLSET_TIMEOUT_SECONDS; the value is
+    clamped to the same 60s ceiling the toolset enforces, and a malformed value
+    falls back to the default rather than disabling the bound.
+    """
+    try:
+        value = float(os.getenv("MCP_TOOLSET_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return 20.0
+    return value if 0 < value <= 60 else 20.0
+
+
+def mcp_discovery_timeout_seconds() -> float:
+    """Budget for one connector's discovery within a turn.
+
+    One slow provider must not hold up every other connector, or the turn. The
+    value never exceeds the per-step call budget; a malformed value falls back
+    to the default rather than disabling the bound.
+    """
+    ceiling = mcp_call_timeout_seconds()
+    try:
+        value = float(os.getenv("MCP_DISCOVERY_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return min(8.0, ceiling)
+    return value if 0 < value <= ceiling else min(8.0, ceiling)
+
+
+@dataclass(frozen=True)
+class McpConnectionBinding:
+    owner_id: str = field(repr=False)
+    connector_id: str
+    generation: int
+    credential_version: int
+    endpoint: str = field(repr=False)
+    # Optional full observation from an existing provider credential owner.
+    # Separate account/service-grant revisions must not be collapsed to an int.
+    authority_revision: tuple[str, ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.authority_revision, tuple) or any(
+            not isinstance(part, str) or not part.strip() for part in self.authority_revision
+        ):
+            raise ValueError("Invalid MCP authority revision")
+
+
+# Founder decision 2026-09-27, "it's the user's MCP, let it be used freely":
+#   always         every call needs exact-call review (curated first-party rows).
+#   reviewed_writes a curated first-party row whose reviewed read tools run without
+#                  a card, provided the server also marks them read-only; every
+#                  other call, including every write, keeps exact-call review.
+#   credentialed   the person's own connector, holding their credential.
+#   credentialless the person's own connector, holding no credential.
+# Calls on the person's own connectors run without review, whatever the tool's
+# annotations or the conversation's earlier content. The only review left on
+# them is the owner's own rule (a blocked tool whose contract changed). The two
+# own-connector policies differ only in how the owner's Activity labels a call.
+# Unknown policy fails closed.
+McpReviewPolicy = Literal["always", "reviewed_writes", "credentialed", "credentialless"]
+MCP_REVIEW_POLICIES: frozenset[str] = frozenset(get_args(McpReviewPolicy))
+OWN_CONNECTOR_POLICIES: frozenset[str] = frozenset({"credentialed", "credentialless"})
+# Why a call ran unreviewed, for the owner's Activity. Only "read_only" claims
+# the tool reads: "no_credential" (a public server) and "own_connector" (the
+# person's credential) may still change things.
+McpReviewOutcome = Literal["required", "read_only", "no_credential", "own_connector"]
+
+
+def _annotated_read_only(descriptor: object) -> bool:
+    if not isinstance(descriptor, dict):
+        return False
+    hints = descriptor.get("annotations")
+    return (
+        isinstance(hints, dict)
+        and hints.get("readOnlyHint") is True
+        # Contradictory hints are malformed, not read-only.
+        and hints.get("destructiveHint") is not True
+    )
+
+
+def mcp_review_outcome(
+    policy: object, descriptor: object, *, forced: bool = False, free_read: bool = False
+) -> McpReviewOutcome:
+    """Fail closed: only the person's own connector, or a reviewed read, runs unreviewed.
+
+    `forced` is an owner rule (e.g. a block whose tool contract changed).
+    `free_read` says the tool is on the application's reviewed list of reads for
+    a "reviewed_writes" connector; the server's own read-only hint must agree.
+    """
+    if forced:
+        return "required"
+    if policy == "reviewed_writes":
+        return "read_only" if free_read and _annotated_read_only(descriptor) else "required"
+    if policy not in OWN_CONNECTOR_POLICIES:
+        return "required"
+    if _annotated_read_only(descriptor):
+        return "read_only"
+    return "no_credential" if policy == "credentialless" else "own_connector"
+
+
+@dataclass(frozen=True)
+class ResolvedMcpConnection:
+    binding: McpConnectionBinding
+    headers: dict[str, str] = field(repr=False)
+    catalog_policy: CatalogPolicy | None = field(default=None, repr=False, compare=False)
+    result_policy: ResultPolicy | None = field(default=None, repr=False, compare=False)
+    review_policy: McpReviewPolicy = field(default="always", compare=False)
+    # Opaque ids of tools the owner once blocked. If the provider changes such a
+    # tool's contract the block no longer matches it; it then always needs
+    # review, so editing a description can never turn a block into execution.
+    forced_review_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
+    # Opaque ids of tools the application has reviewed as reads that may skip the
+    # review card under "reviewed_writes". Empty for every other policy.
+    free_read_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
+    authentication_kind: Literal["oauth", "api_key", "none"] | None = None
+
+
+# Founder decision 2026-09-25: this project is not enrolled in Google's hosted
+# Workspace MCP developer preview. Curated Google connectors run over the GA
+# REST APIs in the Workspace adapter, so no curated row is dialed as hosted MCP.
+HOSTED_WORKSPACE_MCP_ENROLLED = False
+CURATED_FEATURE = "curated_mcp_connectors"
+
+
+def native_registration_admitted(connector: Any, owner: str) -> bool:
+    """Registration admission only; credentials and capabilities are checked later.
+
+    Curated Google rows are admitted to the MCP transport only while hosted
+    Workspace MCP is enrolled; a REST-transport row is never dialed as MCP.
+    """
+    if connector is None or not connector.is_active:
+        return False
+    if connector.owner_user_id == owner:
+        return bool(connector.transport_kind == "mcp")
+    # Operator-registered non-Google connector (HubSpot, ...): admitted only
+    # when its own registry policy marks it chat-ready and the rollout flag is on.
+    if (
+        is_curated_oauth_connector(connector)
+        and connector.is_active
+        and connector_feature_enabled(CURATED_FEATURE, owner)
+    ):
+        return True
+    return bool(
+        connector.owner_user_id is None
+        and HOSTED_WORKSPACE_MCP_ENROLLED
+        and connector.transport_kind == "mcp"
+        and connector.connector_id in {"google_drive", "google_gmail", "google_calendar"}
+    )
+
+
+def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
+    """The exact set of tools chat may offer for this connector.
+
+    The reviewed manifest decides, never the operator-writable registry row: an
+    edited row can neither widen the list nor free a tool. A connector without a
+    manifest falls back to the row's own list (narrowing only, review still applies).
+    """
+    manifest = get_manifest(getattr(connector, "connector_id", ""))
+    if manifest is not None:
+        names = frozenset(manifest.tool_allowlist)
+    else:
+        allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
+        if not isinstance(allowed, list):
+            return None
+        names = frozenset(item for item in allowed if isinstance(item, str))
+
+    connector_id = str(getattr(connector, "connector_id", ""))
+
+    def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        offered = [item for item in catalog if item.get("name") in names]
+        dropped = tuple(
+            sorted(str(item.get("name"))[:80] for item in catalog if item.get("name") not in names)
+        )
+        if _LOGGED_DROPPED_TOOLS.get(connector_id) != dropped:
+            if len(_LOGGED_DROPPED_TOOLS) >= _LOGGED_DROPPED_TOOLS_LIMIT:
+                _LOGGED_DROPPED_TOOLS.pop(next(iter(_LOGGED_DROPPED_TOOLS)))
+            _LOGGED_DROPPED_TOOLS[connector_id] = dropped
+            # Tool names are the provider's public identifiers, never user data.
+            logger.info(
+                "mcp_catalog_filtered connector=%s offered=%d dropped=%d missing=%s dropped_names=%s",
+                connector_id,
+                len(offered),
+                len(dropped),
+                # One joined string: the redactor masks a long snake_case token passed alone.
+                ", ".join(sorted(names - {str(item.get("name")) for item in catalog})[:40]),
+                ", ".join(dropped[:60]),
+            )
+        return offered
+
+    return admitted
+
+
+async def _resolve_curated_connection(
+    owner: str, connector: Any, *, metadata_only: bool = False
+) -> ResolvedMcpConnection:
+    """Bind the live owner grant and reviewed policy; refresh custody is a port."""
+    row, token = await current_curated_credential(
+        owner, connector, logger=logger, metadata_only=metadata_only
+    )
+    # A token refresh bumps credential_version but is not a change of authority,
+    # so it must not invalidate an open review card or an in-flight call: bind on
+    # the connection generation (moves on connect, reconnect and disconnect) and
+    # the live policy hash instead. Headers always come from the fresh resolve.
+    binding = McpConnectionBinding(
+        owner,
+        connector.connector_id,
+        int(row["connection_generation"]),
+        1,
+        connector.mcp_endpoint,
+        # Tool admission can change without forcing OAuth again. Bind the
+        # running toolset and any pending review to that live allowlist so an
+        # operator restriction takes effect before the next remote call.
+        (
+            curated_policy_hash(connector),
+            _digest((connector.capability_policy or {}).get("tools")),
+        ),
+    )
+    validate_mcp_endpoint(binding.endpoint)
+    # Reads the application has reviewed may skip the card; every other call,
+    # every write, and any provider not on the list keeps exact-call review.
+    free_reads = curated_free_read_tools(connector.connector_id)
+    return ResolvedMcpConnection(
+        binding,
+        {} if metadata_only else {"Authorization": f"Bearer {token}"},
+        catalog_policy=_curated_tool_allowlist(connector),
+        review_policy="reviewed_writes" if free_reads else "always",
+        free_read_tool_ids=frozenset(
+            mcp_tool_name(connector.connector_id, name) for name in free_reads
+        ),
+        authentication_kind="oauth",
+    )
+
+
+async def resolve_registered_connection(
+    context: Any, connector_id: str, *, curated_only: bool = False, metadata_only: bool = False
+) -> ResolvedMcpConnection:
+    """Resolve an existing registry credential under current Chat owner authority.
+
+    Google account grants owned by other services still require their existing
+    credential adapters; this port never substitutes selected-file credentials
+    for account-wide Workspace access. No credential is retained in tool state.
+    """
+    owner = context.user_id
+    state = context.state
+    if (
+        not owner
+        or owner != state.get("hussh:user_id")
+        or state.get("temp:one_execution_surface") != "typed_chat"
+    ):
+        raise ExternalMcpError(
+            "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
+        )
+    # Both are read-only observations for the already-bound request owner.
+    # Overlap their database latency, but never obtain/decrypt a credential or
+    # contact a provider until both authority and registry admission pass.
+    authority, connector = await asyncio.gather(
+        validate_first_party_owner_token(
+            owner, resolve_request_secret(state.get("hussh:consent_token"))
+        ),
+        get_external_connector_registry_service().get_connector(
+            connector_id, user_id=None if curated_only else owner
+        ),
+    )
+    if not authority:
+        raise ExternalMcpError(
+            "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
+        )
+    if not native_registration_admitted(connector, owner) or (
+        curated_only and connector.owner_user_id is not None
+    ):
+        raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+    if connector.owner_user_id is None:
+        # Narrow provider authentication/policy adapter, never another tool
+        # dispatcher. All discovery, review and invocation remain native ADK.
+        from hushh_mcp.one_adk.workspace_mcp_tools import (
+            resolve_native_drive_connection,
+            resolve_native_workspace_connection,
+        )
+
+        if connector_id == "google_drive":
+            return cast(
+                ResolvedMcpConnection,
+                await resolve_native_drive_connection(
+                    context, **({"metadata_only": True} if metadata_only else {})
+                ),
+            )
+        if connector_id == "google_gmail":
+            resolved = await resolve_native_workspace_connection(
+                context, "gmail", **({"metadata_only": True} if metadata_only else {})
+            )
+        elif connector_id == "google_calendar":
+            resolved = await resolve_native_workspace_connection(
+                context, "calendar", **({"metadata_only": True} if metadata_only else {})
+            )
+        elif is_curated_oauth_connector(connector):
+            return await _resolve_curated_connection(owner, connector, metadata_only=metadata_only)
+        else:
+            raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+        if connector.auth_style != "oauth" or connector.mcp_endpoint != resolved.binding.endpoint:
+            raise ExternalMcpError("Connector policy changed.", code="MCP_CONNECTION_CHANGED")
+        return cast(ResolvedMcpConnection, resolved)
+    row = await ExternalConnectorLifecycleStore().read(
+        user_id=owner, connector_id=connector_id, **({"purge": False} if metadata_only else {})
+    )
+    if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
+        raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
+    expiry = row.get("credential_expires_at")
+    if expiry is not None and (
+        not isinstance(expiry, datetime) or expiry.tzinfo is None or expiry <= datetime.now(UTC)
+    ):
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED")
+    binding = McpConnectionBinding(
+        owner,
+        connector_id,
+        int(row["connection_generation"]),
+        int(row["credential_version"]),
+        connector.mcp_endpoint,
+    )
+    validate_mcp_endpoint(binding.endpoint)
+    if metadata_only:
+        return ResolvedMcpConnection(binding, {}, review_policy="credentialed")
+    secret = get_external_connector_credentials_service().open_credential(
+        user_id=owner, connector_id=connector_id, row=row
+    )
+    headers, authentication_kind = registered_credential_headers(connector, secret)
+    # Only the owner's own private registration reaches here; curated rows
+    # returned above keep the default "always".
+    return ResolvedMcpConnection(
+        binding,
+        headers,
+        review_policy="credentialed",
+        authentication_kind=authentication_kind,
+    )
+
+
+ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
+_unreviewed_audit = get_audit_logger("hushh_mcp.audit.mcp_unreviewed_call")
+
+
+def _audit_unreviewed_call(
+    context: Any, binding: McpConnectionBinding, tool_id: str, outcome: str
+) -> None:
+    """Metadata-only record of an outbound call no person reviewed.
+
+    The action ledger cannot hold it: its adk_chat rows require confirmation.
+    This is a structured log line, not a durable or tamper-evident store.
+    Never arguments, results, provider tool names or credentials. `tool_id` is
+    already an opaque digest of the connector and provider tool name.
+    """
+    state = getattr(context, "state", None) or {}
+    _unreviewed_audit.info(
+        "mcp.unreviewed_call",
+        extra={
+            "connector_id": binding.connector_id,
+            "tool_id": tool_id,
+            "review_outcome": outcome,
+            "invocation_id": str(getattr(context, "invocation_id", "") or ""),
+            "session_id": str(state.get("hussh:conversation_id") or ""),
+            # Keyed, so a list of user ids cannot reverse or link it offline.
+            "owner_ref": hmac.new(
+                get_core_security_settings().app_signing_key.encode(),
+                b"mcp-audit-owner:" + binding.owner_id.encode(),
+                hashlib.sha256,
+            ).hexdigest()[:16],
+        },
+    )
+
+
+# None permits this exact call; a dict is a safe pending/blocked app response.
+# The callback must consume existing app authority, never trust MCP annotations;
+# only mcp_review_outcome decides whether the callback runs at all.
+AuthorizeCall = Callable[
+    [Any, McpConnectionBinding, str, str, dict[str, Any]], Awaitable[dict[str, Any] | None]
+]
+CatalogPolicy = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+ResultPolicy = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+
+
+def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
+    """One argument contract for model calls and the authenticated review UI."""
+    if not isinstance(args, dict):
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        )
+    arguments = deepcopy(args)
+    try:
+        if len(json.dumps(arguments, allow_nan=False).encode()) > 32_000:
+            raise ExternalMcpError(
+                "Call is too large to review.", code="MCP_ARGUMENTS_LIMIT", status_code=413
+            )
+    except (TypeError, ValueError):
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        ) from None
+    # Never validates under a guessed dialect, and never fetches a reference.
+    try:
+        valid = schema_is_valid(schema, arguments)
+    except (RecursionError, Unresolvable, ArithmeticError, re.error):
+        # A reference that does not resolve inside the schema, or a schema that
+        # recurses without end: refused as a schema problem, not a crash.
+        raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID") from None
+    if not valid:
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        )
+    return cast(dict[str, Any], arguments)
+
+
+def mcp_tool_name(connector_id: str, wire_name: str) -> str:
+    return "mcp_" + _digest([connector_id, wire_name])[:40]
+
+
+def mcp_tool_fingerprint(descriptor: dict[str, Any]) -> str:
+    """Bind owner preferences to one exact discovered tool contract.
+
+    Review hints are excluded: a server flipping readOnlyHint must neither lift
+    an owner's block nor silently re-key saved preferences. The catalog
+    revision still includes hints, so a flip invalidates discovered tools.
+    """
+    return _digest({key: value for key, value in descriptor.items() if key != "annotations"})
+
+
+class _GovernedMcpSessionManager(MCPSessionManager):
+    """ADK's session manager without its ambient Google mTLS upgrade.
+
+    Stock ADK tries mTLS for every HTTP MCP server: it loads this process's
+    Google application-default credentials (``cloud-platform`` scope) in a
+    worker thread on every new session, and when a client certificate is found
+    it swaps the governed transport for its own redirect-following client
+    whose requests carry those backend credentials. A connector belongs to the
+    person and is reached only with the headers they configured, through
+    ``create_bounded_mcp_http_client``. The attempt was also on the critical
+    path: on UAT it separated session setup from the first model call by 2.7 s
+    on a warm process and 12.8 s on a fresh one (2026-09-27).
+    """
+
+    async def _get_mtls_transport(self) -> None:
+        return None
+
+
+class GovernedMcpToolset(McpToolset):
+    """Use ADK's native session/tool machinery without ambient owner authority.
+
+    Catalogs are revision-bound for the lifetime of returned tools. Refresh is
+    explicit; old tool objects stop working even when their discovery was in
+    flight. This class deliberately does not enable sampling, elicitation, or
+    provider UI resources. Their authority is not implied by tools/list.
+    """
+
+    def __init__(
+        self,
+        *,
+        binding: McpConnectionBinding,
+        resolve_connection: ResolveConnection,
+        authorize_call: AuthorizeCall,
+        resolve_catalog_connection: ResolveConnection | None = None,
+        timeout_seconds: float | None = None,
+        catalog_policy: CatalogPolicy | None = None,
+        result_policy: ResultPolicy | None = None,
+        review_policy: McpReviewPolicy = "always",
+        forced_review_tool_ids: frozenset[str] = frozenset(),
+        free_read_tool_ids: frozenset[str] = frozenset(),
+    ) -> None:
+        validate_mcp_endpoint(binding.endpoint)
+        if timeout_seconds is None:
+            timeout_seconds = mcp_call_timeout_seconds()
+        if not binding.owner_id or not binding.connector_id or binding.generation < 1:
+            raise ValueError("Invalid MCP connection binding")
+        if binding.credential_version < 1 or not 0 < timeout_seconds <= 60:
+            raise ValueError("Invalid MCP execution limits")
+        if review_policy not in MCP_REVIEW_POLICIES:
+            raise ValueError("Invalid MCP review policy")
+        if not isinstance(forced_review_tool_ids, frozenset) or not all(
+            isinstance(item, str) for item in forced_review_tool_ids
+        ):
+            raise ValueError("Invalid MCP review policy")
+        if not isinstance(free_read_tool_ids, frozenset) or not all(
+            isinstance(item, str) for item in free_read_tool_ids
+        ):
+            raise ValueError("Invalid MCP review policy")
+        self.binding = binding
+        self.resolve_connection = resolve_connection
+        self.resolve_catalog_connection = resolve_catalog_connection
+        self.authorize_call = authorize_call
+        self.timeout_seconds = timeout_seconds
+        # Application-owned provider restrictions, not model/server callbacks.
+        # Custom connectors retain generic discovery; curated integrations can
+        # narrow capabilities/results without a second MCP dispatcher.
+        self.catalog_policy = catalog_policy
+        self.result_policy = result_policy
+        self.review_policy: McpReviewPolicy = review_policy
+        self.forced_review_tool_ids = forced_review_tool_ids
+        self.free_read_tool_ids = free_read_tool_ids
+        self.catalog_epoch = 0
+        self._catalog_digest: str | None = None
+        self._discovery_sequence = 0
+        # A test account pin is deployment-owned, never a caller argument.
+        self.stripe_account_id = (
+            os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "")
+            if os.getenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower() == "false"
+            else ""
+        )
+        self.stripe_reads: dict[str, dict[str, Any]] = {}
+        self.stripe_proof: dict[str, Any] | None = None
+        super().__init__(
+            connection_params=StreamableHTTPConnectionParams(
+                url=binding.endpoint,
+                timeout=timeout_seconds,
+                httpx_client_factory=create_bounded_mcp_http_client,
+            ),
+            header_provider=self._current_headers,
+            tool_list_cache_ttl_seconds=None,
+        )
+        if type(self._mcp_session_manager) is not MCPSessionManager:
+            # A changed ADK construction must fail here, not silently regain the
+            # ambient-credential transport.
+            raise TypeError("Unexpected MCP session manager")
+        self._mcp_session_manager.__class__ = _GovernedMcpSessionManager
+
+    def _catalog_cache_key(self) -> tuple[Any, ...]:
+        # Review policy is part of the authority that interprets provider
+        # annotations. Keep differently governed views isolated even when a
+        # caller constructs them over the same connection generation.
+        return (
+            self.binding,
+            self.review_policy,
+            tuple(sorted(self.forced_review_tool_ids)),
+            tuple(sorted(self.free_read_tool_ids)),
+        )
+
+    def refresh(self) -> None:
+        _evict_catalog(self._catalog_cache_key())
+        self.catalog_epoch += 1
+        self.stripe_proof = None
+
+    def review_outcome(self, tool_id: str, descriptor: object) -> McpReviewOutcome:
+        return mcp_review_outcome(
+            self.review_policy,
+            descriptor,
+            forced=tool_id in self.forced_review_tool_ids,
+            free_read=tool_id in self.free_read_tool_ids,
+        )
+
+    async def _resolved_headers(self, context: Any, resolver: ResolveConnection) -> dict[str, str]:
+        # The pinned SDK's HTTP diagnostics can capture custom credentials and
+        # private response bodies independently of normal no-content telemetry.
+        # Refuse this mode; do not mutate process-wide telemetry configuration.
+        if _http_debug_var.get(None) is not None or _should_report_mcp_http_exchanges():
+            raise ExternalMcpError(
+                "Private connector diagnostics are disabled.", code="MCP_UNSAFE_TELEMETRY"
+            )
+        if context is None or context.user_id != self.binding.owner_id:
+            raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        current = await (
+            self.resolve_connection if official_stripe_endpoint(self.binding.endpoint) else resolver
+        )(context)
+        require_stripe_oauth(self.binding.endpoint, current.authentication_kind, current.headers)
+        if (
+            official_stripe_endpoint(self.binding.endpoint)
+            and self.stripe_account_id
+            and (
+                os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "") != self.stripe_account_id
+                or os.getenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower() != "false"
+            )
+        ):
+            self.stripe_proof = None
+            raise ExternalMcpError("Stripe environment changed.", code="MCP_CONNECTION_CHANGED")
+        if (
+            current.binding != self.binding
+            or current.review_policy != self.review_policy
+            or current.forced_review_tool_ids != self.forced_review_tool_ids
+            or current.free_read_tool_ids != self.free_read_tool_ids
+        ):
+            raise ExternalMcpError("Connector connection changed.", code="MCP_CONNECTION_CHANGED")
+        return dict(current.headers)
+
+    async def _current_headers(self, context: Any) -> dict[str, str]:
+        return await self._resolved_headers(context, self.resolve_connection)
+
+    async def get_tools(self, readonly_context=None, *, force_refresh: bool = False):
+        self._discovery_sequence += 1
+        sequence = self._discovery_sequence
+        epoch = self.catalog_epoch
+        discovered_remotely = False
+        stripe_reads: dict[str, dict[str, Any]] = {}
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                cache_key = self._catalog_cache_key()
+                if not force_refresh and self.resolve_catalog_connection is not None:
+                    # Fresh owner/configuration metadata can admit descriptors
+                    # without refreshing OAuth or opening a provider session.
+                    await self._resolved_headers(readonly_context, self.resolve_catalog_connection)
+                    cached = _cached_catalog(cache_key)
+                    headers = None
+                else:
+                    headers = await self._current_headers(readonly_context)
+                    cached = None if force_refresh else _cached_catalog(cache_key)
+                if cached is not None:
+                    provider_catalog = cached
+                else:
+                    if headers is None:
+                        headers = await self._current_headers(readonly_context)
+                    discovered_remotely = True
+                    manager = self._mcp_session_manager
+                    session = await manager.create_session(headers=headers)
+                    manager._begin_session_use(headers)
+                    try:
+                        provider_catalog = await _list_session_tools(
+                            session, include_review_hints=True
+                        )
+                    finally:
+                        manager._end_session_use(headers)
+                    # Discovery can outlive a reconnect/revocation. Recheck
+                    # after the provider response before publishing it.
+                    await self._current_headers(readonly_context)
+                discovered = {item["name"]: deepcopy(item) for item in provider_catalog}
+                catalog = deepcopy(provider_catalog)
+                if self.catalog_policy is not None:
+                    catalog = self.catalog_policy(deepcopy(catalog))
+                    for item in catalog:
+                        original = discovered.get(item["name"])
+                        if original is None:
+                            raise ExternalMcpError(
+                                "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
+                            )
+                        # Review hints are only ever the provider's own.
+                        item.pop("annotations", None)
+                        if "annotations" in original:
+                            item["annotations"] = deepcopy(original["annotations"])
+                if official_stripe_endpoint(self.binding.endpoint):
+                    stripe_reads = closed_stripe_reads(catalog, self.stripe_account_id)
+                catalog = stripe_catalog(self.binding.endpoint, catalog, stripe_reads)
+                revision = _digest({"admitted": catalog, "provider": discovered})
+        except ExternalMcpError:
+            raise
+        except Exception as error:
+            # Same classification as the shared client: a refused credential or
+            # a server that needs sign-in is not an unreachable server. Only
+            # the status code is read; no provider text or header is kept.
+            if _http_status_from_error(error) in {401, 403}:
+                raise ExternalMcpAuthError() from None
+            raise ExternalMcpError(
+                "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
+            ) from None
+        if epoch != self.catalog_epoch or (
+            sequence != self._discovery_sequence and revision != self._catalog_digest
+        ):
+            # An older discovery may finish after a newer one. It is still
+            # usable when both observed the exact same provider and admitted
+            # catalog; only a changed revision or explicit refresh is stale.
+            raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
+        if self._catalog_digest is not None and self._catalog_digest != revision:
+            self.refresh()
+        self._catalog_digest = revision
+        self.stripe_reads = stripe_reads
+        epoch = self.catalog_epoch
+        if discovered_remotely:
+            # Publish only after the sequence/epoch acceptance checks above;
+            # an older request that finishes late must not poison later turns.
+            _store_catalog(cache_key, provider_catalog)
+        return [
+            _GovernedMcpTool(
+                toolset=self,
+                descriptor=item,
+                revision=revision,
+                epoch=epoch,
+                provider_schema=discovered[item["name"]]["inputSchema"],
+            )
+            for item in catalog
+            if item["name"] not in _RESERVED_TOOL_NAMES
+        ]
+
+
+class _GovernedMcpTool(McpTool):
+    def __init__(self, *, toolset, descriptor, revision, epoch, provider_schema=None):
+        # The model sees a conservative copy of the schema; this object's own
+        # `descriptor` and `provider_schema` keep the provider's exact schema,
+        # which is what every argument is validated against.
+        declared = deepcopy(descriptor)
+        declared["inputSchema"] = model_facing_schema(descriptor["inputSchema"])
+        super().__init__(
+            mcp_tool=Tool.model_validate(declared),
+            mcp_session_manager=toolset._mcp_session_manager,
+            header_provider=toolset._current_headers,
+        )
+        self.toolset = toolset
+        self.descriptor = deepcopy(descriptor)
+        self.revision = revision
+        self.epoch = epoch
+        self.provider_schema = deepcopy(
+            provider_schema if provider_schema is not None else descriptor["inputSchema"]
+        )
+        # Opaque, stable ADK-safe names avoid collisions and provider name
+        # interpolation. Native MCPTool retains the original wire tool name.
+        self.name = mcp_tool_name(toolset.binding.connector_id, descriptor["name"])
+
+    async def _create_session(self, *, headers):
+        # ADK's decorated implementation logs raw exception text before a
+        # setup retry. Keep one attempt and let our sanitized boundary handle it.
+        return await self._mcp_session_manager.create_session(headers=headers)
+
+    async def run_async(self, *, args, tool_context):
+        try:
+            async with asyncio.timeout(self.toolset.timeout_seconds):
+                result = await self._run_governed(args=args, tool_context=tool_context)
+        except TimeoutError:
+            result = {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+        # The opaque connector id lets the owner's app label this step with the
+        # name the owner chose. It is not a credential and grants nothing.
+        return {
+            **result,
+            "connectorId": self.toolset.binding.connector_id,
+            **(
+                {
+                    "stripeReadiness": stripe_readiness(
+                        tooling_connected=result.get("status") == "ok",
+                        proof=self.toolset.stripe_proof if result.get("status") == "ok" else None,
+                        reason_code=result.get("error"),
+                    )
+                }
+                if official_stripe_endpoint(self.toolset.binding.endpoint)
+                else {}
+            ),
+        }
+
+    async def _run_governed(self, *, args, tool_context):
+        # A denial needs neither private argument recovery nor provider access.
+        # Durable native events intentionally contain empty private arguments.
+        confirmation = getattr(tool_context, "tool_confirmation", None)
+        if confirmation is not None and confirmation.confirmed is False:
+            return {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
+        owner = self.toolset
+        dispatched = False
+        try:
+            require_stripe_tool(owner.binding.endpoint, self.descriptor, owner.stripe_reads)
+            # Calls revalidate the provider schema independently of cached discovery.
+            await owner.get_tools(tool_context, force_refresh=True)
+            if self.epoch != owner.catalog_epoch:
+                raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
+            # No coercion or dropped constraints; invalid calls never reach
+            # approval or the provider. No remote schema retrieval is admitted.
+            arguments = validated_mcp_arguments(self.descriptor["inputSchema"], args)
+            # Validate independently at each schema's own root so local $refs
+            # retain their meaning. A narrowed advertised schema cannot erase
+            # an original provider constraint or silently rewrite arguments.
+            validated_mcp_arguments(self.provider_schema, arguments)
+            # Decided on the admitted descriptor of the current catalog revision;
+            # a hint change re-keys the catalog and fails the epoch check below.
+            # An unreviewed call never touches the action directive ledger. A
+            # confirmed resume (a review issued before this policy) still
+            # consumes its receipt rather than skipping it.
+            outcome = owner.review_outcome(self.name, self.descriptor)
+            reviewed = outcome == "required" or confirmation is not None
+            if reviewed:
+                pending = await owner.authorize_call(
+                    tool_context,
+                    owner.binding,
+                    self.descriptor["name"],
+                    self.revision,
+                    deepcopy(arguments),
+                )
+                if pending is not None:
+                    return pending
+            await owner.get_tools(tool_context, force_refresh=True)
+            if self.epoch != owner.catalog_epoch:
+                return {"error": "MCP_CATALOG_CHANGED"}
+            if (
+                official_stripe_endpoint(owner.binding.endpoint)
+                and self.descriptor["name"] in ACCOUNT_TOOLS
+            ):
+                from hushh_mcp.one_adk.stripe_mcp_verification import run_verified_stripe_result
+
+                return await run_verified_stripe_result(
+                    self,
+                    tool_context,
+                    reviewed=reviewed,
+                    outcome=outcome,
+                    arguments=deepcopy(arguments),
+                )
+            # Call the native implementation exactly once. Bypass its optional
+            # graceful-error wrapper, which can log raw provider exceptions.
+            if not reviewed:
+                # Recorded before dispatch; if it cannot be written, nothing is sent.
+                _audit_unreviewed_call(tool_context, owner.binding, self.name, outcome)
+            async with asyncio.timeout(owner.timeout_seconds):
+                dispatched = True
+                result = await super()._run_async_impl(
+                    args=arguments, tool_context=tool_context, credential=None
+                )
+            headers = await owner._current_headers(tool_context)
+            if self.epoch != owner.catalog_epoch:
+                return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
+            return self._project_receipt(result, headers, reviewed=reviewed, outcome=outcome)
+        except ActionDirectiveAuthorityError:
+            return {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}
+        except ExternalMcpError as error:
+            if dispatched:
+                return {"error": error.code, "outcome": "unknown", "retryable": False}
+            return {"error": error.code}
+        except Exception:
+            # A transport failure does not prove an external mutation failed.
+            # No automatic retry, exception text, arguments or result logging.
+            return {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+
+    def _project_receipt(self, result, headers, *, reviewed: bool, outcome: McpReviewOutcome):
+        """Project the post-admission receipt without provider credentials or diagnostics."""
+        normalized = project_mcp_result(
+            result, headers, self.descriptor["name"], self.toolset.result_policy
+        )
+        if normalized.is_error:
+            return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
+        return {
+            "status": "ok",
+            "isError": normalized.is_error,
+            "result": normalized.payload,
+            "truncated": normalized.truncated,
+            "review": "approved" if reviewed else outcome,
+        }
+
+    async def run_verification_read(self, *, args, tool_context, approved_read=None):
+        from hushh_mcp.one_adk.stripe_mcp_verification import run_verification_read
+
+        return await run_verification_read(
+            self, args=args, tool_context=tool_context, approved_read=approved_read
+        )

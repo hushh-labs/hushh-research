@@ -1,28 +1,93 @@
 # One Agent Hierarchy
 
+Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). The old `/api/one/adk/*` Live path is retired; `/api/one/voice/*` remains a flag-gated Live adapter. The diagram below describes the retained text-agent hierarchy.
+
 ## Visual Map
+
+After durable onboarding completion, the ephemeral Magic Intelligence card invokes One's
+bounded `one_profile_research` ADK task with the current account's name and
+verified email/phone when available. The task uses One's existing public
+`google_search` child; it has no PKM, action or conversation-history tools.
+Its raw compatibility prompt starts with broad public name searches across roles, education,
+projects, competitions and leadership. One remaining follow-up fills material
+coverage gaps using established public identity anchors, or targets original
+profile, university, project and event pages without an unhelpful domain filter
+when the first pass cannot establish a credible profile. Namesake candidates
+stay separate; a draft contains one coherent candidate, never a mix of people.
+Occurrence lists and answer-site assertions alone cannot establish biography.
+An organization domain remains only an optional hint. The task distinguishes
+attendance, organization and winning; dated evidence cannot establish a current
+role. Findings stay within the existing sections and exact source receipts.
+Raw compatibility keeps contacts as matching context. The verified composite
+instead sends all available full owner identifiers in one request.
+Magic Intelligence is the single profile feature in One. Business Intelligence
+populates its optional Business subsection, with no separate chat identity.
+Personal research is independent of the optional business lookup. A person with no
+business can review and save career, education and public personal findings.
+The initial offer shows one short notice and Review details, with findings
+revealed only after opening. Business facts start unchecked; public-source
+business facts and directory listings share the Business subsection. Its
+failure, absence or pending lookup does not hold up personal review or saving.
+Search calls run sequentially, with at most one follow-up and five total model
+calls inside a 160-second task budget. An unavailable attempt cannot borrow
+another attempt's receipts. Supported first-pass facts survive a failed gap
+search as a partial draft; the model never fills missing facts from memory.
+Those limits describe the raw compatibility task. Default discovery uses one
+grounded research request with all available owner identifiers, up to three
+logical model calls, and one 160-second execution budget. There is no independent
+confidence assessor, percentage score, numerical release threshold, alternate
+identifier permutation or follow-up search. The researcher authors the profile,
+including normal matched/uncertain/no-match semantics and cited fact uncertainty.
+Full verified contacts go to the Search child in one unchanged JSON-quoted
+request. Missing fields remain missing. Native Google grounding may reformulate
+its internal queries; returned source receipts remain mandatory, but literal
+identifier presence in query receipts is not required.
+The Search child receives manifest-owned profile coverage guidance even when
+its request contains only the quoted identifiers. Those identifiers are anchors,
+not a mandatory intersection: contacts need not be published on a source page.
+Coherent cited candidates without a verified owner link stay uncertain; absence
+of public contact details alone does not establish no-match. Namesakes remain
+separate, and the host never substitutes a match or reuses an old report.
+The sole research slot is charged before dispatch in the existing owner-encrypted
+checkpoint CAS. Recovery cannot replay a consumed slot. Policy binding invalidates
+older scored drafts without clearing the rolling paid-start budget. Legacy score
+metadata/status are recognized only for migration and decoder compatibility;
+the current pipeline neither calculates nor emits them. Discovery remains
+owner-scoped, not arbitrary-person or private-account access.
+Structured task output and Search grounding receipts form the editable card.
+The report stays outside ordinary transcript persistence and automatic capture.
+Selected statements use the existing PKM agents for exact internal preparation;
+Save to Memory commits those selections without a second raw PKM review screen.
+Edit remains beside the checkbox selection. Active sharing impact still requires
+the existing explicit acknowledgment. Exact scopes and payloads are pinned for
+uncertain/partial retries; fresh create-target guards prevent overwriting an
+existing entity. Business identity fences apply
+only when a proposed write touches an existing business record; ordinary sharing
+fences still apply. Back closes Edit/Review before route navigation.
+`ONE_PROFILE_RESEARCH_ENABLED` defaults off pending live quality evaluation;
+see the [semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 
 ```mermaid
 flowchart TD
   user["User"]
-  voice["One Voice (ADK run_live)<br/>+ typed Agent Chat"]
+  voice["Typed Agent Chat / ordinary model"]
   runner["ADK Runner<br/>hushh_mcp/one_adk"]
   one["One root LlmAgent<br/>agent_one"]
   search["google_search"]
   nav_tool["open_screen<br/>governed navigation"]
-  agenttools["AgentTool specialist<br/>Finance (Kai runtime)<br/>subagents: RIA, Investor"]
-  a2a["A2A dispatch + specialist scope map"]
+  agenttools["In-process ADK AgentTool children<br/>Kai Finance -> RIA + Investor<br/>Wallet"]
+  files["Files AgentTool<br/>agent_files<br/>dev owner pod + POD_FILES_ENABLED only"]
+  dispatch["In-process adk_bridge registry<br/>Documents, Location, Email, Nav,<br/>Personal Information"]
+  remoteCaller["Remote process / deployment caller"]
+  a2a["External A2A entrypoints<br/>five-ID scope validation map"]
   kai["Kai<br/>agent_kai"]
   nav["Nav<br/>agent_nav"]
   kyc["KYC<br/>agent_kyc"]
-  support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
-  memory["World Model agents<br/>PKM structure + memory reducers"]
-  source["Hermes-local Source Library Steward<br/>bounded product leaf"]
-  sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+  support["Connections, Connected Systems,<br/>Calendar + supporting tools"]
+  personalInfo["Personal Information<br/>agent_personal_information"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
   consent["Consent tokens, encrypted exports,<br/>TrustLinks, device capability tokens"]
-  codex["Codex evidence subagents<br/>read-only engineering lanes"]
 
   user --> voice
   voice --> runner
@@ -30,29 +95,38 @@ flowchart TD
   one --> search
   one --> nav_tool
   one --> agenttools
-  one --> a2a
-  one -.local host delegation.-> source
+  one -.conditional.-> files
+  one --> dispatch
+  remoteCaller --> a2a
   a2a --> kai
   a2a --> nav
   a2a --> kyc
-  a2a --> support
-  support --> memory
+  a2a --> one
+  a2a --> personalInfo
+  dispatch --> personalInfo
+  agenttools --> operons
+  files --> operons
   kai --> operons
   nav --> operons
   kyc --> operons
-  support --> operons
-  memory --> operons
-  source --> sourceplane
+  personalInfo --> operons
   operons --> services
   consent --> one
-  consent --> a2a
+  consent --> dispatch
   consent --> services
-  codex -.separate engineering workflow.-> one
+
+  subgraph hermes["Separate Hermes runtime (pre-existing)"]
+    hermesOne["Local One parent"]
+    source["Source Library Steward<br/>bounded product leaf"]
+    sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+    hermesOne -.bounded local delegation.-> source
+    source --> sourceplane
+  end
 ```
 
 ## Purpose
 
-One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through A2A, generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
+One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through local `AgentTool`, process-local dispatch, or scoped A2A as appropriate to each boundary, along with generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
 
 This page is current-state implementation truth. It does not rename runtime identifiers, remove Kai compatibility paths, or claim external-agent zero-knowledge parity where checked-in code still uses first-party compatibility tokens.
 
@@ -63,58 +137,260 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `cap.one.invoke` for external task invocation only |
 | Onboarding policy adjudicator | `agent_onboarding` | Validates One's typed semantic assessment against redacted journey and current-screen action state; keeps capability messaging and verified completion boundaries aligned; never a second semantic router | No tools, scopes, vault access, speaking authority, or standing authority |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
-| Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
+| Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents. Finance and Investor carry read-only `get_market_quotes` and `get_ticker_news` (`hushh_mcp/one_adk/finance_market_tools.py`), which wrap the existing Kai fetchers and send providers the ticker symbol only; spending answers come from the device-computed `financial.derived_v1` summaries the browser places first in the memory packet | `agent.kai.analyze` plus finance PKM gates |
+| Wallet specialist | `agent_wallet` | Wallet (payment cards) conversation over client-executed actions (`wallet.list`, `wallet.add`, `wallet.reveal`); an AgentTool child of One, roster-gated on `ONE_WALLET_ENABLED`, with no server-side tools, no PKM context injection, and no A2A transport. Card secrets live in the reserved `wallet` PKM domain and decrypt only in the owner's browser | `agent.wallet.manage` invocation only; data leaves the vault solely through owner-approved `attr.wallet.summary.*` / `attr.wallet.secrets.*` grants |
+| Career (resume reader) | `agent_career` | Not on the roster and not a chat specialist. Agent One itself offers hussh careers in chat through client-executed actions: `careers.list_roles` (open roles from careers.hushh.ai) and `careers.apply` (tap-only confirmation card; applies with the resume saved in the owner's PKM). `agent_career` only parses resumes for the Career page. Both actions and the parse route are off unless `ONE_CAREER_ENABLED` | `cap.career.resume` invocation only; the resume leaves the device only on the owner's tap, to careers.hushh.ai, with a receipt recorded in PKM |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
-| Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
+| Location specialist | `agent_location` | Trusted-people Location workflow | Exact location capability and data authority per flow |
 | Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
-| Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
-| Gmail specialist | `agent_gmail` | Active read-only receipt-sync and purchase-memory specialist under One | Dedicated Gmail workspace and generated navigation only; canonical One chat remains unwired until it receives explicit scoped Gmail authority |
-| Personal information | `agent_personal_information` | Information Marketplace and consented information-slice workflows | `cap.pkm.marketplace.view` plus exact per-hop information authority |
-| Information Marketplace | standalone product | Separate consent-first Marketplace routes and APIs | Not admitted to One Voice, Agent Chat, or command discovery |
-| World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure`, `agent_summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
+| Email specialist | `agent_email` | Owner metadata-only inbox reads behind One's default-off typed-chat lane; existing receipts and reviewed sending remain separate | Exact `cap.email.metadata.read` invocation bound to owner, task, call and expiry; no inherited Mail write authority |
+| Documents specialist | `agent_documents` | Owner typed-chat metadata search and supported-file reading through the live Google Drive MCP grant, or answers from the limited selected library; no sharing tool | Exact `cap.documents.read` invocation and current owner token; the live path checks connection generation and Google grant, while the limited path checks selected-file authority |
+| Files specialist | `agent_files` | Manifest-authored ADK `task` AgentTool for the private object library, with a dedicated `/one/files` workspace; available only on a dev owner pod with `POD_FILES_ENABLED`, not shared dispatch or external A2A | Owner-bound `files.read` / `files.manage`, current analysis consent and exclusions; revision-checked reversible organization |
+| Memory Agent | `agent_personal_information` | Owner memory summaries plus consented information-slice workflows, reachable from One through `ask_memory_agent` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summaries retain the internal `pkm.read` gate |
+| Information Marketplace | standalone product surface | Separate consent-first Marketplace routes and APIs remain available; its conversational specialist is the Memory Agent | Admitted to One's typed specialist roster; route-specific marketplace pages remain separate |
+| World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
 | Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
+
+The PKM Structure manifest owns its instructions in both managed and direct-client
+execution. New domain/path names may organize user-supplied facts under the
+upstream intent/merge contract; they do not authorize fabrication, persistence,
+or sharing. Structure response examples use the authored response contract version
+1. The existing normalization step separately upgrades the persisted domain
+contract to `DYNAMIC_DOMAIN_CONTRACT_VERSION`; these are not competing versions
+of the same boundary. Prompt alignment alone does not prove extraction quality or
+resolve a provider timeout.
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
 `agent_nav` is the Consent Center runtime; `consent.chat.turn` resolves to it
 directly. There is no separate `agent_consent` product head or roster entry.
-`agent_connections` is Nav's declared child and is reached only through Nav's
-authority boundary. This prevents a consent review grant from being mistaken
-for trusted-connection information or mutation authority.
+Nav composes its manifest-owned Consent child through AgentTool with scoped
+reads and app-rendered revocation cards. A Connections child is supplied only for
+One's selected Connections turn after exact task-bound first-party invocation
+and database-confirmed owner admission. Every Connections tool rechecks that
+owner token. This stricter outage behavior does not change Consent's existing
+token-validation policy.
+
+Connections exposes reads and proposals, never its legacy selection executor.
+Exact proposal IDs return to One for the existing generated action confirmation;
+ambiguous choices remain in One's conversation without mutation-bearing cards.
+A consent-review grant does not authorize connection mutations. These branch
+changes are not deployment acceptance; live performance failures remain in
+[the migration baseline](./agent-chat-migration-baseline.md).
+
+Authenticated Chat's registry-backed ADK MCP toolset now has read-only
+credential adapters for curated Drive, Gmail, and Calendar registrations.
+The shared public-HTTPS MCP transport bounds each provider response to 4 MiB
+before SDK parsing; the separate catalog and model-result limits still apply.
+Gmail's admitted schema and result are metadata-only; Calendar uses its
+existing owner-specific read grant. Each native call rechecks the current
+owner and grant, and application review remains separate from discovery.
+An owner-checked `inspect_private_connectors` tool offers the existing in-chat
+Connectors action when a private connector has no callable tools yet. It reads
+only request-scoped vault configuration labels and setup states; a saved label
+does not establish a live connection or execution authority.
+The older `discover_workspace_tools` / `read_workspace_tool` entrypoints remain
+model-facing compatibility paths until live provider parity is verified; they
+are not a second credential authority. Source admission does not establish an
+active curated registry row, Google Developer Preview access, or a successful
+provider call. Do not report these reads as live solely from this wiring.
+
+Typed Chat also carries the owner's Drive writes over the live (full `drive`)
+grant, per the 2026-09-27 founder decision to expose Drive "like any other MCP"
+(`hushh_mcp/one_adk/drive_write_tools.py`). `create_drive_file`,
+`copy_drive_file`, `move_drive_file` and `comment_on_drive_file` run when called,
+but may file only into a folder no one else can see, because filing into a
+shared folder would share the file. `propose_drive_file_share` (any email, as
+Viewer, Commenter or Editor) and `propose_drive_file_trash` only issue a
+one-use `adk_chat` review in `one_action_directive_ledger`; Drive is called only
+from `POST /api/one/drive/reviewed-actions/execute`, whose rebuilt terms must
+match that review exactly. Every call keeps the transport's owner, grant and
+connection-generation fence, and a same-turn Drive read still ends the turn
+before any write.
+
+Nav's public handle runs a fresh, bounded ADK session per turn. Nav and its
+Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner rejects
+`single_turn` roots; this does not introduce shared owner history. One's intro
+and search instructions are authored in One's manifest subagent entries.
+
+Managed UAT One text keeps ordinary Azure-native search on LOW reasoning and
+requests low text verbosity for its answer. In managed chat, One may explicitly
+set `google_search.finish_turn=true` when that isolated child's complete cited
+answer fulfills the entire public request unchanged. This is One's semantic
+decision, authored in its manifest; the host never classifies intent. Ordinary,
+compound, private-information and action requests retain root synthesis.
+The explicit short-answer choice uses compact LOW search context on a local
+child/model copy. When the administrator policy declares `compact_public_search`,
+that copy uses the admitted Azure GPT-5.4 mini deployment with NONE reasoning and
+low verbosity. Ordinary/deeper searches keep their existing model and reasoning
+budget. A matching required capability qualifies the exact compact
+deployment with native citation receipts and synthetic public facts before UAT
+promotion; the descriptor participates in policy generation and stale-binding
+rejection. Receipt validation and native-call budgets remain unchanged.
+
+The host admits the handoff only for the invocation's sole tool call, with fresh
+grounding, current managed owner authority, no preceding answer, no pending
+review, and an atomically empty queued-input inbox. Accepted queued input still
+gets a model step; later input returns for the next turn. Stop and revocation
+prevent publication. A separate One model-content event preserves the exact
+answer and grounding in durable history and live AG-UI without duplication.
+`one_delegated_search_answer_v1` identifies that event; content-free
+`one.search_answer_delegated` telemetry records the saved synthesis call. This
+explicit delegation removes a stage; it is never reported as a root model answer.
+Task, native, standalone profile-research and non-managed search defaults stay
+with their existing contracts. Rollback is the preceding application revision;
+no alternate provider or factual-answer cache is introduced.
+
+The separate `one_text_root` administrator descriptor selects only One's managed
+chat root model. The original model still supplies the full specialist roster
+and ordinary/deep Search. Tool declarations and authored instructions are not
+pruned or routed by host keywords. Required qualification exercises the exact
+root binding with the production tool inventory, a synthetic clock function
+round trip, image/PDF facts, structured output and actual text streaming. Drive,
+PWM, intro, task and other specialist model defaults retain their existing scope.
+Eligible Search drafts can stream before terminal citation validation; final
+publication and history still require the complete validated unchanged answer.
+See the streaming guide for queue cutover, draft failure and cancellation rules.
 
 ## Wiring Modes
 
-The hierarchy has four current wiring modes. Do not collapse them into one claim.
+The current tree uses distinct mechanisms for local ADK children, process-local
+specialist dispatch, and remote A2A entrypoints. These contracts do not form one
+universal dispatch path.
 
 Official A2A v1 Tasks remain a release gate. The contained One invocation preview
 and the legacy Kai compatibility server are not advertised as official v1.
 
-### Scope-gated A2A specialists
+### In-process ADK AgentTool children
 
-`SPECIALIST_A2A_SCOPE_MAP` defines the least-privilege scope gate for:
+`one_adk/agent_tree.py` exposes local ADK children through `AgentTool`. One's
+finance child is Kai, which composes RIA and Investor; Wallet is another
+roster-gated child. Files is a bounded `task` child only when pod mode and
+`POD_FILES_ENABLED` both admit it; its manifest limits availability to dev.
+Nav composes its Consent child through AgentTool. These
+children execute inside the ADK runtime and are not entries in the external
+A2A scope map or `adk_bridge.dispatch` registry.
 
-| Agent id | Scope |
+### Scope-gated A2A specialists (external entrypoints)
+
+`SPECIALIST_A2A_SCOPE_MAP` validates caller scopes at external A2A boundaries.
+It contains five identifiers; it is not a registration table for One's
+in-process specialists.
+
+| Agent id | Required scope |
 | --- | --- |
 | `agent_one` | `cap.one.invoke` |
-| `agent_connected_systems` | Exact per-hop authority; no One-wide standing scope |
 | `agent_kai` | `agent.kai.analyze` |
 | `agent_nav` | `agent.nav.review` |
 | `agent_kyc` | `agent.kyc.process` |
-| `agent_connections` | Exact per-hop authority; no One-wide standing scope |
-| `agent_location` | Exact location capability and grant references |
-| `agent_email` | Exact per-hop authority; no One-wide standing scope |
-| `agent_gmail` | Dormant: no active One admission or generated discovery |
-| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop information authority |
+| `agent_personal_information` | `cap.pkm.marketplace.view` |
+
+`agent_personal_information` also applies its exact per-hop information authority;
+PKM summary reads retain the internal `pkm.read` gate. The scope map establishes
+only invocation admission. It does not register a network service or grant
+information access by itself.
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table wires `agent_location`, `agent_nav`, and `agent_personal_information`; the Marketplace remains a standalone product and One Voice and Agent Chat never admit it. Email, Connections, and Connected Systems adapters remain authority-ingress-only; Nav owns the Connections delegation boundary. Gmail is a disabled child of Connections and is not in One's active tool roster or generated discovery.
+`agent_documents` is also registered through `ask_documents_agent` for typed chat.
+It preserves One's conversation and uses the shared external-read tool barrier and
+redacted durable receipts. The manifest-owned `agent_documents_interpreter` has no
+tools and returns `DocumentAnswer` (answer plus exact source refs). Validators reject
+invented citations, oversized data, changed selection/generation, and provider denial;
+they do not infer statement coverage. Live two-account selected-file acceptance is
+required before promotion. This is implemented source, not deployed UAT evidence.
+
+Live Drive relevance is a declared semantic stage (per
+`consent-protocol/docs/reference/backend-semantic-boundary.md`):
+
+| Declaration | Value |
+| --- | --- |
+| Owning agent | `agent_documents`, gene `agent_documents_live_select` |
+| Manifest | `consent-protocol/hushh_mcp/agents/documents/agent.yaml` |
+| Output contracts | `CandidateSelection{selected}`: opaque refs `c1`..`cN` into the found files, at most 8, best first. `DocumentAnswer.none_relevant`: an explicit, uncited negative from `agent_documents_interpreter`. |
+| Validator rules | The gene sees only ref, title, file type and modified/created day, never file ids or links. Every ref must be one that was offered; duplicates are dropped in the gene's order; more than 8 is rejected. A selector failure or invented ref fails closed to `unavailable` (question lane: released as `drive_query_unavailable`; file-request lane: `preparation_unavailable`), never to the unfiltered list. An empty selection is an honest no-match (`input_required`, or `no_relevant_files` for a file request). `none_relevant` requires no `source_refs`. When the selector is not asked (exact title already resolved, metadata-only listing, file-activity window), the skip is recorded as `selection.stage` in the turn outcome and, for file requests, in the sealed review coverage. |
+| Live eval before promotion | `consent-protocol/scripts/eval_drive_candidate_selection.py` (opt-in, `DRIVE_SELECT_EVAL_LIVE=1`, precision and recall only). |
+
+Files the live reader could not read are reported with one allowlisted reason
+(`encrypted_document`, `file_too_large`, `unsupported_format`,
+`no_extractable_text`, `source_unavailable`). The interpreter receives only
+counts by reason (`retrieved_documents.not_read`), never names, because its
+answer can reach a connection; a connection's answer adds only the count. The
+host names the files and reasons for the owner alone, and the owner-private
+file-request suggestions prompt may list them as gaps. The conflicting-values
+and per-item rules in the interpreter instruction are model behaviour and need
+the live eval before promotion.
+
+The default shared-runtime `adk_bridge/__init__.py` registration includes `agent_documents`,
+`agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`.
+An owner-bound pod may additionally register Connections and Connected Systems
+for its own turn; those are not ambient shared-runtime handlers.
+Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
+product surfaces. The same Memory specialist reads recorded commerce metadata
+through its authority-selected port: earnings, readiness, and bounded purchase,
+sale and transaction pages. One keeps consent actions and usable-access checks
+with their existing authorities; consent request lists do not establish payment.
+Owner approval, reserved funds, scheduled activation, current access, mature
+earnings, transfers and bank payouts remain separate states. Conversation tools
+cannot fund, purchase, withdraw, refund or prepare paid exports. Shared-runtime
+source changes alone do not update an owner's installed private-pod software.
+Email's `ask_email_agent` path admits only owner-authorized
+typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
+them. It preserves One's conversation and permits only `list_recent` (the newest
+INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body
+reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
+interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
+flag. High-level receipt and purchase trends use the aggregate observations in
+the supplied Soul.md. New Radar scans save only these observations, never
+individual transactions. Receipt lists, spending totals and overdue or due
+payments use One's on-device receipt functions; a receipts request that reaches
+the Email agent returns `receipt_functions_required` without reading mail, and
+One answers with those functions in the same turn. A request to find emails
+that mention receipts stays `search_inbox`. See the "Email receipt requests
+handed back to One's receipt functions" declaration in
+[Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
+Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
+`propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's
+`suggest_follow_ups` (which reads and changes nothing), and One's
+client-only editable Gmail draft remain callable in the same invocation; the
+draft cannot run in the original parallel read batch and cannot send. When the
+Email agent hands a receipts request back, the barrier stays and that invocation
+also admits only One's device receipt functions and `get_current_time`, never in
+the original read batch. Its
+interpreter has no tools; durable tool history contains a redacted receipt,
+not mailbox metadata or draft fields. Reviewed sending and receipt sync are
+not admitted through this lane. Connected Systems remains
+authority-ingress-only. Connections is reached through Nav; its separate legacy
+mutation adapter retains its full information/action authority gate. There is no
+separate Gmail specialist roster entry.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
-Therefore, not every scope-gated specialist is registered in the in-process dispatch table.
+The external scope map and in-process dispatch registry intentionally contain
+different agents. A listed A2A scope does not prove that the agent is registered
+for local dispatch, and a local dispatch handler does not imply an external A2A
+endpoint; not every scope-gated specialist is registered in the in-process dispatch table.
+
+### Smart follow-ups
+
+In typed chat One may end a substantive answer with `suggest_follow_ups`: two or
+three next questions it wrote in the same model response. The tool validates them
+and sets ADK `skip_summarization`, so the turn ends on that call and costs no second
+model call. It ends the turn only when it is the sole function call in a response
+that already carries answer text; otherwise it returns `ignored` and the model
+continues as usual. The browser renders the result as chips under the latest answer
+only; a tap fills the composer, like the welcome chips. Suggestions are sealed turn
+content: never logged, and not restored as chips from history.
+
+| Declaration | Value |
+| --- | --- |
+| Owning agent | `agent_one` (typed-chat instruction added at runtime by `follow_up_instruction`) |
+| Manifest | `consent-protocol/hushh_mcp/agents/one/agent.yaml` (tool `suggest_follow_ups`) |
+| Output contract | `{"status": "shown", "suggestions": [2-3 strings]}`, or `ignored` / `unavailable` with no chips |
+| Validator rules | Single-line, at most 80 characters, distinct, first three kept; fewer than two valid is `ignored`. Nothing is rewritten. |
+| Live eval before promotion | How often and how well One suggests on `gemini-3.6-flash` is model behaviour; it needs a live sample before it is described as tuned. The one-call contract is proven offline in `consent-protocol/tests/test_one_follow_up_suggestions.py`. |
 
 ### Hermes-local bounded product leaf
 
@@ -134,9 +410,9 @@ PKM capability boundary or claims provider ACL administration.
 
 ## Execution Stack
 
-1. One Voice (ADK `run_live` through `/api/one/adk/live`) or typed Agent Chat captures intent and active app state.
-2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Gmail is intentionally absent. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
-3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
+1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`, where the restricted Location brain assesses commands. Typed Agent Chat uses the text ADK root in `hushh_mcp/one_adk/agent_tree.py`; both receive bounded current app state.
+2. The text root selects its declared tools and specialists within the ADK turn. The maintained `/api/one/voice/*` Live adapter has a separate flag and transport contract; the retired `/api/one/adk/*` path does not execute. See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for those entrypoints.
+3. Local AgentTool children stay within the admitted ADK turn. The existing dispatch adapter builds its compatibility `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fails closed without it; this envelope does not establish a remote A2A transport.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
 6. Operons hold business logic. Pure operons avoid side effects; impure operons validate consent before network, LLM, or storage work.
@@ -172,12 +448,12 @@ agent, receive user information, or gain action authority.
 When adding or changing a runtime agent, update these surfaces together:
 
 1. Agent manifest and system instruction under `consent-protocol/hushh_mcp/agents`.
-2. A2A scope map and dispatch registration when the specialist is live.
+2. Registration and authority for the selected execution path: AgentTool, local dispatch, or external A2A. An AgentTool child alone needs neither a dispatch entry nor an A2A scope-map entry.
 3. Tool and operon docs if the execution boundary changes.
 4. Consent scope catalog and agent delegation boundary if authority changes.
 5. Voice/action gateway metadata when One Voice can invoke or mention the specialist.
 6. Route, cache, and native surface maps when the specialist changes reachable UI.
-7. Tests for manifest loading, routing, A2A scope validation, dispatch, and privacy boundaries.
+7. Focused tests for manifest loading, the selected routing/transport, and privacy boundaries; A2A and dispatch checks apply only when those paths are exposed.
 
 ## References
 
@@ -186,3 +462,27 @@ When adding or changing a runtime agent, update these surfaces together:
 - [Agent Delegation Boundary](../iam/agent-delegation-boundary.md)
 - [Agent Development](../../../consent-protocol/docs/reference/agent-development.md)
 - [Kai Agents](../../../consent-protocol/docs/reference/kai-agents.md)
+
+
+### Card requests between connections
+
+A connected person's profile offers **Request cards**. The requester unlocks
+Wallet and confirms **Send request**; this establishes the existing receiving
+key and creates a metadata-only, seven-day request. The recipient receives an
+independent Feed notification and a Messages entry. Later messages do not fold
+away the request.
+
+Opening the request authenticates its participants. The owner chooses a saved
+payment card or Agent One Profile, selects a duration, and confirms **Share card**.
+The existing grant transaction binds the sole recipient to the requester, sends
+the encrypted response, and records fulfillment atomically. Existing verification,
+Trusted Circle, expiry, card removal and revoke rules continue to govern access.
+Requesting grants no access and exposes no card inventory or credentials.
+The owner may decline; the requester may withdraw. Expired or deleted requests
+cannot be fulfilled. Retrying the same confirmed response cannot create another
+grant. Back closes the review and clears its query before leaving Wallet.
+
+Migration 351 must precede enabling this request flow. Request metadata stays
+outside Live Memory and is removed for either participant on account reset or
+erasure. Expiration ends eligibility; request history has no scheduled purge.
+Rollback deliberately refuses nonempty request history.

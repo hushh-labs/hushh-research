@@ -1,0 +1,13 @@
+{
+  "version": "external-mcp-connector.v1",
+  "connectorId": "google_drive",
+  "displayName": "Google Drive",
+  "description": "Find and read files you authorize in Google Drive.",
+  "mcpEndpoint": "https://drivemcp.googleapis.com/mcp/v1",
+  "authStyle": "oauth",
+  "oauthAuthorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+  "oauthTokenUrl": "https://oauth2.googleapis.com/token",
+  "oauthScopes": ["https://www.googleapis.com/auth/drive.readonly"],
+  "oauthClientIdEnv": "GOOGLE_OAUTH_CLIENT_ID",
+  "oauthClientSecretEnv": "GOOGLE_OAUTH_CLIENT_SECRET"
+}

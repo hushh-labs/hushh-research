@@ -1,0 +1,246 @@
+/* Wallet's Connect presentation. The route, action, and trust owners stay in
+   their mounted components; portal hosts opt in explicitly. */
+.walletSurface,
+.walletPortal,
+.walletDialog {
+  font-family: var(--font-app-body);
+  --type-section-label-compact-size: 14px;
+  --type-section-label-compact-line: 22px;
+  --type-section-label-compact-weight: 600;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-line: 21px;
+  --type-row-label-compact-weight: 550;
+  --type-row-description-compact-size: 12px;
+  --type-row-description-compact-line: 18px;
+  --type-form-label-size: 15px;
+  --type-form-label-line: 22px;
+  --type-form-label-weight: 550;
+  --type-helper-text-size: 13px;
+  --type-helper-text-line: 18px;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+}
+
+.walletSurface :global([data-top-shell-tab-set="wallet"] [data-ui-role="agent-tab-label"]) {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 550;
+}
+
+.walletSurface :global([role="status"]),
+.walletPortal :global([role="status"]),
+.walletDialog :global([role="status"]) {
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+@layer base {
+  /* Profile's compact settings rules contain !important declarations. Scope
+     the Wallet role corrections below both owner classes. */
+  .walletSurface.walletSurface.walletSurface.walletSurface.walletSurface :global([data-slot="settings-group-heading"][role="heading"][aria-level="2"]),
+  .walletSurface.walletSurface.walletSurface.walletSurface.walletSurface :global([data-slot="settings-group-heading"][role="heading"][aria-level="3"]),
+  .walletPortal.walletPortal :global([data-slot="settings-group-heading"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  .walletSurface.walletSurface.walletSurface.walletSurface :global([data-slot="settings-row-title"]),
+  .walletPortal.walletPortal :global([data-slot="settings-row-title"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+  .walletSurface.walletSurface.walletSurface.walletSurface :global([data-slot="settings-row-description"]),
+  .walletPortal.walletPortal :global([data-slot="settings-row-description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+  .walletDialog.walletDialog :global([data-slot="dialog-title"]),
+  .walletDialog.walletDialog :global([data-slot="alert-dialog-title"]),
+  .walletDialog.walletDialog :global([data-slot="sheet-title"]),
+  .walletDialog.walletDialog :global([data-slot="drawer-title"]) {
+    font-family: var(--font-app-display) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+  .walletDialog.walletDialog :global([data-slot="dialog-description"]),
+  .walletDialog.walletDialog :global([data-slot="alert-dialog-description"]),
+  .walletDialog.walletDialog :global([data-slot="sheet-description"]),
+  .walletDialog.walletDialog :global([data-slot="drawer-description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+  }
+  .walletDialog.walletDialog :global([data-slot="alert-dialog-footer"] > button),
+  .walletDialog.walletDialog :global([data-slot="dialog-footer"] > button) {
+    min-height: 44px !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+  }
+}
+
+.walletDialog,
+.walletPortal {
+  --type-card-title-size: 20px;
+  --type-card-title-line: 28px;
+  --type-card-title-weight: 600;
+  --type-row-description-size: 14px;
+  --type-row-description-line: 20px;
+}
+
+.embeddedTitle {
+  font-family: var(--font-app-display);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.embeddedDescription {
+  color: var(--app-secondary-label);
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+.profileForm :global(label) {
+  color: var(--app-primary-label);
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 550;
+}
+
+.profileForm :global(input),
+.profileForm :global(textarea) {
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+}
+
+.profileForm :global([data-wallet-field] > p) {
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.profileForm :global([data-wallet-grid-item="primary-contact"] > div:first-child > p),
+.profileForm :global([data-wallet-grid-item="privacy-assurance"] > p) {
+  color: var(--app-secondary-label);
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.profileForm :global([data-wallet-grid-item="more-details"] > button > span:first-child > span) {
+  color: var(--app-primary-label);
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.profileForm :global([data-wallet-grid-item="more-details"] > button > span:last-child) {
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.profileForm :global([data-wallet-grid-item="privacy-assurance"] > h2) {
+  color: var(--app-primary-label);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.profileForm .profilePrimary,
+.primaryAction {
+  --type-button-label-size: 17px;
+  --type-button-label-line: 22px;
+  --type-button-label-weight: 650;
+  font-family: var(--font-app-body);
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 650;
+}
+
+@layer base {
+  .walletSurface.walletSurface .embeddedTitle {
+    font-family: var(--font-app-display) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+}
+
+.quietAction.quietAction {
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+  --type-button-label-size: 12px;
+  --type-button-label-line: 18px;
+  --type-button-label-weight: 550;
+  min-width: 88px;
+  min-height: 44px;
+  height: auto;
+  padding: 12px 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  box-shadow: none;
+  font-family: var(--font-app-body);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
+  white-space: normal !important;
+  text-align: center;
+}
+
+.quietAction.quietAction:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--app-accent) 5%, var(--app-card-surface-default-solid));
+  color: var(--app-accent);
+}
+
+.modalAction.modalAction {
+  --type-button-label-size: 13px;
+  --type-button-label-line: 20px;
+  --type-button-label-weight: 600;
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-line: 20px;
+  --type-compact-button-label-weight: 600;
+  min-height: 44px;
+  height: auto;
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+@media (max-width: 620px) {
+  .walletSurface,
+  .walletPortal,
+  .walletDialog { --type-input-value-size: 16px; }
+  .quietAction.quietAction { min-width: 78px; padding-inline: 11px; }
+  .profileForm :global(input),
+  .profileForm :global(textarea) { font-size: 16px; }
+}
+
+@media (max-width: 350px) {
+  .quietAction.quietAction { min-width: 72px; padding-inline: 9px; }
+}

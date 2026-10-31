@@ -14,8 +14,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PINNED_ADK_VERSION = "2.4.0"
-ADK_A2A_SDK_RANGE = ">=0.3.4,<0.4"
+PINNED_ADK_VERSION = "2.9.0"
+ADK_A2A_SDK_RANGE = ">=0.3.4,<2"
 REQUIRED_A2A_V1_SDK_VERSION = "1.1.0"
 
 
@@ -73,7 +73,7 @@ def main() -> int:
         _check_patterns(
             ROOT / "api/routes/kai/analyze.py",
             [
-                r"require_vault_owner_token",
+                r"Depends\(hub_content_owner\)",
                 r"RealtimeDataUnavailable",
             ],
         ),
@@ -81,7 +81,8 @@ def main() -> int:
             ROOT / "api/routes/kai/stream.py",
             [
                 r"CanonicalSSEStream",
-                r"validate_token",
+                r"Depends\(hub_content_owner\)",
+                r"_require_stream_owner_token",
                 r"short_recommendation",
                 r"analysis_degraded",
                 r"degraded_agents",
@@ -129,7 +130,7 @@ def main() -> int:
     ok = all(item["ok"] for item in checks)
     official_v1 = {
         "ready": False,
-        "release_blocker": "ADK_A2A_SDK_VERSION_INCOMPATIBLE",
+        "release_blocker": "ADK_A2A_SDK_MATRIX_UNVERIFIED",
         "pinned_google_adk": PINNED_ADK_VERSION,
         "adk_supported_a2a_sdk": ADK_A2A_SDK_RANGE,
         "required_a2a_v1_sdk": REQUIRED_A2A_V1_SDK_VERSION,

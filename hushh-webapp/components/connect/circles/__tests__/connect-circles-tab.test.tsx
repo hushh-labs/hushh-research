@@ -1,0 +1,1133 @@
+// @vitest-environment jsdom
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  listCircles: vi.fn(),
+  ensureTrusted: vi.fn(),
+  routerPush: vi.fn(),
+  routerReplace: vi.fn(),
+  createNamedCircle: vi.fn(),
+  getCircle: vi.fn(),
+  listCircleMembersPage: vi.fn(),
+  toastError: vi.fn(),
+  deleteCircle: vi.fn(),
+  leaveCircle: vi.fn(),
+  searchParams: new URLSearchParams("tab=circles"),
+  vaultOwnerToken: "vault-token" as string | null,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
+}));
+
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mocks.routerPush,
+    replace: mocks.routerReplace,
+    back: vi.fn(),
+  }),
+  useSearchParams: () => mocks.searchParams,
+}));
+
+vi.mock("@/lib/one-location/service", () => ({
+  OneLocationService: {
+    listCircles: mocks.listCircles,
+    listCircleWorkspace: async (token: string) => ({ circles: await mocks.listCircles(token), customTypePolicy: { version: 1, maxTypes: 3 } }),
+    deleteCircleType: vi.fn().mockResolvedValue({ updatedCircleCount: 1 }),
+    ensureTrustedSystemCircle: mocks.ensureTrusted,
+    createNamedCircle: mocks.createNamedCircle,
+    resolveNamedCircleCode: vi.fn(),
+    joinNamedCircle: vi.fn(),
+    getCircle: mocks.getCircle,
+    getCircleOverview: mocks.getCircle,
+    listCircleMembersPage: mocks.listCircleMembersPage,
+    updateNamedCircle: vi.fn(),
+    createNamedCircleInviteCode: vi.fn(),
+    listNamedCircleEligibleConnections: vi.fn(async () => ({
+      eligibleConnections: [],
+      pendingInvites: [],
+      remainingCapacity: 0,
+    })),
+    listNamedCircleEligibleConnectionsPage: vi.fn(async () => ({
+      eligibleConnections: [],
+      pendingInvites: [],
+      remainingCapacity: 0,
+      page: 1,
+      hasMore: false,
+      totalCount: 0,
+    })),
+    createNamedCircleMemberInvites: vi.fn(),
+    cancelNamedCircleMemberInvite: vi.fn(),
+    removeNamedCircleMember: vi.fn(),
+    leaveNamedCircle: mocks.leaveCircle,
+    deleteNamedCircle: mocks.deleteCircle,
+  },
+}));
+
+// The tab reads the context directly rather than through `useVault()`, because
+// that hook throws outside a provider and this tab must degrade to "circles are
+// unavailable" rather than take the Connect page down with it.
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
+  return {
+    ...actual,
+    useContext: (context: unknown) =>
+      context === VaultContextRef.current
+        ? { vaultOwnerToken: mocks.vaultOwnerToken }
+        : actual.useContext(context as never),
+  };
+});
+
+import { VaultContext } from "@/lib/vault/vault-context";
+
+const VaultContextRef = { current: VaultContext as unknown };
+
+import {
+  ConnectCirclesTab,
+  circleRowDescription,
+  orderCircles,
+} from "@/components/connect/circles/connect-circles-tab";
+
+function circle(
+  id: string,
+  name: string,
+  memberCount: number,
+  systemKind: "trusted" | "sms" | null = null,
+  role: "owner" | "member" = "owner",
+) {
+  return {
+    id,
+    name,
+    kind: "other" as const,
+    role,
+    memberCount,
+    memberLimit: systemKind === "trusted" ? null : 100,
+    isSystem: systemKind === "sms",
+    systemKind,
+    createdAt: null,
+    updatedAt: null,
+    viewerCapabilities: {
+      canInviteMembers: true,
+      canViewInviteCode: systemKind === null,
+      canRotateInviteCode: systemKind === null,
+      canManageCircle: true,
+      canModerateInvites: true,
+      canDeleteCircle: systemKind === null && role === "owner",
+      canLeaveCircle: role === "member",
+    },
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.vaultOwnerToken = "vault-token";
+  mocks.listCircles.mockResolvedValue([]);
+  mocks.ensureTrusted.mockResolvedValue({});
+  mocks.searchParams = new URLSearchParams("tab=circles");
+  mocks.createNamedCircle.mockResolvedValue({
+    id: "new-circle",
+    name: "Roommates",
+    kind: "family",
+  });
+  mocks.getCircle.mockResolvedValue({
+    id: "mine",
+    name: "Roommates",
+    kind: "other",
+    role: "owner",
+    memberCount: 1,
+    memberLimit: 100,
+    viewerCapabilities: {
+      canInviteMembers: true,
+      canViewInviteCode: true,
+      canRotateInviteCode: true,
+      canManageCircle: true,
+      canModerateInvites: true,
+      canDeleteCircle: true,
+      canLeaveCircle: false,
+    },
+    members: [
+      {
+        userId: "owner-user",
+        displayName: "Owner",
+        role: "owner",
+        phoneVerified: true,
+        secureLocationReady: true,
+      },
+    ],
+  });
+  mocks.listCircleMembersPage.mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    totalCount: 0,
+  });
+});
+
+describe("circleRowDescription", () => {
+  it("counts everyone in the Circle, owner included", () => {
+    // The Circle's own detail screen counts everyone including the owner;
+    // this row now agrees with it instead of disagreeing by exactly one.
+    expect(circleRowDescription(circle("c", "K Family", 4))).toBe("4 people");
+    expect(circleRowDescription(circle("c", "K Family", 2))).toBe("2 people");
+    expect(circleRowDescription(circle("c", "K Family", 1))).toBe(
+      "No members yet",
+    );
+  });
+
+  it("says what a product-managed Circle is for, never what kind it is", () => {
+    // "Family · 0 members" was removed from the Location row because the Circle
+    // onboarding creates is filed under Family by default and the person was
+    // never asked. These lines answer the question a Circle you did not create
+    // actually raises.
+    expect(circleRowDescription(circle("t", "Trusted", 8, "trusted"))).toBe(
+      "People you add yourself · 8 people",
+    );
+    expect(circleRowDescription(circle("s", "SMS Circle", 4, "sms"))).toBe(
+      "Gets your SMS · 4 people",
+    );
+  });
+
+  it("reads honestly when a system Circle is still empty", () => {
+    expect(circleRowDescription(circle("t", "Trusted", 1, "trusted"))).toBe(
+      "People you add yourself",
+    );
+    expect(circleRowDescription(circle("s", "SMS Circle", 1, "sms"))).toBe(
+      "Gets your SMS · no one yet",
+    );
+  });
+
+  it("keeps the server's name for an SMS Circle you are only a member of", () => {
+    // An SMS Circle appears in the list of everyone ON it. The server renames
+    // the ones you do not own -- "Alice's SMS Circle" -- because three
+    // friends' rosters would otherwise be three identical rows.
+    const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
+    expect(circleRowDescription(theirs)).toBe("You'll get their SMS");
+  });
+
+  it("never tells a member it is their own SMS", () => {
+    const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
+    // SMS is Save my Soul, this product's own name for the lane; "SOS" is the
+    // server's word and is never shown to a person. Both are checked so the
+    // rename cannot regress in either direction.
+    expect(circleRowDescription(theirs)).not.toContain("your SMS");
+    expect(circleRowDescription(theirs)).not.toMatch(/SOS/i);
+  });
+
+  it("still recognises an SMS Circle from a server that predates systemKind", () => {
+    const legacy = { ...circle("s", "SMS Circle", 3, "sms"), systemKind: null };
+    expect(circleRowDescription(legacy)).toBe("Gets your SMS · 3 people");
+  });
+});
+
+describe("orderCircles", () => {
+  it("separates circles you own from circles you joined", () => {
+    // What is yours and what you joined, answerable at a glance rather than per
+    // row -- with your product-managed circles still pinned first.
+    const { owned, joined } = orderCircles([
+      circle("mine", "Roommates", 3),
+      circle("family", "Family", 2, null, "member"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("sms", "SMS Circle", 4, "sms", "owner"),
+      circle("trusted", "Trusted", 20, "trusted"),
+    ]);
+
+    expect(owned.map((c) => c.id)).toEqual(["trusted", "sms", "mine"]);
+    expect(joined.map((c) => c.id)).toEqual(["family", "their-sms"]);
+  });
+});
+
+describe("ConnectCirclesTab", () => {
+  it("shows your Circles separately from joined Circles", async () => {
+    mocks.listCircles.mockResolvedValue([
+      circle("mine", "Roommates", 3),
+      circle("joined", "Family", 2, null, "member"),
+      circle("trusted", "Trusted", 20, "trusted"),
+      circle("sms", "SMS Circle", 4, "sms"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    const owned = await screen.findByTestId("connect-circle-group-owned");
+    const joined = screen.getByTestId("connect-circle-group-joined");
+
+    expect(screen.getByText("Your circles")).toBeTruthy();
+    expect(within(owned).getByText("Trusted")).toBeTruthy();
+    expect(within(owned).getByText("SMS Circle")).toBeTruthy();
+    expect(within(owned).getByText("Roommates")).toBeTruthy();
+    expect(within(owned).queryByText("Family")).toBeNull();
+
+    expect(within(joined).getByText("Joined circles")).toBeTruthy();
+    expect(within(joined).getByText("Family")).toBeTruthy();
+    expect(within(joined).getByText("Alice's SMS Circle")).toBeTruthy();
+    expect(within(joined).queryByText("Roommates")).toBeNull();
+    expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
+    const smsCircle = within(owned).getByTestId("connect-circle-sms");
+    expect(smsCircle).toBeTruthy();
+
+  });
+
+
+
+  it("shows no empty member placeholder under a Trusted circle with nobody in it", async () => {
+    mocks.listCircles.mockResolvedValue([circle("trusted", "Trusted", 1, "trusted")]);
+
+    render(<ConnectCirclesTab />);
+
+    const trusted = await screen.findByTestId("connect-circle-trusted");
+    expect(within(trusted).queryByTestId("connect-circle-cluster")).toBeNull();
+  });
+
+
+
+
+
+
+
+  it("updates the circle count when a member is added", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      private callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.callback = callback; }
+      observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return []; }
+    });
+    let memberCount = 2;
+    mocks.listCircles.mockImplementation(async () => [circle("family", "Family", memberCount)]);
+    mocks.listCircleMembersPage.mockImplementation(async () => ({
+      items: [
+        { userId: "owner", displayName: "Owner", photoUrl: "https://example.com/owner.png" },
+        ...(memberCount > 2
+          ? [{ userId: "asha", displayName: "Asha", photoUrl: "https://example.com/asha.png" }]
+          : []),
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: memberCount,
+    }));
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    const card = await screen.findByTestId("connect-circle-owned");
+    await waitFor(() => expect(within(card).getByText("2 people")).toBeTruthy());
+
+    memberCount = 3;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "owner-user",
+          domains: ["circles"],
+          changedAt: Date.now(),
+          notificationType: "location_circle_member_added",
+          circleId: "family",
+        },
+      }));
+    });
+
+    await waitFor(() => expect(within(card).getByText("3 people")).toBeTruthy());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the server's name for a Circle you do not own", async () => {
+    mocks.listCircles.mockResolvedValue([
+      circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("mine", "SMS Circle", 3, "sms", "owner"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    // Two rows, two different names -- not two rows both reading "SMS Circle".
+    expect(await screen.findByText("Alice's SMS Circle")).toBeTruthy();
+    expect(screen.getByText("SMS Circle")).toBeTruthy();
+  });
+
+  it("nests each owned type under Your circles and puts Joined last", async () => {
+    mocks.listCircles.mockResolvedValue([
+      circle("trusted", "Trusted", 3, "trusted"),
+      { ...circle("family", "Weekend family", 3), kind: "family" as const },
+      { ...circle("friends", "Old classmates", 4), kind: "friends" as const },
+      { ...circle("finance", "Investments", 2), customTypeLabel: "Finance" },
+      circle("other", "Project team", 2),
+      { ...circle("joined", "Shared budget", 4, null, "member"), customTypeLabel: "Finance" },
+    ]);
+    render(<ConnectCirclesTab />);
+    const owned = await screen.findByTestId("connect-circle-group-owned");
+    const joined = screen.getByTestId("connect-circle-group-joined");
+    expect(within(owned).getAllByRole("heading", { level: 3 }).map(node => node.textContent)).toEqual([
+      "Family 1", "Friends 1", "Finance 1",
+    ]);
+    for (const name of ["Trusted", "Weekend family", "Old classmates", "Investments", "Project team"]) {
+      expect(within(owned).getByText(name)).toBeInTheDocument();
+    }
+    expect(within(owned).queryByText("Shared budget")).toBeNull();
+    expect(within(owned).queryByRole("heading", { name: /Other/ })).toBeNull();
+    expect(within(joined).getByText("Shared budget")).toBeInTheDocument();
+    expect(owned.compareDocumentPosition(joined) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(owned).getByRole("button", { name: "Delete Finance type" })).toBeInTheDocument();
+    expect(within(owned).queryByRole("button", { name: "Delete Family type" })).toBeNull();
+  });
+
+  it("gives a new member clear create and join paths", async () => {
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByText("Make a circle")).toBeTruthy();
+    expect(await screen.findByTestId("connect-circle-create")).toBeTruthy();
+    expect(screen.getByTestId("connect-circle-join")).toBeTruthy();
+
+  });
+
+  it("keeps create and join available while circles are still loading", async () => {
+    mocks.ensureTrusted.mockReturnValue(new Promise(() => {}));
+
+    render(<ConnectCirclesTab />);
+
+    expect(screen.getByText("Loading circles…")).toBeTruthy();
+    fireEvent.click(screen.getByText("Create circle"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain(
+      "action=create-circle",
+    );
+
+    mocks.routerPush.mockClear();
+    fireEvent.click(screen.getByText("Join with code"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain(
+      "action=join-circle",
+    );
+  });
+
+
+
+  it("names the real next step when there is no vault yet", async () => {
+    // A LOCKED vault never reaches this branch -- the guard shows its unlock
+    // dialog first. The one audience for a null token is somebody who has no
+    // vault yet, so "unlock" was false for exactly the person reading it, and
+    // the row was disabled with the create/join group withheld beside it.
+    mocks.vaultOwnerToken = null;
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByText("Finish setting up One")).toBeTruthy();
+    expect(screen.queryByText("Unlock One to see your circles")).toBeNull();
+    expect(mocks.listCircles).not.toHaveBeenCalled();
+    expect(mocks.ensureTrusted).not.toHaveBeenCalled();
+    // And no controls that cannot work without a vault.
+    expect(screen.queryByTestId("connect-circle-create")).toBeNull();
+  });
+
+  it("sends that row to setup rather than leaving it inert", async () => {
+    mocks.vaultOwnerToken = null;
+
+    render(<ConnectCirclesTab />);
+
+    (await screen.findByText("Finish setting up One")).click();
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("/one/setup");
+  });
+
+  it("lets a failed load be retried", async () => {
+    // Nothing else on this branch can bump the token: the flows that do are
+    // unreachable from an error state, and an inbound notification is not
+    // something the reader can trigger.
+    mocks.listCircles.mockRejectedValueOnce(new Error("boom"));
+
+    render(<ConnectCirclesTab />);
+
+    const row = await screen.findByText("Circles are unavailable");
+    expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+    row.click();
+
+    expect(await screen.findByText("Roommates")).toBeTruthy();
+  });
+
+  it("provisions an empty Trusted Circle before it reads the list", async () => {
+    // Provisioning makes the default manual destination available without
+    // deriving a roster from either new or existing connections.
+    const order: string[] = [];
+    mocks.ensureTrusted.mockImplementation(async () => {
+      order.push("provision");
+      return {};
+    });
+    mocks.listCircles.mockImplementation(async () => {
+      order.push("list");
+      return [];
+    });
+
+    render(<ConnectCirclesTab />);
+
+    await waitFor(() => expect(order).toEqual(["provision", "list"]));
+    expect(mocks.ensureTrusted).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      summaryOnly: true,
+    });
+  });
+
+  it("still shows the circles when provisioning Trusted fails", async () => {
+    // Provisioning that fails must not cost the list. An older server with no
+    // such route, a rate limit, a dropped request -- the Circles they already
+    // have are still worth showing, and the next open tries again.
+    mocks.ensureTrusted.mockRejectedValue(new Error("404"));
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByText("Roommates")).toBeTruthy();
+    expect(screen.queryByText("Circles are unavailable")).toBeNull();
+  });
+
+  it("says so when circles cannot be loaded", async () => {
+    mocks.listCircles.mockRejectedValue(new Error("boom"));
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByText("Circles are unavailable")).toBeTruthy();
+  });
+
+  it("reports what it is doing, so the page can describe the screen", async () => {
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+    const onStateChange = vi.fn();
+
+    render(<ConnectCirclesTab onStateChange={onStateChange} />);
+
+    await waitFor(() =>
+      expect(onStateChange).toHaveBeenCalledWith({
+        ownerId: null,
+        loading: false,
+        error: null,
+        count: 1,
+        available: true,
+        circles: [circle("mine", "Roommates", 3)],
+      }),
+    );
+  });
+
+  it("never relays previous session summaries after a failed replacement read", async () => {
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "Private family", 3)]);
+    const onStateChange = vi.fn();
+    const view = render(<ConnectCirclesTab currentUserId="first-owner" onStateChange={onStateChange} />);
+    await screen.findByText("Private family");
+    // The relay runs in a passive effect that can flush after the DOM shows the
+    // list, so wait for the first owner's settled report before clearing, or
+    // that legitimate report lands after the clear and reads as a leak.
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerId: "first-owner", loading: false, count: 1 }),
+    ));
+    onStateChange.mockClear();
+    mocks.vaultOwnerToken = "second-token";
+    mocks.listCircles.mockRejectedValueOnce(new Error("offline"));
+    view.rerender(<ConnectCirclesTab currentUserId="second-owner" onStateChange={onStateChange} />);
+    await screen.findByText("Circles are unavailable");
+    expect(screen.queryByText("Private family")).toBeNull();
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ loading: false, error: expect.any(String), count: 0 }),
+    ));
+    for (const [state] of onStateChange.mock.calls) {
+      expect(state.ownerId).toBe("second-owner");
+      expect(state.circles).toEqual([]);
+    }
+  });
+
+  it("relays renamed circles and member counts even when list length is unchanged", async () => {
+    const onStateChange = vi.fn();
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "Finance Circle", 3)]);
+    const view = render(<ConnectCirclesTab currentUserId="owner" onStateChange={onStateChange} refreshToken={0} />);
+    await screen.findByText("Finance Circle");
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "My advisors", 4)]);
+    view.rerender(<ConnectCirclesTab currentUserId="owner" onStateChange={onStateChange} refreshToken={1} />);
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      circles: [circle("mine", "My advisors", 4)], count: 1,
+    })));
+  });
+
+  it("does not restore a deleted type when an older poll finishes after manual refresh", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const current = circle("mine", "Investments", 3);
+    const categorized = { ...current, customTypeLabel: "Finance" };
+    let finishPoll!: (circles: typeof current[]) => void;
+    mocks.listCircles
+      .mockResolvedValueOnce([categorized])
+      .mockImplementationOnce(() => new Promise<typeof current[]>((resolve) => { finishPoll = resolve; }))
+      .mockResolvedValueOnce([current]);
+    const view = render(<ConnectCirclesTab currentUserId="owner" isActive refreshToken={0} />);
+    await screen.findByRole("region", { name: "Finance circles" });
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => { (tick as () => void)(); });
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    view.rerender(<ConnectCirclesTab currentUserId="owner" isActive refreshToken={1} />);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Finance circles" })).toBeNull());
+    await act(async () => finishPoll([categorized]));
+    expect(screen.queryByRole("region", { name: "Finance circles" })).toBeNull();
+    expect(screen.getByText("Investments")).toBeInTheDocument();
+  });
+
+  it("opens a circle without leaving Connect", async () => {
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+
+    render(<ConnectCirclesTab />);
+    (await screen.findByText("Roommates")).click();
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const href = String(mocks.routerPush.mock.calls[0][0]);
+    expect(href).toContain("/one/connect");
+    expect(href).toContain("tab=circles");
+    expect(href).toContain("action=circle-detail");
+    expect(href).toContain("circleId=mine");
+    // Avoid Location's first-run onboarding takeover.
+    expect(href).not.toContain("/one/location");
+  });
+
+  it("keeps New circle and Join with code on Connect", async () => {
+    render(<ConnectCirclesTab />);
+
+    fireEvent.click(await screen.findByTestId("connect-circle-create"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const createHref = String(mocks.routerPush.mock.calls[0][0]);
+    expect(createHref).toContain("/one/connect");
+    expect(createHref).toContain("action=create-circle");
+    expect(createHref).not.toContain("/one/location");
+
+    mocks.routerPush.mockClear();
+    fireEvent.click(screen.getByTestId("connect-circle-join"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const joinHref = String(mocks.routerPush.mock.calls[0][0]);
+    expect(joinHref).toContain("/one/connect");
+    expect(joinHref).toContain("action=join-circle");
+    expect(joinHref).not.toContain("/one/location");
+  });
+
+
+
+  it("names the tab explicitly on every navigation", async () => {
+    // Keep tab=circles on every navigation, including closing a flow.
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+
+    render(<ConnectCirclesTab />);
+    (await screen.findByText("Roommates")).click();
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+  });
+});
+
+describe("the flows are hosted on Connect, not linked away to Location", () => {
+  it.each(["hussh", "Finance"])("creates US and india under the reused %s type after reloading the list", async (typeLabel) => {
+    const saved: Array<ReturnType<typeof circle> & { customTypeLabel?: string }> = [circle("untyped", "Project team", 2)];
+    mocks.listCircles.mockImplementation(async () => structuredClone(saved));
+    mocks.createNamedCircle.mockImplementation(async ({ name, kind, customTypeLabel }) => {
+      const created = { ...circle(name.toLowerCase(), name, 9), kind, customTypeLabel };
+      saved.push(created);
+      return structuredClone(created);
+    });
+    for (const name of ["US", "india"]) {
+      const onOpenChange = vi.fn();
+      const view = render(<ConnectCirclesTab currentUserId="owner-user" createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+      const dialog = await screen.findByRole("dialog", { name: "Create a Circle" });
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "Circle name" }), { target: { value: name } });
+      if (name === "US") {
+        fireEvent.click(within(dialog).getByRole("radio", { name: "Other", exact: true }));
+        const type = await within(dialog).findByRole("textbox", { name: "Type name (optional)" });
+        fireEvent.change(type, { target: { value: typeLabel } });
+      } else {
+        fireEvent.click(await within(dialog).findByRole("radio", { name: typeLabel, exact: true }));
+      }
+      fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenLastCalledWith({ vaultOwnerToken: "vault-token", name, kind: "other", customTypeLabel: typeLabel }));
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Add people later" }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      view.unmount();
+      const list = render(<ConnectCirclesTab currentUserId="owner-user" />);
+      const group = await screen.findByRole("region", { name: `${typeLabel} circles`, exact: true });
+      expect(within(group).getByText(name, { exact: true })).toBeInTheDocument();
+      expect(screen.getByText("Project team")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: /^Other/ })).toBeNull();
+      if (name === "india") {
+        expect(within(group).getByRole("heading", { name: `${typeLabel} 2`, level: 3 })).toBeInTheDocument();
+        expect(within(group).getByText("US", { exact: true })).toBeInTheDocument();
+      }
+      list.unmount();
+    }
+  });
+
+  it("opens custom creation in a modal without navigation and uses the existing creation action", async () => {
+    mocks.searchParams = new URLSearchParams("tab=people");
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    const dialog = await screen.findByRole("dialog", { name: "Create a Circle" });
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Roommates" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Friends" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenCalledWith({ vaultOwnerToken: "vault-token", name: "Roommates", kind: "friends" }));
+    await within(dialog).findByRole("heading", { name: "Add people" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add people later" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
+    expect(new URL(String(mocks.routerPush.mock.calls[0][0]), "http://localhost").searchParams.get("circleSetup")).toBeNull();
+  });
+
+  it("dismisses custom creation in one close action without validating an empty name", async () => {
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByRole("textbox", { name: "Circle name" });
+    const closeButton = within(dialog).getByRole("button", { name: "Close" });
+
+    fireEvent.focus(nameInput);
+    fireEvent.blur(nameInput, { relatedTarget: closeButton });
+
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(nameInput).not.toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.click(closeButton);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledTimes(1));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.createNamedCircle).not.toHaveBeenCalled();
+  });
+
+  it("clears the creation picker when the vault session changes and ignores its late roster", async () => {
+    const { OneLocationService } = await import("@/lib/one-location/service");
+    let resolvePeople!: (value: unknown) => void;
+    vi.mocked(OneLocationService.listNamedCircleEligibleConnectionsPage).mockImplementationOnce(() => new Promise((resolve) => { resolvePeople = resolve; }));
+    const { rerender } = render(<ConnectCirclesTab createDialogOpen currentUserId="owner" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    await waitFor(() => expect(resolvePeople).toBeTypeOf("function"));
+    mocks.vaultOwnerToken = "next-vault-session";
+    rerender(<ConnectCirclesTab createDialogOpen currentUserId="owner" />);
+    expect(screen.getByRole("textbox", { name: "Circle name" })).toHaveValue("");
+    await act(async () => resolvePeople({ eligibleConnections: [{ connectionId: "old", userId: "old-person", displayName: "Previous owner contact", isRia: false }], pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1 }));
+    expect(screen.queryByText("Previous owner contact")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add people" })).not.toBeInTheDocument();
+  });
+
+  it("returns from the dialog's contact step on Escape without closing or recreating", async () => {
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const heading = await screen.findByRole("heading", { name: "Add people" });
+    fireEvent.keyDown(heading, { key: "Escape", code: "Escape" });
+    expect(screen.getByRole("textbox", { name: "Circle name" })).toHaveValue("Roommates");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    expect(mocks.createNamedCircle).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders Create a circle in place when ?action=create-circle", async () => {
+    // Create stays on Connect without Location's first-run takeover.
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=create-circle",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-create-circle-flow"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("defers members and replaces full-page creation with the saved circle", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
+    render(<ConnectCirclesTab />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add people later" }));
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalled());
+    const params = new URL(String(mocks.routerReplace.mock.calls[0][0]), "http://localhost").searchParams;
+    expect(params.get("circleId")).toBe("new-circle");
+    expect(params.get("circleSetup")).toBeNull();
+    expect(params.get("action")).toBe("circle-detail");
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("renders Join with code in place, with a shared code pre-filled", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=join-circle&code=2345-6789-ABCD",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-join-circle-flow"),
+    ).toBeTruthy();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("renders circle detail in place when ?action=circle-detail", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-circle-detail-flow"),
+    ).toBeTruthy();
+    expect(mocks.getCircle).toHaveBeenCalled();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("an unknown action falls back to the list rather than a blank screen", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles&action=nonsense");
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+  });
+
+  it("shows the list, not a flow, when circle-detail carries no id", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+  });
+});
+
+describe("a roster row on Connect behaves like a directory row", () => {
+  beforeEach(() => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    mocks.getCircle.mockResolvedValue({
+      id: "mine",
+      name: "Roommates",
+      kind: "other",
+      role: "owner",
+      memberCount: 2,
+      memberLimit: 100,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "stranger-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "none",
+        },
+      ],
+    });
+    mocks.listCircleMembersPage.mockResolvedValue({
+      items: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "stranger-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "none",
+        },
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: 2,
+    });
+  });
+
+  it("opens the capability review instead of sending outright", async () => {
+    // `config/protected-behaviors.json` names this review, and the directory
+    // shows it even on an empty catalog because "a request that grants nothing
+    // is worth saying out loud". A Circle roster was the one place in the app
+    // that skipped it.
+    const onRequestConnection = vi.fn();
+    render(<ConnectCirclesTab onRequestConnection={onRequestConnection} />);
+
+    fireEvent.click(
+      await screen.findByTestId("circle-member-connect-stranger-user"),
+    );
+
+    await waitFor(() => expect(onRequestConnection).toHaveBeenCalled());
+    expect(onRequestConnection.mock.calls[0][0]).toMatchObject({
+      userId: "stranger-user",
+      displayName: "Sharu Khan",
+    });
+  });
+
+  it("refuses rather than sending when no review is available", async () => {
+    // Never fall back to a bare send. Silence would be better than a request
+    // the person never saw the terms of.
+    render(<ConnectCirclesTab />);
+
+    fireEvent.click(
+      await screen.findByTestId("circle-member-connect-stranger-user"),
+    );
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+  });
+
+  it("re-reads the roster when the page says something changed", async () => {
+    // A request sent through the sheet leaves the row behind it stale: it
+    // still says Connect when the answer is now Requested.
+    const view = render(<ConnectCirclesTab refreshToken={0} />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    view.rerender(<ConnectCirclesTab refreshToken={1} />);
+
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("somebody else acting on your Circle", () => {
+  it("repairs a missed push while the Circle tab stays visible", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    mocks.listCircles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([circle("remote-circle", "Friends", 2)]);
+
+    render(<ConnectCirclesTab currentUserId="owner-user" isActive />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => {
+      (tick as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Friends")).toBeInTheDocument();
+  });
+
+  it("closes an open Circle when a repair read finds membership was removed", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine&circleChat=1",
+    );
+    mocks.listCircles
+      .mockResolvedValueOnce([circle("mine", "Friends", 2)])
+      .mockResolvedValueOnce([]);
+
+    render(<ConnectCirclesTab currentUserId="owner-user" isActive />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => {
+      (tick as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalled());
+    const href = String(mocks.routerReplace.mock.calls.at(-1)?.[0]);
+    expect(href).toContain("tab=circles");
+    expect(href).not.toContain("circleId=");
+    expect(href).not.toContain("circleChat=");
+  });
+
+  it("re-reads when the shared Circle channel announces a change", async () => {
+    // A person joining with a code, accepting an invitation, or being added by
+    // another owner changes this list without the viewer touching anything.
+    // Until this listener the only way to see it was to reload the page --
+    // while the Location agent, on the same event, had always refreshed.
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 1,
+            notificationType: "location_circle_member_added",
+            circleId: "mine",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+  });
+
+  it("ignores another account and non-Circle domains", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(
+      new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "other-user",
+          domains: ["circles"],
+          changedAt: 2,
+        },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "owner-user",
+          domains: ["workspace"],
+          changedAt: 3,
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an open Circle when its owner deletes it remotely", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 4,
+            notificationType: "location_circle_deleted",
+            circleId: "mine",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(mocks.routerReplace).toHaveBeenCalledWith(
+        expect.stringContaining("/one/connect?tab=circles"),
+        { scroll: false },
+      ),
+    );
+    expect(String(mocks.routerReplace.mock.calls[0][0])).not.toContain(
+      "circleId",
+    );
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    expect(mocks.getCircle).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an open Circle when the current viewer is removed remotely", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="viewer-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "viewer-user",
+            domains: ["workspace", "circles"],
+            changedAt: 5,
+            notificationType: "location_circle_member_removed",
+            circleId: "mine",
+            memberUserId: "viewer-user",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledOnce());
+    expect(String(mocks.routerReplace.mock.calls[0][0])).not.toContain(
+      "circleId",
+    );
+    expect(mocks.getCircle).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an owner's Circle open when a different member is removed", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 6,
+            notificationType: "location_circle_member_removed",
+            circleId: "mine",
+            memberUserId: "member-b",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(2));
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Connect circle list confirmation", () => {
+  it("withholds protected deletion and rechecks authority before a confirmed delete", async () => {
+    const mine = circle("mine", "Roommates", 2);
+    mine.viewerCapabilities = { ...mine.viewerCapabilities, canDeleteCircle: true };
+    const trusted = circle("trusted", "Trusted", 1, "trusted");
+    trusted.viewerCapabilities = { ...trusted.viewerCapabilities, canDeleteCircle: true };
+    mocks.listCircles.mockResolvedValue([mine, trusted]);
+    mocks.getCircle.mockResolvedValue({ ...mine, viewerCapabilities: { ...mine.viewerCapabilities, canDeleteCircle: false } });
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    const room = await screen.findByTestId("connect-circle-owned");
+    expect(screen.queryByRole("button", { name: /Options for/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete Trusted", hidden: true })).toBeNull();
+    // The existing swipe action still opens the shared confirmation; the
+    // capability is rechecked by the same handler before any mutation.
+    const swipe = room.closest('[data-swipe-views-horizontal-scroll]')!;
+    fireEvent.click(swipe.querySelector('button[data-action="delete"]')!);
+    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete circle" });
+    expect(mocks.deleteCircle).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalled());
+    await waitFor(() => expect(confirm).toBeEnabled());
+    expect(mocks.deleteCircle).not.toHaveBeenCalled();
+    mocks.getCircle.mockResolvedValue(mine);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.deleteCircle).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "vault-token", circleId: "mine" }));
+  });
+});

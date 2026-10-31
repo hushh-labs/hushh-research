@@ -1,0 +1,121 @@
+{
+  "base_url": "http://127.0.0.1:8003",
+  "gap_seconds": 0.0,
+  "generated_at": "2026-09-22T03:35:38+00:00",
+  "label": "continuation-baseline-general-reps3",
+  "outcomes": {
+    "finished": 3
+  },
+  "per_prompt": {
+    "general_help": {
+      "category": "general",
+      "client": {
+        "first_visible": {
+          "count": 3,
+          "max": 10971.0,
+          "p50": 9687.7,
+          "p95": 10842.7
+        },
+        "total": {
+          "count": 3,
+          "max": 12716.1,
+          "p50": 11446.9,
+          "p95": 12589.2
+        }
+      },
+      "server": {
+        "elapsed": {
+          "count": 0,
+          "max": null,
+          "p50": null,
+          "p95": null
+        },
+        "first_visible": {
+          "count": 0,
+          "max": null,
+          "p50": null,
+          "p95": null
+        }
+      }
+    }
+  },
+  "prompt_count": 12,
+  "reps": 3,
+  "route": "/api/one/agent-chat",
+  "sample_count": 3,
+  "samples": [
+    {
+      "category": "general",
+      "client_first_visible_ms": 10971.0,
+      "client_total_ms": 12716.1,
+      "detail": "",
+      "event_count": 23,
+      "first_visible_event": "TEXT_MESSAGE_CONTENT",
+      "outcome": "finished",
+      "prompt_id": "general_help",
+      "rep": 0,
+      "run": "8a58a03e",
+      "server_elapsed_ms": null,
+      "server_first_visible_ms": null
+    },
+    {
+      "category": "general",
+      "client_first_visible_ms": 8303.0,
+      "client_total_ms": 10036.7,
+      "detail": "",
+      "event_count": 24,
+      "first_visible_event": "TEXT_MESSAGE_CONTENT",
+      "outcome": "finished",
+      "prompt_id": "general_help",
+      "rep": 1,
+      "run": "b7587cf4",
+      "server_elapsed_ms": null,
+      "server_first_visible_ms": null
+    },
+    {
+      "category": "general",
+      "client_first_visible_ms": 9687.7,
+      "client_total_ms": 11446.9,
+      "detail": "",
+      "event_count": 22,
+      "first_visible_event": "TEXT_MESSAGE_CONTENT",
+      "outcome": "finished",
+      "prompt_id": "general_help",
+      "rep": 2,
+      "run": "b66510f6",
+      "server_elapsed_ms": null,
+      "server_first_visible_ms": null
+    }
+  ],
+  "server_log_matched": null,
+  "summary": {
+    "client": {
+      "first_visible": {
+        "count": 3,
+        "max": 10971.0,
+        "p50": 9687.7,
+        "p95": 10842.7
+      },
+      "total": {
+        "count": 3,
+        "max": 12716.1,
+        "p50": 11446.9,
+        "p95": 12589.2
+      }
+    },
+    "server": {
+      "elapsed": {
+        "count": 0,
+        "max": null,
+        "p50": null,
+        "p95": null
+      },
+      "first_visible": {
+        "count": 0,
+        "max": null,
+        "p50": null,
+        "p95": null
+      }
+    }
+  }
+}

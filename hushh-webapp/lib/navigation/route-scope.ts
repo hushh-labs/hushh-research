@@ -40,10 +40,10 @@ export function getRouteScope(pathname: string): RouteScope {
     isRoute(pathname, "/one/kai") ||
     isRoute(pathname, KAI_MARKET_PATH) ||
     isRoute(pathname, ROUTES.ONE_SETUP) ||
-    isRoute(pathname, ROUTES.AGENT) ||
     isRoute(pathname, ROUTES.CONSENTS) ||
     isRoute(pathname, ROUTES.LEGACY_CONSENTS) ||
     isRoute(pathname, ROUTES.GMAIL) ||
+    isRoute(pathname, ROUTES.ONE_TODOS) ||
     isRoute(pathname, ROUTES.LEGACY_GMAIL) ||
     isRoute(pathname, ROUTES.PKM) ||
     isRoute(pathname, ROUTES.LEGACY_PKM) ||

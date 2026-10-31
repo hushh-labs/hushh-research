@@ -1,0 +1,472 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
+import { toast } from "sonner";
+
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
+import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
+import {
+  TAKEOVER_OVERLAY_Z_CLASSNAME,
+  TAKEOVER_SURFACE_Z_CLASSNAME,
+} from "@/components/one-location/onboarding/save-location-sheet-layout";
+import { Button } from "@/components/ui/button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+} from "@/components/one-location/redesign/location-action-styles";
+import {
+  Sheet,
+  SheetContent as UnscopedSheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  describeContactSyncOutcome,
+  type OneLocationContactSignalResult,
+} from "@/lib/one-location/contact-signals";
+import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
+import { cn } from "@/lib/utils";
+import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
+import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
+import { connectPersonName } from "@/lib/connections/person-label";
+import { CONNECT_CONNECTIONS_LIST_HREF } from "@/lib/navigation/connect-routes";
+import { withLocationTypography } from "@/components/one-location/redesign/location-typography";
+
+const SheetContent = withLocationTypography(UnscopedSheetContent);
+
+const MATCH_PAGE_SIZE = 100;
+
+function resultStatus(
+  outcome: OneLocationContactSignalResult["matches"][number]["outcome"],
+): string {
+  if (outcome === "auto_connected") return "Connected now";
+  if (outcome === "already_connected") return "Already connected";
+  if (outcome === "request_required") return "Connection request required";
+  return "Kept disconnected";
+}
+
+export function ContactSyncResultsSheet({
+  open,
+  onOpenChange,
+  result,
+  syncing,
+  onSyncAgain,
+  onInvite,
+  onRequestConnection,
+  onViewConnections,
+  takeover = false,
+  invitations,
+  googleSync,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  result: OneLocationContactSignalResult | null;
+  syncing: boolean;
+  onSyncAgain: () => void | Promise<void>;
+  onInvite: () => void | Promise<void>;
+  onRequestConnection: (userId: string) => Promise<void>;
+  onViewConnections?: () => void;
+  /** Use the existing Location onboarding layer for its nested results. */
+  takeover?: boolean;
+  invitations?: ContactInvitationController;
+  googleSync?: GoogleContactSyncController;
+}) {
+  const [requestingUserId, setRequestingUserId] = useState<string | null>(null);
+  const [requestedUserIds, setRequestedUserIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
+  useEffect(() => {
+    setRequestingUserId(null);
+    setRequestedUserIds(new Set());
+    setVisibleMatchCount(MATCH_PAGE_SIZE);
+  }, [result]);
+  // Admission gates can remount the route after an external composer returns.
+  // The active, account/route-owned invitation session survives that temporary
+  // remount even though the route's matching results/open flag do not.
+  if (invitations?.enabled && invitations.active) {
+    return (
+      <ContactInvitationSheet
+        key={invitations.version}
+        controller={invitations}
+        takeover={takeover}
+        onFinish={() => onOpenChange(false)}
+      />
+    );
+  }
+  if (
+    googleSync &&
+    googleSync.phase !== "idle" &&
+    googleSync.phase !== "complete"
+  ) {
+    const title =
+      googleSync.phase === "authorizing"
+        ? "Connect Google Contacts"
+        : googleSync.phase === "syncing"
+          ? "Checking your Google contacts"
+          : googleSync.phase === "cancelled"
+            ? "Contact sync cancelled"
+            : "Could not sync Google contacts";
+    return (
+      <Sheet modal open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          dragDismiss={false}
+          onFocusOutside={(event) => event.preventDefault()}
+          overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
+          className={cn(
+            "mx-auto max-h-[88dvh] w-full max-w-2xl overflow-y-auto rounded-t-[24px] px-6 pb-[max(1rem,env(safe-area-inset-bottom))]",
+            takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
+          )}
+        >
+          <SheetHeader className="text-left">
+            <SheetTitle>{title}</SheetTitle>
+            <SheetDescription>
+              {googleSync.phase === "authorizing"
+                ? "Choose the Google account where your contacts are saved. Keep One open; your results will appear here when you return."
+                : googleSync.phase === "syncing"
+                  ? "Reading saved contacts and checking phone numbers for matches."
+                  : googleSync.phase === "cancelled"
+                    ? "No contacts were read. You can choose a Google account and try again."
+                    : googleSync.error}
+            </SheetDescription>
+          </SheetHeader>
+          {googleSync.busy ? (
+            <p data-location-type-role="status"
+              role="status"
+              className="mt-6 flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              {googleSync.phase === "authorizing"
+                ? "Waiting for Google…"
+                : "Syncing contacts…"}
+            </p>
+          ) : null}
+          <div className="mt-6 flex flex-wrap gap-2">
+            {!googleSync.busy ? (
+              <Button type="button" onClick={() => void onSyncAgain()}>
+                Choose Google account
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              {googleSync.busy ? "Cancel" : "Close"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+  if (!result) return null;
+  const googleSummary = googleContactSyncSummary(result);
+  const emptyGoogleBook =
+    result.sourcePlatform === "google" &&
+    !result.partial &&
+    result.totalContacts === 0;
+  const syncOutcome = describeContactSyncOutcome(result);
+  const recoveryLabel = (() => {
+    if (
+      result.sourcePlatform === "google" &&
+      (emptyGoogleBook || result.truncated)
+    ) {
+      return "Choose Google account";
+    }
+    if (syncOutcome.remedy === "pick_more") return "Check more";
+    if (
+      syncOutcome.remedy === "sync_again" ||
+      syncOutcome.remedy === "open_settings"
+    ) {
+      return "Sync again";
+    }
+    return null;
+  })();
+
+  const connectedCount =
+    result.autoConnectedCount + result.alreadyConnectedCount;
+  const visibleMatches = result.matches.slice(0, visibleMatchCount);
+  const hiddenMatchCount = Math.max(
+    0,
+    result.matches.length - visibleMatches.length,
+  );
+  return (
+    <Sheet modal open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        dragDismiss={false}
+        // The launching menu may restore focus after an async sync opens us.
+        // Keep results visible; outside pointer presses, Escape and Close still dismiss.
+        onFocusOutside={(event) => event.preventDefault()}
+        overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
+        className={cn(
+          "mx-auto flex w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          CONTACT_SHEET_MAX_HEIGHT_CLASSNAME,
+          takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
+        )}
+      >
+        <SheetHeader className="pr-14 text-left">
+          <SheetTitle>Contact sync results</SheetTitle>
+          <SheetDescription className="line-clamp-1">
+            {invitations?.enabled
+              ? "Contact details stay on your device."
+              : "Only eligible Hushh accounts are shown."}
+          </SheetDescription>
+        </SheetHeader>
+
+        {result.sourcePlatform === "google" ? (
+          <p data-location-type-role="body" className="mt-3 text-sm text-muted-foreground">
+            Read {result.readContactCount} saved Google{" "}
+            {result.readContactCount === 1 ? "contact" : "contacts"}.{" "}
+            <a
+              href="https://contacts.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              Check Google Contacts
+            </a>
+          </p>
+        ) : null}
+
+        {!emptyGoogleBook ? (
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ["Checked", result.checkedContactCount],
+              // The list and connection outcomes count unique people. One
+              // person can have several matching address-book entries.
+              ["Matched", result.matches.length],
+              ["Connected", connectedCount],
+              ["No match", result.unmatchedContactCount],
+            ].map(([label, count]) => (
+              <div
+                key={String(label)}
+                className="rounded-2xl bg-muted/45 px-3 py-2.5"
+              >
+                <p className="text-lg font-semibold text-foreground">{count}</p>
+                <p data-location-type-role="row-description" className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {result.partial ||
+        result.lookupLimitExceeded ||
+        result.unknownContactCount ||
+        result.uncheckableContactCount ? (
+          <div className="mt-3 rounded-2xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+            {result.partial &&
+            !result.partialFailureMessage &&
+            !result.unknownContactCount &&
+            !result.uncheckedContactCount &&
+            !result.lookupLimitExceeded ? (
+              <p data-location-type-role="body">Only part of your contact list was checked.</p>
+            ) : null}
+            {result.partialFailureMessage ? (
+              <p data-location-type-role="body" className="flex items-start gap-2 text-foreground">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                {result.partialFailureMessage}
+              </p>
+            ) : null}
+            {result.unknownContactCount ? (
+              <p data-location-type-role="body">
+                {result.unknownContactCount} contacts need confirmation. They
+                are not counted as unmatched or inviteable.
+              </p>
+            ) : null}
+            {result.uncheckedContactCount ? (
+              <p data-location-type-role="body">
+                {result.uncheckedContactCount} contacts were not checked yet.
+              </p>
+            ) : null}
+            {result.lookupLimitExceeded ? (
+              <p data-location-type-role="body">
+                This address book exceeded the secure{" "}
+                {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
+                {result.lookupLimitedContactCount
+                  ? ` ${result.lookupLimitedContactCount} contacts with overflow numbers were left unchecked and are not inviteable.`
+                  : " Additional numbers were outside the limit, but no matched contact was reclassified as unchecked or inviteable."}
+              </p>
+            ) : null}
+            {result.uncheckableContactCount ? (
+              <p data-location-type-role="body">
+                {result.uncheckableContactCount} contacts had no usable phone
+                number.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {result.matches.length ? (
+            <ul className="divide-y divide-border/70 rounded-2xl border border-border/70">
+              {visibleMatches.map((match) => {
+                const name = connectPersonName(match);
+                const requested = requestedUserIds.has(match.userId);
+                return (
+                  <li
+                    key={match.userId}
+                    className="flex min-h-16 items-center gap-3 px-3 py-2.5"
+                  >
+                    <ConnectionPersonAvatar
+                      size="list"
+                      photoUrl={match.photoUrl}
+                      label={name}
+                      fromContacts={match.outcome === "auto_connected" || match.outcome === "already_connected"}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <p data-location-type-role="row-title" className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                          {name}
+                        </p>
+                      </div>
+                      <p data-location-type-role="row-description" className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                        {requested
+                          ? "Request sent"
+                          : resultStatus(match.outcome)}
+                      </p>
+                    </div>
+                    {match.outcome === "request_required" && !requested ? (
+                      <MorphyButton
+                        type="button"
+                        size="compact"
+                        variant="none"
+                        effect="fade"
+                        className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
+                        disabled={requestingUserId === match.userId}
+                        aria-busy={requestingUserId === match.userId || undefined}
+                        aria-label={`Send a connection request to ${name}`}
+                        onClick={() => {
+                          setRequestingUserId(match.userId);
+                          void onRequestConnection(match.userId)
+                            .then(() => {
+                              setRequestedUserIds((current) => {
+                                const next = new Set(current);
+                                next.add(match.userId);
+                                return next;
+                              });
+                            })
+                            .catch((error: unknown) => {
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not send connection request.",
+                              );
+                            })
+                            .finally(() => setRequestingUserId(null));
+                        }}
+                      >
+                        <span data-location-type-role="compact-action" className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}>
+                          {requestingUserId === match.userId ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : (
+                            "Request"
+                          )}
+                        </span>
+                      </MorphyButton>
+                    ) : null}
+                    {requested ? (
+                      <Check className="h-4 w-4 text-emerald-600" aria-hidden />
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
+              {googleSummary ? (
+                <>
+                  <p data-location-type-role="body" className="font-medium text-foreground">
+                    {googleSummary.title}
+                  </p>
+                  <p data-location-type-role="body" className="mt-2">{googleSummary.description}</p>
+                </>
+              ) : (
+                <>
+                  No eligible contacts matched. ONE users need an exact verified
+                  phone match and must remain visible in the Connect directory.
+                  Explicit opt-outs and previous disconnects stay protected.
+                </>
+              )}
+            </div>
+          )}
+          {hiddenMatchCount ? (
+            <div className="mt-3 flex flex-col items-center gap-2">
+              <p data-location-type-role="row-description" className="text-xs text-muted-foreground" aria-live="polite">
+                Showing {visibleMatches.length} of {result.matches.length}{" "}
+                matched people
+              </p>
+              <Button data-location-type-role="compact-action"
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11 rounded-full px-5"
+                onClick={() =>
+                  setVisibleMatchCount((current) =>
+                    Math.min(current + MATCH_PAGE_SIZE, result.matches.length),
+                  )
+                }
+              >
+                Show more ({Math.min(MATCH_PAGE_SIZE, hiddenMatchCount)})
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {recoveryLabel ? (
+            <Button
+              type="button"
+              size="prominent"
+              disabled={syncing}
+              onClick={() => void onSyncAgain()}
+              className="w-full max-w-[244px]"
+            >
+              {syncing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {recoveryLabel}
+            </Button>
+          ) : null}
+          <Button
+            asChild
+            size="prominent"
+            variant={recoveryLabel || !emptyGoogleBook ? "outline" : "default"}
+            className="w-full max-w-[244px]"
+          >
+            <Link
+              href={CONNECT_CONNECTIONS_LIST_HREF}
+              onClick={() => { onOpenChange(false); onViewConnections?.(); }}
+            >
+              Proceed to connections
+            </Link>
+          </Button>
+          {!emptyGoogleBook ? (
+            <Button
+              type="button"
+              size="prominent"
+              disabled={
+                syncing ||
+                !(invitations?.enabled
+                  ? invitations.candidates.length
+                  : result.inviteCandidateCount)
+              }
+              onClick={() => void onInvite()}
+              className="w-full max-w-[244px]"
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Invite contacts
+            </Button>
+          ) : null}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

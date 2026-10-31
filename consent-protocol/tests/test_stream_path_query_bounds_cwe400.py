@@ -3,9 +3,9 @@ Regression tests for CWE-400 fixes in api/routes/kai/stream.py.
 
 CWE-400 -- Uncontrolled Resource Consumption:
   All four streaming/run handlers accepted unbounded string parameters that
-  could be exploited to trigger excessive allocation before auth logic runs.
-  This test suite verifies that FastAPI now enforces length constraints and
-  returns HTTP 422 for oversized inputs.
+  could be exploited to trigger excessive allocation in handler logic.
+  This test suite verifies that FastAPI enforces length constraints after
+  canonical auth and returns HTTP 422 for oversized authenticated inputs.
 
 Endpoints under test:
   GET  /api/kai/analyze/stream          ticker, user_id, risk_profile (Query)
@@ -22,7 +22,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_vault_owner_token
 from api.routes.kai import router as kai_router
+from hushh_mcp.services import owner_placement_guard
 
 # ---------------------------------------------------------------------------
 # App fixture: minimal FastAPI app with the Kai router (prefix /api/kai).
@@ -35,6 +37,29 @@ from api.routes.kai import router as kai_router
 def client() -> TestClient:
     app = FastAPI()
     app.include_router(kai_router)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def authorized_client(monkeypatch: pytest.MonkeyPatch, active_account_lifecycle) -> TestClient:
+    """Exercise field bounds after canonical auth, without a live DB or LLM.
+
+    FastAPI resolves dependencies before route-field validation. The separate
+    unauthenticated control client continues to prove the real auth boundary.
+    """
+    app = FastAPI()
+    app.include_router(kai_router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": _GOOD_USER_ID,
+        "token": "fixture-owner-capability",
+    }
+
+    async def shared_owner(user_id: str) -> str:
+        assert user_id == _GOOD_USER_ID
+        return "shared"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_owner)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -73,7 +98,8 @@ def _auth_headers() -> dict[str, str]:
 
 
 class TestAnalyzeStreamQueryBounds:
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -84,7 +110,8 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_ticker_rejected_422(self, client: TestClient):
+    def test_oversized_ticker_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -95,7 +122,8 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_risk_profile_rejected_422(self, client: TestClient):
+    def test_oversized_risk_profile_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -107,8 +135,9 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_empty_ticker_rejected_422(self, client: TestClient):
+    def test_empty_ticker_rejected_422(self, authorized_client: TestClient):
         """min_length=1 means empty string is rejected."""
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -129,8 +158,8 @@ class TestAnalyzeStreamQueryBounds:
             },
             headers=_auth_headers(),
         )
-        # 422 would mean validation failed; anything else means bounds passed
-        assert resp.status_code != 422
+        # Bounded anonymous requests still fail at the canonical auth boundary.
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +168,8 @@ class TestAnalyzeStreamQueryBounds:
 
 
 class TestAnalyzeRunActiveQueryBounds:
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/run/active",
             params={
@@ -150,7 +180,8 @@ class TestAnalyzeRunActiveQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_debate_session_id_rejected_422(self, client: TestClient):
+    def test_oversized_debate_session_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/run/active",
             params={
@@ -170,7 +201,7 @@ class TestAnalyzeRunActiveQueryBounds:
             },
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
     def test_exactly_128_char_user_id_passes_validation(self, client: TestClient):
         uid128 = "u" * 128
@@ -182,7 +213,7 @@ class TestAnalyzeRunActiveQueryBounds:
             },
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +222,8 @@ class TestAnalyzeRunActiveQueryBounds:
 
 
 class TestAnalyzeRunStreamBounds:
-    def test_oversized_run_id_rejected_422(self, client: TestClient):
+    def test_oversized_run_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             f"/api/kai/analyze/run/{_LONG_RUN_ID}/stream",
             params={"user_id": _GOOD_USER_ID},
@@ -199,7 +231,8 @@ class TestAnalyzeRunStreamBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             f"/api/kai/analyze/run/{_GOOD_RUN_ID}/stream",
             params={"user_id": _LONG_STR_129},
@@ -213,7 +246,7 @@ class TestAnalyzeRunStreamBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
     def test_exactly_128_char_run_id_passes_validation(self, client: TestClient):
         run_id_128 = "r" * 128
@@ -222,7 +255,7 @@ class TestAnalyzeRunStreamBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +264,8 @@ class TestAnalyzeRunStreamBounds:
 
 
 class TestAnalyzeRunCancelBounds:
-    def test_oversized_run_id_rejected_422(self, client: TestClient):
+    def test_oversized_run_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.post(
             f"/api/kai/analyze/run/{_LONG_RUN_ID}/cancel",
             params={"user_id": _GOOD_USER_ID},
@@ -239,7 +273,8 @@ class TestAnalyzeRunCancelBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.post(
             f"/api/kai/analyze/run/{_GOOD_RUN_ID}/cancel",
             params={"user_id": _LONG_STR_129},
@@ -253,4 +288,24 @@ class TestAnalyzeRunCancelBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
+
+
+@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
+def test_non_shared_analysis_refuses_before_query_processing(
+    authorized_client, monkeypatch, mode, status
+):
+    async def observed_owner(user_id: str) -> str:
+        assert user_id == _GOOD_USER_ID
+        return mode
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    response = authorized_client.get(
+        "/api/kai/analyze/stream",
+        params={"ticker": _LONG_TICKER, "user_id": _GOOD_USER_ID},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )

@@ -280,6 +280,11 @@ class _FakeQuery:
         self._filters[key] = value
         return self
 
+    def is_(self, key, value):
+        # The real table query uses IS NULL for atomic initial enrollment.
+        assert value is None
+        return self.eq(key, value)
+
     def limit(self, _count):
         return self
 
@@ -1131,6 +1136,99 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
     assert state["onboardingActiveCapability"] is None
 
 
+def test_pre_vault_serialization_normalizes_declined_capability_ids():
+    state = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-declined",
+            "setup_capability_declined_ids": '["gmail", "connections", "marketplace", "calendar"]',
+        }
+    )
+
+    # "connections" is mandatory and can never be declined, even if a corrupt
+    # row somehow carries it -- unlike setup_capability_ids, which legitimately
+    # carries it as the AI-access-choice marker.
+    assert state["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_persists_and_preserves_declined_capability_ids():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    first = await service.update_pre_vault_state(
+        user_id="user-declined-capability",
+        setup_capability_declined_ids=["gmail", "calendar"],
+    )
+    assert first["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+    # Omitting the field on a later, unrelated write must leave it untouched --
+    # same write-only-if-supplied contract as setup_capability_ids.
+    second = await service.update_pre_vault_state(
+        user_id="user-declined-capability",
+        onboarding_phase="capability_setup",
+        onboarding_active_capability="ria",
+    )
+    assert second["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_persists_bounded_chat_onboarding_progress():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    first = await service.update_pre_vault_state(
+        user_id="user-chat-onboarding",
+        one_chat_onboarding={
+            "version": 1,
+            "status": "in_progress",
+            "answered": ["name"],
+            "skipped": [],
+            "preferredName": "Kushal",
+        },
+    )
+    assert first["oneChatOnboarding"] == {
+        "version": 1,
+        "status": "in_progress",
+        "answered": ["name"],
+        "skipped": [],
+        "completedOn": None,
+        "tipDismissedOn": None,
+    }
+    # The stored plaintext row never carries the answer value.
+    row = next(r for r in fake.db["vault_keys"] if r["user_id"] == "user-chat-onboarding")
+    assert "Kushal" not in row["one_chat_onboarding"]
+
+    # Omitting the field on a later, unrelated write leaves it untouched.
+    second = await service.update_pre_vault_state(
+        user_id="user-chat-onboarding",
+        setup_capability_declined_ids=["gmail"],
+    )
+    assert second["oneChatOnboarding"]["answered"] == ["name"]
+
+    with pytest.raises(ValueError, match="invalid one chat onboarding state"):
+        await service.update_pre_vault_state(
+            user_id="user-chat-onboarding",
+            one_chat_onboarding={"version": 1, "status": "finished"},
+        )
+
+
+def test_pre_vault_serialization_preserves_integer_timestamps():
+    state = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-timestamps",
+            "first_login_at": "1710000000000",
+            "setup_state_updated_at": 1710000000001,
+            "onboarding_journey_updated_at": "not-a-timestamp",
+        }
+    )
+
+    assert state["firstLoginAt"] == 1710000000000
+    assert state["setupStateUpdatedAt"] == 1710000000001
+    assert state["onboardingJourneyUpdatedAt"] is None
+
+
 @pytest.mark.asyncio
 async def test_pre_vault_update_accepts_calendar_active_capability():
     fake = _FakeDb()
@@ -1243,3 +1341,122 @@ async def test_get_vault_state_returns_none_for_placeholder():
 
     result = await service.get_vault_state("user-ghost")
     assert result is None
+
+
+def test_millisecond_fields_survive_normalization() -> None:
+    """Every ms field on /api/vault/bootstrap-state was null, and nothing said so.
+
+    `_normalize_int_ms_or_none` was `if value is None: return None` and then the function
+    ended -- its `try: return int(value)` body had been spliced into the NEXT function,
+    *after* that function's `return`, where it was unreachable. So the normalizer answered
+    None for every non-None input: firstLoginAt, lastLoginAt, setupCompletedAt,
+    navSetup*At, setupCapabilitiesUpdatedAt, onboardingJourneyUpdatedAt, createdAt and
+    updatedAt all serialized as null.
+
+    The quiet consequence is the one worth guarding: `expectedOnboardingJourneyUpdatedAt`
+    optimistic concurrency compares against that value, so it was comparing against null
+    and could not detect a stale journey at all.
+
+    Broken on purpose: delete the `try` body from `_normalize_int_ms_or_none` and the
+    first assertion fails.
+    """
+    normalize = VaultKeysService._normalize_int_ms_or_none
+
+    assert normalize(1699999999999) == 1699999999999
+    assert normalize("1699999999999") == 1699999999999
+    assert normalize(1699999999999.0) == 1699999999999
+
+    # Absent stays absent, and unparseable is not a silent zero.
+    assert normalize(None) is None
+    assert normalize("not-a-timestamp") is None
+    assert normalize([]) is None
+
+
+def test_runtime_setup_choice_normalizer_has_no_unreachable_tail() -> None:
+    """The sibling function that the ms body had been spliced into still answers.
+
+    Broken on purpose: return an unvalidated value and the last assertion fails.
+    """
+    normalize = VaultKeysService._normalize_one_runtime_setup_choice
+
+    assert normalize("hushh_managed_vertex") == "hushh_managed_vertex"
+    assert normalize(" byok_pending_vault ") == "byok_pending_vault"
+    assert normalize(None) is None
+    assert normalize("not_a_choice") is None
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_enrollment_and_ack_are_bounded_and_monotonic():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    initial = await service.get_pre_vault_state("initial-owner")
+    assert initial["initialContactsWelcomeAcknowledged"] is None
+    enrolled = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_source="device"
+    )
+    assert enrolled["initialContactsSource"] == "device"
+    assert enrolled["initialContactsWelcomeAcknowledged"] is False
+    with pytest.raises(ValueError, match="finish setup"):
+        await service.update_pre_vault_state(
+            user_id="initial-owner", initial_contacts_welcome_acknowledged=True
+        )
+    row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "initial-owner")
+    row.update(
+        {
+            "vault_status": "active",
+            "initial_contacts_circle_id": "00000000-0000-0000-0000-000000000001",
+        }
+    )
+    await service.update_pre_vault_state(user_id="initial-owner", setup_completed=True)
+    ack = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_welcome_acknowledged=True
+    )
+    assert ack["initialContactsWelcomeAcknowledged"] is True
+    assert ack["initialContactsCircleId"] == row["initial_contacts_circle_id"]
+    replay = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_source="device"
+    )
+    assert replay["initialContactsWelcomeAcknowledged"] is True
+    assert replay["setupCompleted"] is True
+    with pytest.raises(ValueError, match="monotonic"):
+        await service.update_pre_vault_state(
+            user_id="initial-owner", initial_contacts_welcome_acknowledged=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_cannot_enroll_a_completed_legacy_account():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    await service.get_pre_vault_state("legacy-owner")
+    await service.update_pre_vault_state(user_id="legacy-owner", setup_completed=True)
+    with pytest.raises(ValueError, match="enrollment is already closed"):
+        await service.update_pre_vault_state(
+            user_id="legacy-owner", initial_contacts_source="google"
+        )
+    state = await service.get_pre_vault_state("legacy-owner")
+    assert state["initialContactsWelcomeAcknowledged"] is None
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_enrollment_cannot_race_root_completion(monkeypatch):
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    await service.get_pre_vault_state("race-owner")
+    original = _FakeQuery.execute
+
+    def race(query):
+        if query._op == "update" and "initial_contacts_source" in (query._update_data or {}):
+            row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "race-owner")
+            row["setup_completed"] = True
+        return original(query)
+
+    monkeypatch.setattr(_FakeQuery, "execute", race)
+    with pytest.raises(ValueError, match="enrollment is already closed"):
+        await service.update_pre_vault_state(user_id="race-owner", initial_contacts_source="google")
+    row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "race-owner")
+    assert row["setup_completed"] is True
+    assert row.get("initial_contacts_welcome_acknowledged") is None

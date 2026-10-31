@@ -31,10 +31,12 @@ import type {
  */
 export class SosPanicError extends Error {
   partialIncident: SosIncident | null;
-  constructor(message: string, partialIncident: SosIncident | null) {
+  delivery: SosDeliveryOutcome[];
+  constructor(message: string, partialIncident: SosIncident | null, delivery: SosDeliveryOutcome[] = []) {
     super(message);
     this.name = "SosPanicError";
     this.partialIncident = partialIncident;
+    this.delivery = delivery;
   }
 }
 
@@ -43,8 +45,9 @@ export class SosPanicError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Narrowed recipient type — has all three fields required to receive an
- * encrypted location envelope: canReceiveLocation flag, a keyId, and a JWK.
+ * Narrowed recipient type with all three fields required to receive an
+ * encrypted location envelope: the
+ * canReceiveLocation flag, a keyId, and a JWK.
  */
 export type SosShareReadyRecipient = OneLocationRecipient & {
   keyId: string;
@@ -53,13 +56,29 @@ export type SosShareReadyRecipient = OneLocationRecipient & {
 
 /**
  * Type predicate that narrows `OneLocationRecipient` to `SosShareReadyRecipient`.
- * Mirrors the `isShareReadyRecipient` guard in page.tsx — kept here so it can
- * be imported and used without the React component context.
+ * Save My Soul delivers in One, not through a phone number. Its selected
+ * Circle membership and active relationship are checked by the server; a
+ * phone claim is unrelated to receiving the encrypted location.
  */
 export function isSosShareReadyRecipient(
   r: OneLocationRecipient,
 ): r is SosShareReadyRecipient {
-  return Boolean(r.canReceiveLocation && r.keyId && r.publicKeyJwk);
+  return Boolean(
+    r.canReceiveLocation && r.keyId && r.publicKeyJwk,
+  );
+}
+
+/**
+ * Explain why an SMS alert has no eligible recipient without leaking backend
+ * policy wording into the screen or confusing receiving setup with identity.
+ */
+export function sosRecipientReadinessMessage(
+  recipients: OneLocationRecipient[],
+): string {
+  if (!recipients.length) {
+    return "Add at least one SMS contact before sending an alert.";
+  }
+  return "Couldn't reach your SMS Circle. Alert not sent. Try again.";
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +147,12 @@ export function selectSmsRecipients(
 
 export interface RunSosPanicParams {
   vaultOwnerToken: string;
+  /**
+   * The signed-in owner the incident record belongs to. When given, the
+   * persisted incident is owner-scoped (see `loadSosIncident`); a caller that
+   * cannot name the owner writes a legacy, unscoped record.
+   */
+  ownerUserId?: string | null;
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
@@ -147,7 +172,7 @@ export interface RunSosPanicParams {
 /**
  * Per-recipient outcome for one alert.
  *
- * `alerted` is `true` when the backend handed a push to FCM, `false` when the
+ * `alerted` is `true` when the backend queued a push for a device, `false` when the
  * recipient had no device to deliver to (notifications never enabled, or the
  * token was reaped after an uninstall), and `null` when the backend did not
  * report — which must never be shown as a failure.
@@ -156,6 +181,8 @@ export type SosDeliveryOutcome = {
   userId: string;
   displayName: string;
   alerted: boolean | null;
+  /** Grant creation or encrypted publication failed for this contact. */
+  failed?: boolean;
 };
 
 /**
@@ -175,9 +202,12 @@ export type SosPanicResult = SosIncident & {
  * call so that a partial incident (publish failure mid-loop) still contains
  * every grant id that was created and can be revoked by handleStopSos.
  *
- * On full or partial success the incident is written via `saveSosIncident`.
- * On total failure (first grant creation throws) nothing is persisted and a
- * SosPanicError with partialIncident === null is thrown.
+ * The incident is persisted the moment each grant exists (an idempotent
+ * overwrite with the ids so far), so a crash, a reload or a lost tab between
+ * one `createGrant` and the next never orphans a live 8-hour share; the final
+ * write after the loop is the complete record. Every recipient is attempted.
+ * On total failure (no grant created) nothing is persisted and a SosPanicError with
+ * partialIncident === null is thrown.
  *
  * @throws {SosPanicError} Always on failure — carries the partial incident
  *   (if any grants were created) or null (if none were).
@@ -192,7 +222,7 @@ export async function runSosPanic(
     normalizedNote &&
     normalizedNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
   ) {
-    throw new SosPanicError("character limit exceed", null);
+    throw new SosPanicError("Message is too long", null);
   }
 
   if (!recipients.length) {
@@ -202,11 +232,21 @@ export async function runSosPanic(
   // Capture a single timestamp used for both the success incident and any
   // partial incident — prevents clock skew between the two code paths.
   const startedAt = new Date().toISOString();
+  const owner = String(params.ownerUserId ?? "").trim();
   const grantIds: string[] = [];
-  const delivery: SosDeliveryOutcome[] = [];
+  const delivery: SosDeliveryOutcome[] = new Array(recipients.length);
+  const incidentSoFar = (): SosIncident => ({
+    grantIds: [...grantIds],
+    startedAt,
+    ...(owner ? { ownerUserId: owner } : {}),
+  });
 
-  try {
-    for (const recipient of recipients) {
+  let firstError: unknown;
+  // A slow device/push for one contact must not hold up the rest of the Circle.
+  // Bound fan-out while retaining each grant before its first publication.
+  let nextRecipient = 0;
+  const deliver = async (recipient: SosShareReadyRecipient, index: number) => {
+    try {
       const grant = await OneLocationService.createGrant({
         vaultOwnerToken,
         recipientUserId: recipient.userId,
@@ -216,36 +256,43 @@ export async function runSosPanic(
         shareKind: "sos",
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
-      // publish throws for this or a later recipient.
+      // publish throws for this or a later recipient, and persist it at once
+      // so a crash before the next create leaves a stoppable record behind.
       grantIds.push(grant.id);
+      saveSosIncident(incidentSoFar());
       const alerted = await publish(grant, recipient, point);
-      delivery.push({
+      delivery[index] = {
         userId: recipient.userId,
         displayName: recipient.displayName,
         alerted: typeof alerted === "boolean" ? alerted : null,
-      });
+      };
+    } catch (error) {
+      firstError ??= error;
+      delivery[index] = {
+        userId: recipient.userId,
+        displayName: recipient.displayName,
+        alerted: false,
+        failed: true,
+      };
     }
-
-    const incident: SosIncident = { grantIds, startedAt };
-    // Only incident fields are persisted; delivery is per-attempt UI feedback
-    // and would be stale the moment it was read back from storage.
-    saveSosIncident(incident);
-    return { ...incident, delivery };
-  } catch (error) {
-    // Build partial incident from whatever grants were successfully created.
-    const partial: SosIncident | null = grantIds.length
-      ? { grantIds, startedAt }
-      : null;
-
-    // Best-effort persistence — if localStorage is full/unavailable the caller
-    // still recovers via the SosPanicError.partialIncident field (in-memory).
-    if (partial) {
-      saveSosIncident(partial);
+  };
+  await Promise.all(Array.from({ length: Math.min(3, recipients.length) }, async () => {
+    while (nextRecipient < recipients.length) {
+      const index = nextRecipient++;
+      const recipient = recipients[index];
+      if (recipient) await deliver(recipient, index);
     }
-
+  }));
+  if (firstError !== undefined) {
     throw new SosPanicError(
-      error instanceof Error ? error.message : String(error),
-      partial,
+      firstError instanceof Error ? firstError.message : "Could not send SMS alert.",
+      grantIds.length ? incidentSoFar() : null,
+      delivery,
     );
   }
+  // Keep every created grant stoppable, including those whose publication
+  // failed. Failure for one contact never prevents the remaining attempts.
+  const incident = incidentSoFar();
+  saveSosIncident(incident);
+  return { ...incident, delivery };
 }

@@ -1,101 +1,321 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const capacitorMocks = vi.hoisted(() => ({
-  isNativePlatform: vi.fn(() => false),
-  getPlatform: vi.fn(() => "web"),
-  request: vi.fn(),
-}));
-
-// ---------------------------------------------------------------------------
-// Mocks – declared before any import that touches them
-// ---------------------------------------------------------------------------
-
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: capacitorMocks.isNativePlatform,
-    getPlatform: capacitorMocks.getPlatform,
-  },
-  CapacitorHttp: { request: capacitorMocks.request },
-}));
-
-vi.mock("@/lib/capacitor", () => ({
-  HushhVault: {},
-  HushhAuth: {},
-  HushhConsent: {},
-  HushhNotifications: {},
-}));
-
-vi.mock("@/lib/capacitor/kai", () => ({
-  Kai: {},
-  PORTFOLIO_STREAM_EVENT: "portfolio_stream",
-  KAI_STREAM_EVENT: "kai_stream",
-}));
-
-vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: {
-    getIdToken: vi.fn(),
-    getCurrentUser: vi.fn(),
-  },
-}));
-
-vi.mock("@/lib/observability/client", () => ({
-  toDurationBucket: () => "fast",
-  trackApiRequestCompleted: vi.fn(),
-  trackEvent: vi.fn(),
-}));
-
-vi.mock("@/lib/observability/route-map", () => ({
-  resolveRouteId: () => "test-route",
-}));
-
-vi.mock("@/lib/motion/api-progress-tracker", () => ({
-  trackRequestStart: vi.fn(),
-  trackRequestEnd: vi.fn(),
-}));
-
-// ---------------------------------------------------------------------------
-// Imports (after mocks are registered)
-// ---------------------------------------------------------------------------
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { googlePlacement, capacitorMocks, nativeStreamFetch, previewMocks, kaiMocks } from "../fixtures/api-service-mocks";
 import { ApiService } from "@/lib/services/api-service";
+import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
-import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal, getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
-function jsonResponse(body: unknown, status = 200, headers?: Record<string, string>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
-function makeUnsignedToken(payload: Record<string, unknown>): string {
-  const payloadBase64 = btoa(JSON.stringify(payload))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `header.${payloadBase64}.sig`;
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
+  it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
+    const url = "https://owner-pod.example/api/one/pod/status";
+    mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+    const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
+    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key", "content-type": "application/json" });
+    await request(url, { credentials: "omit", headers });
+    expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
+    const sent = new Headers(mockFetch.mock.calls[0][1]?.headers);
+    headers.forEach((value, key) => expect(sent.get(key)).toBe(value));
+    if (streaming) expect(sent.get("Accept")).toBe("text/event-stream");
+    await ApiService.apiFetch("/api/one/personal-agent/status");
+    expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
+  });
+
+
+  it("refuses a mismatched Firebase subject before observation admission", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "owner-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBeUndefined();
+    const matching = makeUnsignedToken({ sub: "owner-a" });
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
+  });
+  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).not.toContain("9000000001");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
+    expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
+    expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
+  it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
+    let active = true;
+    const token = deferred<string | null>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = operation === "list" ? ApiService.listTrustedDevices(() => active) :
+      ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    active = false;
+    token.resolve("synthetic-id-token");
+    expect((await request).status).toBe(409);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+    active = true;
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse(operation === "list" ? { devices: [] } : { success: true }));
+    const accepted = operation === "list" ? await ApiService.listTrustedDevices(() => active) :
+      await ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    expect(accepted.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+  it.each(["list", "unlink"] as const)("keeps the trusted-device %s guard through final transport dispatch", async operation => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    let active = true;
+    const isCurrent = () => {
+      // Identity acquisition admits the operation; retirement happens before
+      // apiFetch's awaited tracker/dispatch phase completes.
+      queueMicrotask(() => { active = false; });
+      return active;
+    };
+    await expect(operation === "list" ? ApiService.listTrustedDevices(isCurrent) :
+      ApiService.revokeTrustedDevice("synthetic-device", isCurrent)).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("reports native chat custody readiness separately from token registration: %s", async (ready) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    capacitorMocks.registerNativePush.mockResolvedValueOnce({ success: true });
+    if (ready) previewMocks.prepare.mockResolvedValueOnce({ deviceId: "fixture", keyId: previewMocks.keyId, publicKey: "fixture-public" });
+    else previewMocks.prepare.mockRejectedValueOnce(new Error("Unavailable native custody"));
+    const result = await ApiService.registerPushToken("synthetic-owner", "fixture-token", "ios", "fixture-proof", () => true);
+    expect(result.ok).toBe(true);
+    expect(await result.json()).toEqual({ success: true, chatReady: ready });
+    expect(capacitorMocks.registerNativePush).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ["ios", false], ["android", false], ["ios", true], ["android", true],
+  ] as const)("keeps native SSE auth recovery scoped to its initiating session on %s (switch: %s)", async (platform, switchAccount) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    const originalToken = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const freshToken = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    const originalUser = { uid: "account-a" };
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(originalUser as never);
+    const refreshed = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(refreshed.promise);
+    const streamed = new Response(new ReadableStream<Uint8Array>(), { status: 200 });
+    nativeStreamFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+    nativeStreamFetch.mockResolvedValueOnce(streamed);
+    const controller = new AbortController();
+    try {
+      const pending = ApiService.apiFetchStream("/api/one/messages/events", {
+        headers: { Authorization: `Bearer ${originalToken}` },
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(AuthService.getIdToken).toHaveBeenCalledWith(true));
+      if (switchAccount) {
+        vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-b" } as never);
+      }
+      refreshed.resolve(freshToken);
+      const response = await pending;
+      expect(nativeStreamFetch).toHaveBeenCalledWith(
+        `${ApiService.getBaseUrl()}/api/one/messages/events`,
+        expect.objectContaining({ signal: controller.signal }),
+        "caller",
+      );
+      const firstHeaders = new Headers(nativeStreamFetch.mock.calls[0][1].headers);
+      expect(firstHeaders.get("Accept")).toBe("text/event-stream");
+      expect(firstHeaders.get("Authorization")).toBe(`Bearer ${originalToken}`);
+      expect(capacitorMocks.request).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+      if (switchAccount) {
+        expect(response.status).toBe(401);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(1);
+      } else {
+        expect(response).toBe(streamed);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(2);
+        expect(new Headers(nativeStreamFetch.mock.calls[1][1].headers).get("Authorization")).toBe(`Bearer ${freshToken}`);
+      }
+    } finally {
+      await streamed.body?.cancel();
+      vi.unstubAllEnvs();
+    }
+  });
+  it.each([
+    ["ios", "/api/one/messages/conversations/c/messages/m/attachment"],
+    ["android", "/api/one/messages/conversations/c/messages/m/attachment"],
+    ["ios", "/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/one-copy/files/22222222-2222-4222-8222-222222222222/content?disposition=download"],
+    ["android", "/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/one-copy/files/22222222-2222-4222-8222-222222222222/content?disposition=download"],
+  ])("preserves authenticated attachment bytes on %s at %s and keeps JSON refusals readable", async (platform, contentPath) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    const bytes = new Uint8Array([0, 255, 137, 80, 78, 71, 13, 10, 128]);
+    capacitorMocks.request.mockResolvedValueOnce({ status: 200, headers: { "content-type": "application/octet-stream" },
+      data: btoa(String.fromCharCode(...bytes)) });
+    const response = await ApiService.apiFetch(contentPath, { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: "arraybuffer" }));
+    capacitorMocks.request.mockResolvedValueOnce({ status: 403, headers: { "Content-Type": "application/json" }, data: { detail: { message: "Unavailable" } } });
+    const refused = await ApiService.apiFetch(contentPath, { responseType: "arraybuffer" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
+  });
   beforeEach(() => {
+    googlePlacement.mockResolvedValue(false);
     vi.clearAllMocks();
     mockFetch.mockReset();
     capacitorMocks.isNativePlatform.mockReturnValue(false);
     capacitorMocks.getPlatform.mockReturnValue("web");
     capacitorMocks.request.mockReset();
+    nativeStreamFetch.mockReset();
+    vi.mocked(AuthService.getIdToken).mockReset();
+    vi.mocked(AuthService.getCurrentUser).mockReset();
+    for (const mock of Object.values(kaiMocks)) mock.mockReset();
+    kaiMocks.addListener.mockResolvedValue({ remove: vi.fn() });
+    kaiMocks.cancelKaiAnalysisStream.mockResolvedValue({ cancelled: true });
+    publishValidatedAuthSessionOwner(null);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("explains a paused GCP setup instead of suggesting a transient retry", async () => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValue("firebase-id-token");
+    mockFetch.mockResolvedValue(jsonResponse({ detail: {
+      code: "BYOC_UNAVAILABLE", message: "Untrusted server detail",
+    } }, 503));
+    await expect(ApiService.beginByocAuthorize({ projectId: "owner-project" })).rejects.toThrow(
+      "Cloud setup is unavailable in this environment. Your existing setup is unchanged.",
+    );
+  });
+
+  it("rechecks effect authority after asynchronous transport setup", async () => {
+    let current = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => { current = false; });
+    const beforeDispatch = vi.fn(async () => {
+      if (!current) throw new DOMException("Session changed", "AbortError");
+    });
+    await expect(ApiService.apiFetch("/api/pkm/store-domain", {
+      method: "POST", body: "{}", beforeDispatch,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["unmount", "owner", "owner-round-trip"])("blocks Google completion at real transport dispatch after %s", async (change) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    let mounted = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => {
+      if (change === "unmount") mounted = false;
+      else {
+        publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-other", ownerId: "synthetic-other", accountGeneration: 0 });
+        if (change === "owner-round-trip") publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+      }
+    });
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver a legacy Google callback code to the hub after private placement', async () => {
+    publishValidatedAuthSessionOwner('synthetic-owner');
+    googlePlacement.mockResolvedValue(true);
+    await expect(GoogleConnectionService.completeConnect({ idToken: makeUnsignedToken({ sub: 'synthetic-owner' }), userId: 'synthetic-owner', code: 'native-code-must-not-reach-hub', state: 'state', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it("completes Google callbacks without sending presentation authority", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar" }));
+    const result = await GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    });
+    expect(result.service).toBe("calendar");
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state", redirect_uri: `${window.location.origin}/one/profile/google/oauth/return` });
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
+  });
+
+  it.each([undefined, "unknown", "drive"])("refuses unverifiable Google callback service %s", async (service) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    })).rejects.toThrow("could not be verified");
+  });
+
+  it("does not send an application effect guard over the transport", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const beforeDispatch = vi.fn(async () => {});
+    await ApiService.apiFetch("/api/pkm/store-domain", { method: "POST", beforeDispatch });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("beforeDispatch");
+  });
+
+  it("blocks a session change queued between an async guard and web dispatch", async () => {
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("blocks the same native dispatch race (multipart=%s)", async (multipart) => {
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST", body: multipart ? new FormData() : "{}",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
+  it("keeps simultaneous reviewer sessions bound to their requested identities", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    mockFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const a = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-a" });
+    const b = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-b" });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(mockFetch.mock.calls.map((call) => JSON.parse(call[1].body).reviewer_uid))
+      .toEqual(["synthetic-a", "synthetic-b"]);
+    second.resolve(jsonResponse({ token: "synthetic-token-b" }));
+    first.resolve(jsonResponse({ token: "synthetic-token-a" }));
+    expect(await a).toEqual({ token: "synthetic-token-a" });
+    expect(await b).toEqual({ token: "synthetic-token-b" });
+  });
+
+  it("never asks for or mints a review session from a production build", async () => {
+    // Negative control: a UAT build asks the backend and honours its answer.
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ enabled: true }));
+    expect(await ApiService.getAppReviewModeConfig()).toEqual({ enabled: true });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    mockFetch.mockReset();
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    mockFetch.mockResolvedValue(jsonResponse({ enabled: true, token: "synthetic-token" }));
+    expect(await ApiService.getAppReviewModeConfig()).toEqual({ enabled: false });
+    await expect(ApiService.createAppReviewModeSession("reviewer")).rejects.toThrow(
+      "Reviewer login unavailable",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
@@ -107,11 +327,67 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
-    // On web the URL should be the path itself (relative), no hostname prefix
     expect(calledUrl).toBe("/api/test");
   });
 
   // 2 – Every request includes X-Request-Id header
+  it("checks account session status with the caller's cached Firebase token", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ active: true }));
+
+    const response = await ApiService.getAccountSessionStatus("cached-token");
+
+    expect(response.status).toBe(200);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect(calledUrl).toBe("/api/account/session-status");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer cached-token",
+    );
+    expect((options.headers as Record<string, string>)["Cache-Control"]).toBe(
+      "no-store",
+    );
+    expect(options.cache).toBe("no-store");
+  });
+
+  it("leaves confirmed deletion-probe settlement to the captured lifecycle owner", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-owner", ownerId: "deleted-owner", accountGeneration: 0 });
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    mockFetch.mockResolvedValueOnce(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } }, { status: 401 }));
+    const response = await ApiService.getAccountDeletionStatus("cached-proof");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } });
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "auth-session-invalidated")).toHaveLength(0);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountLifecycleOwnsAuthOutcome");
+  });
+
+  it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null = null;
+    mockFetch.mockImplementationOnce((_url, options) => {
+      signal = (options as RequestInit).signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal?.reason));
+      });
+    });
+
+    const request = ApiService.getAccountSessionStatus("cached-token");
+    const settledRequest = request.catch((error: unknown) => error);
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(signal?.aborted).toBe(false);
+
+    // The generic web-fetch safety ceiling remains 60 seconds; this test only
+    // proves the account-status-specific 8-second abort no longer wins first.
+    await vi.advanceTimersByTimeAsync(51_999);
+    await expect(settledRequest).resolves.toMatchObject({ name: "TimeoutError" });
+    vi.useRealTimers();
+  });
+
   it("includes an x-request-id header in every request", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
@@ -146,40 +422,644 @@ describe("ApiService.apiFetch", () => {
     nowSpy.mockRestore();
   });
 
-  it("retries with a fresh Firebase token on 401 and adds X-Hushh-Auth-Refresh-Retry header", async () => {
-    const freshToken = "fresh-firebase-token-xyz";
-    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(freshToken);
+  it.each(["account-a", "account-b"])(
+    "does not replay or invalidate the replacement session when refresh resolves for %s after an account switch",
+    async (refreshedAccount) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      let finishRefresh!: (token: string) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRefresh = resolve;
+          }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue({
+        uid: "account-a",
+      } as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ error: "Unauthorized" }, 401),
+      );
 
-    // First call → 401, second call (retry) → 200
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
+      const pendingResponse = ApiService.apiFetch(
+        "/api/one/connections/contact-sync",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accountAToken}` },
+          body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+        },
+      );
 
-    const response = await ApiService.apiFetch("/api/protected", {
-      method: "GET",
-      headers: { Authorization: "Bearer original-firebase-token" },
+      await vi.waitFor(() =>
+        expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue({
+        uid: "account-b",
+      } as never);
+      finishRefresh(
+        makeUnsignedToken({ user_id: refreshedAccount, version: 2 }),
+      );
+      const response = await pendingResponse;
+
+      expect(response.status).toBe(401);
+      expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        dispatchSpy.mock.calls.filter(
+          ([event]) =>
+            event instanceof CustomEvent &&
+            event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(0);
+    },
+  );
+  it.each(["account-a", "account-b"])(
+    "does not replay a native refresh after the owner generation changes to %s",
+    async (nextUserId) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
+      let finishRefresh!: (token: string) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRefresh = resolve;
+          }),
+      );
+      capacitorMocks.request.mockResolvedValueOnce({
+        status: 401,
+        headers: {},
+        data: { error: "Unauthorized" },
+      });
+      const dispatch = vi.spyOn(window, "dispatchEvent");
+      const pending = ApiService.apiFetch("https://uat.example/api/protected", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${makeUnsignedToken({ user_id: "account-a" })}`,
+        },
+        body: "owner-a-body",
+      });
+      await vi.waitFor(() =>
+        expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
+      );
+      publishValidatedAuthSessionOwner(null);
+      publishValidatedAuthSessionPrincipal({ firebaseUid: nextUserId, ownerId: nextUserId, accountGeneration: 0 });
+      finishRefresh(makeUnsignedToken({ user_id: nextUserId, version: 2 }));
+      expect((await pending).status).toBe(401);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
+      expect(
+        dispatch.mock.calls.filter(
+          ([event]) => event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ["/api/connectors/google_drive/searches", "POST", 180_000],
+    ["/api/connectors/google_drive/sharing/bulk", "POST", 180_000],
+    ["/api/connectors/google_drive/searches/11111111-1111-4111-8111-111111111111/stop", "POST", 60_000],
+    ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111/prepare", "POST", 180_000],
+    ["/api/connectors/google_drive/sharing/queries/11111111-1111-4111-8111-111111111111/allow", "POST", 180_000],
+    ["/api/connectors/google_drive/sharing/requests/11111111-1111-4111-8111-111111111111", "GET", 60_000],
+  ])("gives native %s %s the same Drive budget as the web", async (path, method, expected) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: {},
     });
+    try {
+      await ApiService.apiFetch(path, {
+        method,
+        ...(method === "POST"
+          ? { body: "{}", headers: { "Content-Type": "application/json" } }
+          : {}),
+      });
+      expect(capacitorMocks.request.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ connectTimeout: expected, readTimeout: expected }),
+      );
+    } finally {
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
 
-    // Should have called getIdToken with force=true
-    expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
+  it.each([
+    ["ios", "/api/one/connections/directory?page=1", 60_000],
+    ["android", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/one/agent-chat/proposals", 150_000],
+    ["android", "/api/one/agent-chat/proposals", 150_000],
+    ["ios", "/api/ria/onboarding/verify", 90_000],
+    ["android", "/api/ria/onboarding/verify", 90_000],
+    ["android", "/api/connectors/google_drive/searches", 180_000],
+  ] as const)("preserves the response budget on %s for %s", async (platform, path, timeout) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { items: [] },
+    });
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    await ApiService.apiFetch(path);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({
+      connectTimeout: platform === "ios" ? timeout : 15_000,
+      readTimeout: timeout,
+    }));
+  });
 
-    // fetch was called twice: original + retry
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+  it("retries native Firebase requests with a forced fresh token on 401", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    const staleToken = makeUnsignedToken({ user_id: "native-user", iat: 1 });
+    const freshToken = makeUnsignedToken({ user_id: "native-user", iat: 2 });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-user", ownerId: "native-user", accountGeneration: 0 });
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      freshToken,
+    );
+    capacitorMocks.request
+      .mockResolvedValueOnce({
+        status: 401,
+        headers: { "content-type": "application/json" },
+        data: { detail: "Invalid Firebase ID token" },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        data: { ok: true },
+      });
 
-    // The retry call should carry the fresh token and the retry header
-    const [, retryOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
-    const retryHeaders = retryOptions.headers as Record<string, string>;
-    expect(retryHeaders["Authorization"]).toBe(`Bearer ${freshToken}`);
-    expect(retryHeaders["X-Hushh-Auth-Refresh-Retry"]).toBe("1");
+    try {
+      const response = await ApiService.apiFetch("/db/vault/bootstrap-state", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${staleToken}` },
+      });
 
-    // Final response should be the 200
-    expect(response.status).toBe(200);
+      expect(response.status).toBe(200);
+      expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(2);
+      const retryHeaders = new Headers(capacitorMocks.request.mock.calls[1]?.[0].headers);
+      expect(retryHeaders.get("Authorization")).toBe(`Bearer ${freshToken}`);
+      expect(retryHeaders.get("X-Hushh-Auth-Refresh-Retry")).toBe("1");
+    } finally {
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
+  it("dispatches account-not-found immediately for native deleted-account responses", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 401,
+      headers: { "content-type": "application/json" },
+      data: {
+        detail: {
+          code: "AUTH_ACCOUNT_NOT_FOUND",
+          message: "Account not found",
+        },
+      },
+    });
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+    const deletedToken = makeUnsignedToken({ user_id: "deleted-user" });
+
+    try {
+      const response = await ApiService.apiFetch("/db/vault/bootstrap-state", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${deletedToken}` },
+      });
+
+      expect(response.status).toBe(401);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          generation: getAuthSessionGeneration(),
+          path: "/db/vault/bootstrap-state",
+          userId: "deleted-user",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
+  it("dispatches the same account-not-found transition for web responses", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          error: {
+            detail: { code: "AUTH_ACCOUNT_NOT_FOUND" },
+          },
+        },
+        401,
+      ),
+    );
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+    const deletedToken = makeUnsignedToken({ user_id: "deleted-user" });
+
+    try {
+      const response = await ApiService.apiFetch("/api/vault/bootstrap-state", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${deletedToken}` },
+      });
+
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          generation: getAuthSessionGeneration(),
+          path: "/api/vault/bootstrap-state",
+          userId: "deleted-user",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+    }
+  });
+
+  it("scopes a terminal web HCT response to the validated session owner", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-hct-user", ownerId: "deleted-hct-user", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
+    );
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+
+    try {
+      const response = await ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:deleted-owner-token" },
+      });
+
+      expect(response.status).toBe(401);
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          generation: getAuthSessionGeneration(),
+          path: "/api/one/location/state",
+          userId: "deleted-hct-user",
+        },
+      ]);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+    }
+  });
+
+  it("scopes a terminal native HCT response to the validated session owner", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-deleted-hct-user", ownerId: "native-deleted-hct-user", accountGeneration: 0 });
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 401,
+      headers: { "content-type": "application/json" },
+      data: { detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } },
+      url: "https://uat.example/api/one/location/state",
+    });
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+
+    try {
+      const response = await ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:deleted-owner-token" },
+      });
+
+      expect(response.status).toBe(401);
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          generation: getAuthSessionGeneration(),
+          path: "/api/one/location/state",
+          userId: "native-deleted-hct-user",
+        },
+      ]);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
+  it("classifies account-not-found from the native FormData fallback", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("android");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-upload-owner", ownerId: "native-upload-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
+    );
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", new Blob(["test"]), "test.txt");
+      const response = await ApiService.apiFetch("/api/import/upload", {
+        method: "POST",
+        headers: { Authorization: "Bearer HCT:native-upload-token" },
+        body: formData,
+      });
+
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(capacitorMocks.request).not.toHaveBeenCalled();
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          generation: getAuthSessionGeneration(),
+          path: "/api/import/upload",
+          userId: "native-upload-owner",
+        },
+      ]);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
+  });
+
+  it("ignores a delayed web HCT terminal response after account A switches to B", async () => {
+    const pendingResponse = deferred<Response>();
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
+    mockFetch.mockReturnValueOnce(pendingResponse.promise);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    try {
+      const request = ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:account-a-token" },
+      });
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
+      pendingResponse.resolve(
+        jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
+      );
+
+      expect((await request).status).toBe(401);
+      const invalidations = dispatchSpy.mock.calls.filter(
+        ([event]) =>
+          event instanceof CustomEvent &&
+          event.type === "auth-session-invalidated",
+      );
+      expect(invalidations).toHaveLength(0);
+    } finally {
+      dispatchSpy.mockRestore();
+    }
+  });
+
+  it("does not lock a new local unlock for a late same-UID HTTP failure", async () => {
+    const pending = deferred<Response>();
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "same-owner", ownerId: "same-owner", accountGeneration: 0 });
+    mockFetch.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const request = ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:old-local-session" },
+      });
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch(); // Explicit lock/re-unlock, same authenticated UID.
+      pending.resolve(jsonResponse({ code: "AUTH_VAULT_OWNER_INVALID" }, 403));
+      await request;
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
+    }
+  });
+
+  it("ignores a delayed native HCT terminal response after account A switches to B", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    const pendingResponse = deferred<{
+      status: number;
+      headers: Record<string, string>;
+      data: unknown;
+      url: string;
+    }>();
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
+    capacitorMocks.request.mockReturnValueOnce(pendingResponse.promise);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    try {
+      const request = ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:account-a-token" },
+      });
+      await vi.waitFor(() =>
+        expect(capacitorMocks.request).toHaveBeenCalledTimes(1),
+      );
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
+      pendingResponse.resolve({
+        status: 401,
+        headers: { "content-type": "application/json" },
+        data: { detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } },
+        url: "https://uat.example/api/one/location/state",
+      });
+
+      expect((await request).status).toBe(401);
+      const invalidations = dispatchSpy.mock.calls.filter(
+        ([event]) =>
+          event instanceof CustomEvent &&
+          event.type === "auth-session-invalidated",
+      );
+      expect(invalidations).toHaveLength(0);
+    } finally {
+      dispatchSpy.mockRestore();
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
   });
 
   // 4 – Handle unchanged token safely and keep session when user is same
+  it.each(["AUTH_ACCOUNT_DELETION_IN_PROGRESS", "AUTH_ACCOUNT_STATUS_UNAVAILABLE"])(
+    "requests recoverable session verification for native stream code %s", async (code) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "stream-owner", ownerId: "stream-owner", accountGeneration: 0 });
+      kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(Object.assign(new Error("Unavailable"), { code }));
+      const onVerification = vi.fn();
+      const onLock = vi.fn();
+      window.addEventListener("auth-session-verification-required", onVerification);
+      window.addEventListener("vault-lock-requested", onLock);
+      try {
+        const response = await ApiService.streamKaiAnalysis({ userId: "stream-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:owner-token" });
+        await expect(response.text()).rejects.toThrow("Unavailable");
+        expect(onVerification).toHaveBeenCalledTimes(1);
+        expect(onVerification.mock.calls[0][0].detail).toMatchObject({ userId: "stream-owner", reason: code });
+        expect(onLock).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("auth-session-verification-required", onVerification);
+        window.removeEventListener("vault-lock-requested", onLock);
+      }
+    },
+  );
+
+  it.each([
+    ["the unchanged initiating token", "unchanged"],
+    ["no token", "missing"],
+    ["a rejection", "rejected"],
+  ])(
+    "does not invalidate the replacement session when a stale refresh returns %s",
+    async (_label, refreshOutcome) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      const accountA = { uid: "account-a" };
+      const accountB = { uid: "account-b" };
+      let finishRefresh!: (value: string | null) => void;
+      let rejectRefresh!: (reason: Error) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finishRefresh = resolve;
+            rejectRefresh = reject;
+          }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ error: "Unauthorized" }, 401),
+      );
+
+      const pendingResponse = ApiService.apiFetch(
+        "/api/one/connections/contact-sync",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accountAToken}` },
+          body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+        },
+      );
+
+      await vi.waitFor(() =>
+        expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountB as never);
+      if (refreshOutcome === "rejected") {
+        rejectRefresh(new Error("stale refresh failed"));
+      } else {
+        finishRefresh(refreshOutcome === "unchanged" ? accountAToken : null);
+      }
+      const response = await pendingResponse;
+
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        dispatchSpy.mock.calls.filter(
+          ([event]) =>
+            event instanceof CustomEvent &&
+            event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ["auth/user-token-expired", 1],
+    ["auth/network-request-failed", 0],
+    ["unknown", 0],
+  ])(
+    "only invalidates an initiating session for a terminal refresh error: %s",
+    async (code, invalidations) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      const accountA = { uid: "account-a" };
+      vi.mocked(AuthService.getIdToken).mockRejectedValueOnce(
+        Object.assign(new Error("refresh failed"), { code }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ error: "Unauthorized" }, 401),
+      );
+
+      const response = await ApiService.apiFetch("/api/protected", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accountAToken}` },
+      });
+
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        dispatchSpy.mock.calls.filter(
+          ([event]) =>
+            event instanceof CustomEvent &&
+            event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(invalidations);
+    },
+  );
+
   it("does not dispatch auth-session-invalidated when refresh yields same token for active account", async () => {
     const staleToken = makeUnsignedToken({ user_id: "user-1" });
-    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+      staleToken,
+    );
     (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
       uid: "user-1",
     } as never);
@@ -196,7 +1076,9 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const invalidatedEvents = dispatchSpy.mock.calls.filter(
-      ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
+      ([event]) =>
+        event instanceof CustomEvent &&
+        event.type === "auth-session-invalidated",
     );
     expect(invalidatedEvents.length).toBe(0);
     expect(response.status).toBe(401);
@@ -204,9 +1086,11 @@ describe("ApiService.apiFetch", () => {
     dispatchSpy.mockRestore();
   });
 
-  it("dispatches auth-session-invalidated when same bearer token belongs to a different account", async () => {
+  it("does not refresh or invalidate the current account for another account's bearer", async () => {
     const staleToken = makeUnsignedToken({ user_id: "user-2" });
-    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+      staleToken,
+    );
     (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
       uid: "user-1",
     } as never);
@@ -223,12 +1107,51 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const invalidatedEvents = dispatchSpy.mock.calls.filter(
-      ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
+      ([event]) =>
+        event instanceof CustomEvent &&
+        event.type === "auth-session-invalidated",
     );
-    expect(invalidatedEvents.length).toBeGreaterThanOrEqual(1);
+    expect(invalidatedEvents).toHaveLength(0);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
     expect(response.status).toBe(401);
 
     dispatchSpy.mockRestore();
+  });
+
+  it("does not refresh or invalidate a replacement session when the original 401 arrives after switching accounts", async () => {
+    const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({
+      uid: "account-a",
+    } as never);
+    let finishRequest!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishRequest = resolve;
+        }),
+    );
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const pending = ApiService.apiFetch("/api/one/connections/contact-sync", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accountAToken}` },
+      body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+    });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({
+      uid: "account-b",
+    } as never);
+    finishRequest(jsonResponse({ error: "Unauthorized" }, 401));
+
+    expect((await pending).status).toBe(401);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(
+      dispatchSpy.mock.calls.filter(
+        ([event]) =>
+          event instanceof CustomEvent &&
+          event.type === "auth-session-invalidated",
+      ),
+    ).toHaveLength(0);
   });
 
   // 5 – Successful response returns Response object
@@ -249,12 +1172,14 @@ describe("ApiService.apiFetch", () => {
 
   it("requests a vault lock when web rejects an HCT token after validation", async () => {
     mockFetch.mockResolvedValueOnce(
-      jsonResponse({ detail: "Token validation failed." }, 401)
+      jsonResponse({ detail: "Token validation failed." }, 401),
     );
     const lockReasons: string[] = [];
     const handleLock = (event: Event) => {
       lockReasons.push(
-        String((event as CustomEvent<{ reason?: string }>).detail?.reason || "")
+        String(
+          (event as CustomEvent<{ reason?: string }>).detail?.reason || "",
+        ),
       );
     };
     window.addEventListener("vault-lock-requested", handleLock);
@@ -286,7 +1211,9 @@ describe("ApiService.apiFetch", () => {
     const lockReasons: string[] = [];
     const handleLock = (event: Event) => {
       lockReasons.push(
-        String((event as CustomEvent<{ reason?: string }>).detail?.reason || "")
+        String(
+          (event as CustomEvent<{ reason?: string }>).detail?.reason || "",
+        ),
       );
     };
     window.addEventListener("vault-lock-requested", handleLock);
@@ -307,6 +1234,178 @@ describe("ApiService.apiFetch", () => {
         process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
       }
     }
+  });
+
+  it("dispatches account-not-found when a native Kai stream rejects with the exact lifecycle code", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-stream-owner", ownerId: "deleted-stream-owner", accountGeneration: 0 });
+    kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(
+      Object.assign(new Error("Stream request was rejected."), {
+        code: "AUTH_ACCOUNT_NOT_FOUND",
+      }),
+    );
+    const details: unknown[] = [];
+    const handleInvalidation = (event: Event) => {
+      details.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("auth-session-invalidated", handleInvalidation);
+
+    try {
+      const response = await ApiService.streamKaiAnalysis({
+        userId: "deleted-stream-owner",
+        ticker: "AAPL",
+        riskProfile: "balanced",
+        vaultOwnerToken: "HCT:deleted-owner-token",
+      });
+
+      await expect(response.text()).rejects.toThrow(
+        "Stream request was rejected.",
+      );
+      expect(details).toEqual([
+        {
+          code: "account_not_found",
+          path: "/api/kai/analyze/stream",
+          userId: "deleted-stream-owner",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(
+        "auth-session-invalidated",
+        handleInvalidation,
+      );
+    }
+  });
+
+  it.each([
+    "AUTH_VAULT_OWNER_INVALID",
+  ])(
+    "locks the Vault without claiming deletion for native stream code %s",
+    async (bridgeCode) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "stream-owner", ownerId: "stream-owner", accountGeneration: 0 });
+      kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(
+        Object.assign(new Error("Stream request was rejected."), {
+          code: bridgeCode,
+        }),
+      );
+      const lockDetails: unknown[] = [];
+      const handleLock = (event: Event) => {
+        lockDetails.push((event as CustomEvent).detail);
+      };
+      const invalidationSpy = vi.fn();
+      window.addEventListener("vault-lock-requested", handleLock);
+      window.addEventListener("auth-session-invalidated", invalidationSpy);
+
+      try {
+        const response = await ApiService.streamKaiAnalysis({
+          userId: "stream-owner",
+          ticker: "AAPL",
+          riskProfile: "balanced",
+          vaultOwnerToken: "HCT:expired-owner-token",
+        });
+
+        await expect(response.text()).rejects.toThrow(
+          "Stream request was rejected.",
+        );
+        expect(lockDetails).toEqual([
+          {
+            reason: bridgeCode,
+            path: "/api/kai/analyze/stream",
+          },
+        ]);
+        expect(invalidationSpy).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("vault-lock-requested", handleLock);
+        window.removeEventListener("auth-session-invalidated", invalidationSpy);
+      }
+    },
+  );
+
+  it("ignores a delayed native stream auth failure after Account A switches to B", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
+    const pendingStream = deferred<Record<string, unknown>>();
+    kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pendingStream.promise);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    try {
+      const response = await ApiService.streamKaiAnalysis({
+        userId: "account-a",
+        ticker: "AAPL",
+        riskProfile: "balanced",
+        vaultOwnerToken: "HCT:account-a-token",
+      });
+      const consumption = response.text();
+      await vi.waitFor(() =>
+        expect(kaiMocks.streamKaiAnalysis).toHaveBeenCalledTimes(1),
+      );
+
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
+      pendingStream.reject(
+        Object.assign(new Error("Stream request was rejected."), {
+          code: "AUTH_ACCOUNT_NOT_FOUND",
+        }),
+      );
+
+      await expect(consumption).rejects.toThrow("Stream request was rejected.");
+      const authSideEffects = dispatchSpy.mock.calls.filter(
+        ([event]) =>
+          event instanceof CustomEvent &&
+          (event.type === "auth-session-invalidated" ||
+            event.type === "vault-lock-requested"),
+      );
+      expect(authSideEffects).toHaveLength(0);
+    } finally {
+      dispatchSpy.mockRestore();
+    }
+  });
+
+  it("does not lock a new local unlock for a late same-UID native stream failure", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "same-owner", ownerId: "same-owner", accountGeneration: 0 });
+    const pending = deferred<Record<string, unknown>>();
+    kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const response = await ApiService.streamKaiAnalysis({
+        userId: "same-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:old-local-session",
+      });
+      const consumption = response.text();
+      await vi.waitFor(() => expect(kaiMocks.streamKaiAnalysis).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch();
+      pending.reject(Object.assign(new Error("Old session rejected"), { code: "AUTH_VAULT_OWNER_INVALID" }));
+      await expect(consumption).rejects.toThrow("Old session rejected");
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
+    }
+  });
+
+  it.each([
+    ["adb_reverse", "localhost", "localhost"],
+    ["adb_reverse", "127.0.0.1", "127.0.0.1"],
+    ["", "localhost", "10.0.2.2"],
+    ["", "127.0.0.1", "10.0.2.2"],
+    ["adb_reverse", "api.example.test", "api.example.test"],
+  ])("routes Android backend requests using %s (%s → %s)", async (mode, host, expectedHost) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("android");
+    vi.stubEnv("BACKEND_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", `http://${host}:8000`);
+    vi.stubEnv("NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE", mode);
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { active: true },
+    });
+
+    const response = await ApiService.getAccountSessionStatus("synthetic-token");
+
+    expect(response.status).toBe(200);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({ url: `http://${expectedHost}:8000/api/account/session-status` }),
+    );
   });
 
   it("uses IPv4 loopback for local iOS simulator backend requests", async () => {
@@ -337,14 +1436,14 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
-  it("sends native Plaid status requests to the configured backend URL", async () => {
+  it("sends native Plaid vault requests to the configured backend URL", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
     capacitorMocks.request.mockResolvedValueOnce({
       status: 200,
       headers: { "content-type": "application/json" },
       data: { ok: true },
-      url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+      url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
     });
     const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
     const previousServerBackendUrl = process.env.BACKEND_URL;
@@ -352,15 +1451,20 @@ describe("ApiService.apiFetch", () => {
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://api.hushh.ai";
 
     try {
-      const response = await ApiService.apiFetch("/api/kai/plaid/status/user-123", {
-        headers: { Authorization: "Bearer HCT:vault-owner-token" },
-      });
+      const response = await ApiService.apiFetch(
+        "/api/kai/plaid/vault/link-token",
+        {
+          method: "POST",
+          body: "{}",
+          headers: { Authorization: "Bearer HCT:vault-owner-token" },
+        },
+      );
 
       expect(response.status).toBe(200);
       expect(capacitorMocks.request).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
-        })
+          url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
+        }),
       );
     } finally {
       if (previousBackendUrl === undefined) {
@@ -377,12 +1481,14 @@ describe("ApiService.apiFetch", () => {
   });
 
   it("fetches baseline market insights with Firebase auth", async () => {
-    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce("firebase-id-token");
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      "firebase-id-token",
+    );
     mockFetch.mockResolvedValueOnce(
       jsonResponse({
         generated_at: "2026-03-30T00:00:00Z",
         meta: { market_mode: "baseline" },
-      })
+      }),
     );
 
     const payload = await ApiService.getKaiMarketBaselineInsights({
@@ -391,12 +1497,37 @@ describe("ApiService.apiFetch", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(calledUrl).toBe("/api/kai/market/insights/baseline/user_123?days_back=7");
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect(calledUrl).toBe(
+      "/api/kai/market/insights/baseline/user_123?days_back=7",
+    );
     expect((options.headers as Record<string, string>).Authorization).toBe(
-      "Bearer firebase-id-token"
+      "Bearer firebase-id-token",
     );
     expect(payload.meta?.market_mode).toBe("baseline");
+  });
+
+  it("keeps US Market session status independent of the viewer timezone", async () => {
+    const resolvedOptions = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolvedOptions,
+      timeZone: "Asia/Kolkata",
+    });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-10-22T14:00:00Z" }));
+
+    await ApiService.getKaiMarketInsights({
+      userId: "user_123",
+      vaultOwnerToken: "fixture-vault-token",
+    });
+
+    const [calledUrl] = mockFetch.mock.calls[0] as [string];
+    const query = new URL(calledUrl, "http://localhost").searchParams;
+    expect(query.get("tz")).toBe("Asia/Kolkata");
+    expect(query.get("exchange")).toBe("US");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("starts UAT phone test verification through the account proxy", async () => {
@@ -405,19 +1536,22 @@ describe("ApiService.apiFetch", () => {
         success: true,
         eligible: true,
         verification_id: "uat-test-phone:abc123",
-      })
+      }),
     );
 
     const payload = await ApiService.startUatPhoneTestVerification(
       "+16505550101",
-      "firebase-id-token"
+      "firebase-id-token",
     );
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     expect(calledUrl).toBe("/api/account/phone/uat-test/start");
     expect((options.headers as Record<string, string>).Authorization).toBe(
-      "Bearer firebase-id-token"
+      "Bearer firebase-id-token",
     );
     expect(JSON.parse(String(options.body))).toEqual({
       phone_number: "+16505550101",
@@ -442,21 +1576,24 @@ describe("ApiService.apiFetch", () => {
           phone_verified: true,
           source: "uat_test_phone_claim",
         },
-      })
+      }),
     );
 
     const payload = await ApiService.confirmUatPhoneTestVerification(
       "+16505550101",
       "000000",
       "uat-test-phone:abc123",
-      "firebase-id-token"
+      "firebase-id-token",
     );
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     expect(calledUrl).toBe("/api/account/phone/uat-test/confirm");
     expect((options.headers as Record<string, string>).Authorization).toBe(
-      "Bearer firebase-id-token"
+      "Bearer firebase-id-token",
     );
     expect(JSON.parse(String(options.body))).toEqual({
       phone_number: "+16505550101",
@@ -465,5 +1602,63 @@ describe("ApiService.apiFetch", () => {
     });
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
+  });
+  it("preserves generic push registration when optional preview storage fails", async () => {
+    previewMocks.prepare.mockRejectedValueOnce(new Error("Key storage unavailable"));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ registered: true }));
+    const result = await ApiService.registerPushToken("synthetic-owner", "fixture-token", "web", makeUnsignedToken({ sub: "synthetic-owner" }), () => true);
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(String(mockFetch.mock.calls[0][1].body));
+    expect(body.device_id).toBe("388b1e4b-25cf-4c63-aed0-281607f3dd9b");
+    expect(body.preview_public_key).toBeUndefined();
+  });
+
+  it("rechecks account ownership after preview preparation before token registration", async () => {
+    let current = true;
+    const prepared = deferred<{ deviceId: string; keyId: string; publicKey: string }>();
+    previewMocks.prepare.mockReturnValueOnce(prepared.promise);
+    const operation = ApiService.registerPushToken("old-owner", "fixture-token", "web", "fixture-id-token", () => current);
+    const rejected = expect(operation).rejects.toThrow("Notification session changed");
+    await vi.waitFor(() => expect(previewMocks.prepare).toHaveBeenCalled());
+    current = false;
+    prepared.resolve({ deviceId: "fixture", keyId: previewMocks.keyId, publicKey: "fixture" });
+    await rejected;
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+
+  it("accepts only purpose-bound complete email recovery reviews", async () => {
+    const recovery = { status: "registration_required", registration: { state: "ready", review: {
+      previous_generation: 0, cleanup_operation: "00000000-0000-4000-8000-000000000001",
+      enrollment_operation: "00000000-0000-4000-8000-000000000002", expires_at: 1900000000,
+      terms_version: 1, digest: "a".repeat(64),
+    } } };
+    mockFetch.mockResolvedValueOnce(jsonResponse(recovery));
+    await expect(ApiService.emailAuthRequest("verify", {})).rejects.toMatchObject({ code: "invalid_auth_response" });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ...recovery, enrollment_ticket: "t".repeat(43) }));
+    await expect(ApiService.emailAuthRequest("verify", {})).resolves.toMatchObject({ status: "registration_required" });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ...recovery, enrollment_ticket: "t".repeat(43) }));
+    await expect(ApiService.emailAuthRequest("enroll", {})).rejects.toMatchObject({ code: "invalid_auth_response" });
+  });
+
+  it.each(["capabilities", "request", "verify", "enroll"] as const)(
+    "rejects malformed successful email-auth %s responses", async (action) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(null));
+      await expect(ApiService.emailAuthRequest(action, action === "capabilities" ? undefined : {
+        challenge_id: "opaque-challenge-reference", browser_binding: "opaque-browser-reference",
+      })).rejects.toMatchObject({ code: "invalid_auth_response" });
+    },
+  );
+});
+
+
+describe("retired One Live relay", () => {
+  it("fails closed and directs callers to typed Talk to One commands", async () => {
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+
+    await expect(ApiService.createOneAdkRelaySession()).rejects.toThrow(
+      "ONE_LIVE_RETIRED: use Talk to One commands.",
+    );
+    expect(relayFetch).not.toHaveBeenCalled();
   });
 });

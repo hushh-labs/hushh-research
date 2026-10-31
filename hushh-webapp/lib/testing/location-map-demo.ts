@@ -100,10 +100,32 @@ export function isLocationMapDemoEnabled(
 }
 
 /**
- * Fictional people are an operator preview, available in local development,
- * UAT, and injected native UI-test sessions. Production users never receive
- * the fixture or its toggle.
+ * Fictional people are an operator preview: local development, injected native
+ * UI-test sessions, and any build that explicitly opts in.
+ *
+ * This is deliberately NOT gated on `resolveAppEnvironment() !== "production"`.
+ * The public App Store and Play Store builds are stamped
+ * `NEXT_PUBLIC_APP_ENV=uat` because they ship against the UAT backend
+ * (`.github/workflows/release-ios-appstore.yml`, `ship-android-playstore-v1.yml`),
+ * so an environment-shaped check reads every store install as non-production
+ * and hands real users a map of fifty fictional people. In a product whose
+ * entire promise is that the map shows only people who chose to share with
+ * you, that is the worst possible bug.
+ *
+ * Distribution and backend environment are separate facts. Opt in explicitly,
+ * and store lanes simply never set the flag.
  */
 export function isLocationMapDemoAvailable(): boolean {
-  return resolveAppEnvironment() !== "production" || isNativeUiTestSession();
+  if (isNativeUiTestSession()) return true;
+  if (resolveAppEnvironment() === "development") return true;
+  // The opt-in narrows who sees the fixture; this keeps the old hard floor
+  // underneath it. A production build must never show fabricated people no
+  // matter what a copied .env or an inherited build-args block sets, and
+  // defence in depth here costs nothing.
+  if (resolveAppEnvironment() === "production") return false;
+  return (
+    String(process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO ?? "")
+      .trim()
+      .toLowerCase() === "true"
+  );
 }

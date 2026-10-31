@@ -8,8 +8,10 @@ exact shapes over HTTP without touching callers.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class A2AAuthorityRequired(PermissionError):
@@ -45,13 +47,74 @@ class A2AAuthorityContext:
         return self.expires_at_ms is None or int(time.time() * 1000) < self.expires_at_ms
 
 
+def supplies_exact_authority(authority: A2AAuthorityContext | None) -> bool:
+    """Does this context carry anything beyond permission to START a task?
+
+    ``require_attenuated_authority`` refuses any specialist that needs to read
+    holdings or act unless the context carries the matching refs. Admission has to
+    answer that same question BEFORE dispatch, or it reports a specialist ``ready``
+    and the turn then fails -- which is exactly what it did: the pre-gate in
+    ``specialist_availability`` tested whether the specialist was *registered*,
+    and registration is not authorisation.
+
+    Derived from the object rather than declared alongside it, so it cannot drift
+    from whatever builds the context. The day a first-party hop starts carrying real
+    grant refs, this returns True and the pre-gate opens with no second edit.
+    """
+    if authority is None:
+        return False
+    return bool(
+        authority.information_grant_refs
+        or authority.encrypted_export_refs
+        or authority.action_capabilities
+    )
+
+
 def require_attenuated_authority(
     task: "A2ATask",
     *,
     information: bool = False,
     action: bool = False,
+    required_invocation: str | None = None,
+    expected_tenant_id: str | None = None,
+    expected_task_id: str | None = None,
+    expected_caller_kind: Literal["first_party", "developer", "a2a"] = "first_party",
 ) -> A2AAuthorityContext:
+    """Validate a hop; migrated invocation gates require independent ingress bindings.
+
+    Expected tenant, task and caller values must come from trusted runtime
+    context, never be copied from the authority being checked. This contract
+    check does not replace token signature/scope/DB revocation checks or consume
+    an action confirmation receipt. Unmigrated callers retain the legacy gate.
+    """
     authority = task.authority
+    if required_invocation is not None:
+        # Validate before is_active_for: untyped callers must fail closed for
+        # malformed expiry rather than raising a comparison TypeError.
+        if (
+            not isinstance(authority, A2AAuthorityContext)
+            or not isinstance(task.user_id, str)
+            or not task.user_id.strip()
+            or not isinstance(required_invocation, str)
+            or not required_invocation.strip()
+            or not isinstance(expected_tenant_id, str)
+            or not expected_tenant_id.strip()
+            or not isinstance(expected_task_id, str)
+            or not expected_task_id.strip()
+            or not isinstance(expected_caller_kind, str)
+            or expected_caller_kind not in {"first_party", "developer", "a2a"}
+            or authority.subject_user_id != task.user_id
+            or authority.tenant_id != expected_tenant_id
+            or authority.task_id != expected_task_id
+            or authority.caller_kind != expected_caller_kind
+            or (expected_caller_kind == "first_party" and authority.developer_app_id is not None)
+            or not isinstance(authority.invocation_capabilities, tuple)
+            or not all(isinstance(value, str) for value in authority.invocation_capabilities)
+            or required_invocation not in authority.invocation_capabilities
+            or type(authority.expires_at_ms) is not int
+            or int(time.time() * 1000) >= authority.expires_at_ms
+        ):
+            raise A2AAuthorityRequired("EXACT_AUTHORITY_REQUIRED")
     if authority is None or not authority.is_active_for(task.user_id):
         raise A2AAuthorityRequired("EXACT_AUTHORITY_REQUIRED")
     if information and not (authority.information_grant_refs and authority.encrypted_export_refs):
@@ -73,6 +136,22 @@ class A2ATask:
     timezone: str | None = None
     planned_action: dict | None = None
     authority: A2AAuthorityContext | None = None
+    # Trusted ingress bindings, never inferred from the authority being checked
+    # or deserialized from model/client-supplied delegation arguments.
+    expected_tenant_id: str | None = None
+    expected_task_id: str | None = None
+    specialist_target: Literal["consent", "connections"] | None = None
+    execution_surface: Literal["typed_chat"] | None = None
+    previous_answer: str | None = None
+    # Email receipts only. The owner's saved receipt index, which their device
+    # decrypts and sends for this one turn (an expiring request secret, never
+    # session state), and where the last receipts list stopped for "show more".
+    # Neither is authority: the hop re-validates both and reads no mailbox.
+    receipt_memory: dict | None = None
+    receipt_cursor: str | None = None
+    # Server-authored, owner/conversation-bound Mail selection. It is never a
+    # model argument or a tool response; the Email bridge validates it again.
+    mail_read_offer: dict | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -82,6 +161,60 @@ class A2ADirective:
 
     kind: Literal["action", "prompt"]
     payload: dict
+
+
+class SpecialistReadSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
+    label: str = Field(max_length=80)
+    # "message" marks a Mail source whose readable text the person asked for.
+    kind: Literal["metadata", "document", "message"]
+    page: int | None = Field(default=None, ge=1, le=100)
+
+
+class OwnerCompileWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", min_length=10, max_length=10)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
+class SpecialistReadResult(BaseModel):
+    """Additive, bounded provenance/status; never credentials or raw content."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema_version: Literal["specialist_read.v1"] = "specialist_read.v1"
+    connector: Literal["mail", "drive"]
+    status: Literal[
+        "ok",
+        "input_required",
+        "connect_required",
+        "reconnect_required",
+        "connection_changed",
+        "permission_denied",
+        "source_changed",
+        "response_too_large",
+        "invalid_argument",
+        "unavailable",
+        # Mail only: a receipts request read no mail; One answers with its
+        # on-device receipt functions in the same turn.
+        "receipt_functions_required",
+    ]
+    # The owner-only Drive title/date listing can return up to 60 files. Keep
+    # the bridge bound aligned so a successful 30-file search reaches One.
+    sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
+    truncated: bool = False
+    metadata_only: bool = False
+    # Owner-only UI affordance. It never grants a read or a share; the separate
+    # compilation route rechecks the owner and discovers the files again.
+    owner_compile_available: bool = False
+    owner_compile_query: str | None = Field(default=None, max_length=2048)
+    owner_compile_window: OwnerCompileWindow | None = None
+    # Owner-only affordance; starting a search requires a separate explicit
+    # search-specific background authorization at the owner search endpoint.
+    background_search_available: bool = False
+    background_search_query: str | None = Field(default=None, max_length=2048)
 
 
 @dataclass(frozen=True)
@@ -94,3 +227,13 @@ class SpecialistTurnResult:
     is_complete: bool
     state_changed: bool
     model: str
+    structured: SpecialistReadResult | None = None
+    # A specialist-owned list position for the next turn, as
+    # ``{"action": "set" | "clear" | "keep", "value": str | None}``. The caller
+    # decides where it is kept; it never carries the information itself.
+    continuation: dict | None = None
+    # Private handback to the encrypted One session, never to the model/result.
+    mail_read_offer: dict | None = field(default=None, repr=False)
+    # Owner-screen mail brief (email_mail_brief.MailBrief): display names,
+    # subjects and counts, never bodies, addresses or provider ids.
+    mail_brief: dict | None = field(default=None, repr=False)

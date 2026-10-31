@@ -1,0 +1,5 @@
+{
+  "dev": ["dev.one.hushh.ai", "dev.one.hussh.ai", "dev.one.hussh.si"],
+  "uat": ["uat.one.hushh.ai", "uat.one.hussh.ai", "uat.one.hussh.si"],
+  "production": ["one.hushh.ai", "one.hussh.ai", "one.hussh.si"]
+}

@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
     claimEmailStart: vi.fn(),
     claimEmailConfirm: vi.fn(),
   },
-  openKaiCommandBar: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -25,6 +24,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
   CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
@@ -163,9 +163,6 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: mocks.toast }));
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { RIA_ONBOARDING: "/ria/onboarding", ONE_HOME: "/one" },
 }));
-vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
-  openKaiCommandBar: mocks.openKaiCommandBar,
-}));
 
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 
@@ -243,7 +240,7 @@ describe("RiaProfileSection verification chip + email nudge", () => {
       screen.getByTestId("ria-profile-verification-chip").textContent,
     ).toContain("Not verified");
     expect(screen.getByTestId("ria-email-verify-card")).toBeTruthy();
-    expect(screen.getByText("Verify with your work email")).toBeTruthy();
+    expect(screen.getByText("Verify with your work mail")).toBeTruthy();
   });
 
   it("mounts the location map inside the Location group", () => {
@@ -526,7 +523,6 @@ describe("RiaProfileSection Form ADV brochure provenance", () => {
         .querySelector('[data-testid="ria-profile-brochure-source"]'),
     ).toBeTruthy();
     for (const groupTestId of [
-      "ria-profile-assistant",
       "ria-profile-licence-summary",
       "ria-profile-location-summary",
       "ria-profile-manage",

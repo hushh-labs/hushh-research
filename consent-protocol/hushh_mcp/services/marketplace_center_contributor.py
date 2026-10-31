@@ -47,7 +47,13 @@ def _safe_str(value: Any) -> str:
 class MarketplaceCenterContributor:
     """Maps marketplace access requests into ConsentCenterEntry dicts."""
 
-    def __init__(self, request_service: MarketplaceRequestService | None = None) -> None:
+    def __init__(
+        self,
+        request_service: MarketplaceRequestService | None = None,
+        *,
+        require_complete: bool = False,
+    ) -> None:
+        self._require_complete = require_complete
         self._requests = request_service or MarketplaceRequestService()
 
     # ----- public API ----------------------------------------------------
@@ -117,6 +123,8 @@ class MarketplaceCenterContributor:
         try:
             return list(await fn(**kwargs) or [])
         except Exception as exc:
+            if self._require_complete:
+                raise
             logger.warning("marketplace.consent_center.list_failed kwargs=%s error=%s", kwargs, exc)
             return []
 

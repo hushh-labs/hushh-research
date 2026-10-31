@@ -1,19 +1,53 @@
 /**
  * Hussh Auth - Web Implementation
- * 
+ *
  * Web fallback for HushhAuthPlugin that uses Firebase signInWithPopup.
  * This is used on web browsers where native authentication is not available.
- * 
+ *
  * Supports:
  * - Google Sign-In via GoogleAuthProvider
  * - Apple Sign-In via OAuthProvider('apple.com')
  */
 
-import type { HushhAuthPlugin, AuthUser } from "../index";
-import { GoogleAuthProvider, OAuthProvider, signInWithPopup, signOut, User } from "firebase/auth";
+import type {
+  AuthUser,
+  HushhAuthGetIdTokenOptions,
+  HushhAuthPlugin,
+} from "../index";
+import { HUSHH_AUTH_TOKEN_ERROR_CODE } from "../index";
+import {
+  GoogleAuthProvider,
+  OAuthProvider,
+  signInWithPopup,
+  signOut,
+  User,
+} from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async startPhoneVerificationProof(): Promise<never> { throw new Error("Use AuthService for web phone verification."); }
+  async confirmPhoneVerificationProof(): Promise<never> { throw new Error("Use AuthService for web phone verification."); }
+  async cancelPhoneVerificationProof(): Promise<void> {}
+  async startPhoneDeletionVerification(): Promise<never> {
+    throw new Error("Use AuthService for web phone verification.");
+  }
+  async confirmPhoneDeletionVerification(): Promise<never> {
+    throw new Error("Use AuthService for web phone verification.");
+  }
+  async cancelPhoneDeletionVerification(): Promise<void> {}
+  async authorizeGoogleContacts(_options: { expectedUserId: string }): Promise<import("../index").NativeGoogleContactsAuthorization> {
+    throw new Error("Native Google Contacts authorization is unavailable on web.");
+  }
+  async reauthenticateGoogleIdentity(_options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }> {
+    // AuthService owns web popup/session guards; do not create a second path.
+    throw new Error("Use AuthService for web identity verification.");
+  }
+  async reauthenticateAppleIdentity(_options: { expectedUserId: string }): Promise<{ userId: string; idToken: string }> {
+    throw new Error("Use AuthService for web identity verification.");
+  }
+
   private currentUser: AuthUser | null = null;
   private currentIdToken: string | null = null;
   private currentAccessToken: string | null = null;
@@ -26,17 +60,17 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     try {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      
+
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      
+
       if (!credential) {
         throw new Error("No credential returned from Google Sign-In");
       }
-      
+
       const idToken = await result.user.getIdToken();
       const accessToken = credential.accessToken || "";
-      
+
       const user: AuthUser = {
         id: result.user.uid,
         email: result.user.email || "",
@@ -45,19 +79,86 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         emailVerified: result.user.emailVerified,
         phoneNumber: result.user.phoneNumber,
       };
-      
+
       this.currentUser = user;
       this.currentIdToken = idToken;
       this.currentAccessToken = accessToken;
-      
+
       console.log("✅ [HushhAuthWeb] Google Sign-in successful");
-      
+
       return { idToken, accessToken, user };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Sign-in failed";
       console.error("❌ [HushhAuthWeb] Google Sign-in error:", message);
       throw error;
     }
+  }
+
+  async connectGmail(_options: {
+    serverClientId: string;
+    purpose: "read" | "send" | "compose";
+    preserveSend?: boolean;
+    preserveModify?: boolean;
+  }): Promise<{ serverAuthCode: string }> {
+    throw new Error("Native Mail consent is only available in the mobile app.");
+  }
+
+  async connectCalendar(_options: {
+    serverClientId: string;
+    accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
+    includeGuestPhotos?: boolean;
+    includeMeetingFiles?: boolean;
+  }): Promise<{ serverAuthCode: string }> {
+    throw new Error(
+      "Native Calendar consent is only available in the mobile app.",
+    );
+  }
+
+  connectDrive(_options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }>;
+  connectDrive(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+  async connectDrive(_options: {
+    serverClientId?: string;
+    authorizeUrl?: string;
+    attemptId?: string;
+    expiresAt?: number;
+    expectedUserId?: string;
+  }): Promise<{
+    serverAuthCode: string;
+  } | {
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
+    throw new Error(
+      "Native Drive consent is only available in the mobile app.",
+    );
+  }
+
+  async pickDriveFiles(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
+    // The web surface deliberately uses the Google Picker service instead.
+    // A native Picker callback is opaque and cannot be safely emulated with a
+    // popup or an access token in browser JavaScript.
+    throw new Error(
+      "Native Drive file selection is only available in the mobile app.",
+    );
   }
 
   async signInWithApple(): Promise<{
@@ -67,13 +168,13 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     user: AuthUser;
   }> {
     try {
-      const provider = new OAuthProvider('apple.com');
-      provider.addScope('email');
-      provider.addScope('name');
-      
+      const provider = new OAuthProvider("apple.com");
+      provider.addScope("email");
+      provider.addScope("name");
+
       const result = await signInWithPopup(auth, provider);
       const idToken = await result.user.getIdToken();
-      
+
       // Apple may return null email if user chose to hide it (relay address)
       const user: AuthUser = {
         id: result.user.uid,
@@ -83,15 +184,16 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         emailVerified: result.user.emailVerified,
         phoneNumber: result.user.phoneNumber,
       };
-      
+
       this.currentUser = user;
       this.currentIdToken = idToken;
-      
+
       console.log("✅ [HushhAuthWeb] Apple Sign-in successful");
-      
+
       return { idToken, user };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Apple Sign-in failed";
+      const message =
+        error instanceof Error ? error.message : "Apple Sign-in failed";
       console.error("❌ [HushhAuthWeb] Apple Sign-in error:", message);
       throw error;
     }
@@ -110,19 +212,36 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     }
   }
 
-  async getIdToken(): Promise<{ idToken: string | null }> {
+  async getIdToken(
+    options?: HushhAuthGetIdTokenOptions,
+  ): Promise<{ idToken: string | null }> {
+    const forceRefresh = options?.forceRefresh === true;
     // Try to get fresh token from current Firebase user
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
       try {
-        const token = await firebaseUser.getIdToken();
+        const token = await firebaseUser.getIdToken(forceRefresh);
         this.currentIdToken = token;
         return { idToken: token };
-      } catch {
+      } catch (error) {
+        if (forceRefresh) {
+          throw error;
+        }
         console.warn("[HushhAuthWeb] Failed to get fresh token");
       }
     }
-    
+
+    if (forceRefresh) {
+      const error = new Error(
+        "The current Firebase session is no longer available.",
+      );
+      error.name = "HushhAuthError";
+      Object.assign(error, {
+        code: HUSHH_AUTH_TOKEN_ERROR_CODE.invalidUserToken,
+      });
+      throw error;
+    }
+
     return { idToken: this.currentIdToken };
   }
 
@@ -133,7 +252,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       this.currentUser = this.mapFirebaseUser(firebaseUser);
       return { user: this.currentUser };
     }
-    
+
     return { user: this.currentUser };
   }
 

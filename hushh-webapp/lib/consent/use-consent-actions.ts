@@ -21,7 +21,10 @@ import {
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
 import { ROUTES } from "@/lib/navigation/routes";
+import { OwnerFacingConsentError, ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { approvePaidOwnerTerms, isPkmScope, usePaidApprovalState } from "@/lib/consent/paid-owner-approval";
+import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
 // ============================================================================
 // Types
@@ -50,6 +53,28 @@ export interface PendingConsent {
 }
 
 type RequestStatus = "pending" | "handling" | "handled";
+
+/** At most this many item decisions of one grouped request run at once. */
+export const BUNDLE_DECISION_CONCURRENCY = 3;
+
+export interface BundleDecisionOptions {
+  modelProcessingAllowed?: boolean;
+  bundleId?: string;
+  bundleLabel?: string;
+  /** The caller owns reporting; failures reject with an owner sentence. */
+  quiet?: boolean;
+  /** Replaces the generic success toast, e.g. "Kushal can now see ...". */
+  successMessage?: string;
+}
+
+/** One progress state for a whole grouped decision. */
+export interface BundleDecisionProgress {
+  key: string;
+  /** "decide" allows part of a request and declines the rest. */
+  kind: "approve" | "deny" | "decide";
+  done: number;
+  total: number;
+}
 export type ConsentActionKind = "approve" | "deny" | "revoke";
 
 export interface ConsentActionState {
@@ -64,6 +89,8 @@ export interface ConsentMutationDetail {
   requestId?: string;
   scope?: string;
   source: "consent_actions";
+  /** Paid approval remains inactive until reservation and staged preparation. */
+  accessPending?: boolean;
 }
 
 interface UseConsentActionsOptions {
@@ -77,13 +104,6 @@ interface UseConsentActionsOptions {
 // Helpers: Scope detection and vault data endpoint
 // ============================================================================
 
-/** pkm.read or attr.{domain}.* (domain: alphanumeric + underscore only) */
-const PKM_READ = "pkm.read";
-
-function isPkmScope(scope: string): boolean {
-  return scope === PKM_READ || scope.startsWith("attr.");
-}
-
 function getScopeDataEndpoint(scope: string): string | null {
   const scopeMap: Record<string, string> = {
     // Dynamic attr.* scopes (canonical)
@@ -92,9 +112,10 @@ function getScopeDataEndpoint(scope: string): string | null {
   return scopeMap[scope] || null;
 }
 
-function extractConsentActionError(errorText: string): string {
+/** The message field of one error envelope, or null when there is none. */
+function envelopeMessage(body: string): string | null {
   try {
-    const parsed = JSON.parse(errorText);
+    const parsed = JSON.parse(body);
     if (typeof parsed?.error === "string") {
       return parsed.error;
     }
@@ -105,10 +126,52 @@ function extractConsentActionError(errorText: string): string {
       return parsed.detail.message;
     }
   } catch {
-    // Fall through to the raw response body.
+    // Not JSON: the caller keeps the raw body.
   }
-  return errorText || "Failed to approve";
+  return null;
 }
+
+/**
+ * Lift the message out of an error body so a JSON envelope never becomes the
+ * thrown text.
+ *
+ * The Next.js routes wrap the backend body verbatim (`{ error: responseText }`)
+ * and the backend raises `HTTPException(detail=...)`, so the message often
+ * sits two envelopes deep: `{"error":"{\"detail\":\"...\"}"}`. Peel until a
+ * plain string remains. What comes out is the backend's or the route's own
+ * sentence, kept on the thrown error for the console and for callers; it is
+ * never what the owner reads (see `ownerFacingConsentError`).
+ */
+function extractConsentActionError(errorText: string, fallback: string): string {
+  let message = errorText;
+  // Two envelopes is the real shape today; the bound only stops a pathological
+  // body from looping.
+  for (let depth = 0; depth < 3; depth += 1) {
+    const inner = envelopeMessage(message);
+    if (inner === null) break;
+    message = inner;
+  }
+  return message || fallback;
+}
+
+/**
+ * The error a quiet caller receives.
+ *
+ * A quiet caller owns the reporting and may put the message in front of the
+ * owner (the chat transcript does), so the thrown message is the same
+ * owner-facing sentence a toast would have shown: a sentence this hook wrote
+ * verbatim, anything else the action's fallback. The peeled backend or route
+ * sentence rides along as `cause` for the console and for callers that log
+ * it; it is never the message.
+ */
+function quietConsentError(error: unknown, fallback: string): Error {
+  return new OwnerFacingConsentError(ownerFacingConsentError(error, fallback), { cause: error });
+}
+
+const APPROVE_FAILED = "Could not allow this. Nothing was shared.";
+const DENY_FAILED = "Could not decline this. Try again.";
+const REVOKE_FAILED = "Could not stop sharing. Try again.";
+const NOTHING_TO_SHARE = "There is nothing to share for this yet. Nothing was shared.";
 
 // ============================================================================
 // Hook
@@ -118,11 +181,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
   const { vaultKey, getVaultOwnerToken } = useVault();
   const { userId, onActionComplete } = options;
   const [activeActions, setActiveActions] = useState<ConsentActionState[]>([]);
+  const [bundleProgress, setBundleProgress] =
+    useState<BundleDecisionProgress | null>(null);
   const inflightActionPromises = useRef<Map<string, Promise<void>>>(new Map());
 
   // Track request status: ID -> "pending" | "handling" | "handled"
   // Using ref to persist across renders without causing re-renders
   const requestStatusMap = useRef<Map<string, RequestStatus>>(new Map());
+  const { paidApprovals, paidApprovalKeys } = usePaidApprovalState();
 
   const runWithActionLock = useCallback(
     (action: ConsentActionState, run: () => Promise<void>): Promise<void> => {
@@ -251,7 +317,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * Approve a consent request with zero-knowledge export
    */
   const handleApprove = useCallback(
-    (consent: PendingConsent, options?: { quiet?: boolean }): Promise<void> => {
+    (consent: PendingConsent, options?: { quiet?: boolean; modelProcessingAllowed?: boolean }): Promise<void> => {
       const actionKey = `approve:${consent.id}`;
       return runWithActionLock(
         { key: actionKey, kind: "approve", requestId: consent.id },
@@ -262,9 +328,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       markAsHandling(consent.id);
 
       if (!userId || !vaultKey) {
-        toast.error("Vault not unlocked", {
+        toast.error("Vault not unlocked. Unlock your vault to approve this request.", {
           id: toastId,
-          description: "Unlock your vault to approve this request.",
+          
           duration: 6000,
           action: {
             label: "Unlock",
@@ -281,8 +347,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Vault owner token required");
+          throw new OwnerFacingConsentError("Unlock your vault first.");
         }
+
+        const paidMessage = await approvePaidOwnerTerms(consent, vaultOwnerToken, { paidApprovals, paidApprovalKeys }, message => new OwnerFacingConsentError(message), options?.modelProcessingAllowed === true);
+        if (paidMessage) return paidMessage;
 
         let scopeData: Record<string, unknown> = {};
         let sourceContentRevision: number | undefined;
@@ -303,13 +372,20 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           } catch (err) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
-              throw new Error("Could not prepare export; check vault.");
+              throw new OwnerFacingConsentError(
+                "Could not prepare this. Unlock your vault and try again."
+              );
             }
             if (err instanceof ConsentExportNoDataError) {
-              throw err;
+              // The builder's sentences name what it could not build, in
+              // developer words; the owner only needs to know nothing left.
+              console.warn("[Consent] Export unavailable", err.diagnostics || { stage: "eligible_scope" });
+              throw new OwnerFacingConsentError(NOTHING_TO_SHARE);
             }
-            console.error("[Consent] PKM export build failed:", err);
-            throw new Error("Could not load your saved details; try again.");
+            console.error("[Consent] PKM export build failed", { errorClass: err instanceof Error ? err.name : "UnknownError" });
+            throw new OwnerFacingConsentError(
+              "Could not load your saved details. Try again."
+            );
           }
         }
 
@@ -449,8 +525,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           requesterActorType === "developer" ||
           requestSource === "developer_api_v1";
         if (isDeveloperRequest && !connectorPublicKey) {
-          throw new Error(
-            "Missing connector public key. The developer needs to re-send this request with a public key. Contact them or try again later."
+          throw new OwnerFacingConsentError(
+            "This app needs to send the request again before you can allow it."
           );
         }
         const exportKey = await generateExportKey();
@@ -509,23 +585,24 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           sourceContentRevision,
           sourceManifestRevision,
           durationHours: consent.durationHours,
+          modelProcessingAllowed: options?.modelProcessingAllowed === true,
           exportEnvelope,
         });
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(extractConsentActionError(errorText));
+          throw new Error(extractConsentActionError(errorText, APPROVE_FAILED));
         }
 
-        return "Consent approved!";
+        return "Allowed. They can open it now.";
       })();
 
       if (!options?.quiet) {
         toast.promise(promise, {
           id: toastId,
-          loading: "Approving consent...",
-          success: (data) => `✅ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          loading: "Allowing...",
+          success: (data) => data,
+          error: (err) => ownerFacingConsentError(err, APPROVE_FAILED),
           duration: 3000,
         });
       }
@@ -533,12 +610,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(consent.id);
-        emitSuccessfulMutation({ action: "approve", requestId: consent.id });
+        emitSuccessfulMutation({ action: "approve", requestId: consent.id, ...(paidApprovals.current.has(consent.id) ? { accessPending: true } : {}) });
       } catch (err) {
-        console.error("Error approving consent:", err);
+        console.error("Error approving consent", { errorClass: err instanceof Error ? err.name : "UnknownError" });
         markAsPending(consent.id);
         if (options?.quiet) {
-          throw (err instanceof Error ? err : new Error("Failed to approve consent"));
+          throw quietConsentError(err, APPROVE_FAILED);
         }
       }
         }
@@ -546,7 +623,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
     },
     [
       emitSuccessfulMutation,
-      getVaultOwnerToken,
+      getVaultOwnerToken, paidApprovalKeys, paidApprovals,
       markAsHandled,
       markAsHandling,
       markAsPending,
@@ -575,7 +652,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Vault owner token required");
+          throw new OwnerFacingConsentError("Unlock your vault first.");
         }
 
         const response = await ApiService.denyPendingConsent({
@@ -585,18 +662,19 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to deny consent");
+          const errorText = await response.text();
+          throw new Error(extractConsentActionError(errorText, DENY_FAILED));
         }
 
-        return "Consent denied";
+        return "Declined. Nothing was shared.";
       })();
 
       if (!options?.quiet) {
         toast.promise(promise, {
           id: toastId,
-          loading: "Denying consent...",
-          success: (data) => `❌ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          loading: "Declining...",
+          success: (data) => data,
+          error: (err) => ownerFacingConsentError(err, DENY_FAILED),
           duration: 3000,
         });
       }
@@ -609,7 +687,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         console.error("Error denying consent:", err);
         markAsPending(requestId);
         if (options?.quiet) {
-          throw (err instanceof Error ? err : new Error("Failed to deny consent"));
+          throw quietConsentError(err, DENY_FAILED);
         }
       }
         }
@@ -626,58 +704,159 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
     ]
   );
 
+  /**
+   * Decide every item of one grouped request.
+   *
+   * Each item is still its own server call, because each is its own decision
+   * (there is no bulk decision endpoint). They used to run strictly one after
+   * another; now at most BUNDLE_DECISION_CONCURRENCY run at once and the
+   * caller sees one progress state for the whole request. Every item settles,
+   * so a partial failure says how many went through instead of stopping at
+   * the first failure and leaving the rest undecided without a word.
+   */
+  const settleBundle = useCallback(
+    async (
+      kind: BundleDecisionProgress["kind"],
+      requestIds: string[],
+      runOne: (index: number) => Promise<void>,
+      options: BundleDecisionOptions,
+    ): Promise<void> => {
+      const total = requestIds.length;
+      const progressKey =
+        options.bundleId || `bundle-${requestIds[0] || kind}`;
+      const failed = kind === "deny" ? DENY_FAILED : APPROVE_FAILED;
+      const verb = kind === "approve" ? "Allowing" : kind === "deny" ? "Declining" : "Saving";
+      const report = (done: number) => {
+        setBundleProgress({ key: progressKey, kind, done, total });
+        if (!options.quiet && total > 1) {
+          toast.loading(`${verb} ${Math.min(done + 1, total)} of ${total}...`, {
+            id: progressKey,
+          });
+        }
+      };
+      report(0);
+      if (!options.quiet && total <= 1) {
+        toast.loading(`${verb}...`, { id: progressKey });
+      }
+      try {
+        const indexes = requestIds.map((_, index) => index);
+        const results = await settleWithConcurrency(
+          indexes,
+          BUNDLE_DECISION_CONCURRENCY,
+          runOne,
+          (done) => report(done),
+        );
+        const failures = results.filter((result) => !result.ok);
+        if (failures.length === 0) {
+          if (!options.quiet) {
+            toast.success(
+              (requestIds.some(id => paidApprovals.current.has(id)) ? "Terms saved. Paid requests still require payment and encrypted preparation." : options.successMessage) ||
+                (kind === "approve"
+                  ? "Allowed. They can open it now."
+                  : kind === "deny"
+                    ? "Declined. Nothing was shared."
+                    : "Shared what you chose. The rest was declined."),
+              { id: progressKey, duration: 3000 },
+            );
+          }
+          return;
+        }
+        const first = failures[0]!;
+        const firstError = first.ok ? null : first.error;
+        const succeeded = total - failures.length;
+        const message =
+          succeeded > 0
+            ? kind === "approve"
+              ? `${requestIds.some(id => paidApprovals.current.has(id)) ? "Approved" : "Shared"} ${succeeded} of ${total}. Try the rest again.`
+              : kind === "deny"
+                ? `Declined ${succeeded} of ${total}. Try the rest again.`
+                : `Saved ${succeeded} of ${total} choices. Try the rest again.`
+            : ownerFacingConsentError(firstError, failed);
+        if (!options.quiet) {
+          toast.error(message, { id: progressKey, duration: 5000 });
+        }
+        throw new OwnerFacingConsentError(message, { cause: firstError });
+      } finally {
+        setBundleProgress((current) =>
+          current?.key === progressKey ? null : current,
+        );
+      }
+    },
+    [paidApprovals]
+  );
+
   const handleApproveBundle = useCallback(
     async (
       consents: PendingConsent[],
-      options?: { bundleId?: string; bundleLabel?: string }
+      options: BundleDecisionOptions = {}
     ): Promise<void> => {
       if (!userId || consents.length === 0) return;
-      const toastId = options?.bundleId || `bundle-${consents[0]?.id || "approve"}`;
-      const promise = (async () => {
-        for (const consent of consents) {
-          await handleApprove(consent, { quiet: true });
-        }
-        return "Consent bundle approved";
-      })();
-
-      toast.promise(promise, {
-        id: toastId,
-        loading: `Approving ${options?.bundleLabel || "request bundle"}...`,
-        success: "✅ Request bundle approved",
-        error: (err) => `❌ ${err.message}`,
-        duration: 3000,
-      });
-
-      await promise;
+      if (!vaultKey) {
+        // handleApprove answers a locked vault with a toast and no error,
+        // which a grouped caller would read as success. Refuse up front;
+        // callers prompt the unlock before they get here.
+        throw new Error("Unlock your vault first.");
+      }
+      await settleBundle(
+        "approve",
+        consents.map((consent) => consent.id),
+        (index) => handleApprove(consents[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed }),
+        options
+      );
     },
-    [handleApprove, userId]
+    [handleApprove, settleBundle, userId, vaultKey]
   );
 
   const handleDenyBundle = useCallback(
     async (
       requestIds: string[],
-      options?: { bundleId?: string; bundleLabel?: string }
+      options: BundleDecisionOptions = {}
     ): Promise<void> => {
       if (!userId || requestIds.length === 0) return;
-      const toastId = options?.bundleId || `bundle-${requestIds[0] || "deny"}`;
-      const promise = (async () => {
-        for (const requestId of requestIds) {
-          await handleDeny(requestId, { quiet: true });
-        }
-        return "Consent bundle denied";
-      })();
-
-      toast.promise(promise, {
-        id: toastId,
-        loading: `Denying ${options?.bundleLabel || "request bundle"}...`,
-        success: "❌ Request bundle denied",
-        error: (err) => `❌ ${err.message}`,
-        duration: 3000,
-      });
-
-      await promise;
+      await settleBundle(
+        "deny",
+        requestIds,
+        (index) => handleDeny(requestIds[index]!, { quiet: true }),
+        options
+      );
     },
-    [handleDeny, userId]
+    [handleDeny, settleBundle, userId]
+  );
+
+  /**
+   * Allow part of one grouped request and decline the rest (acceptance R5).
+   *
+   * The owner chose which items to share; each chosen item goes through the
+   * same per-item approve call as a whole-request Allow, each other item
+   * through the per-item deny call, all under one bounded settle and one
+   * progress state. The requester's card then reads "partly shared" from the
+   * items' own statuses. With nothing held back it is a plain Allow, and with
+   * nothing chosen a plain decline.
+   */
+  const handleDecideBundle = useCallback(
+    async (
+      allow: PendingConsent[],
+      denyRequestIds: string[],
+      options: BundleDecisionOptions = {}
+    ): Promise<void> => {
+      if (!userId) return;
+      if (!denyRequestIds.length) return handleApproveBundle(allow, options);
+      if (!allow.length) return handleDenyBundle(denyRequestIds, options);
+      if (!vaultKey) {
+        // Same refusal as a whole Allow: nothing is decided until it can all be.
+        throw new Error("Unlock your vault first.");
+      }
+      await settleBundle(
+        "decide",
+        [...allow.map((consent) => consent.id), ...denyRequestIds],
+        (index) =>
+          index < allow.length
+            ? handleApprove(allow[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed })
+            : handleDeny(denyRequestIds[index - allow.length]!, { quiet: true }),
+        options
+      );
+    },
+    [handleApprove, handleApproveBundle, handleDeny, handleDenyBundle, settleBundle, userId, vaultKey]
   );
 
   /**
@@ -685,7 +864,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * For VAULT_OWNER scope, this will also lock the vault
    */
   const handleRevoke = useCallback(
-    (scope: string): Promise<void> => {
+    (
+      scope: string,
+      requestId?: string | null,
+      options?: { quiet?: boolean },
+    ): Promise<void> => {
       const normalizedScope = scope.trim();
       const actionKey = `revoke:${normalizedScope}`;
       return runWithActionLock(
@@ -698,13 +881,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const response = await ApiService.revokeConsent({
           userId,
           scope: normalizedScope,
+          requestId: String(requestId || "").trim() || undefined,
           // Revoke is consent-gated; always include the VAULT_OWNER token explicitly.
           // (On native builds, relying on sessionStorage can be flaky across webview lifecycles.)
           token: vaultOwnerToken || "",
         });
 
         if (!response.ok) {
-          throw new Error("Failed to revoke consent");
+          const errorText = await response.text();
+          throw new Error(extractConsentActionError(errorText, REVOKE_FAILED));
         }
 
         // Check if backend signals to lock vault (for VAULT_OWNER revocation)
@@ -712,26 +897,30 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         return data;
       })();
 
-      toast.promise(promise, {
-        id: actionKey,
-        loading: "Revoking consent...",
-        success: () => `🔒 Consent revoked`,
-        error: (err) => `❌ ${err.message}`,
-        duration: 3000,
-      });
+      if (!options?.quiet) {
+        toast.promise(promise, {
+          id: actionKey,
+          loading: "Stopping...",
+          success: () => "Sharing stopped.",
+          error: (err) => ownerFacingConsentError(err, REVOKE_FAILED),
+          duration: 3000,
+        });
+      }
 
       try {
         const result = await promise;
         
         // If VAULT_OWNER was revoked, lock the vault
         if (result.lockVault) {
-          // Dispatch event so VaultContext can react
+          // Dispatch event so VaultContext can react. Scope it to the account
+          // that started this revoke: a response that resolves after the
+          // signed-in account changed must not lock the replacement session.
           window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-            detail: { reason: "VAULT_OWNER token revoked" }
+            detail: { reason: "VAULT_OWNER token revoked", userId }
           }));
           
           toast.info("Vault locked", {
-            description: "Your VAULT_OWNER access has been revoked. Please unlock again to continue.",
+            
             duration: 5000,
           });
         }
@@ -739,6 +928,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         emitSuccessfulMutation({ action: "revoke", scope: normalizedScope });
       } catch (err) {
         console.error("Error revoking consent:", err);
+        // Quiet callers own the reporting, so they have to be told. Without
+        // this the promise resolves identically whether the grant was revoked
+        // or the request 500'd, and a caller that speaks the outcome -- the
+        // agent handler does -- would tell someone their access was taken
+        // back when it was not. handleDeny already rethrows under `quiet`
+        // for the same reason.
+        if (options?.quiet) {
+          throw quietConsentError(err, REVOKE_FAILED);
+        }
       }
         }
       );
@@ -750,11 +948,13 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
     // Actions
     handleApprove,
     handleApproveBundle,
+    handleDecideBundle,
     handleDeny,
     handleDenyBundle,
     handleRevoke,
     activeAction,
     activeActions,
+    bundleProgress,
     isRequestBusy,
     isScopeBusy,
 

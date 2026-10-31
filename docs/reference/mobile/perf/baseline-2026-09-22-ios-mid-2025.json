@@ -1,0 +1,504 @@
+{
+  "schema_version": "hushh-render-perf-baseline-v1",
+  "label": "",
+  "source_sha": "56ae2a6e7",
+  "captured_at": "2026-09-22T04:45:52.884Z",
+  "device": {
+    "tier": "ios-mid-2025",
+    "certifies": true,
+    "configuration": "Release",
+    "test_mode": false,
+    "raf_hz": {
+      "raw": 61.1,
+      "nominal": 60,
+      "budget_ms": 16.7,
+      "samples": 62
+    },
+    "platform": "ios",
+    "ua_family": "iPhone AppleWebKit/605",
+    "supported_entry_types": [
+      "event",
+      "first-input",
+      "largest-contentful-paint",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource"
+    ]
+  },
+  "runs": [
+    {
+      "run_id": "17ef44c0",
+      "windows": 11,
+      "hud": false
+    },
+    {
+      "run_id": "9a552d15",
+      "windows": 50,
+      "hud": false
+    },
+    {
+      "run_id": "e4074d78",
+      "windows": 12,
+      "hud": false
+    },
+    {
+      "run_id": "f857a782",
+      "windows": 17,
+      "hud": false
+    }
+  ],
+  "gestures": [
+    {
+      "name": "feed-flick",
+      "windows": 32,
+      "frames": 3073,
+      "p95_ms_median": 21,
+      "p99_ms_median": 35,
+      "max_ms": 47,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 37.1,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "bottom-nav-switch",
+      "windows": 9,
+      "frames": 743,
+      "p95_ms_median": 21,
+      "p99_ms_median": 34,
+      "max_ms": 42,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 36.5,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "profile-pane-open-dismiss",
+      "windows": 6,
+      "frames": 447,
+      "p95_ms_median": 18.5,
+      "p99_ms_median": 35,
+      "max_ms": 36,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 23.8,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-keyboard-show",
+      "windows": 1,
+      "frames": 55,
+      "p95_ms_median": 21,
+      "p99_ms_median": 90,
+      "max_ms": 90,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 98.3,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-keyboard-type",
+      "windows": 1,
+      "frames": 74,
+      "p95_ms_median": 23,
+      "p99_ms_median": 102,
+      "max_ms": 102,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 93.1,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-stream-30s",
+      "windows": 2,
+      "frames": 539,
+      "p95_ms_median": 20.5,
+      "p99_ms_median": 29.5,
+      "max_ms": 50,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 41.7,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-keyboard-dismiss",
+      "windows": 0,
+      "frames": 0,
+      "p95_ms_median": null,
+      "p99_ms_median": null,
+      "max_ms": 0,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": null,
+      "longtask_count": null,
+      "verdict": "good"
+    },
+    {
+      "name": "chat-keyboard-show-2",
+      "windows": 1,
+      "frames": 58,
+      "p95_ms_median": 21,
+      "p99_ms_median": 63,
+      "max_ms": 63,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 66.8,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-keyboard-dismiss-2",
+      "windows": 1,
+      "frames": 59,
+      "p95_ms_median": 24,
+      "p99_ms_median": 35,
+      "max_ms": 35,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 48.8,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-transcript-flick",
+      "windows": 4,
+      "frames": 623,
+      "p95_ms_median": 17.5,
+      "p99_ms_median": 36,
+      "max_ms": 41,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 24.7,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "top-shell-pager-swipe",
+      "windows": 6,
+      "frames": 545,
+      "p95_ms_median": 18.5,
+      "p99_ms_median": 37,
+      "max_ms": 42,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 27.9,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "kai-chart-flick",
+      "windows": 9,
+      "frames": 730,
+      "p95_ms_median": 21,
+      "p99_ms_median": 43,
+      "max_ms": 61,
+      "over_50_count": 2,
+      "hitch_ms_per_s_median": 71.2,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "location-map-pan",
+      "windows": 9,
+      "frames": 752,
+      "p95_ms_median": 19,
+      "p99_ms_median": 30,
+      "max_ms": 46,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 24.2,
+      "longtask_count": null,
+      "verdict": "critical"
+    }
+  ],
+  "idle_by_route": [
+    {
+      "route": "idle:/one/location/",
+      "frames": 1328,
+      "p95_ms": 19,
+      "max_ms": 114,
+      "over_50_count": 2
+    },
+    {
+      "route": "idle:/one/feed/",
+      "frames": 2175,
+      "p95_ms": 29,
+      "max_ms": 113,
+      "over_50_count": 2
+    },
+    {
+      "route": "idle:/one/",
+      "frames": 792,
+      "p95_ms": 22,
+      "max_ms": 51,
+      "over_50_count": 1
+    },
+    {
+      "route": "idle:/one/connect/",
+      "frames": 122,
+      "p95_ms": 36,
+      "max_ms": 47,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/",
+      "frames": 3040,
+      "p95_ms": 17,
+      "max_ms": 124,
+      "over_50_count": 6
+    },
+    {
+      "route": "idle:/",
+      "frames": 1,
+      "p95_ms": 10,
+      "max_ms": 10,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/kai/",
+      "frames": 1988,
+      "p95_ms": 23,
+      "max_ms": 105,
+      "over_50_count": 2
+    }
+  ],
+  "react_profiling": false,
+  "experiments": [],
+  "route_enter": [
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/",
+      "first_commit_ms": null,
+      "first_frame_ms": 28,
+      "window_max_ms": 42,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/feed/",
+      "first_commit_ms": null,
+      "first_frame_ms": 28,
+      "window_max_ms": 38,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/feed/",
+      "first_commit_ms": null,
+      "first_frame_ms": 27,
+      "window_max_ms": 36,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/feed/",
+      "first_commit_ms": null,
+      "first_frame_ms": 25,
+      "window_max_ms": 34,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/connect/",
+      "first_commit_ms": null,
+      "first_frame_ms": 23,
+      "window_max_ms": 34,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/connect/",
+      "first_commit_ms": null,
+      "first_frame_ms": 20,
+      "window_max_ms": 30,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/",
+      "first_commit_ms": null,
+      "first_frame_ms": 20,
+      "window_max_ms": 29,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/connect/",
+      "first_commit_ms": null,
+      "first_frame_ms": 20,
+      "window_max_ms": 37,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    },
+    {
+      "gesture": "bottom-nav-switch",
+      "route": "/one/",
+      "first_commit_ms": null,
+      "first_frame_ms": 18,
+      "window_max_ms": 31,
+      "commits": 0,
+      "commits_total_ms": 0,
+      "top_commits": ""
+    }
+  ],
+  "keyboard_geometry": [
+    {
+      "window_h": 844,
+      "keyboard_top": 516,
+      "key_rows_top": 560,
+      "composer_bottom": 497,
+      "gap_pt": 19
+    }
+  ],
+  "stalls": [
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "85 ms @ 544 ms, 79 ms @ 1166 ms, 62 ms @ 1382 ms",
+      "event": "pointerover 40 ms (handler 1) @ -32 ms, touchstart 40 ms (handler 0) @ -32 ms, pointerdown 40 ms (handler 0) @ -32 ms",
+      "dom_nodes": 327,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "76 ms @ 1182 ms, 73 ms @ 531 ms, 52 ms @ 975 ms",
+      "event": "keydown 48 ms (handler 0) @ 1181 ms, keypress 48 ms (handler 1) @ 1181 ms, keydown 40 ms (handler 0) @ 1190 ms",
+      "dom_nodes": 287,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "72 ms @ 77 ms, 38 ms @ 360 ms, 38 ms @ 782 ms",
+      "event": "pointerup 40 ms (handler 1) @ 34 ms, pointerout 40 ms (handler 0) @ 34 ms, pointerleave 40 ms (handler 0) @ 34 ms",
+      "dom_nodes": 758,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "96 ms @ 539 ms, 86 ms @ 2430 ms, 75 ms @ 1185 ms",
+      "event": "keydown 48 ms (handler 0) @ 1181 ms, keypress 48 ms (handler 1) @ 1181 ms, keydown 48 ms (handler 1) @ 1181 ms",
+      "dom_nodes": 221,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "74 ms @ 1236 ms, 60 ms @ 2556 ms, 52 ms @ 397 ms",
+      "event": "mouseout 32 ms (handler 0) @ 66 ms, mouseover 32 ms (handler 0) @ 66 ms, mouseenter 32 ms (handler 0) @ 66 ms",
+      "dom_nodes": 613,
+      "commits": "0"
+    },
+    {
+      "gesture": "chat-keyboard-show",
+      "kind": "scroll",
+      "worst": "90 ms @ 132 ms, 32 ms @ 3 ms, 21 ms @ 42 ms",
+      "event": "mouseout 96 ms (handler 0) @ 44 ms, mouseover 96 ms (handler 0) @ 44 ms, mousedown 96 ms (handler 0) @ 45 ms",
+      "dom_nodes": 613,
+      "commits": "0"
+    },
+    {
+      "gesture": "chat-keyboard-type",
+      "kind": "type",
+      "worst": "102 ms @ 876 ms, 26 ms @ 84 ms, 25 ms @ 467 ms",
+      "event": "keydown 80 ms (handler 1) @ -31 ms, keypress 80 ms (handler 0) @ -31 ms, keydown 80 ms (handler 1) @ 7 ms",
+      "dom_nodes": 613,
+      "commits": "0"
+    },
+    {
+      "gesture": "chat-keyboard-dismiss",
+      "kind": "scroll",
+      "worst": "63 ms @ 121 ms, 30 ms @ 1 ms, 21 ms @ 45 ms",
+      "event": "pointerover 24 ms (handler 0) @ -24 ms, touchstart 24 ms (handler 0) @ -24 ms, pointerdown 24 ms (handler 0) @ -24 ms",
+      "dom_nodes": 684,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "89 ms @ 2445 ms, 84 ms @ 561 ms, 78 ms @ 1202 ms",
+      "event": "pointerover 24 ms (handler 1) @ -14 ms, touchstart 24 ms (handler 0) @ -14 ms, pointerdown 24 ms (handler 1) @ -14 ms",
+      "dom_nodes": 300,
+      "commits": "0"
+    },
+    {
+      "gesture": "(none)",
+      "kind": "tap",
+      "worst": "68 ms @ 365 ms, 46 ms @ 711 ms, 46 ms @ 2551 ms",
+      "event": "mouseout 32 ms (handler 0) @ 50 ms, mouseover 32 ms (handler 0) @ 50 ms, mouseenter 32 ms (handler 0) @ 50 ms",
+      "dom_nodes": 805,
+      "commits": "0"
+    },
+    {
+      "gesture": "kai-chart-flick",
+      "kind": "pager",
+      "worst": "61 ms @ 335 ms, 34 ms @ 5 ms, 23 ms @ 44 ms",
+      "event": "pointerover 32 ms (handler 0) @ -29 ms, touchstart 32 ms (handler 2) @ -29 ms, pointerdown 32 ms (handler 1) @ -29 ms",
+      "dom_nodes": 805,
+      "commits": "0"
+    },
+    {
+      "gesture": "kai-chart-flick",
+      "kind": "pager",
+      "worst": "61 ms @ 952 ms, 44 ms @ 90 ms, 34 ms @ 8 ms",
+      "event": "pointerover 32 ms (handler 0) @ -21 ms, touchstart 32 ms (handler 0) @ -21 ms, pointerdown 32 ms (handler 0) @ -21 ms",
+      "dom_nodes": 805,
+      "commits": "0"
+    }
+  ],
+  "bottom_chrome_sync": [
+    {
+      "gesture": "chat-keyboard-show",
+      "samples": 4,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-stream-30s",
+      "samples": 53,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-keyboard-dismiss",
+      "samples": 6,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-keyboard-dismiss-2",
+      "samples": 51,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-transcript-flick",
+      "samples": 94,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-transcript-flick",
+      "samples": 175,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-transcript-flick",
+      "samples": 175,
+      "max_divergence_px": 0
+    },
+    {
+      "gesture": "chat-transcript-flick",
+      "samples": 179,
+      "max_divergence_px": 0
+    }
+  ]
+}

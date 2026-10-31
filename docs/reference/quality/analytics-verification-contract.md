@@ -54,6 +54,8 @@ What this proves:
 7. sandbox audit emits a local report for representative investor and RIA journeys without affecting GA4 numbers
 8. UAT smoke proves a real deployed UAT browser journey and direct GA4 collect handoff when maintainer-only smoke credentials are available
 9. cache and route performance events remain bounded metadata-only signals for UX KPIs, not user-data telemetry
+10. web, iOS, and Android bind the same salted analytics User-ID, clear it on sign-out, reject profile PII, and prevent stale account-binding retries from winning an auth race
+11. each runtime selects exactly one event transport: web uses `gtag`/`dataLayer`, while Capacitor iOS and Android omit web analytics scripts and use native Firebase Analytics
 
 Repo verification fails if:
 
@@ -64,6 +66,8 @@ Repo verification fails if:
 5. docs verification fails
 6. the event schema drifts from the declared contract
 7. route/cache performance events accept raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, or decrypted values
+8. analytics identity or transport code forwards email, display name, phone number, or raw Firebase UID to GA4 or `dataLayer`
+9. a Capacitor runtime can activate the web transport and duplicate native events across web and Firebase streams
 
 Cache performance KPI note:
 
@@ -89,20 +93,28 @@ This command intentionally fails unless repo schema tests, sandbox transport aud
 
 UAT smoke note:
 
+- every governed UAT frontend deployment runs this smoke after semantic verification;
+  a failure is classified as `analytics_transport_failed` and the candidate frontend
+  is rolled back instead of being promoted
 - `npm run smoke:analytics:uat` uses Playwright against the deployed UAT origin and the existing reviewer test fixture via maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE`.
 - `UAT_SMOKE_*` and `KAI_TEST_*` are accepted only as one-release migration aliases.
 - it must not fabricate analytics events; it only observes events produced by the app during a real browser journey
 - it must not create Firebase users, reviewer users, app environments, or one-off analytics fixtures
 - after the cold `/login` boot, it must use Next client navigation for protected routes so the in-memory vault key stays inside the mounted React provider tree
-- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires `growth_funnel_step_completed`, `portfolio_viewed`, `recommendation_viewed`, and `investor_activation_completed`
-- if prerequisite credentials or seeded portfolio/recommendation data are missing, the smoke fails clearly and the gate remains blocked; repair or reseed the same reviewer test fixture instead of creating another user
+- reviewer bootstrap reuses the canonical memory-only bridge with `reviewerMutationPolicy=read_only`; the UAT analytics telemetry exception enables actual collect delivery without enabling background preparation or shared-fixture writes
+- a failed journey records only allowlisted route/tab and bootstrap states, owner-match and screen-presence booleans, API-family/status counts and JavaScript error classes. Credentials, identity values, full URLs, document or portfolio contents, screenshots and raw error messages are excluded from these diagnostics
+- it verifies UAT web measurement ID `G-H1KGXGZTCF`, rejects production measurement ID leakage, and requires successful GA transport for the `page_view` emitted by client navigation to the Finance dashboard plus the real `portfolio_viewed(result=success)` event from the canonical reviewer fixture; it correlates the exact `route_id` and `portfolio_source` payloads
+- transport success means GA4 answered the exact payload's collect request with HTTP 2xx. gtag sends hits as beacons, so Chromium ends every delivered hit with `requestfailed` `net::ERR_ABORTED` after the 204 and never emits `requestfinished`; that post-response abort is the only failure ignored. A request with no GA response, a non-2xx response, or any other failure remains a failure (`hushh-webapp/scripts/testing/analytics-collect-delivery.mjs`)
+- the promotion gate intentionally does not run a provider-backed recommendation. AI/provider availability is monitored separately and must not veto a healthy analytics transport release; when frontend and backend deploy together, the workflow creates a disposable zero-traffic frontend smoke revision whose server-side backend binding points to the uniquely tagged zero-traffic backend candidate. Canonical UAT traffic remains on the previous pair until the smoke succeeds, then the normal canonical-configured frontend revision and backend candidate are promoted together
+- `npm run verify:analytics:governed` invokes the same browser harness with `--full`; that mode additionally requires the real recommendation and investor-activation journey, while the release promotion mode stops after the canonical reviewer portfolio is usable
+- if prerequisite credentials are missing, the smoke fails clearly and the gate remains blocked; repair the same reviewer test fixture instead of creating another user
 
 ## 2. GA Admin API Validation
 
 Use the maintained inspection helper:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate
 ```
 
 Required checks:
@@ -135,7 +147,7 @@ Required checks:
 If a required custom dimension is missing and the service account has edit access, the helper can create missing event-scoped dimensions:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py ensure-custom-dimensions
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py ensure-custom-dimensions
 ```
 
 ## 3. GA Data API Event Availability
@@ -143,7 +155,7 @@ python3 .codex/skills/analytics-observability-governance/scripts/inspect_analyti
 Use the health command:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health
 ```
 
 This checks recent GA reporting availability for:
@@ -216,7 +228,7 @@ Required checks once UAT native builds exist:
 
 Device-debug reminder from Google:
 
-- debug-mode events are excluded from overall Analytics data and from the daily BigQuery export
+- debug-mode events are excluded from overall Analytics reporting but can enter daily BigQuery exports; reporting queries must explicitly filter debug_mode
 - use them for validation, not for KPI counting
 
 Reference:
@@ -229,7 +241,7 @@ GA Admin API proof:
 
 1. production property `526603671` has a BigQuery link
 2. UAT property `533362555` has a BigQuery link
-3. production export streams include only the three Kai prod streams and exclude `HushhVoice`
+3. production export streams include the three legacy Kai production streams plus replacement Android `15395548050`, and exclude `HushhVoice`
 4. UAT export streams include the three UAT streams
 
 Project-side proof:
@@ -329,4 +341,25 @@ Kai growth analytics is only considered production-grade when all of these are t
 7. the growth dashboard is fed from modeled BigQuery results rather than raw GA cards
 8. Looker Studio tiles include KPI and instrumentation-health views
 
-Production dashboard confidence is blocked until `analytics_526603671` is visible with current event tables or the production export materialization issue is explicitly remediated.
+The original production export materialization blocker is resolved. Replacement Android ingestion requires its own package/stream-specific exported rows; legacy iOS, web or Android rows do not prove it.
+
+## Android release analytics
+
+- Native custom events use `App.getInfo().version` and bounded `app_build`
+  metadata from the installed binary; the web package version is not an Android
+  release identifier. Native metadata failure reports `unknown`.
+- The native adapter applies the same explicit reviewer-automation guard as the
+  web adapter. This protects custom events; it does not disable Firebase SDK
+  automatic lifecycle events or introduce a new consent policy.
+- BigQuery capture requires the new package `com.hussh.app`, Firebase Android app
+  `1:1006304528804:android:55bde832bb50240acfd931`, and exported stream `15395548050`.
+- GA4 `first_open` is first launch after installation/reinstallation, not a Play
+  download. Store installs and acquisition require Play's own aggregate reports.
+- Per Firebase's current [DebugView documentation](https://firebase.google.com/docs/analytics/debugview),
+  debug events can enter daily BigQuery exports unless filtered. Debug mode by
+  itself is not a customer-reporting exclusion. Android dashboard queries exclude
+  explicit debug events. Never synthesize production events for verification.
+- A successful build or mocked plugin test does not prove a device journey. Bind
+  live evidence to installed package, native version/build, installer, reporting
+  stream, backend environment and exact measurement dates. No device was attached
+  during the 7 October local audit.

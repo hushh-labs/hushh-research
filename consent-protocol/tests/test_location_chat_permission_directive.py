@@ -7,7 +7,7 @@ from hushh_mcp.agents.location.tools import (
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.services.location_chat_service import (
     LocationChatService,
-    _function_declarations_v2,
+    _function_declarations,
 )
 
 
@@ -15,7 +15,7 @@ def test_request_device_location_permission_registered():
     assert any(
         getattr(t, "_name", "") == "request_device_location_permission" for t in V2_LOCATION_TOOLS
     )
-    names = {d.name for d in _function_declarations_v2(types)}
+    names = {d.name for d in _function_declarations(types)}
     assert "request_device_location_permission" in names
 
 

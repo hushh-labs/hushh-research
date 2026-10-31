@@ -90,6 +90,7 @@ export function PlaceDetailSurface({
       onOpenChange={onOpenChange}
       eyebrow={eyebrow}
       title={details?.name ?? card.name}
+      headerTextOverflow="wrap"
       mobilePresentation="sheet"
       footer={
         details?.phone ? (

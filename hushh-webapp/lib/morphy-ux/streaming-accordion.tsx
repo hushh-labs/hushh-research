@@ -26,8 +26,8 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDownIcon, Sparkles, Loader2, Database, CheckCircle2 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ChevronDownIcon, Loader2, Database, CheckCircle2 } from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 
 import { cn } from "./cn";
 import { StreamingCursor } from "./streaming-cursor";
@@ -136,7 +136,7 @@ export interface StreamingAccordionProps {
   /** Callback when user manually toggles */
   onToggle?: (isOpen: boolean) => void;
   /** Icon to show in header (default: spinner) - can be string or React component */
-  icon?: "brain" | "sparkles" | "spinner" | "database" | "none" | "check" | React.ReactNode;
+  icon?: "brain" | "spinner" | "database" | "none" | "check" | React.ReactNode;
   /** Custom class for the icon */
   iconClassName?: string;
 
@@ -151,6 +151,12 @@ export interface StreamingAccordionProps {
   bodyClassName?: string;
   /** Message shown while streaming if no text has arrived yet */
   emptyStreamingMessage?: string;
+  /**
+   * `flat` lets an owning Morphy surface provide the only visual container.
+   * It prevents the nested-card outline that made streamed analysis look like
+   * a panel inside another panel.
+   */
+  surface?: "card" | "flat";
 }
 
 // ============================================================================
@@ -174,6 +180,7 @@ export function StreamingAccordion({
   autoCollapseOnComplete = true,
   bodyClassName,
   emptyStreamingMessage = "Preparing stream...",
+  surface = "card",
 }: StreamingAccordionProps) {
 
   // Accordion open state
@@ -384,19 +391,17 @@ export function StreamingAccordion({
         ? isComplete
           ? CheckCircle2
           : Loader2
-        : icon === "sparkles"
-          ? Sparkles
-          : icon === "database"
+        : icon === "database"
+          ? isComplete
+            ? CheckCircle2
+            : Database
+          : icon === "spinner"
             ? isComplete
               ? CheckCircle2
-              : Database
-            : icon === "spinner"
-              ? isComplete
-                ? CheckCircle2
-                : Loader2
-              : icon === "check"
-                ? CheckCircle2
-                : null
+              : Loader2
+            : icon === "check"
+              ? CheckCircle2
+              : null
       : null;
 
   const customIconNode = typeof icon === "string" ? null : icon;
@@ -411,12 +416,19 @@ export function StreamingAccordion({
       onValueChange={handleValueChange}
       className={cn("w-full", className)}
     >
-      <AccordionPrimitive.Item value={id} className="border rounded-lg overflow-hidden">
+      <AccordionPrimitive.Item
+        value={id}
+        className={cn(
+          "overflow-hidden",
+          surface === "card" ? "rounded-lg border" : "rounded-none border-0",
+        )}
+      >
         <AccordionPrimitive.Header className="flex">
           <AccordionPrimitive.Trigger
             className={cn(
-              "flex flex-1 items-center justify-between gap-3 px-4 py-3",
-              "text-left text-sm font-semibold transition-all",
+              "flex flex-1 items-center justify-between gap-3",
+              surface === "card" ? "px-4 py-3" : "px-0 py-2",
+              "text-left text-sm font-semibold transition-[background-color,color,box-shadow] duration-150",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "[&[data-state=open]>svg.chevron]:rotate-180"
             )}
@@ -443,7 +455,7 @@ export function StreamingAccordion({
             <Icon
               icon={ChevronDownIcon}
               size="sm"
-              className="chevron text-muted-foreground shrink-0 transition-transform duration-200"
+              className="chevron text-muted-foreground shrink-0 transition-transform duration-150"
             />
           </AccordionPrimitive.Trigger>
         </AccordionPrimitive.Header>
@@ -453,7 +465,8 @@ export function StreamingAccordion({
             <div
               ref={contentRef}
               className={cn(
-                "overflow-y-auto overscroll-contain px-4 pb-4",
+                "overflow-y-auto overscroll-contain",
+                surface === "card" ? "px-4 pb-4" : "px-0 pb-2",
                 "scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
               )}
               style={{ maxHeight }}
@@ -485,7 +498,7 @@ export function StreamingAccordion({
                   "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
                   "px-3 py-1.5 rounded-full",
                   "bg-primary text-primary-foreground text-xs font-semibold",
-                  "shadow-lg hover:shadow-xl transition-all",
+                  "shadow-lg transition-[opacity,box-shadow,transform] duration-150 hover:shadow-xl",
                   "animate-in fade-in slide-in-from-bottom-2",
                   "flex items-center gap-1.5"
                 )}

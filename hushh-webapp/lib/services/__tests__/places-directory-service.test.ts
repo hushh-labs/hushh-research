@@ -206,3 +206,84 @@ describe("PlacesDirectoryService.streamNearby", () => {
     expect(JSON.parse(init.body)).toMatchObject({ lat: 12.9716, lng: 77.5946 });
   });
 });
+
+/**
+ * What the reader is told when a request is refused.
+ *
+ * The distinction these hold is between "the service is down" and "we could
+ * not read what you typed". Blaming the service for the reader's own input is
+ * the bug that made the area box feel broken.
+ */
+describe("PlacesDirectoryService error messages", () => {
+  function jsonResponse(status: number, payload: unknown): Response {
+    return {
+      ok: false,
+      status,
+      json: async () => payload,
+    } as unknown as Response;
+  }
+
+  const SEARCH = {
+    idToken: "t",
+    origin: { latitude: 12.9716, longitude: 77.5946 },
+    categories: ["hotels_stays"],
+    radiusMi: 5,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not report a schema violation as an outage", async () => {
+    // FastAPI's own 422 shape: `detail` is an array of per-field errors, with
+    // no `message` anywhere in it. Read as an object this yielded undefined and
+    // fell through to the outage line.
+    mocks.apiFetch.mockResolvedValue(
+      jsonResponse(422, {
+        detail: [
+          {
+            type: "string_too_long",
+            loc: ["body", "postalCode"],
+            msg: "String should have at most 120 characters",
+          },
+        ],
+      }),
+    );
+
+    await expect(PlacesDirectoryService.searchNearby(SEARCH)).rejects.toThrow(
+      "That location could not be read. Try an area or postcode.",
+    );
+  });
+
+  it("keeps a hand-raised 422's own message", async () => {
+    // The route raises this one itself, as {code, message}, and its wording is
+    // already written for a reader. Keying the generic line on the ARRAY shape
+    // rather than on the 422 status is what preserves it.
+    mocks.apiFetch.mockResolvedValue(
+      jsonResponse(422, {
+        detail: {
+          code: "ONE_PLACES_UNRESOLVED_POSTAL_CODE",
+          message: "That postal code could not be located.",
+        },
+      }),
+    );
+
+    await expect(PlacesDirectoryService.searchNearby(SEARCH)).rejects.toThrow(
+      "That postal code could not be located.",
+    );
+  });
+
+  it("still calls a missing key or a closed surface plumbing", async () => {
+    mocks.apiFetch.mockResolvedValue(jsonResponse(503, {}));
+    await expect(PlacesDirectoryService.searchNearby(SEARCH)).rejects.toThrow(
+      "Not available yet.",
+    );
+  });
+
+  it("falls back to the outage line for an unexplained failure", async () => {
+    mocks.apiFetch.mockResolvedValue(jsonResponse(500, {}));
+    await expect(PlacesDirectoryService.searchNearby(SEARCH)).rejects.toThrow(
+      "Places are unavailable right now.",
+    );
+  });
+});

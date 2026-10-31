@@ -1,0 +1,439 @@
+# Puppy One: the on-device tier
+
+**Status:** implemented and measured on real hardware, 2026-08-28; status and
+toggle wiring audited and repaired 2026-09-02 (see the last section).
+
+The measurements below concern local execution. Dev also has a bounded remote
+inference path through the owner's BYOC pod and sealed device relay; the loopback
+bridge described here remains local-only. See the
+[canonical relay view](../architecture/views/deployment.md#dynamic-view-puppy-inference-through-the-owners-byoc-relay)
+and [current acceptance evidence](../quality/adk-orchestration-docs-audit.md).
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  Owner[Owner device] --> Hermes[Hermes runtime]
+  Hermes --> Model[Resident local model]
+  Hermes --> PKM[Encrypted PKM commit]
+```
+
+Puppy One is the edge tier of Hussh One: a personal AI that answers on hardware
+the owner already has, instead of renting inference from a vendor.
+
+## Names
+
+Two names, one thing, and they are not interchangeable in code.
+
+| Name | What it refers to | Where it may appear |
+| --- | --- | --- |
+| **Puppy One** | The product the owner sees | UI copy, docs, marketing |
+| **Hermes** | The runtime that implements it | Code, config, schema, env vars |
+
+Identifiers stay `hermes_*`. `HERMES_API_SERVER_KEY`, the `trusted_devices`
+table, and every route under `/api/hermes/` keep their spelling. Renaming an
+identifier to match the brand silently breaks a config file that already exists
+on the owner's machine, and buys nothing.
+
+## The claim, and what enforces it
+
+The claim is that a PKM save runs on the owner's machine and reaches no model
+vendor. Three things hold it up:
+
+1. **The provider is pinned.** `model.provider: lmstudio` with an explicit load
+   mode, so Hermes verifies the model is resident rather than delegating to
+   LM Studio's just-in-time loading.
+2. **The fallback chain is gated.** `hussh_one.on_device_only` makes any
+   non-local provider resolution refuse rather than reach for the network. This
+   is the part that was missing: pinning the main turn never covered auxiliary
+   tasks, which defaulted to `provider: "auto"` and fell through OpenRouter,
+   Nous and Codex to a paid Gemini default. Compression fires exactly when a
+   session accumulates reasoning, which is why a PKM save appeared to think on
+   Gemini while the config said otherwise.
+3. **The bridge is loopback-only.** Enforced by parsed hostname, in both the
+   Next route handler and the benchmark. Substring matching would accept
+   `http://127.0.0.1.evil.example`.
+
+### What is NOT on-device yet
+
+**The agent hierarchy.** Authored product definitions live in
+`consent-protocol/hushh_mcp/agents/*/agent.yaml`; their generated registries own
+capability discovery. A remote Puppy inference receipt does not prove that the
+full ADK hierarchy executes natively inside Hermes.
+
+The PKM graph (`memory_segmentation → memory_intent → memory_merge →
+pkm_structure`) is one bounded subsystem, not the whole private agent.
+`PKMAgentLabService._run_agent_contract` uses the managed-runtime client and,
+for eligible Gemini clients, the shared ADK single-turn operon. The provider
+adapter already exists; changing `model_override` does not establish on-device
+provider support or end-to-end Hermes parity. Qualify those paths separately
+without replacing the existing runtime boundary.
+
+The goal is that this hierarchy runs **natively inside Hermes**, reusing the
+same image structure as the pods that run on the user's own cloud, so the same
+agents behave the same way in every environment.
+
+Say this plainly in any status. The stack is not end-to-end on-device.
+
+## Measured, not asserted
+
+`hermes_cli/hussh_one_pkm/benchmark.py` times the real unit on the real model.
+
+Two halves, timed separately and never summed. They scale on different things,
+and one blended number would hide which half a regression landed in:
+
+- **T_model**: the local turn that reads an utterance and emits a well-formed
+  `save_to_pkm` call. Scales with model size, quant, memory bandwidth.
+- **T_commit**: `HusshPkmWriteService.save`. Crypto plus two HTTP round-trips
+  plus a DB write. Nearly model-independent.
+
+Latency alone would rank a model that answers in prose above one that does the
+work, so validity is scored beside it against the real `save_to_pkm` schema. A
+present-but-empty `scope_path` or `merge_patch` counts as missing: it is the
+cheapest output available and must not win.
+
+### Local PKM benchmark snapshot
+
+These results measure local PKM tool calls, not remote Puppy relay acceptance.
+The current dev relay keeps the owner's selected **Gemma 12B** default. Existing
+benchmark results do not authorize changing that selection or repeating a model
+sweep; qualify only the selected model when the affected path changes.
+
+`Mac16,5 · Apple M4 Max · 128 GB`, 5 cases x 2 reps per model, warm p50:
+
+| Model | Valid calls | Warm p50 | Warm p95 | tok/s | Errors |
+| --- | --- | --- | --- | --- | --- |
+| `gemma-4-e2b` | **0%** | 2579 ms | 3795 ms | 138.4 | 0 |
+| `gemma-4-26b-a4b-qat` | **100%** | 2600 ms | 2965 ms | 94.3 | 0 |
+| `gemma-4-12b-qat` | 100% | 4847 ms | 6560 ms | 49.8 | 0 |
+| `qwen3.6-35b-a3b` | 100% | 8165 ms | 16855 ms | 79.7 | 2 |
+| `gemma-4-31b-qat` | 100% | 9289 ms | 10348 ms | 22.4 | 0 |
+
+Read the first two rows together. **The fastest model on the ladder produces
+zero usable PKM saves.** `gemma-4-e2b` is the quickest to finish and the
+highest throughput, and every one of its answers was either prose or a call
+missing required fields. A latency-only benchmark would have crowned it.
+
+`gemma-4-26b-a4b-qat` performed best in this bounded PKM sample. Its warm
+latency was within 1% of e2b, with valid calls in all ten cases. It was faster
+than the tested 12B and roughly 3.5x faster than the tested 31B. This comparison
+does not establish equivalent quality on other tasks or select the remote
+relay's default.
+
+`qwen3.6-35b-a3b` is correct when it answers, but it failed 2 of 10 turns and
+its p95 is more than double its p50. Not a default.
+
+## Memory and eviction
+
+`hermes_cli/lmstudio_manager.py` handles residency, footprint, fit and
+eviction. Hermes could load a model and had no unload path at all.
+
+Eviction is deliberately conservative, because reloading weights on an edge
+device is expensive:
+
+- only `IDLE` models are candidates, never one serving a session;
+- `protect` matches case-insensitively (it is a safety instruction, not a
+  string-matching puzzle);
+- among plans that fit, the one surrendering the **least** memory wins, so a
+  5 GB gap cannot cost a 40 GB resident;
+- `ensure_capacity` refuses to act on an impossible fit. `plan_eviction`
+  reports the whole evictable set so a caller can see the ceiling, but
+  executing that plan would unload every warm model **and still not fit**;
+- an unreadable memory figure declines to evict rather than guessing.
+
+## Presence: push, not poll
+
+`hermes_cli/hussh_one_pkm/presence.py`. A fixed poll pays the same whether
+anything happened or not, and is wrong both ways: too slow to show a model swap
+the owner just made, and still billing every five minutes for a laptop asleep
+in a bag.
+
+So: push on transitions (unlock, model loaded or ejected, session start and
+end), with a 600s keepalive underneath whose only job is to tell "nothing
+changed" apart from "this machine is gone".
+
+Two rules stop it becoming a poll again:
+
+- identical snapshots are not sent; a repeat carries no signal;
+- a push never blocks its trigger. Dispatched to a daemon thread, best-effort,
+  silent on failure. The dashboard showing a staler reading is a much smaller
+  harm than an unlock waiting on a network call.
+
+`post_heartbeat` reads `read_state` and deliberately does **not** call
+`auth_headers`, which refreshes the token and runs the revocation check, which
+can seal the device. Telemetry must never be able to destroy local data as a
+side effect of being sent.
+
+### The coupled constants
+
+`KEEPALIVE_INTERVAL_SECONDS` (600s, presence.py) and `HEARTBEAT_FRESH_MS`
+(21 min, `lib/trusted-device/sync-display.ts`) must move together. The reader's
+window has to exceed twice the keepalive so one missed beat does not show a
+live machine as gone. Shortening one alone is what makes a healthy device read
+as offline.
+
+## Machine specs
+
+Brand, processor, total RAM and RAM in use ride the heartbeat allow-list, so
+the owner sees the machine their agent runs on.
+
+Names only. Brand and processor **describe** a machine; a serial number,
+hostname or MAC **identifies** one, and the dashboard has no use for that. The
+two numbers are range-bounded because a device posts them, and out-of-range
+values are dropped rather than clamped: clamping invents a reading that was
+never taken.
+
+## Tri-Flow declaration
+
+Per the PR template, every layer is covered or explicitly marked N/A with a
+reason. Silent omission is not permitted.
+
+| Layer | Status | Reason |
+| --- | --- | --- |
+| **Web** | Source and dated dev acceptance | The browser verifies signed owner/pod metadata, admits an app-role session and streams turns directly from the BYOC pod. The personal Azure Dev 15 rehearsal completed Puppy inference, cancellation, reconnect and on-demand wake. |
+| **iOS** | Source implemented; physical acceptance pending | The native app uses the same signed app-role admission and its native HTTP/SSE transport. The phone is an app client; the trusted inference device maintains the separate sealed WSS connection. |
+| **Android** | Source implemented; physical acceptance pending | The same app-role admission and native HTTP/SSE boundary applies. A native source path does not prove an installed-device rehearsal. |
+
+Puppy is available only through a registry-confirmed owner-cloud deployment;
+Shared and Hussh-hosted pods cannot grant its inference binding. Browser/app and
+trusted device must reach the same owner and pod incarnation. Independent active
+internet connections remain a live acceptance item; cellular specifically is not
+required. See the dated [readiness memo](../quality/adk-orchestration-docs-audit.md)
+for serving-image receipts and unresolved physical-device evidence.
+
+The relay rechecks session expiry, withdrawal and incarnation before outbound
+requests. New work arriving during an older idle wait does not evict the device;
+heartbeats still do not extend useful-work idle grace. These latest corrections
+require their own verified image and exact owner-approved installation before
+being described as deployed.
+
+## Where things are
+
+| Concern | File |
+| --- | --- |
+| On-device gate | `agent/auxiliary_client.py` (Hermes) |
+| Model residency and eviction | `hermes_cli/lmstudio_manager.py` |
+| Host hardware | `hermes_cli/host_metrics.py` |
+| Benchmark | `hermes_cli/hussh_one_pkm/benchmark.py` |
+| Presence push | `hermes_cli/hussh_one_pkm/presence.py` |
+| PKM write path | `hermes_cli/hussh_one_pkm/service.py` |
+| Chat surface | `hushh-webapp/app/one/puppy/page.tsx` |
+| AG-UI translation | `hushh-webapp/app/api/hermes/chat/stream/route.ts` |
+| Model picker | `hushh-webapp/components/agent/puppy-model-picker.tsx` |
+| Resource monitor | `hushh-webapp/components/agent/puppy-resource-monitor.tsx` |
+| Resource proxy | `hushh-webapp/app/api/hermes/resources/route.ts` |
+| Puppy One mode in Agent Chat | `hushh-webapp/components/agent/puppy-one-surface.tsx` |
+| Heartbeat allow-list | `consent-protocol/hushh_mcp/services/trusted_device_service.py` |
+
+## Puppy One inside Agent Chat
+
+Agent Chat carries a two-chip switch, One and Puppy. It changes which
+transcript is on screen. The two agents never share a message, a conversation
+or a history row: Puppy One brings its own transcript, its own composer and its
+own session, and One's transcript and composer are removed from the page (and
+from the tab order and the accessibility tree) while it is showing. The header
+names the agent actually answering, because that name is the reader's only
+guarantee about where an answer came from.
+
+Neither transcript is destroyed by looking at the other. Both are HIDDEN rather
+than unmounted, so a turn already in flight survives the glance in either
+direction: One's cloud stream, and a local answer that can take tens of
+seconds. Puppy One is mounted lazily, on the first switch, so a workspace that
+never opens it costs the loopback gateway and the trusted-device list nothing;
+after that it stays mounted and takes no readings while it is off screen, and
+its machine panel is closed on the way out (that panel is a portal on
+`document.body`, which a `hidden` ancestor cannot reach).
+
+Two things do change besides the transcript, and both exist because a cloud
+turn must never look like it happened on the owner's machine:
+
+- **Entering Puppy ends any live One voice session.** A session that survived
+  the switch kept the microphone open and kept the cloud agent answering aloud
+  under a header that says "Puppy One", with its own status word suppressed and
+  its mute and cancel controls inside the composer that `hidden` removes. The
+  workspace dispatches an explicit stop (`requestAgentConversationStop`) and the
+  Agent Bar, still the only audio owner, stops. Unconditionally, because the
+  shared voice store still reads "idle" in the window where the microphone lease
+  is already held.
+- **A handoff brings One back on screen first.** `openAgent({ handoff })` can
+  re-expand a workspace that is still in Puppy mode, and every handoff is One
+  speaking, so the effect sets the surface back to One before it enqueues a
+  prompt, appends a confirmation turn, or opens the vault dialog.
+
+One's own header controls do not cross the switch. The model picker names the
+CLOUD model and writes One's preference, so it is gated on the surface (and
+its slot keeps its width, so the chip the reader just pressed does not slide
+sideways). One's status word is suppressed too, with one exception: work of
+One's that is still running or still waiting on the person is named
+("One is still working", "One needs you"), because it would otherwise happen
+entirely unseen behind `display:none`.
+
+The mode is not persisted, but the scope is narrower than "every open": it
+resets to One every time the workspace MOUNTS, and the popover keeps the
+workspace mounted for the life of the page, so in practice that is a cold start
+rather than each minimise and reopen. The handoff reset above is what closes
+the gap that matters.
+
+The machine's readings are on demand. Above the Puppy transcript, on both
+`/one/puppy` and the workspace mode, sits one quiet control, "This machine",
+that opens them in a sheet. Opening it is what buys the 20-second cadence, and
+closing it is what ends it. One full reading is still taken on mount and
+re-taken every five minutes with the sheet shut, because the link banner below
+has to be able to announce a dead session unasked and the gateway offers no
+cheaper question than the whole reading.
+
+The control is only offered when the panel has something to say: either the
+bridge answered with a live reading, or One holds a heartbeat snapshot. An
+account with no machine is not handed a control that opens onto one muted
+sentence. Once offered it stays, so a transient unreadable link cannot take it
+away under a thumb.
+
+The link banner is the exception, and it is inline and unconditional: a machine
+can be enrolled, healthy and still signed out of Hussh One, every other reading
+keeps saying "healthy" while that is true, and an owner with no reason to open
+anything is exactly the owner who needs to be told. So a `link.session` that is
+neither `ok` nor `not_connected` is shown on the page itself, and it is shown
+there only — the sheet does not repeat it. This is also why the five-minute
+reading survives a shut sheet: the banner cannot announce what nothing re-read.
+
+## Status and toggles, audited 2026-09-02
+
+Every status the owner can see and every toggle they can flip, with its source
+of truth, after an end-to-end audit of both repositories. The Hermes side is
+in the fork at
+[hushh-labs/hussh-one-hermes](https://github.com/hushh-labs/hussh-one-hermes).
+
+| Surface | Source of truth | State after the audit |
+| --- | --- | --- |
+| `/one/puppy` header dot and model name | Two authorities, in order. `GET /api/hermes/status` (the gateway's `/health/detailed` on loopback) when the bridge is connected; otherwise `trusted_devices.last_heartbeat_at` through `fetchPuppyLink`, One's own record of the device | Repaired twice. First, the gateway did not name its model in that payload and the route read a field that never existed, so a connected agent showed no model; the gateway now reports `model` and `provider` there and the route reads every shape. Second, on a deployed origin the loopback is a Cloud Run container and never the owner's Mac, so the dot said "not connected" to every deployed viewer; it now turns green with the device name when One has a fresh heartbeat, and says "last seen …" when it has a stale one. The bridge keeps the pill whenever it is connected. |
+| Model picker | `GET /api/hermes/models` reading the gateway's `/api/model/options` | Repaired. The gateway names a provider by `slug` and lists models as strings with a capabilities map; the route mapped `id` and `{id}` objects, so every provider and model rendered as an empty string. |
+| Model pin | `POST /api/hermes/models` to the gateway's `/api/model/set` | Repaired. That route existed only in the Hermes dashboard, never in the loopback API server, so every pin from One answered "could not change the model". The API server now serves it with the same expensive-model confirmation and next-session semantics. |
+| One's model picker in the workspace header | `ModelPreferenceService`, One's own cloud model preference | One's control only, and absent in Puppy One. It used to render there, so the header said "Puppy One · on your machine" with a Gemini chip beside it and choosing an item silently rewrote the CLOUD agent's model from the on-device surface. Gated on the surface rather than hidden, so the write is not merely invisible but unreachable. |
+| `on-device` / `any model` pill | Browser state, sent per turn as the provider pin | Now remembered per browser. It reset to on-device on every reload while the header kept the last choice. |
+| Bridge on/off | `HERMES_API_SERVER_KEY` in the webapp's server-side env, same value as `API_SERVER_KEY` in `~/.hermes/.env` | Documented in `.env.example`. It was absent from every env template, so a localhost stack rendered "not connected" with a healthy gateway beside it. |
+| Devices page liveness | `trusted_devices.last_heartbeat_at` and `heartbeat`, posted by the device to the environment it enrolled in | Working, with one consequence to know: a device enrolls in one environment (`api_base` in its identity record), so the founder's machine reports to UAT and is invisible to a localhost or dev stack. |
+| Machine specs on the heartbeat | `TrustedDeviceHeartbeatRequest` | Repaired. The request model declared six of the fourteen allow-listed fields, so brand, processor, RAM and battery were dropped before the service saw them. No surface renders them yet. |
+| On-device gate | `hussh_one.on_device_only` in the Hermes config, read by the auxiliary client and the egress audit | On for the founder's machine; readable only on the device (`hermes_cli.hussh_one_egress_audit`, the health index). Not exposed to One. |
+| Vault while the screen is locked | `hussh_one.vault.lock_with_workstation`, default off | On-device config only. The always-on agent keeps its vault while the console is locked unless the owner opts in. |
+| Daily jobs, harness, learning loop | Versioned in the Hermes fork (its scripts/hussh-one-cron directory, not this repo); graded by `hermes puppy jobs`; ledger at `~/.hermes/evolution-ledger.jsonl` | On-device only. Nothing ships the health index, the doctor state, the ledger or the job audit off the machine. |
+
+## What a person sees when Puppy One is not here
+
+The bridge under `/api/hermes/*` reaches a gateway over loopback ON THE SERVER
+(`lib/hermes/bridge-config.ts` refuses any other host). On
+`uat.one.hushh.ai` and `one.hushh.ai` that loopback is the Cloud Run
+container, never the person's Mac, so the bridge is "not connected" for every
+deployed viewer, permanently, and it used to say so with a developer's hint
+about a server env key.
+
+The link now has two authorities, and each answers a different question. The
+backend heartbeat (`trusted_devices.last_heartbeat_at` and `heartbeat`, read
+through `fetchPuppyLink` in `lib/services/puppy-one-service.ts`) is the source
+of truth for **whether the person's machine is connected to their account**,
+for every viewer on every origin. The loopback bridge is the source of truth
+for **legacy local controls only**: the model picker and on-device controls stay
+gated on it because those need a gateway the server can actually reach. The
+private-agent composer uses the owner-pod Puppy relay described below and never
+falls back to this loopback bridge. The two never contradict each other on one surface, because
+a connected bridge keeps the header pill and the machine sheet's live reading,
+and the heartbeat speaks only when the bridge has nothing to say.
+
+`derivePuppyLink` is pure and uses the same `HEARTBEAT_FRESH_MS` window the
+devices page uses for "Active now", so the two surfaces cannot disagree about
+one machine.
+
+| State | Source of truth | What is shown | The way out |
+| --- | --- | --- | --- |
+| Checking | Neither authority has answered yet: the shared link store returns null until its first read lands, which goes through a Firebase token and a backend roundtrip while the bridge answers instantly on a deployed origin | Muted pill "checking…" with a spinner rather than the grey dot (that dot already means "there is no machine"). Empty state: "Checking Puppy One…"; composer placeholder the same, and still disabled, because not knowing yet is not permission to send. | Wait. Nothing about the machine is implied, and the read is bounded before it resolves to one of the rows below. |
+| Local bridge connected | `GET /api/hermes/status` on loopback | Green pill with the model name, the composer, the model picker, the on-device pill, the live machine reading in the sheet | Nothing to do |
+| Live | An active trusted device with a heartbeat inside `HEARTBEAT_FRESH_MS` | Green pill "connected · {device}". Empty state: "Puppy One is connected to your account on {device} · {model} · seen {relative}. Chat here works from that machine." with a Trusted devices link; the composer placeholder says "Chat with Puppy One from {device}". The sheet shows the heartbeat snapshot under "As reported to Hussh One {relative}" (the configured model, busy and sessions, brand and processor, memory, battery). | Use the machine, or open Trusted devices |
+| Quiet | An active device exists, none has reported inside the window | Muted pill "last seen {relative}". Empty state: "Puppy One on {device} was last seen {relative}. It answers only while that Mac is on and awake, so waking it is the first thing to try. If it stays quiet after that, run /hussh-one status on that machine." with a Trusted devices link; composer placeholder "Puppy One on {device} is quiet right now", hedged to the same strength as the copy. A device that has never reported is "trusted but has not reported yet", with no claim that it is offline and no wake instruction. | Wake that Mac; if it stays quiet, `/hussh-one status` on it, or open Trusted devices |
+| Unlinked | No trusted device rows at all | Muted pill "not connected". Empty state: "Puppy One isn't connected to your account yet. Install it on your Mac, then run /hussh-one connect." with the [Get Puppy One on GitHub](https://github.com/hushh-labs/hussh-one-hermes) anchor and the Trusted devices link; composer placeholder "Connect Puppy One to start". | Install from GitHub, then `/hussh-one connect` |
+| Revoked | Only revoked rows remain | Muted pill "not connected". Empty state: "Puppy One was unlinked from this account. On that machine, run /hussh-one connect." with the Trusted devices link (unlinking can be done from another session or by someone else on the account, so this is news, and that page is the only one that says which device and when). No install anchor: that machine already has Puppy One on it. (`connect`, not `reconnect`: a revoked device is sealed and the agent's own remedy is a fresh connect; `reconnect` repairs an expired login on a still-trusted machine and refuses to run otherwise.) | On that machine, `/hussh-one connect`, or open Trusted devices |
+| Unavailable | The device list could not be read (signed out, backend down, malformed payload) | Muted pill "not connected". Empty state: "Couldn't check your Puppy One link right now." A brief backend hiccup never reads as a broken machine. | Reload; nothing about the device is implied |
+| Developer hint | The bridge's own `message` ("Set HERMES_API_SERVER_KEY …") | Rendered ONLY when `window.location.hostname` is `localhost` or `127.0.0.1` and the app is not the native shell (`lib/hermes/local-host.ts`). It can appear on two surfaces and both are guarded: as a second muted line under the chat empty state, and inside the machine sheet (both the readings line and the jobs line). Off that machine the sheet says "Live readings can only be taken on the machine Puppy One runs on." instead, once, and the jobs probe adds nothing. | Set the key in the webapp's server env, same value as `API_SERVER_KEY` in `~/.hermes/.env` |
+| Machine sheet, off the serving machine | `isLocalHost()` | "This machine" in the sheet's own branches means the machine the page is SERVED from. Off it, both the not-configured and the unreachable branch say "Live readings can only be taken on the machine Puppy One runs on." rather than telling the reader their own phone is at fault or naming a server env key. No remedy is offered there: opening the page on the Mac does not help either (the bridge is loopback on the SERVER), and the ways out belong to the chat panel directly below. | Use the machine, or open Trusted devices |
+
+One fact, one place. The strip above the chat speaks only for the DEVICE's
+own account of its session (`link.session` from the bridge), which knows
+about an expired token on a still-trusted machine, something One cannot see.
+One's record of the device is explained once, in the chat panel's empty state,
+with the way out; the strip never repeats it, so the same sentence and the same
+install link cannot appear twice on one screen. Both surfaces read One's record
+from one store with one poll (`subscribePuppyLink`, a read a minute against a
+ten-minute keepalive), so the pill and the sheet change in the same moment.
+
+Two things the link deliberately does not know. On a lane whose enrollment
+kill switch is off (`HUSSH_TRUSTED_DEVICE_ENABLED`, hard "false" on dev) the
+device list still answers, so "unlinked" shows the install copy even though
+`/hussh-one connect` would be refused there; the flag is a lane decision, not
+something the page should guess at. And the model in every copy is the one the
+device has CONFIGURED, as it reported it, not proof that it is loaded: nothing
+on the device fires a heartbeat on a model change, so a new pin reaches One on
+the next push (unlock, or the ten-minute keepalive).
+
+Two surfaces remain dangling and are recorded rather than hidden:
+`/one/profile/preferences/device` (breadcrumb "On-device first") has no panel
+behind it, and the Capacitor `HushhAgent` plugin with its `useRemoteLLM` and
+`preferredLLMProvider` settings has no callers and no native implementation.
+Neither is reachable from a control the owner can see.
+
+What a phone could read today without new plumbing is exactly the heartbeat
+record: model, sessions, busy, version, machine specs and power, and the seal
+state. Puppy inference now has a pod-local relay contract and a focused-tested
+direct client in the local Hermes checkout. The serving dev backend still lacks
+its binding route, so direct inference is not a live end-to-end integration.
+Other device state (gate, doctor, ledger, job audit, and
+`hussh_one.*` toggles) still needs heartbeat fields or a separate device control
+channel.
+
+## Private-agent inference relay (source status, 2026-09-24)
+
+The authorized inference path is the owner's verified BYOC pod. The app sends the
+turn to its pinned pod endpoint. The pod accepts Puppy only when the request has a
+local owner session and an active device binding that carries `puppy.inference`,
+names the same owner and HusshID, and records `deployment_target: user_gcp`. The
+pod then requires that device to be connected to its own broker. A missing or
+mismatched binding, a Shared or Hussh Pods deployment, or an unavailable local
+relay fails closed; the app does not fall back to a hub turn. The binding is
+issued from the owner's registry placement, and the inference scope is not issued
+for other deployment targets.
+
+The server-side path is source-verified. The local Hermes checkout now has a
+direct client that reuses an active trusted-device identity, requests a BYOC-only
+binding, and connects to the pod with sealed frames; its focused relay tests pass.
+The serving dev backend returned HTTP 404 for binding issuance on 2026-09-24.
+The client is not published through the Hermes remote, and a real owner/device
+relay rehearsal remains unverified. Do not describe Puppy as currently usable
+through the direct BYOC relay until deployment and device acceptance are complete.
+
+### Legacy hub relay compatibility
+
+The hub WebSocket at `/api/one/puppy/relay` remains for compatibility. Its server
+checks an active device, a provisioned `user_gcp` registry entry, the HTTPS pod
+URL, and pod identity before admitting inference. That is a BYOC gate, but it is
+not proof that the device and app are connected directly to the same pod. Shared
+and Hussh Pods are refused. Keep this route out of the current direct-path diagram
+except as a separately labeled compatibility path.
+
+The relay is instance-local unless the dedicated
+`PUPPY_RELAY_RENDEZVOUS_URL` is configured; it is never derived from
+`RATE_LIMIT_STORAGE_URI`. Cloud Run session affinity remains best effort, and
+connected WebSockets retain active-instance billing. Capacity and idle cost still
+require live measurement. The device adapter calls its configured local
+OpenAI-compatible model endpoint and exposes no Hermes tools through this relay.
+
+### What changed on 2026-09-10 (historical source snapshot)
+
+A Puppy turn now completes inside ADK: the pod's provider adapter rides ADK's own
+stream aggregator, so every function call the local model emits executes and the
+whole answer reaches the session and memory. Before this, tool-bearing turns failed
+as empty answers and memory recorded only the person's side. The device now
+advertises its resident model and capability profile (`tool_calling`, `json_schema`,
+`streaming`, probe mode) on `relay.hello` and names the model that answered on
+`inference.result`; the pod carries response format, tool choice, sampling and stop
+settings on the wire and refuses an unsupported capability before dispatch instead
+of dropping it, and the turn response reports `modelReported` honestly instead of
+always saying `local`. The broker and server-side direct-pod contract were added
+after this snapshot. A local direct Hermes client was added on 2026-09-24;
+live deployment and two-device acceptance remain unverified.

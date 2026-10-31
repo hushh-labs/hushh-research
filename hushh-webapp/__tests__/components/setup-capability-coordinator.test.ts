@@ -7,6 +7,7 @@ import {
   resolveSetupCapabilityTerminalScreen,
   resolveSetupCapabilityTerminalTarget,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { buildOneSetupFinanceImportRoute, ROUTES } from "@/lib/navigation/routes";
 import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 
 describe("setup capability journey settlement", () => {
@@ -109,5 +110,72 @@ describe("setup capability journey settlement", () => {
     expect(resolveSetupCapabilityTerminalScreen("/one/setup")).toBe(
       "one_setup_hub",
     );
+  });
+
+  it("lands a Finance re-entry terminal (including \"I'll link this later\") on Finance, not One", () => {
+    // Root setup is resolved, so Finance setup is an individual re-entry from
+    // the Finance workspace. The import step's "I'll link this later" footer
+    // settles through `finish`; neither terminal may drop the person on /one.
+    for (const kind of ["finish", "skip"] as const) {
+      const target = resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance",
+        journeyMode: "individual",
+        hasExplicitIncompleteSetup: false,
+        kind,
+      });
+      expect(target).toBe(ROUTES.KAI_HOME);
+      expect(target).not.toBe(ROUTES.ONE_HOME);
+    }
+    expect(resolveSetupCapabilityTerminalScreen(ROUTES.KAI_HOME)).toBeDefined();
+  });
+
+  it("keeps a first-run Finance terminal on the setup hub", () => {
+    // The master "Finish setup" is still outstanding, so the Finance workspace
+    // is not reachable yet; the hub remains the only safe destination.
+    for (const kind of ["finish", "skip"] as const) {
+      expect(
+        resolveSetupCapabilityTerminalTarget({
+          capabilityId: "finance",
+          journeyMode: "root",
+          hasExplicitIncompleteSetup: true,
+          kind,
+        }),
+      ).toBe(ROUTES.ONE_SETUP);
+    }
+  });
+
+  it("retains a validated invitation only after root setup, including an explicit skip", () => {
+    const invite = "/circle/join?invite=opaque_token";
+    expect(buildOneSetupFinanceImportRoute(invite)).toBe(
+      ROUTES.ONE_SETUP_FINANCE_IMPORT + "?return_to=" + encodeURIComponent(invite),
+    );
+    for (const kind of ["finish", "skip"] as const) {
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "individual",
+        hasExplicitIncompleteSetup: false, kind, returnTo: invite,
+      })).toBe(invite);
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "root",
+        hasExplicitIncompleteSetup: true, kind, returnTo: invite,
+      })).toBe(ROUTES.ONE_SETUP);
+    }
+    for (const unsafe of ["https://outside.example/", "//outside.example/", "javascript:alert(1)", ROUTES.ONE_SETUP]) {
+      expect(buildOneSetupFinanceImportRoute(unsafe)).toBe(ROUTES.ONE_SETUP_FINANCE_IMPORT);
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "individual",
+        hasExplicitIncompleteSetup: false, kind: "finish", returnTo: unsafe,
+      })).toBe(ROUTES.KAI_HOME);
+    }
+  });
+
+  it("still returns other individual capability terminals to One", () => {
+    expect(
+      resolveSetupCapabilityTerminalTarget({
+        capabilityId: "gmail",
+        journeyMode: "individual",
+        hasExplicitIncompleteSetup: false,
+        kind: "finish",
+      }),
+    ).toBe(ROUTES.ONE_HOME);
   });
 });

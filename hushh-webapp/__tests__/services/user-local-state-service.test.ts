@@ -4,10 +4,48 @@ const mocks = vi.hoisted(() => ({
   clearPreVault: vi.fn(),
   clearPreVaultSensitive: vi.fn(),
   clearFinanceSetupDraft: vi.fn(),
-  clearKycIdentityDraft: vi.fn(),
   clearKaiNavTour: vi.fn(),
   clearRiaOnboardingDraft: vi.fn(),
   clearVaultMethodPrompt: vi.fn(),
+  clearQuickUnlockTrust: vi.fn(),
+  forgetLocationMemory: vi.fn(),
+  forgetLocationRecipientKey: vi.fn(),
+  clearDeviceVaultSecrets: vi.fn(),
+  clearReleaseNotices: vi.fn(),
+  clearLiveActivity: vi.fn(),
+  clearLiveActivityNotice: vi.fn(),
+}));
+
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
+  clearLiveActivity: mocks.clearLiveActivity,
+  clearLiveActivityNotice: mocks.clearLiveActivityNotice,
+}));
+
+vi.mock("@/lib/services/onboarding-local-service", () => ({
+  OnboardingLocalService: { clearReleaseNotices: mocks.clearReleaseNotices },
+}));
+
+vi.mock("@/lib/services/secure-durable-resource-service", () => ({
+  SecureDurableResourceService: { purgeUser: vi.fn().mockResolvedValue(undefined) },
+  subscribeDurableOwnerReset: () => () => {},
+}));
+
+vi.mock("@/lib/one-location/encryption", () => ({
+  forgetLocationRecipientKey: mocks.forgetLocationRecipientKey,
+}));
+
+vi.mock("@/lib/services/vault-bootstrap-service", () => ({
+  VaultBootstrapService: {
+    clearDeviceVaultSecretsForDeletedAccount: mocks.clearDeviceVaultSecrets,
+  },
+}));
+
+// Mocked rather than exercised for real: location-grant-memory reaches
+// encryption -> HushhKeychain, and this file mocks only @capacitor/core.
+// location-grant-memory.test.ts owns the durable behaviour; this file owns the
+// wiring. Both are needed — either alone passes while the other half is broken.
+vi.mock("@/lib/one-location/location-grant-memory", () => ({
+  forgetLocationMemory: mocks.forgetLocationMemory,
 }));
 
 vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({
@@ -22,10 +60,6 @@ vi.mock("@/lib/services/finance-setup-draft-service", () => ({
   FinanceSetupDraftService: { clear: mocks.clearFinanceSetupDraft },
 }));
 
-vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
-  KycIdentityProfileDraftService: { clear: mocks.clearKycIdentityDraft },
-}));
-
 vi.mock("@/lib/services/kai-nav-tour-local-service", () => ({
   KaiNavTourLocalService: { clear: mocks.clearKaiNavTour },
 }));
@@ -38,11 +72,17 @@ vi.mock("@/lib/services/vault-method-prompt-local-service", () => ({
   VaultMethodPromptLocalService: { clear: mocks.clearVaultMethodPrompt },
 }));
 
+vi.mock("@/lib/services/vault-quick-unlock-trust-local-service", () => ({
+  VaultQuickUnlockTrustLocalService: { clear: mocks.clearQuickUnlockTrust },
+}));
+
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
+  registerPlugin: vi.fn(() => ({})),
 }));
 
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
+import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 describe("UserLocalStateService", () => {
@@ -52,10 +92,10 @@ describe("UserLocalStateService", () => {
     mocks.clearPreVault.mockResolvedValue(undefined);
     mocks.clearPreVaultSensitive.mockReturnValue(undefined);
     mocks.clearFinanceSetupDraft.mockResolvedValue(undefined);
-    mocks.clearKycIdentityDraft.mockReturnValue(undefined);
     mocks.clearKaiNavTour.mockResolvedValue(undefined);
     mocks.clearRiaOnboardingDraft.mockResolvedValue(undefined);
     mocks.clearVaultMethodPrompt.mockResolvedValue(undefined);
+    mocks.clearQuickUnlockTrust.mockResolvedValue(undefined);
   });
 
   it("clears all user-scoped local state, including RIA onboarding drafts", async () => {
@@ -64,10 +104,33 @@ describe("UserLocalStateService", () => {
     expect(mocks.clearPreVault).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearPreVaultSensitive).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearFinanceSetupDraft).toHaveBeenCalledWith("uid-1");
-    expect(mocks.clearKycIdentityDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearKaiNavTour).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearQuickUnlockTrust).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearLiveActivity).toHaveBeenCalledWith("uid-1");
+  });
+
+  it("forgets the remembered location grant and the sealed last-known fix", async () => {
+    // These two records are the only user-scoped local state that describes
+    // where a person physically was: a sealed coordinate kept for 24h and a
+    // grant kept for 90d. Both were shipped with no caller for the function
+    // that deletes them, so they outlived sign-out on a shared device.
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledWith("uid-1");
+  });
+
+  it("still forgets location even when another cleanup rejects", async () => {
+    // The settled batch swallows rejections, but only for work queued after
+    // this point. Location teardown runs synchronously and ahead of it for
+    // exactly this reason: an unrelated failure must not be able to leave a
+    // coordinate behind.
+    mocks.clearRiaOnboardingDraft.mockRejectedValue(new Error("storage full"));
+
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledWith("uid-1");
   });
 
   it("clears the setup completion latch so onboarding can re-arm", async () => {
@@ -81,5 +144,61 @@ describe("UserLocalStateService", () => {
     await UserLocalStateService.clearForUser("uid-rearm");
 
     expect(OneSetupCompletionHintService.isResolved("uid-rearm")).toBe(false);
+  });
+
+  it("keeps device key material on sign-out cleanup", async () => {
+    // clearForUser runs on every sign-out. The location private key and the
+    // quick-unlock secret must survive it or the next unlock and in-flight
+    // location grants break.
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
+    expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
+    expect(mocks.clearReleaseNotices).not.toHaveBeenCalled();
+    expect(mocks.clearLiveActivityNotice).not.toHaveBeenCalled();
+    expect(SecureDurableResourceService.purgeUser).not.toHaveBeenCalled();
+  });
+
+  it("removes durable receipt ciphertext only for confirmed Reset/delete and surfaces failed removal", async () => {
+    await UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true });
+    expect(SecureDurableResourceService.purgeUser).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearLiveActivityNotice).toHaveBeenCalledExactlyOnceWith("uid-1");
+    vi.mocked(SecureDurableResourceService.purgeUser).mockRejectedValueOnce(new Error("device storage blocked"));
+    await expect(UserLocalStateService.clearForUser("uid-1", { deleteDurableReceipts: true })).rejects.toThrow("encrypted device receipts");
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes the deleted account's Feed and Mail nudge keys only, and keeps them on sign-out", async () => {
+    const feedKeys = (uid: string) => [
+      `hushh:feed-sms-dismissed:${uid}`,
+      `hushh:feed-cleared-through-id:${uid}`,
+      `hushh:feed-cleared-at:${uid}`,
+      `hushh:feed-sound-enabled:${uid}`,
+      `hushh.mail_attention.v1.${uid}`,
+    ];
+    for (const key of [...feedKeys("uid-a"), ...feedKeys("uid-b")]) {
+      window.localStorage.setItem(key, "1");
+    }
+
+    // Sign-out keeps the sound choice and device-only clears not yet on the server.
+    await UserLocalStateService.clearForUser("uid-a");
+    for (const key of feedKeys("uid-a")) expect(window.localStorage.getItem(key)).toBe("1");
+
+    await UserLocalStateService.clearForUser("uid-a", { deleteDurableReceipts: true });
+    for (const key of feedKeys("uid-a")) expect(window.localStorage.getItem(key)).toBeNull();
+    for (const key of feedKeys("uid-b")) expect(window.localStorage.getItem(key)).toBe("1");
+  });
+
+  it("removes device key material for a deleted account, even if one store fails", async () => {
+    mocks.forgetLocationRecipientKey.mockRejectedValue(new Error("idb blocked"));
+    mocks.clearDeviceVaultSecrets.mockResolvedValue(undefined);
+
+    await expect(
+      UserLocalStateService.clearDeviceSecretsForDeletedAccount("uid-1"),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.forgetLocationRecipientKey).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearDeviceVaultSecrets).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearReleaseNotices).toHaveBeenCalledWith("uid-1");
   });
 });

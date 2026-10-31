@@ -3,17 +3,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listeners: new Map<string, (payload: unknown) => void>(),
   requestInternalAppNavigation: vi.fn(),
+  dispatchFeedStateChanged: vi.fn(),
+  platform: "ios",
+  keyId: "current-key",
 }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
     isNativePlatform: () => true,
-    getPlatform: () => "ios",
+    getPlatform: () => mocks.platform,
   },
 }));
 
 vi.mock("@capacitor-firebase/messaging", () => ({
   FirebaseMessaging: {
+    checkPermissions: vi.fn(async () => ({ receive: "granted" })),
+    getToken: vi.fn(async () => ({ token: "fixture-token" })),
     addListener: vi.fn(
       async (eventName: string, listener: (payload: unknown) => void) => {
         mocks.listeners.set(eventName, listener);
@@ -25,24 +30,65 @@ vi.mock("@capacitor-firebase/messaging", () => ({
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    registerPushToken: vi.fn(),
+    registerPushToken: vi.fn(async () => ({ ok: true, clone: () => ({ json: async () => ({ registered: true }) }) })),
   },
 }));
 
-vi.mock("@/lib/utils/browser-navigation", () => ({
-  assignWindowLocation: vi.fn(),
-  requestInternalAppNavigation: mocks.requestInternalAppNavigation,
+vi.mock("@/lib/utils/browser-navigation", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/utils/browser-navigation")>();
+  mocks.requestInternalAppNavigation.mockImplementation(
+    actual.requestInternalAppNavigation,
+  );
+  return {
+    ...actual,
+    assignWindowLocation: vi.fn(),
+    requestInternalAppNavigation: mocks.requestInternalAppNavigation,
+  };
+});
+
+vi.mock("@/lib/feed/feed-events", () => ({
+  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
-import { prepareFCMListeners } from "@/lib/notifications/fcm-service";
+vi.mock("@/lib/notifications/preview-keys", () => ({ activeNotificationKeyId: () => mocks.keyId }));
 
-describe("native connection notification actions", () => {
-  beforeEach(() => {
-    mocks.listeners.clear();
+import { prepareFCMListeners, initializeFCM } from "@/lib/notifications/fcm-service";
+import {
+  acknowledgeInternalAppNavigation,
+  consumePendingInternalAppNavigation,
+  INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  type InternalAppNavigationRequest,
+} from "@/lib/utils/browser-navigation";
+
+describe("native system-notification routing", () => {
+  it.each(["ios", "android"])("routes %s circle message taps to the validated chat and ignores supplied external URLs", async (platform) => {
+    mocks.platform = platform;
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    const circle = "11111111-2222-3333-4444-555555555555";
+    onAction?.({ actionId: "tap", notification: { data: { type: "location_circle_message", circle_id: circle, request_url: "https://evil.example/steal" } } });
+    expect(mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href).toBe(`/one/connect?tab=circles&action=circle-detail&circleId=${circle}&circleChat=1`);
     mocks.requestInternalAppNavigation.mockClear();
+    onAction?.({ actionId: "tap", notification: { data: { type: "location_circle_message", circle_id: "../../other", request_url: "https://evil.example" } } });
+    expect(mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href).toBe("/one/feed");
+  });
+  beforeEach(() => {
+    // prepareFCMListeners registers once per module instance, so retain the
+    // listener map and clear only assertions between cases.
+    mocks.requestInternalAppNavigation.mockClear();
+    mocks.dispatchFeedStateChanged.mockClear();
+    mocks.platform = "ios";
+    consumePendingInternalAppNavigation();
   });
 
-  it("opens the Connections consent view when a connection request is tapped", async () => {
+  it.each([
+    "connection_request",
+    "consent_request",
+    "location_share_expired",
+    "kai_analysis_complete",
+    "future_notification_type",
+  ])("opens Feed when a %s notification body is tapped", async (type) => {
     await prepareFCMListeners();
     const onAction = mocks.listeners.get("notificationActionPerformed");
     expect(onAction).toBeTypeOf("function");
@@ -51,15 +97,247 @@ describe("native connection notification actions", () => {
       actionId: "tap",
       notification: {
         data: {
-          type: "connection_request",
-          request_url: "/one/consent?tab=connections",
+          type,
+          request_id: "request-1",
+          request_url: "/one/location?grantId=legacy-target",
+        },
+      },
+    });
+
+    const href = String(
+      mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href || "",
+    );
+    expect(href).toMatch(/^\/one\/feed(?:\?|$)/);
+    if (type === "consent_request") {
+      expect(href).toContain("notificationRequestId=request-1");
+    }
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("action");
+  });
+
+  describe.each(["ios", "android"])(
+    "%s incoming Location system taps",
+    (platform) => {
+      it.each([
+        ["location_share_created", "tap"],
+        ["location_access_approved", "tap"],
+        [
+          "location_share_created",
+          "com.apple.UNNotificationDefaultActionIdentifier",
+        ],
+        [
+          "location_access_approved",
+          "com.apple.UNNotificationDefaultActionIdentifier",
+        ],
+      ])(
+        "retains %s (%s) until the router mounts, without stale detail intent",
+        async (type, actionId) => {
+          mocks.platform = platform;
+          await prepareFCMListeners();
+          mocks.listeners.get("notificationActionPerformed")?.({
+            actionId,
+            notification: {
+              data: {
+                type,
+                grant_id: "grant-1",
+                request_id: "request-1",
+                request_url:
+                  "/one/location?grantId=grant-1&requestId=request-1&section=people",
+                deep_link: "/one/location",
+              },
+            },
+          });
+
+          expect(
+            mocks.requestInternalAppNavigation,
+          ).toHaveBeenCalledExactlyOnceWith({
+            href: "/one/location?section=shared",
+            scroll: false,
+          });
+          expect(consumePendingInternalAppNavigation()).toEqual({
+            href: "/one/location?section=shared",
+            scroll: false,
+          });
+          expect(consumePendingInternalAppNavigation()).toBeNull();
+        },
+      );
+
+      it("delivers a warm tap once and does not replay it after router acknowledgement", async () => {
+        mocks.platform = platform;
+        await prepareFCMListeners();
+        const listener = vi.fn((event: Event) => {
+          const request = (event as CustomEvent<InternalAppNavigationRequest>)
+            .detail;
+          acknowledgeInternalAppNavigation(request);
+        });
+        window.addEventListener(
+          INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+          listener,
+        );
+        try {
+          mocks.listeners.get("notificationActionPerformed")?.({
+            actionId: "tap",
+            notification: { data: { type: "location_share_created" } },
+          });
+        } finally {
+          window.removeEventListener(
+            INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+            listener,
+          );
+        }
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect((listener.mock.calls[0][0] as CustomEvent).detail.href).toBe(
+          "/one/location?section=shared",
+        );
+        expect(consumePendingInternalAppNavigation()).toBeNull();
+      });
+
+      it("refreshes foreground receipt without navigating away", async () => {
+        mocks.platform = platform;
+        await prepareFCMListeners();
+        mocks.listeners.get("notificationReceived")?.({
+          data: { type: "location_share_created" },
+        });
+        expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
+        expect(mocks.requestInternalAppNavigation).not.toHaveBeenCalled();
+        expect(consumePendingInternalAppNavigation()).toBeNull();
+      });
+    },
+  );
+
+  it("keeps an explicit consent Review action on its confirmation route", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+
+    onAction?.({
+      actionId: "CONSENT_REVIEW",
+      notification: {
+        data: {
+          type: "consent_request",
+          request_id: "consent-1",
+          request_url: "/one/consent?tab=pending",
+        },
+      },
+    });
+
+    const href = String(
+      mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href || "",
+    );
+    expect(href).toContain("/one/consent");
+    expect(href).toContain("requestId=consent-1");
+    expect(href).toContain("notificationAction=review");
+  });
+
+  it("opens the fixed document review route for an allowlisted opaque body tap", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+
+    onAction?.({
+      actionId: "tap",
+      notification: {
+        data: {
+          type: "document_share_review_ready",
+          request_id: "11111111-1111-4111-8111-111111111111",
+          request_url: "https://example.com/ignored",
+          deep_link: "/one/profile?ignored=true",
+          file_name: "bank-statement.pdf",
         },
       },
     });
 
     expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
-      href: "/one/consent?tab=connections",
+      href: "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+      scroll: false,
+    });
+    expect(
+      mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href,
+    ).not.toContain("notificationAction");
+  });
+
+  it("opens Feed for a requester payment action", async () => {
+    await prepareFCMListeners();
+    mocks.listeners.get("notificationActionPerformed")?.({
+      actionId: "tap",
+      notification: { data: {
+        type: "document_share_payment_ready",
+        request_id: "11111111-1111-4111-8111-111111111111",
+        file_name: "private.pdf",
+      } },
+    });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/feed", scroll: false,
+    });
+  });
+
+  it("opens the inbox for a legacy direct-message push without an encrypted token", async () => {
+    await prepareFCMListeners();
+    mocks.listeners.get("notificationActionPerformed")?.({
+      actionId: "tap",
+      notification: {
+        data: {
+          type: "direct_message",
+          conversation_id: "conversation-opaque-1",
+          message_id: "message-opaque-1",
+        },
+      },
+    });
+
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/messages",
       scroll: false,
     });
   });
+
+  it("opens encrypted direct-message tokens without exposing the conversation id", async () => {
+    await prepareFCMListeners();
+    mocks.listeners.get("notificationActionPerformed")?.({ actionId: "tap", notification: { data: { type: "direct_message", route_token: "dm1.opaque", conversation_id: "internal-id" } } });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({ href: "/one/messages?token=dm1.opaque", scroll: false });
+  });
+
+  it("ignores dismiss actions", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    onAction?.({
+      actionId: "dismiss",
+      notification: { data: { type: "connection_request" } },
+    });
+    expect(mocks.requestInternalAppNavigation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the explicit emergency action on the validated live-location route", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    onAction?.({
+      actionId: "ONE_LOCATION_SMS_OPEN",
+      notification: {
+        data: {
+          type: "location_share_created",
+          notification_profile: "one_location_sms_emergency",
+          request_url: "/one/location?grantId=emergency-1&section=shared",
+        },
+      },
+    });
+
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/location?grantId=emergency-1&section=shared",
+      scroll: false,
+    });
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("action");
+  });
+  it("holds a cold chat tap until its owner key hydrates and ignores a later wrong-owner tap", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    const tap = (key: string) => onAction?.({ actionId: "tap", notification: { data: { type: "direct_message", route_token: "dm1.test", recipient_key_id: key } } });
+    tap("current-key");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.requestInternalAppNavigation).not.toHaveBeenCalled();
+    await initializeFCM("current-owner", "fixture-id-token");
+    await vi.waitFor(() => expect(mocks.requestInternalAppNavigation).toHaveBeenCalledOnce());
+    expect(mocks.requestInternalAppNavigation.mock.calls[0][0].href).toBe("/one/messages?token=dm1.test");
+    tap("previous-key");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledOnce();
+    tap("current-key");
+    await vi.waitFor(() => expect(mocks.requestInternalAppNavigation).toHaveBeenCalledTimes(2));
+  });
+
 });

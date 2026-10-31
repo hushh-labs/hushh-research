@@ -1,0 +1,352 @@
+name: Validate PLG Frontend Source
+run-name: PLG frontend source ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact recorded frontend source SHA
+        required: true
+        type: string
+      security_run:
+        description: Exact W4 CI source run
+        required: true
+        type: string
+      security_attempt:
+        description: Current attempt of that exact W4 CI source run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: validate-plg-frontend-source-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  deployment-security:
+    name: Deployment security
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha }}
+      environment_name: validation
+      scope: ${{ 'validation' }}
+
+  admit:
+    needs: deployment-security
+    name: Admit PLG frontend source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.admit.outputs.sha }}
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Require Main workflow dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == hushh-labs/hushh-research ]]
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]]
+
+      - name: Checkout Main authority
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: authority
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require governed production actors
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          python3 authority/scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+          python3 authority/scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
+
+      - name: Install locked authority Python
+        uses: ./authority/consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./authority/consent-protocol
+
+      - name: Run authority contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          authority/consent-protocol/.venv/bin/python -m pytest -q \
+            authority/consent-protocol/tests/test_plg_frontend_source.py \
+            authority/consent-protocol/tests/test_plg_frontend_validation.py
+
+      - name: Fetch pinned frontend source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+            git -C authority fetch --no-tags origin "$REQUESTED_SHA"
+          unset authorization
+
+      - name: Verify source and protected security
+        id: admit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
+          SECURITY_RUN: ${{ inputs.security_run }}
+          SECURITY_ATTEMPT: ${{ inputs.security_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$SECURITY_RUN" =~ ^[1-9][0-9]{0,18}$ && "$SECURITY_ATTEMPT" =~ ^[1-9][0-9]{0,18}$ ]]
+          authority/consent-protocol/.venv/bin/python authority/deploy/plg/frontend_validation.py admit \
+            --sha "$REQUESTED_SHA" --security-run "$SECURITY_RUN" --security-attempt "$SECURITY_ATTEMPT" \
+            --output "$RUNNER_TEMP/plg-frontend-admission/acceptance.json"
+          echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Scan source changes for secrets
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz \
+            --output "$directory/gitleaks.tar.gz"
+          tar -xzf "$directory/gitleaks.tar.gz" -C "$directory" gitleaks
+          "$directory/gitleaks" git --redact --no-banner --config "$GITHUB_WORKSPACE/authority/.gitleaks.toml" \
+            --log-opts="5de6ee29abe3b00642bd6b745c608279091810b3..$SOURCE_SHA" authority
+
+      - name: Verify source DCO signoffs
+        shell: bash
+        working-directory: authority
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: bash scripts/ci/check-dco-signoff.sh 5de6ee29abe3b00642bd6b745c608279091810b3 "$SOURCE_SHA"
+
+      - name: Upload admission receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: plg-frontend-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/plg-frontend-admission/acceptance.json
+          if-no-files-found: error
+          retention-days: 7
+
+  frontend:
+    name: Verify frontend candidate
+    needs: [admit, deployment-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Checkout pinned frontend source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.admit.outputs.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source checkout
+        shell: bash
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ -z "$(git status --porcelain)" ]]
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: source/hushh-webapp/package-lock.json
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Run canonical web core
+        shell: bash
+        working-directory: source
+        run: bash scripts/ci/web-core-check.sh
+
+      - name: Run Back hierarchy
+        shell: bash
+        working-directory: source/hushh-webapp
+        run: npm run test:back-hierarchy -- --reporter=json --outputFile="$RUNNER_TEMP/plg-back.json"
+
+      - name: Run PLG privacy and account tests
+        shell: bash
+        working-directory: source/hushh-webapp
+        run: |
+          npm exec -- vitest run __tests__/api/plg-email-unsubscribe.test.ts \
+            __tests__/components/marketing-preference.test.tsx __tests__/services/observability-growth.test.ts \
+            __tests__/services/post-auth-route-service.test.ts --maxWorkers=2 --reporter=json \
+            --outputFile="$RUNNER_TEMP/plg-privacy.json"
+
+      - name: Write test report
+        shell: bash
+        working-directory: source/hushh-webapp
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path.cwd().resolve()
+          back = {
+              '__tests__/navigation/back-hierarchy.contract.test.ts', '__tests__/navigation/top-shell-back.test.ts',
+              '__tests__/navigation/back-target-keeps-a-query.test.ts', '__tests__/navigation/back-navigation-deadlock.test.tsx',
+              '__tests__/navigation/connect-circle-back.test.ts', '__tests__/navigation/section-back-origin.test.ts',
+              '__tests__/navigation/profile-pane.test.ts', '__tests__/navigation/profile-pane-route-motion.test.tsx',
+              '__tests__/lib/android-back.test.ts', '__tests__/lib/web-history-back.test.ts',
+              '__tests__/components/app-edge-back-gesture.test.tsx', '__tests__/components/pkm-natural-panel.test.tsx',
+              '__tests__/components/one-location-agent-page.test.tsx', '__tests__/components/wallet-card-browser.test.tsx',
+              '__tests__/components/location-immersive-map.test.tsx', 'components/wallet-card/__tests__/wallet-card-workspace.test.tsx',
+          }
+          privacy = {
+              '__tests__/api/plg-email-unsubscribe.test.ts', '__tests__/components/marketing-preference.test.tsx',
+              '__tests__/services/observability-growth.test.ts', '__tests__/services/post-auth-route-service.test.ts',
+          }
+          def check(path, names, count):
+              result = json.loads(Path(path).read_bytes())
+              tests = result.get('testResults')
+              if not isinstance(tests, list) or len(tests) != len(names):
+                  raise SystemExit('Frontend test file inventory is incomplete')
+              observed = {str(Path(test['name']).resolve().relative_to(root)).replace('\\', '/') for test in tests}
+              if observed != names or any(test.get('status') != 'passed' for test in tests):
+                  raise SystemExit('Frontend test file identity or verdict changed')
+              if result.get('success') is not True or any(type(result.get(key)) is not int for key in ('numPassedTests', 'numFailedTests', 'numPendingTests', 'numTotalTests')):
+                  raise SystemExit('Frontend test counts are unavailable')
+              if (result['numPassedTests'], result['numTotalTests'], result['numFailedTests'], result['numPendingTests']) != (count, count, 0, 0):
+                  raise SystemExit('Frontend test counts are incomplete')
+              return {'files': len(names), 'passed': count, 'failed': 0, 'pending': 0}
+          report = {'schemaVersion': 1, 'sourceSha': os.environ['SOURCE_SHA'],
+                    'back': check(Path(os.environ['RUNNER_TEMP']) / 'plg-back.json', back, 494),
+                    'privacy': check(Path(os.environ['RUNNER_TEMP']) / 'plg-privacy.json', privacy, 119)}
+          target = Path(os.environ['RUNNER_TEMP']) / 'plg-frontend-tests' / 'acceptance.json'
+          target.parent.mkdir(parents=True)
+          target.write_text(json.dumps(report, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Verify source after tests
+        shell: bash
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ needs.admit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ -z "$(git status --porcelain)" ]]
+
+      - name: Upload frontend test report
+        uses: actions/upload-artifact@v6
+        with:
+          name: plg-frontend-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/plg-frontend-tests/acceptance.json
+          if-no-files-found: error
+          retention-days: 7
+
+  gate:
+    name: PLG Frontend Source Validation Gate
+    needs: [admit, frontend, deployment-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - name: Checkout Main authority
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: authority
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require successful predecessors
+        shell: bash
+        env:
+          ADMISSION_RESULT: ${{ needs.admit.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+        run: |
+          set -euo pipefail
+          [[ "$ADMISSION_RESULT" == success && "$FRONTEND_RESULT" == success ]]
+          [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
+
+      - name: Fetch pinned frontend source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" == 2a860818549f2d6c16d1f98bd8fb9cebe01a1f84 ]]
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+            git -C authority fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' "$SOURCE_SHA"
+          unset authorization
+
+      - name: Recheck source and protected security
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.sha }}
+          SECURITY_RUN: ${{ inputs.security_run }}
+          SECURITY_ATTEMPT: ${{ inputs.security_attempt }}
+        run: |
+          set -euo pipefail
+          python3 authority/deploy/plg/frontend_validation.py finalize --sha "$SOURCE_SHA" \
+            --security-run "$SECURITY_RUN" --security-attempt "$SECURITY_ATTEMPT" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/plg-frontend-source-validation/acceptance.json"
+
+      - name: Upload source validation receipt
+        uses: actions/upload-artifact@v6
+        with:
+          name: plg-frontend-source-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/plg-frontend-source-validation/acceptance.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,7 +1,103 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import FinanceSetupPage from "@/app/one/setup/kai/page";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
+const setup = vi.hoisted(() => ({
+  user: { uid: "synthetic-owner" }, owner: "synthetic-owner", router: { replace: vi.fn() },
+  query: new URLSearchParams(), save: vi.fn(), bootstrap: vi.fn(), sync: vi.fn(), error: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => setup.router, usePathname: () => "/one/setup/finance", useSearchParams: () => setup.query }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: setup.user, userId: setup.owner, loading: false }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null }) }));
+vi.mock("@/lib/testing/native-test", () => ({ useNativeTestConfig: () => ({ enabled: false }) }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: () => undefined }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { error: setup.error } }));
+vi.mock("@/lib/observability/client", () => ({ trackEvent: vi.fn() }));
+vi.mock("@/lib/services/onboarding-route-cookie", () => ({ setOnboardingRequiredCookie: vi.fn(), setOnboardingFlowActiveCookie: vi.fn() }));
+vi.mock("@/lib/services/vault-service", () => ({ VaultService: { checkVault: async () => false } }));
+vi.mock("@/lib/services/kai-profile-service", () => ({ KaiProfileService: {}, computeRiskScore: () => 3, mapRiskProfile: () => "balanced", resolveKaiOnboardingCompletion: () => ({ completed: false }) }));
+vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({ PreVaultOnboardingService: { load: async () => null, saveDraft: setup.save } }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { bootstrapState: setup.bootstrap, syncOnboardingJourney: setup.sync, isSetupResolved: () => false } }));
+vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({ useSetupCapabilityCoordinator: () => ({ isReady: true }), SetupCapabilityLoading: () => null, SetupCapabilityTerminalFooter: () => null }));
+vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => null }));
+vi.mock("@/components/kai/onboarding/kai-invite-handshake", () => ({ KaiInviteHandshake: () => null }));
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
+
+afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+
+describe("Finance setup preference continuation", () => {
+  const answers = { investment_horizon: "short_term", drawdown_response: "stay", volatility_preference: "moderate" };
+  const journey = { onboardingActiveCapability: "finance", onboardingPhase: "capability_setup", onboardingJourneyUpdatedAt: "synthetic-v1" };
+  beforeEach(() => {
+    vi.clearAllMocks(); setup.owner = "synthetic-owner";
+    publishValidatedAuthSessionOwner(setup.owner);
+    setup.bootstrap.mockReset().mockResolvedValue(journey);
+    setup.sync.mockReset().mockResolvedValue(journey);
+    setup.save.mockReset().mockResolvedValue({ answers, risk_score: 3, risk_profile: "balanced" });
+  });
+  async function fill() {
+    await screen.findByRole("heading", { name: "Your investment preferences" });
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("radio", { name: "Less than 3 years" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Stay invested and review the situation" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Moderate ups and downs for better returns" }));
+    await waitFor(() => expect(setup.save).toHaveBeenCalledTimes(3));
+  }
+  it("saves once for touch and concurrent voice, then enters import through the fresh journey CAS", async () => {
+    let finish!: (value: object) => void;
+    render(createElement(FinanceSetupPage)); await fill();
+    setup.save.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+    await waitFor(() => expect(setup.save).toHaveBeenCalledTimes(4));
+    await act(async () => {
+      expect((await resolveLocalOnboardingHandler("kai.setup.launch_dashboard")!({})).status).toBe("blocked");
+    });
+    expect(setup.sync).not.toHaveBeenCalled(); expect(setup.router.replace).not.toHaveBeenCalled();
+    await act(async () => { finish({ answers }); });
+    await waitFor(() => expect(setup.router.replace).toHaveBeenCalledWith("/one/setup/finance/import"));
+    expect(setup.save).toHaveBeenCalledTimes(4);
+    expect(setup.save).toHaveBeenLastCalledWith("synthetic-owner", { answers, risk_score: 3, risk_profile: "balanced" });
+    expect(setup.sync).toHaveBeenCalledWith({ userId: "synthetic-owner", phase: "capability_setup", activeCapability: "finance", callbackState: "none", expectedJourneyUpdatedAt: "synthetic-v1" });
+    expect(screen.queryByText("Continue Finance Setup")).toBeNull();
+  });
+  it.each(["save", "CAS", "other capability"])("keeps a %s refusal retryable without navigating", async failure => {
+    if (failure === "CAS") setup.sync.mockRejectedValueOnce(new Error("synthetic CAS refusal"));
+    render(createElement(FinanceSetupPage)); await fill();
+    if (failure === "save") setup.save.mockRejectedValueOnce(new Error("synthetic save refusal"));
+    if (failure === "other capability") setup.bootstrap.mockResolvedValueOnce({ ...journey, onboardingActiveCapability: "gmail" });
+    await act(async () => {
+      expect((await resolveLocalOnboardingHandler("kai.setup.launch_dashboard")!({})).status).toBe("failed");
+    });
+    expect(setup.router.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+    if (failure !== "CAS") expect(setup.sync).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true })); });
+    await waitFor(() => expect(setup.router.replace).toHaveBeenCalledWith("/one/setup/finance/import"));
+  });
+  it.each(["owner change", "same-owner sign-out", "vault lock"])("does not advance a pending save after %s", async retirement => {
+    let finish!: (value: object) => void;
+    const view = render(createElement(FinanceSetupPage)); await fill();
+    setup.save.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+    await waitFor(() => expect(setup.save).toHaveBeenCalledTimes(4));
+    if (retirement === "owner change") {
+      setup.owner = "synthetic-next-owner"; publishValidatedAuthSessionOwner(setup.owner);
+      view.rerender(createElement(FinanceSetupPage));
+    } else if (retirement === "same-owner sign-out") {
+      publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner(setup.owner);
+    } else advanceVaultSessionEpoch();
+    await act(async () => { finish({ answers }); });
+    expect(setup.sync).not.toHaveBeenCalled(); expect(setup.router.replace).not.toHaveBeenCalled();
+    expect(setup.error).not.toHaveBeenCalled();
+  });
+});
 
 function read(relativePath: string): string {
   return readFileSync(join(process.cwd(), relativePath), "utf8");
@@ -28,7 +124,8 @@ describe("setup warm-transition contract", () => {
     // The guard may force one bounded retry when native auth publishes the
     // user before the token provider/proxy is ready. The cached admission path
     // above still prevents a forced read on ordinary route changes.
-    expect(guard).toContain("bootstrapState(userId);");
+    expect(guard).toContain("bootstrapState(userId)");
+    expect(guard).toContain("withAdmissionTimeout(");
     expect(guard).toContain("force: true");
     expect(guard).toContain("cachedAdmissionAllowsCurrentRoute");
     expect(guard).toContain("OneSetupCompletionHintService.isResolved(userId)");
@@ -58,23 +155,10 @@ describe("setup warm-transition contract", () => {
     expect(bootstrap).not.toContain("VaultService.createVault(");
   });
 
-  it("keeps the native test vault bootstrap continuous while auth context publishes", () => {
-    const bootstrap = read("components/app-ui/native-test-bootstrap.tsx");
-
-    expect(bootstrap).toContain(
-      "await AuthService.signOut().catch(() => undefined)",
-    );
-    expect(bootstrap).toContain("setBootstrapUser(authenticatedUser)");
-    expect(bootstrap).toContain(
-      "nativeTestBootstrapUser ??\n      AuthService.getCurrentUser()",
-    );
-    expect(bootstrap).toContain("AuthService.restoreNativeSession()");
-    expect(bootstrap).toContain(
-      "PreVaultUserStateService.bootstrapState(vaultUser.uid)",
-    );
-    expect(bootstrap).toContain("if (!setupState.hasVault)");
-    expect(bootstrap).not.toContain("VaultService.checkVault(vaultUser.uid)");
-  });
+  // Owner-admitted auth handoff and delayed native restoration are exercised
+  // against NativeTestBootstrap in native-test-bootstrap-retry.test.tsx and
+  // native-test-bootstrap-persisted-session.test.tsx. A source-string fallback
+  // assertion here would require bypassing that application's owner admission.
 
   it("keeps native flow routing in one unlocked App Router document", () => {
     const router = read("components/app-ui/native-test-router.tsx");
@@ -136,9 +220,12 @@ describe("setup warm-transition contract", () => {
     expect(plaidConnect).toContain(
       "Resolved-root re-entry is explicit user intent",
     );
-    expect(plaidConnect).toContain("returnPath: shouldSettleSetupSource");
-    expect(plaidConnect).toContain(
-      "if (onSetupSourceSettled && !shouldSettleSetupSource)",
+    expect(plaidConnect).toContain("sealVaultPlaidConnection({");
+    expect(plaidConnect).toContain("vaultOwnerToken: effectiveVaultOwnerToken");
+    // Ordinary resolved-root re-entry still bypasses setup settlement, but a
+    // pending invitation must remain on the import's explicit terminal.
+    expect(plaidConnect).toMatch(
+      /if\s*\(\s*onSetupSourceSettled\s*&&\s*!shouldSettleSetupSource\s*&&\s*!hasSetupContinuation\s*\)/,
     );
   });
 

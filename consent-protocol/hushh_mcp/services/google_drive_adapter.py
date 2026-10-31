@@ -1,0 +1,1186 @@
+"""Fixed, bounded REST reads for explicitly selected Drive files.
+
+Internal transport only: callers must validate owner/selection/generation before
+and after I/O. No listing, caller-selected URLs/queries, mutations or MCP path.
+Provider identifiers and bytes must never enter model arguments or telemetry.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import re
+import time
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager, nullcontext
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, TypeGuard
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.google_drive_permission_adapter import PermissionSnapshot
+
+import httpx
+from opentelemetry.instrumentation.utils import suppress_instrumentation
+
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_METADATA_BYTES_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+    valid_file_list_page_size,
+)
+from hushh_mcp.services.drive_telemetry import drive_logger
+from hushh_mcp.services.google_drive_file_facts import facts_projection
+from hushh_mcp.services.google_provider_errors import (
+    ERROR_RESPONSE_LIMIT as ERROR_RESPONSE_LIMIT,
+)
+from hushh_mcp.services.google_provider_errors import (
+    RETRYABLE_403_REASONS as RETRYABLE_403_REASONS,
+)
+from hushh_mcp.services.google_provider_errors import (
+    classify_drive_forbidden_response,
+)
+
+logger = drive_logger(__name__)
+
+DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+DRIVE_BASE = "https://www.googleapis.com/drive/v3"
+METADATA_LIMIT = 256 * 1024
+OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
+MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
+MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
+RAW_PREFIX_LIMIT = 200 * 1024
+CONTENT_LIMIT = 4 * 1024 * 1024
+LIVE_COLLECTION_CONTENT_LIMIT = 32 * 1024 * 1024
+DEADLINE_SECONDS = 20
+MAX_SELECTION = 25
+
+
+def valid_metadata_name(value: object) -> TypeGuard[str]:
+    """Preserve provider titles within the existing metadata response budget.
+
+    Drive's File.name is a string, not a 1,024-character local filename. A
+    valid long title must not stall discovery or fail a later source recheck.
+    Display and model-context limits belong at their respective boundaries.
+    """
+    if not isinstance(value, str) or not 1 <= len(value) <= METADATA_LIMIT:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= METADATA_LIMIT
+    except UnicodeError:
+        return False
+
+
+SELECTED_POLICY = {
+    "version": 1,
+    "access": "selected_files",
+    "mutations": False,
+    "requireGenAiEligibility": True,
+    "maxSelection": MAX_SELECTION,
+}
+POLICY_HASH = hashlib.sha256(json.dumps(SELECTED_POLICY, sort_keys=True).encode()).hexdigest()
+# Keep this legacy verified policy identity stable for existing OAuth
+# connections. Its backgroundPreparation label predates the default-on,
+# owner-opt-out behavior now enforced by DriveLivePreferences.
+LIVE_POLICY = {
+    "version": 1,
+    "access": "live_drive",
+    "readTransport": "google_drive_mcp",
+    "share": "exact_file_viewer",
+    "backgroundPreparation": "separate_owner_consent",
+}
+LIVE_POLICY_HASH = hashlib.sha256(json.dumps(LIVE_POLICY, sort_keys=True).encode()).hexdigest()
+DRIVE_POLICY = {"version": 2, "profiles": {"selected": SELECTED_POLICY, "live": LIVE_POLICY}}
+
+
+def supports_selected_policy(value: object) -> bool:
+    return value == SELECTED_POLICY or value == DRIVE_POLICY
+
+
+FILE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
+RESOURCE_KEY = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
+METADATA_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,size,md5Checksum,trashed,isAppAuthorized,"
+    "capabilities(canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
+)
+SHARE_METADATA_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,createdTime,resourceKey,trashed,"
+    "capabilities(canShare),clientEncryptionDetails(encryptionState)"
+)
+# Metadata-only live read for a file with no readable text (a video, an image,
+# an archive, a folder): what it is and where to open it, never its bytes.
+FACT_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,webContentLink,exportLinks,trashed,md5Checksum,sha256Checksum,headRevisionId,"
+    "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState),"
+    "shortcutDetails(targetId,targetMimeType,targetResourceKey)"
+)
+# Live search: one bounded files.list shape, never a caller-chosen field set.
+LIST_FIELDS = (
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,modifiedByMeTime,sharedWithMeTime,viewedByMeTime,imageMediaMetadata(time),driveId,size,md5Checksum,sha256Checksum,headRevisionId,"
+    "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
+    "owners(displayName,emailAddress),sharingUser(displayName,emailAddress),"
+    "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
+)
+# Drive sorts each key ascending unless told "desc"; live results are newest
+# first by the file time the owner asked about. modifiedTime is the default and
+# the time sort Drive optimizes on large collections.
+COLLECTION_FILE_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,createdTime,size,md5Checksum,trashed,"
+    "capabilities(canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
+)
+COLLECTION_LIST_FIELDS = f"nextPageToken,incompleteSearch,files({COLLECTION_FILE_FIELDS})"
+CHANGES_FIELDS = f"nextPageToken,newStartPageToken,changes(fileId,removed,changeType,driveId,file({COLLECTION_FILE_FIELDS}))"
+# Owner name-index deltas: the live-search file mask plus trashed, so a delta
+# row has exactly the shape a search page has. Names and types only, no bytes.
+INDEX_CHANGES_FIELDS = (
+    "nextPageToken,newStartPageToken,changes(fileId,removed,changeType,file(id,name,mimeType,"
+    "modifiedTime,createdTime,driveId,resourceKey,webViewLink,trashed,capabilities(canShare),"
+    "clientEncryptionDetails(encryptionState),shortcutDetails(targetId,targetMimeType,"
+    "targetResourceKey)))"
+)
+# Within the 256 KiB metadata budget; an oversized page retries the same cursor at 25.
+INDEX_CHANGES_PAGE_SIZES = frozenset({"200", "25"})
+COLLECTION_QUERY = "trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+
+
+# Drive answers HTTP 400 ("Sorting is not supported for queries with fullText
+# terms") when orderBy accompanies a fullText term. Quoted values are opaque, so
+# a filename such as 'fullText notes' is not mistaken for the operator.
+_QUERY_LITERALS = re.compile(r"('(?:\\.|[^'\\])*')")
+_FULL_TEXT_TERM = re.compile(r"\bfullText\b")
+
+
+def query_has_full_text_term(query: str) -> bool:
+    return any(_FULL_TEXT_TERM.search(part) for part in _QUERY_LITERALS.split(query)[::2])
+
+
+def _page_token(value: str) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 2048 or any(ord(c) < 32 for c in value):
+        raise DriveReadError("invalid_argument")
+    return value
+
+
+LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc", "createdTime desc"})
+LIST_FIXED = {
+    "fields": LIST_FIELDS,
+    "supportsAllDrives": "true",
+    "includeItemsFromAllDrives": "true",
+    "corpora": "user",
+}
+EXPORTS = {
+    "application/vnd.google-apps.document": "text/plain",
+    "application/vnd.google-apps.presentation": "text/plain",
+}
+# Live lane only. A Sheets CSV export holds the first sheet only, so every
+# Sheets read is partial; the selected lane still refuses Sheets. A Google Doc
+# exports as Markdown so headings, lists and tables keep their structure
+# (https://developers.google.com/workspace/drive/api/guides/ref-export-formats);
+# Slides has no Markdown export and stays plain text.
+LIVE_EXPORTS = {
+    **EXPORTS,
+    "application/vnd.google-apps.document": "text/markdown",
+    # XLSX contains every worksheet. CSV export contains only the first tab.
+    "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+# Markdown carries each image inline, so a picture-heavy Doc can pass the
+# CONTENT_LIMIT, or Google's 10 MB export limit (a 403), where its plain text
+# does not. Such a Doc is read once more as plain text under the same bound.
+LIVE_EXPORT_FALLBACKS = {"application/vnd.google-apps.document": "text/plain"}
+_LIVE_EXPORT_FALLBACK_CODES = frozenset({"file_too_large", "source_unavailable"})
+_LIVE_EXPORT_TYPES = frozenset({*LIVE_EXPORTS.values(), *LIVE_EXPORT_FALLBACKS.values()})
+LIVE_PARTIAL_EXPORTS: frozenset[str] = frozenset()
+BINARY_TYPES = frozenset(
+    {
+        "text/plain",
+        "text/markdown",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+)
+SUPPORTED_TYPES = frozenset(EXPORTS) | BINARY_TYPES
+# Text extraction for live reads belongs to Google's MCP server, not our index.
+LIVE_SUPPORTED_TYPES = SUPPORTED_TYPES | frozenset(
+    {
+        "application/vnd.google-apps.spreadsheet",
+        "text/csv",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+        "application/x-vnd.oasis.opendocument.text",
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+    }
+)
+# The live provider can read more types than the page extractor can parse.
+# Use this original-file allowlist only when admitting background extraction.
+LIVE_EXTRACTABLE_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+)
+LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
+    LIVE_SUPPORTED_TYPES & LIVE_EXTRACTABLE_CONTENT_TYPES
+) | frozenset(
+    original
+    for original, exported in LIVE_EXPORTS.items()
+    if exported in LIVE_EXTRACTABLE_CONTENT_TYPES
+)
+
+
+class DriveReadError(RuntimeError):
+    """Only authored safe codes cross the transport boundary."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        provider_reason: str | None = None,
+    ):
+        super().__init__(code)
+        self.retryable = retryable
+        self.status_code = status_code
+        self.provider_reason = provider_reason
+
+
+@dataclass(frozen=True)
+class DriveMetadata:
+    file_id: str = field(repr=False)
+    name: str = field(repr=False)
+    mime_type: str
+    version: str
+    modified_time: str
+    size: int | None
+    checksum: str | None = field(repr=False)
+    created_time: str | None = None
+
+
+@dataclass(frozen=True)
+class DriveShareMetadata(DriveMetadata):
+    """Opt-in ACL projection; legacy metadata serialization remains unchanged."""
+
+    permission_snapshot: PermissionSnapshot | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class DriveContent:
+    metadata: DriveMetadata
+    mime_type: str
+    content: bytes = field(repr=False)
+
+
+def selected_file_ids(value: Any) -> tuple[str, ...]:
+    if (
+        not isinstance(value, (tuple, list))
+        or not 1 <= len(value) <= MAX_SELECTION
+        or any(not isinstance(item, str) or not FILE_ID.fullmatch(item) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise DriveReadError("invalid_selection")
+    return tuple(value)
+
+
+def _file_path(file_id: str) -> str:
+    if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
+        raise DriveReadError("invalid_selection")
+    return f"/files/{file_id}"
+
+
+async def retryable_403_response(response: httpx.Response) -> bool:
+    return await classify_drive_forbidden_response(response) == "rate_limited"
+
+
+async def _raise_forbidden_read(response: httpx.Response) -> None:
+    reason = await classify_drive_forbidden_response(response)
+    if reason == "rate_limited":
+        # A rate limit is not evidence that a file is unavailable.
+        raise DriveReadError("provider_unavailable", retryable=True)
+    raise DriveReadError("source_unavailable", status_code=403, provider_reason=reason)
+
+
+def _resource_keys(value: dict[str, str] | None) -> None:
+    if value is not None and (
+        not isinstance(value, dict)
+        or len(value) != 1
+        or any(
+            not isinstance(identity, str)
+            or not FILE_ID.fullmatch(identity)
+            or not isinstance(key, str)
+            or not RESOURCE_KEY.fullmatch(key)
+            for identity, key in value.items()
+        )
+    ):
+        raise DriveReadError("invalid_argument")
+
+
+def _decode_json(payload: bytes) -> dict[str, Any]:
+    try:
+        result = json.loads(payload)
+    except (ValueError, UnicodeError):
+        raise DriveReadError("provider_response_invalid") from None
+    if not isinstance(result, dict):
+        raise DriveReadError("provider_response_invalid")
+    return result
+
+
+def _share_metadata_fields(include_permissions: bool) -> str:
+    if type(include_permissions) is not bool:
+        raise DriveReadError("invalid_argument")
+    if not include_permissions:
+        return SHARE_METADATA_FIELDS
+    from hushh_mcp.services.google_drive_permission_adapter import PERMISSION_FIELDS
+
+    return f"{SHARE_METADATA_FIELDS},driveId,permissions({PERMISSION_FIELDS})"
+
+
+class GoogleDriveAdapter:
+    def __init__(self):
+        # A search slice may read several pages and shortcut targets. Reuse
+        # connections only inside its task-local lifetime; no ambient client
+        # or credential survives the slice or crosses concurrent searches.
+        self._read_client: ContextVar[httpx.AsyncClient | None] = ContextVar(
+            "drive_read_client", default=None
+        )
+
+    @asynccontextmanager
+    async def read_session(self):
+        if self._read_client.get() is not None:
+            yield
+            return
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            marker = self._read_client.set(client)
+            try:
+                yield
+            finally:
+                self._read_client.reset(marker)
+
+    async def _get(
+        self,
+        path: str,
+        *,
+        access_token: str,
+        params: dict[str, str],
+        limit: int,
+        resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
+        raw_prefix: bool = False,
+    ) -> bytes:
+        _resource_keys(resource_keys)
+        if type(owner_search_page) is not bool or type(raw_prefix) is not bool:
+            raise DriveReadError("operation_not_allowed")
+        # Fixed operation names only. The path can contain a private provider ID
+        # and params can contain the owner's search, so neither is logged.
+        operation = (
+            "list"
+            if path == "/files"
+            else "changes"
+            if path == "/changes"
+            else "changes_start"
+            if path == "/changes/startPageToken"
+            else "list_drives"
+            if path == "/drives"
+            else "account"
+            if path == "/about"
+            else "export"
+            if path.endswith("/export")
+            else "content"
+            if params.get("alt") == "media"
+            else "metadata"
+            if path.startswith("/files/")
+            else "invalid"
+        )
+        started = time.perf_counter()
+        outcome = "error"
+        # Provider identifiers must not reach the global HTTPX trace exporter.
+        try:
+            with suppress_instrumentation():
+                result = await self._get_private(
+                    path,
+                    access_token=access_token,
+                    params=params,
+                    limit=limit,
+                    **({"owner_search_page": True} if owner_search_page else {}),
+                    **({"resource_keys": resource_keys} if resource_keys else {}),
+                    **({"raw_prefix": True} if raw_prefix else {}),
+                )
+            outcome = "ok"
+            return result
+        except DriveReadError as error:
+            outcome = (
+                str(error)
+                if str(error)
+                in {
+                    "reconnect_required",
+                    "source_unavailable",
+                    "provider_unavailable",
+                    "provider_response_invalid",
+                    "file_too_large",
+                    "operation_not_allowed",
+                }
+                else "error"
+            )
+            raise
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            logger.info(
+                "drive_rest.timing operation=%s outcome=%s duration_ms=%.2f",
+                operation,
+                outcome,
+                (time.perf_counter() - started) * 1000,
+            )
+
+    async def _get_private(
+        self,
+        path: str,
+        *,
+        access_token: str,
+        params: dict[str, str],
+        limit: int,
+        resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
+        raw_prefix: bool = False,
+    ) -> bytes:
+        _resource_keys(resource_keys)
+        if resource_keys and any(
+            path != f"/files/{identity}"
+            and not (path == "/files" and f"'{identity}' in parents" in params.get("q", ""))
+            for identity in resource_keys
+        ):
+            raise DriveReadError("operation_not_allowed")
+        # This is not a general HTTP executor. Even internal callers cannot
+        # supply an origin, arbitrary query, mutation, or unbounded response.
+        if path == "/about":
+            allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
+        elif path == "/changes/startPageToken":
+            allowed = params == {"fields": "startPageToken", "supportsAllDrives": "true"}
+        elif path == "/changes" and params.get("fields") == INDEX_CHANGES_FIELDS:
+            allowed = (
+                params.get("pageSize") in INDEX_CHANGES_PAGE_SIZES
+                and all(
+                    params.get(key) == "true"
+                    for key in ("supportsAllDrives", "includeItemsFromAllDrives", "includeRemoved")
+                )
+                and params.get("spaces") == "drive"
+                and set(params)
+                == {
+                    "fields",
+                    "pageSize",
+                    "pageToken",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "includeRemoved",
+                    "spaces",
+                }
+                and 1 <= len(params.get("pageToken", "")) <= 2048
+                and limit == METADATA_LIMIT
+            )
+        elif path == "/changes":
+            allowed = (
+                params.get("fields") == CHANGES_FIELDS
+                and params.get("pageSize") == "100"
+                and all(
+                    params.get(key) == "true"
+                    for key in ("supportsAllDrives", "includeItemsFromAllDrives", "includeRemoved")
+                )
+                and params.get("spaces") == "drive"
+                and set(params)
+                == {
+                    "fields",
+                    "pageSize",
+                    "pageToken",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "includeRemoved",
+                    "spaces",
+                }
+                and 1 <= len(params.get("pageToken", "")) <= 2048
+            )
+        elif path == "/files" and params.get("fields") == COLLECTION_LIST_FIELDS:
+            allowed = (
+                params.get("q") == COLLECTION_QUERY
+                and params.get("pageSize") == "100"
+                and params.get("supportsAllDrives") == "true"
+                and params.get("includeItemsFromAllDrives") == "true"
+                and (
+                    params.get("corpora") == "user"
+                    and "driveId" not in params
+                    or params.get("corpora") == "drive"
+                    and FILE_ID.fullmatch(params.get("driveId", "")) is not None
+                )
+                and set(params)
+                <= {
+                    "fields",
+                    "q",
+                    "pageSize",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "corpora",
+                    "driveId",
+                    "pageToken",
+                }
+                and len(params.get("pageToken", "")) <= 2048
+            )
+        elif path == "/files":
+            allowed = (
+                all(
+                    params.get(key) == value
+                    for key, value in LIST_FIXED.items()
+                    if key != "corpora"
+                )
+                and (
+                    params.get("corpora") == "user"
+                    and "driveId" not in params
+                    or params.get("corpora") == "drive"
+                    and FILE_ID.fullmatch(params.get("driveId", "")) is not None
+                )
+                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
+                and valid_file_list_page_size(
+                    params.get("pageSize"), owner_search_page=owner_search_page
+                )
+                and limit == (OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT)
+                and len(params.get("q", "")) <= 4096
+                and len(params.get("pageToken", "")) <= 1024
+                and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
+                # Callers drop the sort for fullText; refuse one that did not.
+                and not ("orderBy" in params and query_has_full_text_term(params.get("q", "")))
+            )
+        elif path == "/drives":
+            allowed = (
+                params.get("fields") == "nextPageToken,drives(id,name)"
+                and set(params) <= {"fields", "pageSize", "pageToken"}
+                and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
+                and len(params.get("pageToken", "")) <= 1024
+            )
+        elif re.fullmatch(r"/files/[A-Za-z0-9_-]{1,200}(?:/export)?", path):
+            allowed = (
+                not path.endswith("/export")
+                and params
+                in (
+                    {"fields": METADATA_FIELDS, "supportsAllDrives": "true"},
+                    {"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
+                    {"fields": FACT_FIELDS, "supportsAllDrives": "true"},
+                    {"alt": "media", "supportsAllDrives": "true"},
+                )
+            ) or (
+                path.endswith("/export")
+                and len(params) == 1
+                and params.get("mimeType") in _LIVE_EXPORT_TYPES
+            )
+        else:
+            allowed = False
+        if (
+            not allowed
+            or type(owner_search_page) is not bool
+            or owner_search_page
+            and path != "/files"
+            or type(raw_prefix) is not bool
+            or raw_prefix
+            and (
+                limit != RAW_PREFIX_LIMIT
+                or params.get("alt") != "media"
+                or not path.startswith("/files/")
+                or path.endswith("/export")
+            )
+            or not raw_prefix
+            and limit
+            not in {
+                METADATA_LIMIT,
+                OWNER_SEARCH_METADATA_LIMIT,
+                CONTENT_LIMIT,
+                LIVE_COLLECTION_CONTENT_LIMIT,
+            }
+            or (
+                limit == LIVE_COLLECTION_CONTENT_LIMIT
+                and not (params.get("alt") == "media" or path.endswith("/export"))
+            )
+        ):
+            raise DriveReadError("operation_not_allowed")
+        if not isinstance(access_token, str) or not 1 <= len(access_token) <= 16384:
+            raise DriveReadError("reconnect_required")
+        started = time.perf_counter()
+        headers_ms = None
+        body_started = None
+        outcome = "error"
+        from hushh_mcp.services.drive_rest_admission import rest_admission
+
+        try:
+            async with (
+                rest_admission(),
+                asyncio.timeout(DEADLINE_SECONDS),
+                (
+                    nullcontext(self._read_client.get())
+                    if self._read_client.get() is not None
+                    else httpx.AsyncClient(timeout=15, follow_redirects=False)
+                ) as client,
+                client.stream(
+                    "GET",
+                    DRIVE_BASE + path,
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept-Encoding": "identity",
+                        **({"Range": f"bytes=0-{RAW_PREFIX_LIMIT - 1}"} if raw_prefix else {}),
+                        **(
+                            {
+                                "X-Goog-Drive-Resource-Keys": ",".join(
+                                    f"{identity}/{key}" for identity, key in resource_keys.items()
+                                )
+                            }
+                            if resource_keys
+                            else {}
+                        ),
+                    },
+                ) as response,
+            ):
+                body_started = time.perf_counter()
+                headers_ms = (body_started - started) * 1000
+                if response.status_code == 401:
+                    raise DriveReadError("reconnect_required")
+                if response.status_code == 403:
+                    await _raise_forbidden_read(response)
+                if response.status_code in {403, 404, 410}:
+                    raise DriveReadError("source_unavailable", status_code=response.status_code)
+                if response.status_code == 429 or response.status_code >= 500:
+                    # No URL, query, token, file ID or provider body reaches logs.
+                    logger.warning(
+                        "drive_rest.transient_failure operation=%s reason=%s",
+                        "list" if path == "/files" else "file",
+                        "rate_limited" if response.status_code == 429 else "server_error",
+                    )
+                    raise DriveReadError("provider_unavailable", retryable=True)
+                if raw_prefix and response.status_code == 416:
+                    raise DriveReadError("no_extractable_text")
+                if response.status_code not in ({200, 206} if raw_prefix else {200}):
+                    raise DriveReadError("provider_response_invalid")
+                expected_length = None
+                if response.status_code == 206:
+                    content_range = re.fullmatch(
+                        r"bytes 0-([0-9]{1,20})/([0-9]{1,20}|\*)",
+                        response.headers.get("Content-Range", ""),
+                    )
+                    if not content_range:
+                        raise DriveReadError("provider_response_invalid")
+                    end, total = content_range.groups()
+                    expected_length = int(end) + 1
+                    if expected_length > limit or total != "*" and int(total) < expected_length:
+                        raise DriveReadError("provider_response_invalid")
+                # HTTPX's decompressor can allocate beyond our budget before
+                # aiter_bytes yields. Request identity and refuse compression;
+                # never trust Content-Length or transparently inflate content.
+                if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                    raise DriveReadError("provider_response_invalid")
+                body = bytearray()
+                async for chunk in response.aiter_raw():
+                    if raw_prefix:
+                        if expected_length is not None and len(body) + len(chunk) > expected_length:
+                            raise DriveReadError("provider_response_invalid")
+                        body.extend(chunk[: limit - len(body)])
+                        if len(body) == limit:
+                            break  # Close an ignored Range response without consuming its tail.
+                        continue
+                    if len(body) + len(chunk) > limit:
+                        raise DriveReadError("file_too_large")
+                    body.extend(chunk)
+                if expected_length is not None and len(body) != expected_length:
+                    raise DriveReadError("provider_response_invalid")
+                outcome = "ok"
+                return bytes(body)
+        except (httpx.HTTPError, TimeoutError) as error:
+            logger.warning(
+                "drive_rest.transient_failure operation=%s reason=%s",
+                "list" if path == "/files" else "file",
+                "timeout"
+                if isinstance(error, (httpx.TimeoutException, TimeoutError))
+                else "transport",
+            )
+            raise DriveReadError("provider_unavailable", retryable=True) from None
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            # Fixed operation labels only: URLs, q, page tokens, IDs, keys and
+            # provider error bodies remain private. -1 means no headers/body
+            # were received, not a measured zero-duration provider response.
+            logger.info(
+                "drive_rest.response operation=%s outcome=%s headers_ms=%.2f body_ms=%.2f",
+                "list"
+                if path == "/files"
+                else "drives"
+                if path == "/drives"
+                else "account"
+                if path == "/about"
+                else "file",
+                outcome,
+                headers_ms if headers_ms is not None else -1,
+                (time.perf_counter() - body_started) * 1000 if body_started is not None else -1,
+            )
+
+    async def account(self, *, access_token: str) -> dict[str, str]:
+        result = _decode_json(
+            await self._get(
+                "/about",
+                access_token=access_token,
+                params={"fields": "user(permissionId,emailAddress,me)"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        user = result.get("user")
+        if not isinstance(user, dict) or user.get("me") is not True:
+            raise DriveReadError("identity_not_verified")
+        subject = user.get("permissionId")
+        if not isinstance(subject, str) or not 1 <= len(subject) <= 255:
+            raise DriveReadError("identity_not_verified")
+        email = user.get("emailAddress")
+        # Provider label only. Never substitute an email for principal identity.
+        label = email if isinstance(email, str) and 1 <= len(email) <= 254 else "Google account"
+        return {"identityKind": "drive_permission_id", "subject": subject, "accountLabel": label}
+
+    async def get_metadata(
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        require_app_authorized: bool = True,
+        require_genai_eligibility: bool = True,
+    ) -> DriveMetadata:
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": METADATA_FIELDS, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        capabilities = result.get("capabilities")
+        encryption = result.get("clientEncryptionDetails")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or require_app_authorized
+            and result.get("isAppAuthorized") is not True
+            or not isinstance(capabilities, dict)
+            or require_genai_eligibility
+            and capabilities.get("canAccessViaGenAi") is not True
+            or capabilities.get("canDownload") is not True
+            or (
+                encryption is not None
+                and (
+                    not isinstance(encryption, dict)
+                    or encryption.get("encryptionState") != "unencrypted"
+                )
+            )
+        ):
+            raise DriveReadError("source_unavailable")
+        mime = result.get("mimeType")
+        # Shortcuts are not followed: owner must explicitly select the target.
+        # Folders, Sheets, archives, binaries requiring new parsers also fail.
+        if not isinstance(mime, str) or mime not in (
+            SUPPORTED_TYPES if require_app_authorized else LIVE_SUPPORTED_TYPES
+        ):
+            raise DriveReadError("unsupported_format")
+        name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
+        if (
+            not valid_metadata_name(name)
+            or not isinstance(version, str)
+            or not re.fullmatch(r"[0-9]{1,30}", version)
+            or not isinstance(modified, str)
+            or not 1 <= len(modified) <= 64
+        ):
+            raise DriveReadError("provider_response_invalid")
+        size = result.get("size")
+        if size is not None:
+            if not isinstance(size, str) or not re.fullmatch(r"[0-9]{1,20}", size):
+                raise DriveReadError("provider_response_invalid")
+            size = int(size)
+            if require_app_authorized and size > CONTENT_LIMIT:
+                raise DriveReadError("file_too_large")
+        elif require_app_authorized and mime in BINARY_TYPES:
+            raise DriveReadError("provider_response_invalid")
+        checksum = result.get("md5Checksum")
+        if checksum is not None and (
+            not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", checksum)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
+
+    async def get_file_facts(
+        self, *, file_id: str, access_token: str, resource_key: str | None = None
+    ) -> dict[str, Any]:
+        """Name, type, time, size and opening link of one live file, without content."""
+        if resource_key is not None:
+            _resource_keys({file_id: resource_key})
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": FACT_FIELDS, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+                **({"resource_keys": {file_id: resource_key}} if resource_key else {}),
+            )
+        )
+        name, mime = result.get("name"), result.get("mimeType")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or not isinstance(name, str)
+            or not isinstance(mime, str)
+        ):
+            raise DriveReadError("source_unavailable")
+        if (
+            result.get("createdTime") is not None
+            and (
+                not isinstance(result["createdTime"], str)
+                or not 1 <= len(result["createdTime"]) <= 64
+            )
+            or result.get("driveId") is not None
+            and (not isinstance(result["driveId"], str) or not FILE_ID.fullmatch(result["driveId"]))
+            or result.get("resourceKey") is not None
+            and (
+                not isinstance(result["resourceKey"], str)
+                or not RESOURCE_KEY.fullmatch(result["resourceKey"])
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        capabilities = result.get("capabilities")
+        if capabilities is not None and (
+            not isinstance(capabilities, dict)
+            or any(
+                capabilities.get(key) is not None and type(capabilities[key]) is not bool
+                for key in ("canShare", "canDownload", "canAccessViaGenAi")
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        encryption = result.get("clientEncryptionDetails")
+        shortcut = result.get("shortcutDetails")
+        if encryption is not None and (
+            not isinstance(encryption, dict)
+            or not isinstance(encryption.get("encryptionState"), str)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        if shortcut is not None and (
+            not isinstance(shortcut, dict)
+            or not isinstance(shortcut.get("targetId"), str)
+            or not FILE_ID.fullmatch(shortcut["targetId"])
+            or not isinstance(shortcut.get("targetMimeType"), str)
+            or (
+                shortcut.get("targetResourceKey") is not None
+                and (
+                    not isinstance(shortcut["targetResourceKey"], str)
+                    or not RESOURCE_KEY.fullmatch(shortcut["targetResourceKey"])
+                )
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        return facts_projection(file_id, result)
+
+    async def get_share_metadata(
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        resource_key: str | None = None,
+        include_permissions: bool = False,
+    ) -> DriveMetadata:
+        """Check an exact live file for sharing without requiring content access."""
+        fields = _share_metadata_fields(include_permissions)
+        if resource_key is not None:
+            _resource_keys({file_id: resource_key})
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": fields, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+                **({"resource_keys": {file_id: resource_key}} if resource_key else {}),
+            )
+        )
+        mime = result.get("mimeType")
+        capabilities = result.get("capabilities")
+        encryption = result.get("clientEncryptionDetails")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or not isinstance(mime, str)
+            or not mime
+            or mime
+            in {
+                "application/vnd.google-apps.folder",
+                "application/vnd.google-apps.shortcut",
+            }
+            or not isinstance(capabilities, dict)
+            or capabilities.get("canShare") is not True
+            or encryption is not None
+            and (
+                not isinstance(encryption, dict)
+                or encryption.get("encryptionState") != "unencrypted"
+            )
+        ):
+            raise DriveReadError("source_unavailable")
+        name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
+        created = result.get("createdTime")
+        if (
+            not valid_metadata_name(name)
+            or not isinstance(version, str)
+            or not re.fullmatch(r"[0-9]{1,30}", version)
+            or not isinstance(modified, str)
+            or not 1 <= len(modified) <= 64
+            or created is not None
+            and (not isinstance(created, str) or not 1 <= len(created) <= 64)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        if include_permissions:
+            from hushh_mcp.services.google_drive_permission_adapter import _embedded_snapshot
+
+            return DriveShareMetadata(
+                file_id,
+                name,
+                mime,
+                version,
+                modified,
+                None,
+                None,
+                created,
+                _embedded_snapshot(result),
+            )
+        return DriveMetadata(file_id, name, mime, version, modified, None, None, created)
+
+    async def list_files(
+        self,
+        *,
+        access_token: str,
+        query: str,
+        page_size: int,
+        page_token: str | None = None,
+        order_by: str | None = None,
+        drive_id: str | None = None,
+        resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
+    ) -> dict[str, Any]:
+        """One bounded Drive REST search page (the GA API the picker lane already uses)."""
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or type(owner_search_page) is not bool
+            or not 1
+            <= page_size
+            <= (MAX_OWNER_SEARCH_PAGE_SIZE if owner_search_page else MAX_FILE_LIST_PAGE_SIZE)
+        ):
+            raise DriveReadError("invalid_argument")
+        if drive_id is not None and (
+            not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id)
+        ):
+            raise DriveReadError("invalid_argument")
+        params = {**LIST_FIXED, "q": query, "pageSize": str(page_size)}
+        if drive_id is not None:
+            params.update(corpora="drive", driveId=drive_id)
+        if page_token:
+            params["pageToken"] = page_token
+        if order_by:
+            params["orderBy"] = order_by
+        return _decode_json(
+            await self._get(
+                "/files",
+                access_token=access_token,
+                params=params,
+                # Only the fenced durable owner scanner may ask for a large
+                # metadata page. A 1000-row response is bounded to 2 MiB;
+                # oversize pages retry at 100 and then 25 without losing a token.
+                limit=OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT,
+                **({"owner_search_page": True} if owner_search_page else {}),
+                **({"resource_keys": resource_keys} if resource_keys is not None else {}),
+            )
+        )
+
+    async def collection_start_token(self, *, access_token: str) -> str:
+        result = _decode_json(
+            await self._get(
+                "/changes/startPageToken",
+                access_token=access_token,
+                params={"fields": "startPageToken", "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        try:
+            return _page_token(result.get("startPageToken"))
+        except DriveReadError:
+            raise DriveReadError("provider_response_invalid") from None
+
+    async def collection_files(
+        self, *, access_token: str, page_token: str | None = None, drive_id: str | None = None
+    ) -> dict[str, Any]:
+        params = {
+            "fields": COLLECTION_LIST_FIELDS,
+            "q": COLLECTION_QUERY,
+            "pageSize": "100",
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+            "corpora": "user",
+        }
+        if page_token is not None:
+            params["pageToken"] = _page_token(page_token)
+        if drive_id is not None:
+            if not isinstance(drive_id, str) or not FILE_ID.fullmatch(drive_id):
+                raise DriveReadError("invalid_argument")
+            params.update(corpora="drive", driveId=drive_id)
+        return _decode_json(
+            await self._get(
+                "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def collection_changes(self, *, access_token: str, page_token: str) -> dict[str, Any]:
+        return _decode_json(
+            await self._get(
+                "/changes",
+                access_token=access_token,
+                params={
+                    "fields": CHANGES_FIELDS,
+                    "pageSize": "100",
+                    "pageToken": _page_token(page_token),
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                    "includeRemoved": "true",
+                    "spaces": "drive",
+                },
+                limit=METADATA_LIMIT,
+            )
+        )
+
+    async def index_changes(
+        self, *, access_token: str, page_token: str, page_size: int = 200
+    ) -> dict[str, Any]:
+        """One bounded changes page in the live-search row shape, for owner name deltas."""
+        if type(page_size) is not int or str(page_size) not in INDEX_CHANGES_PAGE_SIZES:
+            raise DriveReadError("invalid_argument")
+        return _decode_json(
+            await self._get(
+                "/changes",
+                access_token=access_token,
+                params={
+                    "fields": INDEX_CHANGES_FIELDS,
+                    "pageSize": str(page_size),
+                    "pageToken": _page_token(page_token),
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                    "includeRemoved": "true",
+                    "spaces": "drive",
+                },
+                limit=METADATA_LIMIT,
+            )
+        )
+
+    async def list_drives(
+        self, *, access_token: str, page_size: int = 25, page_token: str | None = None
+    ) -> dict[str, Any]:
+        """One bounded page of shared drives visible under the current owner grant."""
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 25
+        ):
+            raise DriveReadError("invalid_argument")
+        params = {"fields": "nextPageToken,drives(id,name)", "pageSize": str(page_size)}
+        if page_token:
+            params["pageToken"] = page_token
+        return _decode_json(
+            await self._get(
+                "/drives", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def read_live_prefix(
+        self, *, file_id: str, mime_type: str, access_token: str
+    ) -> tuple[str, bytes]:
+        """Only the first 200 KiB of an uploaded file; never fall back to full content."""
+        if mime_type in LIVE_EXPORTS:
+            # Workspace exports do not support partial downloads.
+            raise DriveReadError("operation_not_allowed")
+        return mime_type, await self._get(
+            _file_path(file_id),
+            access_token=access_token,
+            params={"alt": "media", "supportsAllDrives": "true"},
+            limit=RAW_PREFIX_LIMIT,
+            raw_prefix=True,
+        )
+
+    async def read_live_bytes(
+        self, *, file_id: str, mime_type: str, access_token: str, max_bytes: int = CONTENT_LIMIT
+    ) -> tuple[str, bytes]:
+        """Content of a file the owner's live grant can read (export for Docs/Slides/Sheets)."""
+        if max_bytes not in {CONTENT_LIMIT, LIVE_COLLECTION_CONTENT_LIMIT}:
+            raise DriveReadError("invalid_argument")
+        export_mime = LIVE_EXPORTS.get(mime_type)
+        if not export_mime:
+            content = await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"alt": "media", "supportsAllDrives": "true"},
+                limit=max_bytes,
+            )
+            return mime_type, content
+        try:
+            return export_mime, await self._export(
+                file_id, export_mime, access_token, max_bytes=max_bytes
+            )
+        except DriveReadError as error:
+            fallback = LIVE_EXPORT_FALLBACKS.get(mime_type)
+            if not fallback or str(error) not in _LIVE_EXPORT_FALLBACK_CODES:
+                raise
+        return fallback, await self._export(file_id, fallback, access_token, max_bytes=max_bytes)
+
+    async def _export(
+        self, file_id: str, export_mime: str, access_token: str, *, max_bytes: int = CONTENT_LIMIT
+    ) -> bytes:
+        return await self._get(
+            _file_path(file_id) + "/export",
+            access_token=access_token,
+            params={"mimeType": export_mime},
+            limit=max_bytes,
+        )
+
+    async def fetch_content(
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        require_current: Callable[[], Awaitable[object]] | None = None,
+    ) -> DriveContent:
+        try:
+            async with asyncio.timeout(DEADLINE_SECONDS):
+                if require_current:
+                    await require_current()
+                before = await self.get_metadata(file_id=file_id, access_token=access_token)
+                export_mime = EXPORTS.get(before.mime_type)
+                if require_current:
+                    await require_current()
+                content = await self._get(
+                    _file_path(file_id) + ("/export" if export_mime else ""),
+                    access_token=access_token,
+                    params={"mimeType": export_mime}
+                    if export_mime
+                    else {"alt": "media", "supportsAllDrives": "true"},
+                    limit=CONTENT_LIMIT,
+                )
+                # Permission and version recheck is mandatory even for empty bytes.
+                if require_current:
+                    await require_current()
+                after = await self.get_metadata(file_id=file_id, access_token=access_token)
+                if require_current:
+                    await require_current()
+                if before != after:
+                    raise DriveReadError("source_changed", retryable=True)
+                return DriveContent(before, export_mime or before.mime_type, content)
+        except TimeoutError:
+            raise DriveReadError("provider_unavailable", retryable=True) from None

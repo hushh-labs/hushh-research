@@ -8,6 +8,14 @@ the immersive Your Map route suppresses persistent app chrome.
 
 `/one/location` has one compact default hub: **Now**, **People**, and **Links**.
 
+## Header and typography contract
+
+The maintained [Location contract](./ui-contracts/location.md#typography-responsive-geometry-and-layering) owns the complete mounted typography/CTA ledger and evidence. Location reuses Connect's shared `[Back] Location [Profile]` composition, with a17/22/600 current title and one accessible root heading. Its live switch/status retains its existing handler and compact row.
+
+The entire mounted journey uses the matching Connect semantic hierarchy: full flow titles28/36/600, ordinary rows14/21/550, descriptions12/18/400 and distinct utility, compact, full-primary, Task and Circle roles. Ordinary semantic inputs use16px through620px and14px above; Task and explicit Circle contexts retain their own verified breakpoint/cascade. Actual portal hosts carry the presentation scope. No blanket descendant reset or workspace geometry is imported.
+
+See [role comparison](./ui-contracts/location-typography-roles.md) and [verification report](./ui-contracts/location-verification.md) for source/effective values, screenshots, the request-duration wrapping correction and acceptance gaps. The Location-only toast cascade fix is checked against a Connect scope-exit negative control. Provider/auth/service information in screenshots is synthetic; no live sharing or emergency delivery is asserted.
+
 ## Now
 
 Now is intentionally bounded on a normal phone viewport. It contains only:
@@ -71,6 +79,16 @@ Approximate native permission and fixes worse than 100 m fail before
 publication with an app-settings recovery path. Active rosters refresh on a
 15-second, visible-app cadence without extending the server expiry.
 
+The nearby place chooser exposes search and category filters immediately, with
+the full result list in a bounded scroll area. Category changes filter the
+existing nearby results. The accuracy information box is omitted; permission,
+capture, and check-in rejection recovery still use their existing controls.
+
+The final sharing review keeps its duration choices in two equal columns,
+filling the card's inner width on phones and forming a compact 280px group
+aligned with the label and note on desktop. Temporary-link duration controls
+and the Create link button follow the same responsive width and left alignment.
+
 ## Saved location onboarding
 
 Every Location onboarding run offers the saved-place flow after foreground
@@ -92,9 +110,16 @@ existing 25-metre cross-category duplicate guard remains authoritative.
 
 ## Your Map
 
-`/one/location/map` is an immersive private map. It suppresses the app top
-shell, Agent Bar, bottom navigation, and ambient chrome. A person must accept
-the Google Maps renderer disclosure before it initializes.
+`/one/location/map` opens the immersive map directly and suppresses the app top
+shell, Agent Bar, bottom navigation, and ambient chrome. The renderer can start
+with a neutral world view; private coordinates remain gated by the server's
+current Google Maps acceptance. Returning owners with current acceptance see
+their map directly. Missing, outdated, or revoked acceptance exposes a compact
+inline **Use Google Maps** action with the disclosure that Google Maps displays
+their location. Only that explicit action records acceptance; opening, reopening,
+or retrying a read never renews it. The former blank interstitial, **Continue**,
+and **Private until you share** line are removed. Check-in keeps its own loading
+and place-selection flow without waiting indefinitely for renderer acceptance.
 
 - Ghost Mode is the default. It hides the owner from Your Map without changing
   any direct private share or its background publisher.

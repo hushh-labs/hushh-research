@@ -49,3 +49,15 @@ def test_auto_save_receipt_requires_enabled_owner_policy() -> None:
 def test_auto_save_receipt_rejects_active_recipients() -> None:
     with pytest.raises(ValidationError, match="auto_save_with_active_recipients_not_allowed"):
         PkmMutationPlanV2.model_validate(_auto_save_plan(active_recipient_count=1))
+
+
+def test_product_default_auto_save_receipt_is_not_recorded_as_owner_choice() -> None:
+    payload = _auto_save_plan()
+    receipt = payload["confirmation_receipt"]
+    receipt["authorization_mode"] = "product_default_auto_save_policy"
+    receipt.pop("auto_save_policy_enabled_at")
+    receipt["product_default_effective_at"] = datetime.now(UTC)
+
+    plan = PkmMutationPlanV2.model_validate(payload)
+
+    assert plan.confirmation_receipt.authorization_mode == "product_default_auto_save_policy"
