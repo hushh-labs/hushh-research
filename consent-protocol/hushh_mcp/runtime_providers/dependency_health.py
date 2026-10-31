@@ -124,7 +124,21 @@ def classify_provider_error(error: BaseException) -> str:
     ``RuntimeError`` guards on the way out -- and the outer type must not make
     an outage look like a candidate defect.
     """
+    from openai import APIConnectionError, APITimeoutError
+
+    from .azure_call_lifecycle import AzureRateLimitedError, AzureTokenServiceUnavailableError
+
     for current in _iter_causes(error):
+        if isinstance(
+            current,
+            (
+                AzureRateLimitedError,
+                AzureTokenServiceUnavailableError,
+                APIConnectionError,
+                APITimeoutError,
+            ),
+        ):
+            return PROVIDER_UNAVAILABLE
         if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
             cause = current.__cause__ or current.__context__
             # Some callers use TimeoutError as a sanitized presentation wrapper

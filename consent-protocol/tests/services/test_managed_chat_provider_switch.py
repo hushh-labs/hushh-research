@@ -1,7 +1,7 @@
 """Real chat provider switching preserves history, authority and client ownership."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from google.adk.agents import LlmAgent
@@ -14,6 +14,7 @@ from google.genai import types
 
 from hushh_mcp.runtime_providers import lifecycle
 from hushh_mcp.runtime_providers import managed_text as managed
+from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from hushh_mcp.runtime_providers.azure_response_history import reasoning_part
 from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
@@ -224,3 +225,248 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
         cleanup.assert_awaited_once_with(native)
     else:
         cleanup.assert_not_awaited()
+
+
+@pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
+    monkeypatch, status, scope
+):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    calls = []
+    error = RuntimeError("synthetic outage")
+    error.status_code = status
+
+    async def azure(self, req, stream=False):
+        calls.append(("azure", req.model))
+        raise error
+        yield
+
+    async def gemini(req, stream=False):
+        calls.append(("gemini", req.model))
+        # Real Gemini non-stream responses do not set turn_complete.
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Arbitrary topic result")])
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    guard = AsyncMock()
+    adapter, _, _, _ = model([])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **adapter.model_dump(exclude={"api_key", "client"}),
+        token_supplier=lambda: "synthetic",
+        require_current=guard,
+        fallback_model=SimpleNamespace(model="gemini-fallback", generate_content_async=gemini),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope=scope,
+    )
+    req = request(
+        types.Content(role="user", parts=[types.Part(text="Arbitrary topic")]),
+        types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(id="adk-existing", name="lookup", args={})
+                )
+            ],
+        ),
+        types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="adk-existing", name="lookup", response={"done": True}
+                    )
+                )
+            ],
+        ),
+    )
+    before = req.model_dump()
+    result = [item async for item in wrapped.generate_content_async(req)]
+    assert result[-1].content.parts[0].text == "Arbitrary topic result"
+    assert calls == [("azure", "synthetic-deployment"), ("gemini", "gemini-fallback")]
+    assert req.model_dump() == before
+    assert guard.await_count == 3  # Each provider plus completion; no tool rerun.
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        PermissionError("revoked"),
+        ValueError("invalid schema"),
+        __import__(
+            "hushh_mcp.runtime_providers.azure_adk", fromlist=["AzureAuthenticationError"]
+        ).AzureAuthenticationError("auth"),
+        SimpleNamespace(status_code=401),
+        SimpleNamespace(status_code=403),
+        SimpleNamespace(status_code=400),
+    ],
+)
+@pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])
+async def test_managed_uat_denial_auth_configuration_never_falls_back(monkeypatch, failure, scope):
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    if not isinstance(failure, Exception):
+        error = RuntimeError("synthetic provider refusal")
+        error.status_code = failure.status_code
+    else:
+        error = failure
+
+    async def azure(self, req, stream=False):
+        raise error
+        yield
+
+    fallback = Mock()
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="synthetic",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope=scope,
+    )
+    with pytest.raises(type(error)):
+        _ = [item async for item in wrapped.generate_content_async(request())]
+    fallback.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])
+async def test_managed_primary_success_partial_output_and_authority_fence(monkeypatch, scope):
+    from unittest.mock import AsyncMock, Mock
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    fallback = Mock()
+    guard = AsyncMock()
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="synthetic",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=guard,
+        fallback_model=SimpleNamespace(model="gemini", generate_content_async=fallback),
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope=scope,
+    )
+
+    async def azure(self, req, stream=False):
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="valid")]),
+            turn_complete=True,
+        )
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    assert len([item async for item in wrapped.generate_content_async(request())]) == 1
+    fallback.assert_not_called()
+    closed = []
+
+    async def partial(self, req, stream=False):
+        try:
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text="partial")]),
+                partial=True,
+            )
+            raise TimeoutError
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", partial)
+    with pytest.raises(TimeoutError):
+        _ = [item async for item in wrapped.generate_content_async(request(), stream=True)]
+    assert closed == [True]
+    fallback.assert_not_called()
+    guard.side_effect = PermissionError("revoked source")
+    with pytest.raises(managed.ManagedTextAuthorityError):
+        _ = [item async for item in wrapped.generate_content_async(request())]
+    fallback.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [429, 503, "sse_quota"])
+@pytest.mark.parametrize("observed", [False, True])
+async def test_one_chat_falls_back_once_only_before_any_response(
+    monkeypatch, caplog, status, observed
+):
+    import logging
+
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.runtime_providers import managed_text as managed
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureRateLimitedError
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    error = AzureRateLimitedError() if status == "sse_quota" else RuntimeError("synthetic outage")
+    if isinstance(status, int):
+        error.status_code = status
+    calls, receipts = [], []
+
+    async def azure(self, req, stream=False):
+        calls.append("azure")
+        if observed:
+            yield LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(id="only-call", name="lookup", args={})
+                        )
+                    ],
+                )
+            )
+        raise error
+
+    async def vertex(req, stream=False):
+        calls.append("vertex")
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="Complete")]))
+
+    alternate = Mock(
+        return_value=SimpleNamespace(model="gemini-alternate", generate_content_async=vertex)
+    )
+    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
+    # Injected model ownership stays with the test; normal factories close theirs.
+    wrapped = managed.ManagedPrimaryTextModel(
+        model="synthetic",
+        endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        token_supplier=lambda: "synthetic",
+        require_current=AsyncMock(),
+        fallback_model=alternate.return_value,
+        completion_observer=receipts.append,
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+    )
+    caplog.set_level(logging.WARNING, logger=managed.__name__)
+    if observed:
+        with pytest.raises(type(error)):
+            _ = [item async for item in wrapped.generate_content_async(request())]
+        assert calls == ["azure"] and receipts == []
+    else:
+        result = [item async for item in wrapped.generate_content_async(request())]
+        assert result[-1].content.parts[0].text == "Complete"
+        assert calls == ["azure", "vertex"]
+        assert receipts == [
+            {
+                "provider": "vertex",
+                "model": "gemini-alternate",
+                "location": "global",
+                "fallback_reason": "quota" if status in {429, "sse_quota"} else "transient_service",
+                "attempt": "2",
+            }
+        ]
+        assert "drift=provider_fallback" in caplog.text

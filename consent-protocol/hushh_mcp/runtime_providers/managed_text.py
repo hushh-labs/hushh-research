@@ -21,6 +21,8 @@ from hushh_mcp.managed_ai_config import (
     profile_hash,
 )
 from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
+from hushh_mcp.runtime_providers.managed_text_attempt import fallback_reason as fallback_reason
+from hushh_mcp.runtime_providers.managed_text_attempt import record_text_fallback
 
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
@@ -60,28 +62,6 @@ def managed_text_policy() -> dict | None:
 
 class ManagedTextAuthorityError(PermissionError):
     """Current invocation/information authority failed; never provider failover."""
-
-
-def fallback_reason(error: Exception) -> str | None:
-    """Closed retry taxonomy at the model transport boundary, never cause guessing."""
-    from openai import APIConnectionError, APITimeoutError
-
-    from hushh_mcp.runtime_providers.azure_adk import AzureAuthenticationError
-
-    if isinstance(error, (PermissionError, ValueError, AzureAuthenticationError)):
-        return None
-    if isinstance(error, (TimeoutError, APITimeoutError)):
-        return "timeout"
-    if isinstance(error, APIConnectionError):
-        return "connection"
-    from hushh_mcp.runtime_providers.vertex_failover import _status_code
-
-    status = _status_code(error)
-    if status == 429:
-        return "quota"
-    if status in {500, 502, 503, 504}:
-        return "transient_service"
-    return None
 
 
 class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
@@ -189,12 +169,11 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             if self.primary_provider == "azure_openai"
             else ("vertex", "azure_openai")
         )
-        # A config change selects the next invocation's processor. Never replay
-        # a chat call or its tools on another provider after a transport failure.
-        if self.processing_scope == "one_text_chat":
-            providers = (self.primary_provider,)
-        elif not self.allow_fallback:
+        # Only an unobserved model call may move to the declared alternate.
+        # Responses include function calls, so tools and partial answers cannot replay.
+        if not self.allow_fallback:
             providers = providers[:1]
+        fallback = None
         for index, provider in enumerate(providers):
             from hushh_mcp.runtime_providers.managed_text_attempt import prepare_text_attempt
 
@@ -231,7 +210,16 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     raise ValueError("Managed model call did not complete")
                 if self.completion_observer is not None:
                     self.completion_observer(
-                        {"provider": provider, "model": model_name, "location": location}
+                        {
+                            "provider": provider,
+                            "model": model_name,
+                            "location": location,
+                            **(
+                                {"fallback_reason": fallback, "attempt": str(index + 1)}
+                                if fallback is not None
+                                else {}
+                            ),
+                        }
                     )
                 logger.info(
                     "managed_text.outcome scope=%s provider=%s status=completed",
@@ -249,14 +237,10 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     type(error).__name__,
                     observed,
                 )
-                if (
-                    observed
-                    or reason is None
-                    or index
-                    or not self.allow_fallback
-                    or self.processing_scope == "one_text_chat"
-                ):
+                if observed or reason is None or index or not self.allow_fallback:
                     raise
+                fallback = reason
+                record_text_fallback(self.processing_scope, provider, providers[1], reason)
             finally:
                 if owned_vertex is not None:
                     from hushh_mcp.runtime_providers.lifecycle import close_owned_adk_model
@@ -311,8 +295,8 @@ def build_managed_text_model(
         if chat and selected == "vertex"
         else _credential_supplier(config["tenant_id"], config["client_id"]),
         require_current=require_current,
-        fallback_factory=None if azure_chat else fallback,
-        allow_fallback=not chat,
+        fallback_factory=fallback,
+        allow_fallback=not chat or azure_chat,
         primary_provider=cast(ManagedProvider, selected),
         completion_observer=completion_observer,
         policy_generation=policy["generation"],

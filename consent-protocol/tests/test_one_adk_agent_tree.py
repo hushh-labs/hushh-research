@@ -6472,3 +6472,11 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
     assert "One's receipt functions, never this tool" in _tree.ask_email_agent.__doc__
+
+
+def test_package_exports_keep_the_existing_agent_entrypoints():
+    from hushh_mcp.one_adk import build_one_root_agent as exported_root
+    from hushh_mcp.one_adk import get_one_runner as exported_runner
+
+    assert exported_root is build_one_root_agent
+    assert exported_runner is get_one_runner

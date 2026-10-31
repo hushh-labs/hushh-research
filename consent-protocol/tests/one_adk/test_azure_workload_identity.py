@@ -169,3 +169,66 @@ def test_github_token_provider_uses_the_same_bounded_credential(monkeypatch):
     }
     with pytest.raises(ValueError, match="required"):
         auth.github_actions_token_provider(tenant_id="tenant", client_id=" ")
+
+
+def test_auth_leaf_does_not_bootstrap_one_agent_tree():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import hushh_mcp.one_adk.azure_workload_identity; "
+            "assert 'hushh_mcp.one_adk.agent_tree' not in sys.modules; "
+            "assert 'hushh_mcp.services.action_gateway' not in sys.modules",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("status", [429, 503, 401, 403, 404])
+async def test_token_service_transport_outage_is_distinct_from_identity_denial(monkeypatch, status):
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureAuthenticationError,
+        AzureTokenServiceUnavailableError,
+        acquire_token,
+    )
+    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
+    from hushh_mcp.runtime_providers.managed_text import fallback_reason
+
+    _mock_metadata(monkeypatch, lambda request: httpx.Response(status, text="private error"))
+    expected = (
+        AzureTokenServiceUnavailableError if status in {429, 503} else AzureAuthenticationError
+    )
+    with pytest.raises(expected) as failure:
+        await acquire_token(lambda: auth._google_identity_assertion(timeout_seconds=1), {})
+    assert fallback_reason(failure.value) == ("token_service" if status in {429, 503} else None)
+    assert (classify_provider_error(failure.value) == "provider_unavailable") is (
+        status in {429, 503}
+    )
+    assert "private error" not in str(failure.value)
+
+
+async def test_identity_denial_outranks_nested_token_transport_failure():
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureAuthenticationError,
+        acquire_token,
+    )
+    from hushh_mcp.runtime_providers.managed_text import fallback_reason
+
+    response = httpx.Response(403, request=httpx.Request("GET", "https://identity.example"))
+    failure = httpx.HTTPStatusError("private denial", request=response.request, response=response)
+    failure.__cause__ = TimeoutError()
+
+    def token():
+        raise failure
+
+    with pytest.raises(AzureAuthenticationError) as observed:
+        await acquire_token(token, {})
+    assert fallback_reason(observed.value) is None

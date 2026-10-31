@@ -108,9 +108,14 @@ Each rule names the check that enforces it today, or its gap.
      with bounded, capped backoff instead of a fixed 30-second window
      (`tests/test_uat_readiness_verdict_collector.py`), so slow log indexing no
      longer fails a passing exam.
-   - Gap: the verdict still travels through log search; the exam starts about
-     11 minutes into UAT, runs sequentially, and the aggregate waits for the
-     Vertex step. Ending the build from a provider step cancels sibling steps
+   - Current implementation: Azure starts after the candidate image and runtime
+     IAM are available, independently of backend deployment; Azure and Vertex
+     steps run concurrently. The aggregate joins both candidate-bound proofs.
+     A complete Vertex bundle can qualify a classified Azure outage as
+     `degraded_fallback`; missing evidence, application/configuration failures
+     and PWM trust failures remain blocking.
+   - Gap: the verdict still travels through log search, and individual stages
+     inside each provider exam remain sequential. Ending the build from a provider step cancels sibling steps
      before their own job cleanup runs (UAT build a7482d0a left a job that
      blocked the next release), so fail-fast needs cleanup outside the build.
 8. **Prove the check catches what it claims.** A new or changed check ships with a

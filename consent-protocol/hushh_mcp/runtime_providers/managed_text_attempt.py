@@ -50,3 +50,50 @@ async def prepare_text_attempt(owner, request, provider, index, current, stream)
 
             await close_owned_adk_model(vertex)
         raise
+
+
+def fallback_reason(error: Exception) -> str | None:
+    """Closed retry taxonomy at the model transport boundary, never cause guessing."""
+    from openai import APIConnectionError, APITimeoutError
+
+    from hushh_mcp.runtime_providers.azure_adk import AzureAuthenticationError
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureRateLimitedError,
+        AzureTokenServiceUnavailableError,
+    )
+
+    if isinstance(error, AzureTokenServiceUnavailableError):
+        return "token_service"
+    if isinstance(error, AzureRateLimitedError):
+        return "quota"
+    if isinstance(error, (PermissionError, ValueError, AzureAuthenticationError)):
+        return None
+    if isinstance(error, (TimeoutError, APITimeoutError)):
+        return "timeout"
+    if isinstance(error, APIConnectionError):
+        return "connection"
+    from hushh_mcp.runtime_providers.vertex_failover import _status_code
+
+    status = _status_code(error)
+    if status == 429:
+        return "quota"
+    if status in {500, 502, 503, 504}:
+        return "transient_service"
+    return None
+
+
+def record_text_fallback(scope, primary, alternate, reason):
+    import logging
+
+    from hushh_mcp.one_adk.queued_input import current_run
+
+    active = current_run()
+    logging.getLogger("hushh_mcp.runtime_providers.managed_text").warning(
+        "managed_text.fallback scope=%s primary=%s alternate=%s reason=%s "
+        "attempt=2 run=%s drift=provider_fallback",
+        scope,
+        primary,
+        alternate,
+        reason,
+        active.run_id[:8] if active is not None else "unbound",
+    )
