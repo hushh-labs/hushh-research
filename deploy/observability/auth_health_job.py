@@ -24,6 +24,7 @@ from auth_health_read_diagnostics import (  # noqa: E402
     HealthCommandFailure,
     HealthCommandStage,
     read_diagnostic,
+    summarize_health_outcome,
 )
 from process_group import BoundedReadError, bounded_stdout  # noqa: E402
 
@@ -452,11 +453,19 @@ def main() -> int:
                     "--project", project, "--emit-health-log"]
             if runtime == "true":
                 args.append("--check-phone-runtime")
+            args.append("--health-result-json")
             result = command(
                 args, stage=HealthCommandStage.PROTECTED_LIST_CHECK, timeout=450
             )
-            print(result.decode("utf-8"))  # Existing checker emits counts/status only.
-            return 0
+            try:
+                exit_code, message = summarize_health_outcome(result)
+            except ValueError:
+                raise HealthCommandFailure(
+                    HealthCommandStage.PROTECTED_LIST_CHECK,
+                    BoundedFailureReason.UNCLASSIFIED,
+                ) from None
+            print(message)
+            return exit_code
     except HealthCommandFailure as exc:
         # These fields are fixed enums; never echo provider stderr or command input.
         message = (
